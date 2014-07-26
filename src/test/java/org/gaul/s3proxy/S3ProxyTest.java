@@ -76,6 +76,10 @@ public final class S3ProxyTest {
                 S3Proxy.PROPERTY_S3PROXY_CREDENTIAL);
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
                 S3Proxy.PROPERTY_S3PROXY_ENDPOINT));
+        String keyStorePath = s3ProxyProperties.getProperty(
+                S3Proxy.PROPERTY_S3PROXY_KEYSTORE_PATH);
+        String keyStorePassword = s3ProxyProperties.getProperty(
+                S3Proxy.PROPERTY_S3PROXY_KEYSTORE_PASSWORD);
 
         Properties properties = new Properties();
         properties.setProperty(Constants.PROPERTY_ENDPOINT,
@@ -92,13 +96,19 @@ public final class S3ProxyTest {
         BlobStore blobStore = context.getBlobStore();
         blobStore.createContainerInLocation(null, containerName);
 
+        Properties s3Properties = new Properties();
+        s3Properties.setProperty(Constants.PROPERTY_TRUST_ALL_CERTS, "true");
         s3Context = ContextBuilder
                 .newBuilder("s3")
                 .credentials(s3Identity, s3Credential)
                 .endpoint(s3Endpoint.toString())
+                .overrides(s3Properties)
                 .build(BlobStoreContext.class);
         s3BlobStore = s3Context.getBlobStore();
-        s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential);
+
+        s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential,
+                Resources.getResource(keyStorePath).toString(),
+                keyStorePassword);
         s3Proxy.start();
     }
 

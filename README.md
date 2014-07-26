@@ -11,6 +11,7 @@ Features
 * put, get, delete, and list objects
 * store and retrieve object metadata, including user metadata
 * authorization via AWS signature v2 (including pre-signed URLs) or anonymous access
+* listen on HTTP or HTTPS
 
 Supported object stores:
 
@@ -70,6 +71,16 @@ jclouds.credential=credential
 jclouds.filesystem.basedir=/tmp
 ```
 
+S3Proxy can listen on HTTPS when setting the endpoint to HTTPS and
+[configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool).
+An example:
+
+```
+s3proxy.endpoint=https://127.0.0.1:8080
+s3proxy.keystore-path=keystore.jks
+s3proxy.keystore-password=password
+```
+
 Users can also set a variety of Java and
 [jclouds properties](https://github.com/jclouds/jclouds/blob/master/core/src/main/java/org/jclouds/Constants.java).
 
@@ -83,7 +94,6 @@ S3Proxy does not support:
 * bucket and object ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-660))
 * object metadata with filesystem provider ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-658))
 * object versioning
-* listening on HTTPS
 
 References
 ----------

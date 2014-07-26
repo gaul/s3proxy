@@ -23,10 +23,12 @@ import java.net.URI;
 import java.util.Properties;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -44,6 +46,10 @@ public final class S3Proxy {
             "s3proxy.authorization";
     static final String PROPERTY_S3PROXY_IDENTITY = "s3proxy.identity";
     static final String PROPERTY_S3PROXY_CREDENTIAL = "s3proxy.credential";
+    static final String PROPERTY_S3PROXY_KEYSTORE_PATH =
+            "s3proxy.keystore-path";
+    static final String PROPERTY_S3PROXY_KEYSTORE_PASSWORD =
+            "s3proxy.keystore-password";
 
     private final Server server;
 
@@ -54,7 +60,7 @@ public final class S3Proxy {
     }
 
     public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
-            String credential) {
+            String credential, String keyStorePath, String keyStorePassword) {
         Preconditions.checkNotNull(blobStore);
         Preconditions.checkNotNull(endpoint);
         // TODO: allow service paths?
@@ -64,8 +70,16 @@ public final class S3Proxy {
         server = new Server();
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
-        ServerConnector connector = new ServerConnector(server,
-                httpConnectionFactory);
+        ServerConnector connector;
+        if (endpoint.getScheme().equals("https")) {
+            SslContextFactory sslContextFactory = new SslContextFactory();
+            sslContextFactory.setKeyStorePath(keyStorePath);
+            sslContextFactory.setKeyStorePassword(keyStorePassword);
+            connector = new ServerConnector(server, sslContextFactory,
+                    httpConnectionFactory);
+        } else {
+            connector = new ServerConnector(server, httpConnectionFactory);
+        }
         connector.setHost(endpoint.getHost());
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
@@ -129,6 +143,20 @@ public final class S3Proxy {
             System.exit(1);
         }
 
+        String keyStorePath = properties.getProperty(
+                PROPERTY_S3PROXY_KEYSTORE_PATH);
+        String keyStorePassword = properties.getProperty(
+                PROPERTY_S3PROXY_KEYSTORE_PASSWORD);
+        if (s3ProxyEndpointString.startsWith("https")) {
+            if (Strings.isNullOrEmpty(keyStorePath) ||
+                    Strings.isNullOrEmpty(keyStorePassword)) {
+                System.err.println("Both " + PROPERTY_S3PROXY_KEYSTORE_PATH +
+                        " and " + PROPERTY_S3PROXY_KEYSTORE_PASSWORD +
+                        " must be set with an HTTP endpoint");
+                System.exit(1);
+            }
+        }
+
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
@@ -139,7 +167,8 @@ public final class S3Proxy {
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         URI s3ProxyEndpoint = new URI(s3ProxyEndpointString);
         S3Proxy s3Proxy = new S3Proxy(context.getBlobStore(), s3ProxyEndpoint,
-                localIdentity, localCredential);
+                localIdentity, localCredential, keyStorePath,
+                keyStorePassword);
         s3Proxy.start();
     }
 }
