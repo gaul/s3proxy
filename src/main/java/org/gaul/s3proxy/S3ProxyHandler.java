@@ -151,12 +151,12 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             }
         case "PUT":
-            if (uri.lastIndexOf("/") == 0) {
-                handleContainerCreate(response, uri.substring(1));
+            String[] path = uri.split("/", 3);
+            if (path.length <= 2 || path[2].isEmpty()) {
+                handleContainerCreate(response, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else {
-                String[] path = uri.split("/", 3);
                 errorCode = handlePutBlob(request, response, path[1], path[2]);
                 if (errorCode != HttpServletResponse.SC_OK) {
                     response.sendError(errorCode);
