@@ -459,13 +459,16 @@ final class S3ProxyHandler extends AbstractHandler {
             String blobName) throws IOException {
         // Flag headers present since HttpServletResponse.getHeader returns
         // null for empty headers.
+        boolean hasContentLength = false;
         boolean hasContentMD5 = false;
         ImmutableMap.Builder<String, String> userMetadata =
                 ImmutableMap.builder();
         Enumeration<String> enumeration = request.getHeaderNames();
         while (enumeration.hasMoreElements()) {
             String headerName = enumeration.nextElement();
-            if (headerName.equals(HttpHeaders.CONTENT_MD5)) {
+            if (headerName.equals(HttpHeaders.CONTENT_LENGTH)) {
+                hasContentLength = true;
+            } else if (headerName.equals(HttpHeaders.CONTENT_MD5)) {
                 hasContentMD5 = true;
             } else if (headerName.toLowerCase().startsWith(
                     USER_METADATA_PREFIX)) {
@@ -496,6 +499,33 @@ final class S3ProxyHandler extends AbstractHandler {
                         "Bad Request", Optional.<String>absent());
                 return;
             }
+        }
+
+        if (!hasContentLength) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_LENGTH_REQUIRED,
+                    "MissingContentLength", "Length Required",
+                    Optional.<String>absent());
+            return;
+        }
+        long contentLength = 0;
+        boolean validContentLength = true;
+        String contentLengthString = request.getHeader(
+                HttpHeaders.CONTENT_LENGTH);
+        if (contentLengthString == null) {
+            validContentLength = false;
+        } else {
+            try {
+                contentLength = Long.parseLong(contentLengthString);
+            } catch (NumberFormatException nfe) {
+                validContentLength = false;
+            }
+        }
+        if (!validContentLength || contentLength < 0) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
+                    "Invalid Argument", Optional.<String>absent());
+            return;
         }
 
         try (InputStream is = request.getInputStream()) {
