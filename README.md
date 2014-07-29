@@ -76,8 +76,8 @@ S3Proxy does not support:
 References
 ----------
 [jclouds](http://jclouds.apache.org/) provides object store support for
-S3Proxy.  [s3fs-fuse](https://github.com/s3fs-fuse/s3fs-fuse) provides
-file system access to S3 and S3Proxy allows use of other providers.
+S3Proxy.  Ceph [s3-tests](https://github.com/ceph/s3-tests) help maintain
+and improve compatibility with the S3 API.
 
 License
 -------
