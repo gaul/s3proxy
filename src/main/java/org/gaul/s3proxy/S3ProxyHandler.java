@@ -248,6 +248,21 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleContainerCreate(HttpServletResponse response,
             String containerName) {
+        if (containerName.isEmpty()) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+                    "MethodNotAllowed", "Method Not Allowed",
+                    Optional.<String>absent());
+            return;
+        }
+        if (containerName.length() < 3 || containerName.length() > 255) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_BAD_REQUEST,
+                    "InvalidBucketName", "Bad Request",
+                    Optional.<String>absent());
+            return;
+        }
+
         try {
             // TODO: how to support locations?
             Location location = null;
