@@ -572,6 +572,11 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 String eTag = blobStore.putBlob(containerName, builder.build());
                 response.addHeader(HttpHeaders.ETAG, "\"" + eTag + "\"");
+            } catch (ContainerNotFoundException cnfe) {
+                sendSimpleErrorResponse(response,
+                        HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
+                        "Not Found", Optional.<String>absent());
+                return;
             } catch (HttpResponseException hre) {
                 int status = hre.getResponse().getStatusCode();
                 if (status == HttpServletResponse.SC_BAD_REQUEST) {
