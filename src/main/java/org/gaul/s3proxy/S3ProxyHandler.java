@@ -508,7 +508,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
             try {
                 String eTag = blobStore.putBlob(containerName, builder.build());
-                response.addHeader(HttpHeaders.ETAG, eTag);
+                response.addHeader(HttpHeaders.ETAG, "\"" + eTag + "\"");
             } catch (HttpResponseException hre) {
                 // TODO: emit hre.getContent() ?
                 return hre.getResponse().getStatusCode();
