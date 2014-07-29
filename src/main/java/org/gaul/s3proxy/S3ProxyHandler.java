@@ -80,6 +80,7 @@ final class S3ProxyHandler extends AbstractHandler {
         int errorCode;
         String method = request.getMethod();
         String uri = request.getRequestURI();
+        String[] path = uri.split("/", 3);
         logger.debug("request: {}", request);
 
         switch (method) {
@@ -92,7 +93,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
-                String[] path = uri.split("/", 3);
                 handleBlobRemove(response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
@@ -112,10 +112,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else if (uri.lastIndexOf("/") == 0 &&
                     "0".equals(request.getParameter("max-keys"))) {
-                errorCode = handleContainerExists(uri.substring(1));
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+                handleContainerExists(response, uri.substring(1));
                 baseRequest.setHandled(true);
                 return;
             } else if (uri.lastIndexOf("/") == 0) {
@@ -128,27 +125,21 @@ final class S3ProxyHandler extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
-                String[] path = uri.split("/", 3);
                 handleGetBlob(request, response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
         case "HEAD":
-            if (uri.lastIndexOf("/") == 0) {
-                errorCode = handleContainerExists(uri.substring(1));
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+            if (path.length <= 2 || path[2].isEmpty()) {
+                handleContainerExists(response, uri.substring(1));
                 baseRequest.setHandled(true);
                 return;
             } else {
-                String[] path = uri.split("/", 3);
                 handleBlobMetadata(response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
         case "PUT":
-            String[] path = uri.split("/", 3);
             if (path.length <= 2 || path[2].isEmpty()) {
                 handleContainerCreate(response, path[1]);
                 baseRequest.setHandled(true);
@@ -229,15 +220,13 @@ final class S3ProxyHandler extends AbstractHandler {
         return HttpServletResponse.SC_OK;
     }
 
-    private int handleContainerExists(String containerName) {
-        try {
-            return blobStore.containerExists(containerName)
-                    ? HttpServletResponse.SC_OK
-                    : HttpServletResponse.SC_NOT_FOUND;
-        } catch (RuntimeException re) {
-            logger.error("Error determining container existence: {}",
-                    re.getMessage());
-            return HttpServletResponse.SC_FORBIDDEN;
+    private void handleContainerExists(HttpServletResponse response,
+            String containerName) {
+        if (!blobStore.containerExists(containerName)) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
+                    "Not Found", Optional.<String>absent());
+            return;
         }
     }
 
