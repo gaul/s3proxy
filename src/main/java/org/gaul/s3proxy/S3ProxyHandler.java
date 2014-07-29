@@ -129,10 +129,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 String[] path = uri.split("/", 3);
-                errorCode = handleGetBlob(request, response, path[1], path[2]);
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+                handleGetBlob(request, response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -443,9 +440,9 @@ final class S3ProxyHandler extends AbstractHandler {
         addMetadataToResponse(response, metadata);
     }
 
-    private int handleGetBlob(HttpServletRequest request,
+    private void handleGetBlob(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName) {
+            String blobName) throws IOException {
         GetOptions options = new GetOptions();
         String range = request.getHeader(HttpHeaders.RANGE);
         if (range != null && range.startsWith("bytes=")
@@ -459,7 +456,10 @@ final class S3ProxyHandler extends AbstractHandler {
 
         Blob blob = blobStore.getBlob(containerName, blobName, options);
         if (blob == null) {
-            return HttpServletResponse.SC_NOT_FOUND;
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_NOT_FOUND, "NoSuchKey",
+                    "Not Found", Optional.<String>absent());
+            return;
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
@@ -470,10 +470,9 @@ final class S3ProxyHandler extends AbstractHandler {
             os.flush();
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}", ioe.getMessage());
-            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return;
         }
-
-        return HttpServletResponse.SC_OK;
     }
 
     private void handlePutBlob(HttpServletRequest request,
