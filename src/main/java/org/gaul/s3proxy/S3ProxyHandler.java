@@ -159,10 +159,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
-                errorCode = handlePutBlob(request, response, path[1], path[2]);
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+                handlePutBlob(request, response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -457,24 +454,50 @@ final class S3ProxyHandler extends AbstractHandler {
         return HttpServletResponse.SC_OK;
     }
 
-    private int handlePutBlob(HttpServletRequest request,
+    private void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, String containerName,
             String blobName) throws IOException {
+        // Flag headers present since HttpServletResponse.getHeader returns
+        // null for empty headers.
+        boolean hasContentMD5 = false;
         ImmutableMap.Builder<String, String> userMetadata =
                 ImmutableMap.builder();
         Enumeration<String> enumeration = request.getHeaderNames();
         while (enumeration.hasMoreElements()) {
             String headerName = enumeration.nextElement();
-            if (headerName.toLowerCase().startsWith(USER_METADATA_PREFIX)) {
+            if (headerName.equals(HttpHeaders.CONTENT_MD5)) {
+                hasContentMD5 = true;
+            } else if (headerName.toLowerCase().startsWith(
+                    USER_METADATA_PREFIX)) {
                 userMetadata.put(
                         headerName.substring(USER_METADATA_PREFIX.length()),
                         request.getHeader(headerName));
             }
         }
-        String contentMD5String = request.getHeader(HttpHeaders.CONTENT_MD5);
-        HashCode contentMD5 = contentMD5String == null ? null
-                : HashCode.fromBytes(BaseEncoding.base64().decode(
-                        contentMD5String));
+
+        HashCode contentMD5 = null;
+        if (hasContentMD5) {
+            boolean validDigest = true;
+            String contentMD5String = request.getHeader(
+                    HttpHeaders.CONTENT_MD5);
+            if (contentMD5String == null) {
+                validDigest = false;
+            } else {
+                try {
+                    contentMD5 = HashCode.fromBytes(
+                            BaseEncoding.base64().decode(contentMD5String));
+                } catch (IllegalArgumentException iae) {
+                    validDigest = false;
+                }
+            }
+            if (!validDigest) {
+                sendSimpleErrorResponse(response,
+                        HttpServletResponse.SC_BAD_REQUEST, "InvalidDigest",
+                        "Bad Request", Optional.<String>absent());
+                return;
+            }
+        }
+
         try (InputStream is = request.getInputStream()) {
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(blobName)
@@ -499,13 +522,20 @@ final class S3ProxyHandler extends AbstractHandler {
                 String eTag = blobStore.putBlob(containerName, builder.build());
                 response.addHeader(HttpHeaders.ETAG, "\"" + eTag + "\"");
             } catch (HttpResponseException hre) {
-                // TODO: emit hre.getContent() ?
-                return hre.getResponse().getStatusCode();
+                int status = hre.getResponse().getStatusCode();
+                if (status == HttpServletResponse.SC_BAD_REQUEST) {
+                    sendSimpleErrorResponse(response, status, "InvalidDigest",
+                            "Bad Request", Optional.<String>absent());
+                } else {
+                    // TODO: emit hre.getContent() ?
+                    response.sendError(status);
+                }
+                return;
             }
-            return HttpServletResponse.SC_OK;
         } catch (IOException ioe) {
             logger.error("Error reading from client: {}", ioe.getMessage());
-            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return;
         }
     }
 
