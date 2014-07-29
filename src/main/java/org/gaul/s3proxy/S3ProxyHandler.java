@@ -92,10 +92,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 String[] path = uri.split("/", 3);
-                errorCode = handleBlobRemove(response, path[1], path[2]);
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+                handleBlobRemove(response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -421,15 +418,15 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private int handleBlobRemove(HttpServletResponse response,
-            String containerName, String blobName) {
+    private void handleBlobRemove(HttpServletResponse response,
+            String containerName, String blobName) throws IOException {
         try {
             blobStore.removeBlob(containerName, blobName);
-            return HttpServletResponse.SC_OK;
+            response.sendError(HttpServletResponse.SC_NO_CONTENT);
         } catch (RuntimeException re) {
             logger.error("Error removing blob {} {}: {}", containerName,
                     blobName, re.getMessage());
-            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
         }
     }
 
