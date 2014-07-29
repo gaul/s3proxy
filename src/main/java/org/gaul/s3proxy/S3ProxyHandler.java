@@ -309,10 +309,19 @@ final class S3ProxyHandler extends AbstractHandler {
         if (marker != null) {
             options = options.afterMarker(request.getParameter("marker"));
         }
-        String maxKeys = request.getParameter("max-keys");
-        if (maxKeys != null) {
-            options = options.maxResults(Integer.valueOf(maxKeys));
+        int maxKeys = 1000;
+        String maxKeysString = request.getParameter("max-keys");
+        if (maxKeysString != null) {
+            try {
+                maxKeys = Integer.valueOf(maxKeysString);
+            } catch (NumberFormatException nfe) {
+                sendSimpleErrorResponse(response,
+                        HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
+                        "Bad Request", Optional.<String>absent());
+                return;
+            }
         }
+        options = options.maxResults(maxKeys);
 
         PageSet<? extends StorageMetadata> set;
         try {
@@ -337,7 +346,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 writer.write("</Prefix>\r\n");
             }
             writer.write("  <MaxKeys>");
-            writer.write(String.valueOf(set.size()));
+            writer.write(String.valueOf(maxKeys));
             writer.write("</MaxKeys>\r\n");
             if (marker == null) {
                 writer.write("  <Marker/>\r\n");
