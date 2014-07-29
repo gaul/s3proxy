@@ -29,6 +29,7 @@ import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
@@ -64,6 +65,7 @@ final class S3ProxyHandler extends AbstractHandler {
             "75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a";
     private static final String FAKE_OWNER_DISPLAY_NAME =
             "CustomersName@amazon.com";
+    private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
     private final BlobStore blobStore;
 
     S3ProxyHandler(BlobStore blobStore) {
@@ -255,25 +257,12 @@ final class S3ProxyHandler extends AbstractHandler {
             if (blobStore.createContainerInLocation(location, containerName)) {
                 return;
             }
-            try (Writer writer = response.getWriter()) {
-                response.setStatus(HttpServletResponse.SC_CONFLICT);
-                writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
-                        "<Error>\r\n" +
-                        "  <Code>BucketAlreadyOwnedByYou</Code>\r\n" +
-                        "  <Message>Your previous request to create the named bucket succeeded and you already own it.</Message>\r\n" +
-                        "  <BucketName>");
-                writer.write(containerName);
-                writer.write("</BucketName>\r\n" +
-                        // TODO: RequestId
-                        "  <RequestId>4442587FB7D0A2F9</RequestId>\r\n" +
-                        "</Error>\r\n");
-                writer.flush();
-            } catch (IOException ioe) {
-                logger.error("Error writing to client: {}",
-                        ioe.getMessage());
-                response.setStatus(
-                        HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            }
+            sendSimpleErrorResponse(response, HttpServletResponse.SC_CONFLICT,
+                    "BucketAlreadyOwnedByYou",
+                    "Your previous request to create the named bucket" +
+                    " succeeded and you already own it.",
+                    Optional.of("  <BucketName>" + containerName +
+                            "</BucketName>\r\n"));
         } catch (RuntimeException re) {
             logger.error("Error creating container: {}", re.getMessage());
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -546,6 +535,31 @@ final class S3ProxyHandler extends AbstractHandler {
                 metadata.getUserMetadata().entrySet()) {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
                     entry.getValue());
+        }
+    }
+
+    private static void sendSimpleErrorResponse(HttpServletResponse response,
+            int status, String code, String message, Optional<String> extra) {
+        try (Writer writer = response.getWriter()) {
+            response.setStatus(status);
+            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
+                    "<Error>\r\n" +
+                    "  <Code>");
+            writer.write(code);
+            writer.write("</Code>\r\n" +
+                    "  <Message>");
+            writer.write(message);
+            writer.write("</Message>\r\n");
+            if (extra.isPresent()) {
+                writer.write(extra.get());
+            }
+            writer.write("  <RequestId>" + FAKE_REQUEST_ID +
+                    "</RequestId>\r\n" +
+                    "</Error>\r\n");
+            writer.flush();
+        } catch (IOException ioe) {
+            logger.error("Error writing to client: {}",
+                    ioe.getMessage());
         }
     }
 }
