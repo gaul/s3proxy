@@ -31,6 +31,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
@@ -495,7 +496,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     USER_METADATA_PREFIX)) {
                 userMetadata.put(
                         headerName.substring(USER_METADATA_PREFIX.length()),
-                        request.getHeader(headerName));
+                        Strings.nullToEmpty(request.getHeader(headerName)));
             }
         }
 
