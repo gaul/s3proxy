@@ -225,7 +225,7 @@ final class S3ProxyHandler extends AbstractHandler {
         if (!blobStore.containerExists(containerName)) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
-                    "Not Found", Optional.<String>absent());
+                    "Not Found");
             return;
         }
     }
@@ -235,15 +235,13 @@ final class S3ProxyHandler extends AbstractHandler {
         if (containerName.isEmpty()) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_METHOD_NOT_ALLOWED,
-                    "MethodNotAllowed", "Method Not Allowed",
-                    Optional.<String>absent());
+                    "MethodNotAllowed", "Method Not Allowed");
             return;
         }
         if (containerName.length() < 3 || containerName.length() > 255) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_BAD_REQUEST,
-                    "InvalidBucketName", "Bad Request",
-                    Optional.<String>absent());
+                    "InvalidBucketName", "Bad Request");
             return;
         }
 
@@ -301,7 +299,7 @@ final class S3ProxyHandler extends AbstractHandler {
             } catch (NumberFormatException nfe) {
                 sendSimpleErrorResponse(response,
                         HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
-                        "Bad Request", Optional.<String>absent());
+                        "Bad Request");
                 return;
             }
         }
@@ -447,7 +445,7 @@ final class S3ProxyHandler extends AbstractHandler {
         if (blob == null) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_NOT_FOUND, "NoSuchKey",
-                    "Not Found", Optional.<String>absent());
+                    "Not Found");
             return;
         }
 
@@ -506,7 +504,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (!validDigest) {
                 sendSimpleErrorResponse(response,
                         HttpServletResponse.SC_BAD_REQUEST, "InvalidDigest",
-                        "Bad Request", Optional.<String>absent());
+                        "Bad Request");
                 return;
             }
         }
@@ -514,8 +512,7 @@ final class S3ProxyHandler extends AbstractHandler {
         if (!hasContentLength) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_LENGTH_REQUIRED,
-                    "MissingContentLength", "Length Required",
-                    Optional.<String>absent());
+                    "MissingContentLength", "Length Required");
             return;
         }
         long contentLength = 0;
@@ -534,7 +531,7 @@ final class S3ProxyHandler extends AbstractHandler {
         if (!validContentLength || contentLength < 0) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
-                    "Invalid Argument", Optional.<String>absent());
+                    "Invalid Argument");
             return;
         }
 
@@ -564,13 +561,13 @@ final class S3ProxyHandler extends AbstractHandler {
             } catch (ContainerNotFoundException cnfe) {
                 sendSimpleErrorResponse(response,
                         HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
-                        "Not Found", Optional.<String>absent());
+                        "Not Found");
                 return;
             } catch (HttpResponseException hre) {
                 int status = hre.getResponse().getStatusCode();
                 if (status == HttpServletResponse.SC_BAD_REQUEST) {
                     sendSimpleErrorResponse(response, status, "InvalidDigest",
-                            "Bad Request", Optional.<String>absent());
+                            "Bad Request");
                 } else {
                     // TODO: emit hre.getContent() ?
                     response.sendError(status);
@@ -611,6 +608,12 @@ final class S3ProxyHandler extends AbstractHandler {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
                     entry.getValue());
         }
+    }
+
+    private static void sendSimpleErrorResponse(HttpServletResponse response,
+            int status, String code, String message) {
+        sendSimpleErrorResponse(response, status, code, message,
+                Optional.<String>absent());
     }
 
     private static void sendSimpleErrorResponse(HttpServletResponse response,
