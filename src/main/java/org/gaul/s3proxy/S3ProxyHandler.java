@@ -23,6 +23,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
@@ -679,14 +680,18 @@ final class S3ProxyHandler extends AbstractHandler {
         SortedSetMultimap<String, String> canonicalizedHeaders =
                 TreeMultimap.create();
         for (String headerName : Collections.list(request.getHeaderNames())) {
+            Collection<String> headerValues = Collections.list(
+                    request.getHeaders(headerName));
             headerName = headerName.toLowerCase();
             if (!headerName.startsWith("x-amz-")) {
                 continue;
             }
-            for (String headerValue : Collections.list(request.getHeaders(
-                    headerName))) {
-                canonicalizedHeaders.put(headerName, Strings.nullToEmpty(
-                        headerValue));
+            if (headerValues.isEmpty()) {
+                canonicalizedHeaders.put(headerName, "");
+            }
+            for (String headerValue : headerValues) {
+                canonicalizedHeaders.put(headerName,
+                        Strings.nullToEmpty(headerValue));
             }
         }
 
