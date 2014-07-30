@@ -65,7 +65,7 @@ public final class S3ProxyTest {
                 .endpoint(s3Endpoint.toString())
                 .build(BlobStoreContext.class);
         s3BlobStore = s3Context.getBlobStore();
-        s3Proxy = new S3Proxy(blobStore, s3Endpoint);
+        s3Proxy = new S3Proxy(blobStore, s3Endpoint, "identity", "credential");
         s3Proxy.start();
     }
 

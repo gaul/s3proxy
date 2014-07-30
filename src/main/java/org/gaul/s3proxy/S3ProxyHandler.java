@@ -20,19 +20,28 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.SortedSetMultimap;
+import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
@@ -69,8 +78,13 @@ final class S3ProxyHandler extends AbstractHandler {
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
     private final BlobStore blobStore;
 
-    S3ProxyHandler(BlobStore blobStore) {
+    private final String identity;
+    private final String credential;
+
+    S3ProxyHandler(BlobStore blobStore, String identity, String credential) {
         this.blobStore = Preconditions.checkNotNull(blobStore);
+        this.identity = identity;
+        this.credential = credential;
     }
 
     @Override
@@ -82,6 +96,19 @@ final class S3ProxyHandler extends AbstractHandler {
         String uri = request.getRequestURI();
         String[] path = uri.split("/", 3);
         logger.debug("request: {}", request);
+
+        if (identity != null) {
+            String expectedAuthorization = createAuthorizationHeader(request,
+                    identity, credential);
+            if (!expectedAuthorization.equals(request.getHeader(
+                    HttpHeaders.AUTHORIZATION))) {
+                sendSimpleErrorResponse(response,
+                        HttpServletResponse.SC_FORBIDDEN,
+                        "SignatureDoesNotMatch", "Forbidden");
+                baseRequest.setHandled(true);
+                return;
+            }
+        }
 
         switch (method) {
         case "DELETE":
@@ -618,6 +645,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private static void sendSimpleErrorResponse(HttpServletResponse response,
             int status, String code, String message, Optional<String> extra) {
+        logger.debug("{} {} {} {}", status, code, message, extra);
         try (Writer writer = response.getWriter()) {
             response.setStatus(status);
             writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
@@ -639,5 +667,69 @@ final class S3ProxyHandler extends AbstractHandler {
             logger.error("Error writing to client: {}",
                     ioe.getMessage());
         }
+    }
+
+    /**
+     * Create Amazon V2 authorization header.  Reference:
+     * http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html
+     */
+    private static String createAuthorizationHeader(HttpServletRequest request,
+            String identity, String credential) {
+        // sort Amazon headers
+        SortedSetMultimap<String, String> canonicalizedHeaders =
+                TreeMultimap.create();
+        for (String headerName : Collections.list(request.getHeaderNames())) {
+            headerName = headerName.toLowerCase();
+            if (!headerName.startsWith("x-amz-")) {
+                continue;
+            }
+            for (String headerValue : Collections.list(request.getHeaders(
+                    headerName))) {
+                canonicalizedHeaders.put(headerName, Strings.nullToEmpty(
+                        headerValue));
+            }
+        }
+
+        // build string to sign
+        StringBuilder builder = new StringBuilder()
+                .append(request.getMethod()).append('\n');
+        String contentMD5 = request.getHeader(HttpHeaders.CONTENT_MD5);
+        if (contentMD5 != null) {
+            builder.append(contentMD5);
+        }
+        builder.append('\n');
+        String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
+        if (contentType != null) {
+            builder.append(contentType);
+        }
+        builder.append('\n');
+        if (!canonicalizedHeaders.containsKey("x-amz-date")) {
+            builder.append(request.getHeader(HttpHeaders.DATE));
+        }
+        builder.append('\n');
+        for (Map.Entry<String, String> entry : canonicalizedHeaders.entries()) {
+            builder.append(entry.getKey()).append(':')
+                    .append(entry.getValue()).append('\n');
+        }
+        builder.append(request.getRequestURI());
+        if ("".equals(request.getParameter("acl"))) {
+            builder.append("?acl");
+        }
+        String stringToSign = builder.toString();
+        logger.debug("stringToSign: {}", stringToSign);
+
+        // sign string
+        Mac mac;
+        try {
+            mac = Mac.getInstance("HmacSHA1");
+            mac.init(new SecretKeySpec(credential.getBytes(
+                    StandardCharsets.UTF_8), "HmacSHA1"));
+        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
+            throw Throwables.propagate(e);
+        }
+        String signature = BaseEncoding.base64().encode(mac.doFinal(
+                stringToSign.getBytes(StandardCharsets.UTF_8)));
+
+        return "AWS" + " " + identity + ":" + signature;
     }
 }

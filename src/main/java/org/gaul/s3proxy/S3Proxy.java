@@ -40,10 +40,16 @@ import org.jclouds.blobstore.BlobStoreContext;
  */
 public final class S3Proxy {
     private static final String PROPERTY_S3PROXY_ENDPOINT = "s3proxy.endpoint";
+    private static final String PROPERTY_S3PROXY_AUTHORIZATION =
+            "s3proxy.authorization";
+    private static final String PROPERTY_S3PROXY_IDENTITY = "s3proxy.identity";
+    private static final String PROPERTY_S3PROXY_CREDENTIAL =
+            "s3proxy.credential";
 
     private final Server server;
 
-    public S3Proxy(BlobStore blobStore, URI endpoint) {
+    public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
+            String credential) {
         Preconditions.checkNotNull(blobStore);
         Preconditions.checkNotNull(endpoint);
         // TODO: allow service paths?
@@ -58,7 +64,7 @@ public final class S3Proxy {
         connector.setHost(endpoint.getHost());
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
-        server.setHandler(new S3ProxyHandler(blobStore));
+        server.setHandler(new S3ProxyHandler(blobStore, identity, credential));
     }
 
     public void start() throws Exception {
@@ -86,13 +92,35 @@ public final class S3Proxy {
         String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
         String s3ProxyEndpointString = properties.getProperty(
                 PROPERTY_S3PROXY_ENDPOINT);
+        String s3ProxyAuthorization = properties.getProperty(
+                PROPERTY_S3PROXY_AUTHORIZATION);
         if (provider == null || identity == null || credential == null
-                || s3ProxyEndpointString == null) {
+                || s3ProxyEndpointString == null
+                || s3ProxyAuthorization == null) {
             System.err.println("Properties file must contain:\n" +
                     Constants.PROPERTY_PROVIDER + "\n" +
                     Constants.PROPERTY_IDENTITY + "\n" +
                     Constants.PROPERTY_CREDENTIAL + "\n" +
-                    PROPERTY_S3PROXY_ENDPOINT);
+                    PROPERTY_S3PROXY_ENDPOINT + "\n" +
+                    PROPERTY_S3PROXY_AUTHORIZATION);
+            System.exit(1);
+        }
+
+        String localIdentity = null;
+        String localCredential = null;
+        if (s3ProxyAuthorization.equalsIgnoreCase("aws-v2")) {
+            localIdentity = properties.getProperty(PROPERTY_S3PROXY_IDENTITY);
+            localCredential = properties.getProperty(
+                    PROPERTY_S3PROXY_CREDENTIAL);
+            if (localIdentity == null || localCredential == null) {
+                System.err.println("Both " + PROPERTY_S3PROXY_IDENTITY +
+                        " and " + PROPERTY_S3PROXY_CREDENTIAL +
+                        " must be set");
+                System.exit(1);
+            }
+        } else if (!s3ProxyAuthorization.equalsIgnoreCase("none")) {
+            System.err.println(PROPERTY_S3PROXY_AUTHORIZATION +
+                    " must be aws-v2 or none, was: " + s3ProxyAuthorization);
             System.exit(1);
         }
 
@@ -105,7 +133,8 @@ public final class S3Proxy {
         }
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         URI s3ProxyEndpoint = new URI(s3ProxyEndpointString);
-        S3Proxy s3Proxy = new S3Proxy(context.getBlobStore(), s3ProxyEndpoint);
+        S3Proxy s3Proxy = new S3Proxy(context.getBlobStore(), s3ProxyEndpoint,
+                localIdentity, localCredential);
         s3Proxy.start();
     }
 }

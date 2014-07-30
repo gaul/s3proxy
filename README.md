@@ -52,9 +52,15 @@ Users can configure S3Proxy via a properties file.  An example:
 jclouds.provider=transient
 jclouds.identity=identity
 jclouds.credential=credential
-#jclouds.endpoint=http://127.0.0.1:8081  # optional for some providers
+# endpoint is optional for some providers
+#jclouds.endpoint=http://127.0.0.1:8081
 jclouds.filesystem.basedir=/tmp/blobstore
+
 s3proxy.endpoint=http://127.0.0.1:8080
+# authorization must be aws-v2 or none
+s3proxy.authorization=aws-v2
+s3proxy.identity=identity
+s3proxy.credential=credential
 ```
 
 Users can also set a variety of Java and
@@ -66,7 +72,6 @@ S3Proxy does not support:
 
 * single-part uploads larger than 2 GB ([upstream issue](https://github.com/jclouds/jclouds/pull/426))
 * multi-part uploads
-* authorization of clients
 * bucket ACLs
 * server-side copy
 * URL signing
