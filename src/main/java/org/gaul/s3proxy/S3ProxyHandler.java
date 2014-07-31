@@ -495,7 +495,15 @@ final class S3ProxyHandler extends AbstractHandler {
                     Long.parseLong(ranges[1]));
         }
 
-        Blob blob = blobStore.getBlob(containerName, blobName, options);
+        Blob blob;
+        try {
+            blob = blobStore.getBlob(containerName, blobName, options);
+        } catch (ContainerNotFoundException cnfe) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
+                    "Not Found");
+            return;
+        }
         if (blob == null) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_NOT_FOUND, "NoSuchKey",
