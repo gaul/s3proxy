@@ -302,6 +302,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     "Conflict");
             return;
         }
+        response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleBlobList(HttpServletRequest request,
