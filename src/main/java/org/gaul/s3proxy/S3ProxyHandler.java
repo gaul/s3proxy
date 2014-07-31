@@ -113,11 +113,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         switch (method) {
         case "DELETE":
-            if (uri.lastIndexOf("/") == 0) {
-                errorCode = handleContainerDelete(uri.substring(1));
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+            if (path.length <= 2 || path[2].isEmpty()) {
+                handleContainerDelete(response, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else {
@@ -291,16 +288,19 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private int handleContainerDelete(String containerName) {
-        try {
-            return blobStore.deleteContainerIfEmpty(containerName)
-                    ? HttpServletResponse.SC_OK
-                    // TODO: emit BucketNotEmpty error code?
-                    : HttpServletResponse.SC_CONFLICT;
-        } catch (RuntimeException re) {
-            logger.error("Error deleting container {}: {}", containerName,
-                    re.getMessage());
-            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+    private void handleContainerDelete(HttpServletResponse response,
+            String containerName) {
+        if (!blobStore.containerExists(containerName)) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
+                    "Not Found");
+            return;
+        }
+        if (!blobStore.deleteContainerIfEmpty(containerName)) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_CONFLICT, "BucketNotEmpty",
+                    "Conflict");
+            return;
         }
     }
 
