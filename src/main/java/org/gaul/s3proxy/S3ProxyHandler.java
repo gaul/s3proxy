@@ -254,18 +254,18 @@ final class S3ProxyHandler extends AbstractHandler {
                 handleContainerList(response);
                 baseRequest.setHandled(true);
                 return;
-            } else if (uri.lastIndexOf("/") == 0 &&
-                    "".equals(request.getParameter("acl"))) {
-                handleContainerOrBlobAcl(response, uri.substring(1));
-                baseRequest.setHandled(true);
-                return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
+                if ("".equals(request.getParameter("acl"))) {
+                    handleContainerOrBlobAcl(response, path[1]);
+                    baseRequest.setHandled(true);
+                    return;
+                }
                 handleBlobList(request, response, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleContainerOrBlobAcl(response, uri.substring(1));
+                    handleContainerOrBlobAcl(response, path[1], path[2]);
                     baseRequest.setHandled(true);
                     return;
                 }
@@ -324,7 +324,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleContainerOrBlobAcl(HttpServletResponse response,
-            String containerName) throws IOException {
+            String... containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
             writer.write("<AccessControlPolicy>\r\n" +
                     "  <Owner>\r\n" +
