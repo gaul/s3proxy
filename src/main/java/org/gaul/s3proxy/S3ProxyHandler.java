@@ -166,6 +166,11 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         case "PUT":
             if (path.length <= 2 || path[2].isEmpty()) {
+                if ("".equals(request.getParameter("acl"))) {
+                    response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+                    baseRequest.setHandled(true);
+                    return;
+                }
                 handleContainerCreate(response, path[1]);
                 baseRequest.setHandled(true);
                 return;
