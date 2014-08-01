@@ -156,7 +156,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerExists(response, uri.substring(1));
+                handleContainerExists(response, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else {
