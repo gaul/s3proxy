@@ -30,6 +30,7 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -63,6 +64,7 @@ import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.domain.Location;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
+import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -610,6 +612,16 @@ final class S3ProxyHandler extends AbstractHandler {
                     response.sendError(status);
                 }
                 return;
+            } catch (RuntimeException re) {
+                if (Throwables2.getFirstThrowableOfType(re,
+                        TimeoutException.class) != null) {
+                    sendSimpleErrorResponse(response,
+                            HttpServletResponse.SC_BAD_REQUEST,
+                            "RequestTimeout", "Bad Request");
+                    return;
+                } else {
+                    throw re;
+                }
             }
         } catch (IOException ioe) {
             logger.error("Error reading from client: {}", ioe.getMessage());
