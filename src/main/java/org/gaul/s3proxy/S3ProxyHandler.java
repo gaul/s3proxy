@@ -424,6 +424,9 @@ final class S3ProxyHandler extends AbstractHandler {
                 writer.write("  <CommonPrefixes>\r\n" +
                         "    <Prefix>");
                 writer.write(commonPrefix);
+                if (delimiter != null) {
+                    writer.write(delimiter);
+                }
                 writer.write("</Prefix>\r\n" +
                         "  </CommonPrefixes>\r\n");
             }
