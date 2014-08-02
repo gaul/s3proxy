@@ -94,7 +94,6 @@ final class S3ProxyHandler extends AbstractHandler {
     public void handle(String target, Request baseRequest,
             HttpServletRequest request, HttpServletResponse response)
             throws IOException {
-        int errorCode;
         String method = request.getMethod();
         String uri = request.getRequestURI();
         String[] path = uri.split("/", 3);
@@ -126,10 +125,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         case "GET":
             if (uri.equals("/")) {
-                errorCode = handleContainerList(response);
-                if (errorCode != HttpServletResponse.SC_OK) {
-                    response.sendError(errorCode);
-                }
+                handleContainerList(response);
                 baseRequest.setHandled(true);
                 return;
             } else if (uri.lastIndexOf("/") == 0 &&
@@ -190,7 +186,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private int handleContainerAcl(HttpServletResponse response,
+    private void handleContainerAcl(HttpServletResponse response,
             String containerName) {
         try (Writer writer = response.getWriter()) {
             writer.write("<AccessControlPolicy>\r\n" +
@@ -212,12 +208,10 @@ final class S3ProxyHandler extends AbstractHandler {
             writer.flush();
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}", ioe.getMessage());
-            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
         }
-        return HttpServletResponse.SC_OK;
     }
 
-    private int handleContainerList(HttpServletResponse response) {
+    private void handleContainerList(HttpServletResponse response) {
         try (Writer writer = response.getWriter()) {
             writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
                     "<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\r\n" +
@@ -247,9 +241,7 @@ final class S3ProxyHandler extends AbstractHandler {
             writer.flush();
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}", ioe.getMessage());
-            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
         }
-        return HttpServletResponse.SC_OK;
     }
 
     private void handleContainerExists(HttpServletResponse response,
@@ -438,7 +430,6 @@ final class S3ProxyHandler extends AbstractHandler {
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}",
                     ioe.getMessage());
-            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -496,7 +487,6 @@ final class S3ProxyHandler extends AbstractHandler {
             os.flush();
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}", ioe.getMessage());
-            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
     }
