@@ -975,17 +975,14 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // build string to sign
         StringBuilder builder = new StringBuilder()
-                .append(request.getMethod()).append('\n');
-        String contentMD5 = request.getHeader(HttpHeaders.CONTENT_MD5);
-        if (contentMD5 != null) {
-            builder.append(contentMD5);
-        }
-        builder.append('\n');
-        String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        if (contentType != null) {
-            builder.append(contentType);
-        }
-        builder.append('\n');
+                .append(request.getMethod())
+                .append('\n')
+                .append(Strings.nullToEmpty(request.getHeader(
+                        HttpHeaders.CONTENT_MD5)))
+                .append('\n')
+                .append(Strings.nullToEmpty(request.getHeader(
+                        HttpHeaders.CONTENT_TYPE)))
+                .append('\n');
         String expires = request.getParameter("Expires");
         if (expires != null) {
             builder.append(expires);
