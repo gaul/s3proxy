@@ -22,16 +22,22 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.Properties;
 
+import javax.servlet.http.HttpServletResponse;
+
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 
+import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
+import org.jclouds.blobstore.BlobRequestSigner;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.http.HttpRequest;
+import org.jclouds.http.HttpResponse;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.rest.HttpClient;
@@ -52,6 +58,8 @@ public final class S3ProxyTest {
     @Before
     public void setUp() throws Exception {
         Properties properties = new Properties();
+        properties.setProperty(Constants.PROPERTY_ENDPOINT,
+                s3Endpoint.toString());
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
@@ -242,5 +250,30 @@ public final class S3ProxyTest {
         assertThat(s3BlobStore.blobExists(containerName, blobName)).isFalse();
 
         s3BlobStore.removeBlob(containerName, blobName);
+    }
+
+    // TODO: this test fails since S3BlobRequestSigner does not implement the
+    // same logic as AWSS3BlobRequestSigner.signForTemporaryAccess.
+    @Ignore
+    @Test
+    public void testUrlSigning() throws Exception {
+        HttpClient httpClient = s3Context.utils().http();
+        BlobRequestSigner signer = s3Context.getSigner();
+
+        String blobName = "blob";
+        ByteSource byteSource = ByteSource.wrap(new byte[1]);
+        Blob blob = s3BlobStore.blobBuilder(blobName)
+                .payload(byteSource)
+                .contentLength(byteSource.size())
+                .build();
+        HttpRequest putRequest = signer.signPutBlob(containerName, blob, 10);
+        HttpResponse putResponse = httpClient.invoke(putRequest);
+        assertThat(putResponse.getStatusCode())
+                .isEqualTo(HttpServletResponse.SC_OK);
+
+        HttpRequest getRequest = signer.signGetBlob(containerName, blobName, 10);
+        HttpResponse getResponse = httpClient.invoke(getRequest);
+        assertThat(getResponse.getStatusCode())
+                .isEqualTo(HttpServletResponse.SC_OK);
     }
 }
