@@ -172,6 +172,10 @@ final class S3ProxyHandler extends AbstractHandler {
                 handleContainerCreate(response, path[1]);
                 baseRequest.setHandled(true);
                 return;
+            } else if (request.getHeader("x-amz-copy-source") != null) {
+                handleCopyBlob(request, response, path[1], path[2]);
+                baseRequest.setHandled(true);
+                return;
             } else {
                 handlePutBlob(request, response, path[1], path[2]);
                 baseRequest.setHandled(true);
@@ -485,6 +489,83 @@ final class S3ProxyHandler extends AbstractHandler {
              OutputStream os = response.getOutputStream()) {
             ByteStreams.copy(is, os);
             os.flush();
+        } catch (IOException ioe) {
+            logger.error("Error writing to client: {}", ioe.getMessage());
+            return;
+        }
+    }
+
+    private void handleCopyBlob(HttpServletRequest request,
+            HttpServletResponse response, String destContainerName,
+            String destBlobName) throws IOException {
+        String copySourceHeader = request.getHeader("x-amz-copy-source");
+        if (copySourceHeader.startsWith("/")) {
+            // Some clients like boto do not include the leading slash
+            copySourceHeader.substring(1);
+        }
+        String[] path = request.getHeader("x-amz-copy-source").split("/", 2);
+        String sourceContainerName = path[0];
+        String sourceBlobName = path[1];
+        boolean replaceMetadata = "REPLACE".equals(request.getHeader(
+                "x-amz-metadata-directive"));
+
+        ImmutableMap.Builder<String, String> userMetadataBuilder =
+                ImmutableMap.builder();
+        for (String headerName : Collections.list(request.getHeaderNames())) {
+            if (!headerName.startsWith(USER_METADATA_PREFIX)) {
+                continue;
+            }
+            userMetadataBuilder.put(
+                    headerName.substring(USER_METADATA_PREFIX.length()),
+                    Strings.nullToEmpty(request.getHeader(headerName)));
+        }
+        Map<String, String> userMetadata = userMetadataBuilder.build();
+
+        if (sourceContainerName.equals(destContainerName) &&
+                sourceBlobName.equals(destBlobName) &&
+                !replaceMetadata) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_BAD_REQUEST, "InvalidRequest",
+                    "Bad Request");
+            return;
+        }
+
+        Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
+        if (blob == null) {
+            sendSimpleErrorResponse(response,
+                    HttpServletResponse.SC_NOT_FOUND, "NoSuchKey",
+                    "Not Found");
+            return;
+        }
+
+        try (InputStream is = blob.getPayload().openStream()) {
+            ContentMetadata metadata = blob.getMetadata().getContentMetadata();
+            BlobBuilder.PayloadBlobBuilder builder = blobStore
+                    .blobBuilder(destBlobName)
+                    .userMetadata(replaceMetadata ? userMetadata :
+                            blob.getMetadata().getUserMetadata())
+                    .payload(is)
+                    .contentDisposition(metadata.getContentDisposition())
+                    .contentEncoding(metadata.getContentEncoding())
+                    .contentLanguage(metadata.getContentLanguage())
+                    .contentLength(metadata.getContentLength())
+                    .contentType(metadata.getContentType());
+
+            String eTag = blobStore.putBlob(destContainerName,
+                    builder.build());
+            Date lastModified = blob.getMetadata().getLastModified();
+            try (Writer writer = response.getWriter()) {
+                writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n");
+                writer.write("<CopyObjectResult>\r\n");
+                writer.write("  <LastModified>");
+                writer.write(blobStore.getContext().utils().date()
+                        .iso8601DateFormat(lastModified));
+                writer.write("</LastModified>\r\n");
+                writer.write("  <ETag>&quot;");
+                writer.write(eTag);
+                writer.write("&quot;</ETag>\r\n");
+                writer.write("</CopyObjectResult>\r\n");
+            }
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}", ioe.getMessage());
             return;

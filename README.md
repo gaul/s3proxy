@@ -73,7 +73,6 @@ S3Proxy does not support:
 * single-part uploads larger than 2 GB ([upstream issue](https://github.com/jclouds/jclouds/pull/426))
 * multi-part uploads
 * bucket ACLs
-* server-side copy
 * URL signing
 * metadata with filesystem provider ([upstream issue](https://github.com/jclouds/jclouds/pull/443))
 * listening on HTTPS
