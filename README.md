@@ -72,13 +72,14 @@ S3Proxy does not support:
 
 * single-part uploads larger than 2 GB ([upstream issue](https://github.com/jclouds/jclouds/pull/426))
 * multi-part uploads
-* bucket ACLs
+* POST uploads
+* bucket and object ACLs
 * metadata with filesystem provider ([upstream issue](https://github.com/jclouds/jclouds/pull/443))
 * listening on HTTPS
 
 References
 ----------
-[jclouds](http://jclouds.apache.org/) provides object store support for
+Apache [jclouds](http://jclouds.apache.org/) provides object store support for
 S3Proxy.  Ceph [s3-tests](https://github.com/ceph/s3-tests) help maintain
 and improve compatibility with the S3 API.
 
