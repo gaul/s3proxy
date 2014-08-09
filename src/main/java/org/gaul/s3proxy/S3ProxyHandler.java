@@ -745,9 +745,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     xml.writeEndElement();
                 }
 
-                // TODO: StorageMetadata does not contain size
                 xml.writeStartElement("Size");
-                xml.writeCharacters("0");
+                xml.writeCharacters(String.valueOf(metadata.getSize()));
                 xml.writeEndElement();
 
                 xml.writeStartElement("StorageClass");

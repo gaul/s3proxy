@@ -250,7 +250,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jclouds.version>1.8.1</jclouds.version>
+    <jclouds.version>2.0.0-SNAPSHOT</jclouds.version>
   </properties>
 
   <prerequisites>
@@ -272,6 +272,11 @@
     <dependency>
       <groupId>org.apache.jclouds</groupId>
       <artifactId>jclouds-allblobstore</artifactId>
+      <version>${jclouds.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.jclouds.api</groupId>
+      <artifactId>filesystem</artifactId>
       <version>${jclouds.version}</version>
     </dependency>
     <dependency>
