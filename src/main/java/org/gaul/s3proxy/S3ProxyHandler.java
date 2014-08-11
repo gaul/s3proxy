@@ -807,7 +807,7 @@ final class S3ProxyHandler extends AbstractHandler {
             builder.append("?acl");
         }
         String stringToSign = builder.toString();
-        logger.debug("stringToSign: {}", stringToSign);
+        logger.trace("stringToSign: {}", stringToSign);
 
         // sign string
         Mac mac;
