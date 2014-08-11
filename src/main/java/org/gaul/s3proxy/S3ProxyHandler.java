@@ -134,13 +134,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 handleContainerAcl(response, uri.substring(1));
                 baseRequest.setHandled(true);
                 return;
-            } else if (uri.lastIndexOf("/") == 0) {
-                handleBlobList(request, response, uri.substring(1));
-                baseRequest.setHandled(true);
-                return;
-            } else if (uri.lastIndexOf("/") == uri.length() - 1) {
-                handleBlobList(request, response, uri.substring(1,
-                        uri.length() - 1));
+            } else if (path.length <= 2 || path[2].isEmpty()) {
+                handleBlobList(request, response, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else {
