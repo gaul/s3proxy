@@ -8,8 +8,8 @@ or latency associated with using AWS by using the local file system.
 
 Features
 --------
-* create, remove, list containers
-* put, get, remove, list blobs (up to 2 GB in size)
+* create, remove, list buckets
+* put, get, remove, list objects (up to 2 GB in size)
 * store and retrieve user metadata
 
 Supported object stores:
