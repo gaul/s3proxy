@@ -31,6 +31,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -64,6 +66,7 @@ import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.domain.Location;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
+import org.jclouds.util.Strings2;
 import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,8 +82,11 @@ final class S3ProxyHandler extends AbstractHandler {
     private static final String FAKE_OWNER_DISPLAY_NAME =
             "CustomersName@amazon.com";
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
-    private final BlobStore blobStore;
+    private static final Pattern CREATE_BUCKET_LOCATION_PATTERN =
+            // TODO: non-greedy star .*?
+            Pattern.compile("<LocationConstraint>([^<]*)</LocationConstraint>");
 
+    private final BlobStore blobStore;
     private final String identity;
     private final String credential;
 
@@ -160,7 +166,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     baseRequest.setHandled(true);
                     return;
                 }
-                handleContainerCreate(response, path[1]);
+                handleContainerCreate(request, response, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else if (request.getHeader("x-amz-copy-source") != null) {
@@ -249,8 +255,9 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void handleContainerCreate(HttpServletResponse response,
-            String containerName) {
+    private void handleContainerCreate(HttpServletRequest request,
+            HttpServletResponse response, String containerName)
+            throws IOException {
         if (containerName.isEmpty()) {
             sendSimpleErrorResponse(response,
                     HttpServletResponse.SC_METHOD_NOT_ALLOWED,
@@ -264,9 +271,31 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
+        Location location = null;
+        // TODO: more robust XML parsing
+        Matcher matcher = CREATE_BUCKET_LOCATION_PATTERN.matcher(
+                Strings2.toStringAndClose(request.getInputStream()));
+        if (matcher.find()) {
+            String locationString = matcher.group(1);
+            for (Location loc : blobStore.listAssignableLocations()) {
+                if (loc.getId().equalsIgnoreCase(locationString)) {
+                    location = loc;
+                    break;
+                }
+            }
+            if (location == null) {
+                sendSimpleErrorResponse(response,
+                        HttpServletResponse.SC_BAD_REQUEST,
+                        "InvalidLocationConstraint",
+                        "The specified location constraint is not valid. For" +
+                        " more information about Regions, see How to Select" +
+                        " a Region for Your Buckets.");
+                return;
+            }
+        }
+        logger.debug("Creating bucket with location: {}", location);
+
         try {
-            // TODO: how to support locations?
-            Location location = null;
             if (blobStore.createContainerInLocation(location, containerName)) {
                 return;
             }
