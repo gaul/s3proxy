@@ -61,6 +61,7 @@ import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.domain.StorageType;
+import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.domain.Location;
@@ -303,8 +304,15 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         logger.debug("Creating bucket with location: {}", location);
 
+        CreateContainerOptions options = new CreateContainerOptions();
+        String acl = request.getHeader("x-amz-acl");
+        if ("public-read".equals(acl)) {
+            options.publicRead();
+        }
+
         try {
-            if (blobStore.createContainerInLocation(location, containerName)) {
+            if (blobStore.createContainerInLocation(location, containerName,
+                    options)) {
                 return;
             }
             sendSimpleErrorResponse(response, HttpServletResponse.SC_CONFLICT,
