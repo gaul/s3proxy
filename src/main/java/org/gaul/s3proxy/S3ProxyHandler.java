@@ -220,21 +220,21 @@ final class S3ProxyHandler extends AbstractHandler {
                     "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
                     "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME + "</DisplayName>\r\n" +
                     "  </Owner>\r\n" +
-                    "  <Buckets>");
+                    "  <Buckets>\r\n");
 
             for (StorageMetadata metadata : blobStore.list()) {
-                writer.write("<Bucket>\r\n" +
-                        "  <Name>");
+                writer.write("    <Bucket>\r\n" +
+                        "      <Name>");
                 writer.write(metadata.getName());
                 writer.write("</Name>\r\n");
                 Date creationDate = metadata.getCreationDate();
                 if (creationDate != null) {
-                    writer.write("  <CreationDate>");
+                    writer.write("      <CreationDate>");
                     writer.write(blobStore.getContext().utils().date()
-                            .iso8601DateFormat(creationDate));
+                            .iso8601DateFormat(creationDate).trim());
                     writer.write("</CreationDate>\r\n");
                 }
-                writer.write("</Bucket>\r\n");
+                writer.write("    </Bucket>\r\n");
             }
 
             writer.write("  </Buckets>\r\n" +
