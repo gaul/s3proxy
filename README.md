@@ -26,11 +26,14 @@ Supported object stores:
 
 Installation
 ------------
-S3Proxy requires Java 7 to run.  Presently there is no binary release but
-[Bintray](https://bintray.com/) will host releases in the future.
+Users can
+[download releases](https://github.com/andrewgaul/s3proxy/releases) from GitHub
+and should `chmod +x s3proxy` afterwards.
 
-One can build the project by running `mvn package` which produces a binary at
-`target/s3proxy`.
+One can also build the project by running `mvn package` which produces a binary
+at `target/s3proxy`.
+
+S3Proxy requires Java 7 to run.
 
 Examples
 --------
