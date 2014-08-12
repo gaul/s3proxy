@@ -108,9 +108,13 @@ final class S3ProxyHandler extends AbstractHandler {
         if (identity != null) {
             String expectedAuthorization = createAuthorizationHeader(request,
                     identity, credential);
-            if (!expectedAuthorization.equals(request.getHeader(
-                    HttpHeaders.AUTHORIZATION)) &&
-                    !expectedAuthorization.equals("AWS " + request.getParameter("AWSAccessKeyId") + ":" + request.getParameter("Signature"))) {
+            String headerAuthorization = request.getHeader(
+                    HttpHeaders.AUTHORIZATION);
+            String queryStringAuthorization = "AWS " +
+                    request.getParameter("AWSAccessKeyId") + ":" +
+                    request.getParameter("Signature");
+            if (!expectedAuthorization.equals(headerAuthorization) &&
+                    !expectedAuthorization.equals(queryStringAuthorization)) {
                 sendSimpleErrorResponse(response,
                         HttpServletResponse.SC_FORBIDDEN,
                         "SignatureDoesNotMatch", "Forbidden");

@@ -271,7 +271,8 @@ public final class S3ProxyTest {
         assertThat(putResponse.getStatusCode())
                 .isEqualTo(HttpServletResponse.SC_OK);
 
-        HttpRequest getRequest = signer.signGetBlob(containerName, blobName, 10);
+        HttpRequest getRequest = signer.signGetBlob(containerName, blobName,
+                10);
         HttpResponse getResponse = httpClient.invoke(getRequest);
         assertThat(getResponse.getStatusCode())
                 .isEqualTo(HttpServletResponse.SC_OK);
