@@ -488,6 +488,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleGetBlob(HttpServletRequest request,
             HttpServletResponse response, String containerName,
             String blobName) throws IOException {
+        int status = HttpServletResponse.SC_OK;
         GetOptions options = new GetOptions();
         String range = request.getHeader(HttpHeaders.RANGE);
         if (range != null && range.startsWith("bytes=")
@@ -495,8 +496,15 @@ final class S3ProxyHandler extends AbstractHandler {
                 && range.indexOf(',') == -1) {
             range = range.substring("bytes=".length());
             String[] ranges = range.split("-", 2);
-            options = options.range(Long.parseLong(ranges[0]),
-                    Long.parseLong(ranges[1]));
+            if (ranges[0].isEmpty()) {
+                options = options.tail(Long.parseLong(ranges[1]));
+            } else if (ranges[1].isEmpty()) {
+                options = options.startAt(Long.parseLong(ranges[0]));
+            } else {
+                options = options.range(Long.parseLong(ranges[0]),
+                        Long.parseLong(ranges[1]));
+            }
+            status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
         Blob blob;
@@ -515,7 +523,7 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        response.setStatus(HttpServletResponse.SC_OK);
+        response.setStatus(status);
         addMetadataToResponse(response, blob.getMetadata());
         try (InputStream is = blob.getPayload().openStream();
              OutputStream os = response.getOutputStream()) {
