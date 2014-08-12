@@ -8,9 +8,9 @@ or latency associated with using AWS by using the local file system.
 
 Features
 --------
-* create, remove, list buckets (including user-specified regions)
-* put, get, remove, list objects (up to 2 GB in size)
-* store and retrieve user metadata
+* create, remove, and list buckets (including user-specified regions)
+* put, get, delete, and list objects
+* store and retrieve object metadata, including user metadata
 
 Supported object stores:
 
@@ -74,7 +74,7 @@ S3Proxy does not support:
 * multi-part uploads
 * POST uploads
 * bucket and object ACLs
-* metadata with filesystem provider ([upstream issue](https://github.com/jclouds/jclouds/pull/443))
+* object metadata with filesystem provider ([upstream issue](https://github.com/jclouds/jclouds/pull/443))
 * listening on HTTPS
 
 References
