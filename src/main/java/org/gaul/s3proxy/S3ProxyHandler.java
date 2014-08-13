@@ -553,7 +553,7 @@ final class S3ProxyHandler extends AbstractHandler {
         String copySourceHeader = request.getHeader("x-amz-copy-source");
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
-            copySourceHeader.substring(1);
+            copySourceHeader = copySourceHeader.substring(1);
         }
         String[] path = copySourceHeader.split("/", 2);
         String sourceContainerName = path[0];
