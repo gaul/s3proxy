@@ -547,7 +547,7 @@ final class S3ProxyHandler extends AbstractHandler {
             // Some clients like boto do not include the leading slash
             copySourceHeader.substring(1);
         }
-        String[] path = request.getHeader("x-amz-copy-source").split("/", 2);
+        String[] path = copySourceHeader.split("/", 2);
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
         boolean replaceMetadata = "REPLACE".equals(request.getHeader(
