@@ -48,6 +48,12 @@ public final class S3Proxy {
 
     private final Server server;
 
+    static {
+        // Prevent Jetty from rewriting headers:
+        // https://bugs.eclipse.org/bugs/show_bug.cgi?id=414449
+        System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
+    }
+
     public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential) {
         Preconditions.checkNotNull(blobStore);
