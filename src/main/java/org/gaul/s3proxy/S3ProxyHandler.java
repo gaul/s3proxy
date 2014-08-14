@@ -109,8 +109,11 @@ final class S3ProxyHandler extends AbstractHandler {
         String[] path = uri.split("/", 3);
         logger.debug("request: {}", request);
         for (String headerName : Collections.list(request.getHeaderNames())) {
-            logger.trace("header: {}: {}", headerName,
-                    Strings.nullToEmpty(request.getHeader(headerName)));
+            for (String headerValue : Collections.list(request.getHeaders(
+                    headerName))) {
+                logger.trace("header: {}: {}", headerName,
+                        Strings.nullToEmpty(headerValue));
+            }
         }
 
         if (identity != null) {
