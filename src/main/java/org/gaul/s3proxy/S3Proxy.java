@@ -39,12 +39,11 @@ import org.jclouds.blobstore.BlobStoreContext;
  * OpenStack Swift.
  */
 public final class S3Proxy {
-    private static final String PROPERTY_S3PROXY_ENDPOINT = "s3proxy.endpoint";
+    static final String PROPERTY_S3PROXY_ENDPOINT = "s3proxy.endpoint";
     private static final String PROPERTY_S3PROXY_AUTHORIZATION =
             "s3proxy.authorization";
-    private static final String PROPERTY_S3PROXY_IDENTITY = "s3proxy.identity";
-    private static final String PROPERTY_S3PROXY_CREDENTIAL =
-            "s3proxy.credential";
+    static final String PROPERTY_S3PROXY_IDENTITY = "s3proxy.identity";
+    static final String PROPERTY_S3PROXY_CREDENTIAL = "s3proxy.credential";
 
     private final Server server;
 

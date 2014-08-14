@@ -24,8 +24,10 @@ import java.util.Properties;
 
 import javax.servlet.http.HttpServletResponse;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
+import com.google.common.io.Resources;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -47,8 +49,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public final class S3ProxyTest {
-    // TODO: configurable
-    private static final URI s3Endpoint = URI.create("http://127.0.0.1:8080");
+    private URI s3Endpoint;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
     private BlobStoreContext s3Context;
@@ -57,23 +58,47 @@ public final class S3ProxyTest {
 
     @Before
     public void setUp() throws Exception {
+        Properties s3ProxyProperties = new Properties();
+        try (InputStream is = Resources.asByteSource(Resources.getResource(
+                "s3proxy.conf")).openStream()) {
+            s3ProxyProperties.load(is);
+        }
+
+        String identity = s3ProxyProperties.getProperty(
+                Constants.PROPERTY_IDENTITY);
+        String credential = s3ProxyProperties.getProperty(
+                Constants.PROPERTY_CREDENTIAL);
+        String endpoint = s3ProxyProperties.getProperty(
+                Constants.PROPERTY_ENDPOINT);
+        String s3Identity = s3ProxyProperties.getProperty(
+                S3Proxy.PROPERTY_S3PROXY_IDENTITY);
+        String s3Credential = s3ProxyProperties.getProperty(
+                S3Proxy.PROPERTY_S3PROXY_CREDENTIAL);
+        s3Endpoint = new URI(s3ProxyProperties.getProperty(
+                S3Proxy.PROPERTY_S3PROXY_ENDPOINT));
+
         Properties properties = new Properties();
         properties.setProperty(Constants.PROPERTY_ENDPOINT,
                 s3Endpoint.toString());
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .overrides(properties)
-                .build(BlobStoreContext.class);
+        ContextBuilder builder = ContextBuilder
+                .newBuilder(s3ProxyProperties.getProperty(
+                        Constants.PROPERTY_PROVIDER))
+                .credentials(identity, credential)
+                .overrides(properties);
+        if (!Strings.isNullOrEmpty(endpoint)) {
+            builder.endpoint(endpoint);
+        }
+        context = builder.build(BlobStoreContext.class);
         BlobStore blobStore = context.getBlobStore();
         blobStore.createContainerInLocation(null, containerName);
+
         s3Context = ContextBuilder
                 .newBuilder("s3")
-                .credentials("identity", "credential")
+                .credentials(s3Identity, s3Credential)
                 .endpoint(s3Endpoint.toString())
                 .build(BlobStoreContext.class);
         s3BlobStore = s3Context.getBlobStore();
-        s3Proxy = new S3Proxy(blobStore, s3Endpoint, "identity", "credential");
+        s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential);
         s3Proxy.start();
     }
 
