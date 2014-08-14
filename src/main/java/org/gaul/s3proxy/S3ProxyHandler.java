@@ -75,6 +75,9 @@ import org.slf4j.LoggerFactory;
 final class S3ProxyHandler extends AbstractHandler {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
+    // Note that this excludes a trailing \r\n which the AWS SDK rejects.
+    private static final String XML_PROLOG =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
     // TODO: support configurable metadata prefix
     private static final String USER_METADATA_PREFIX = "x-amz-meta-";
     // TODO: fake owner
@@ -223,7 +226,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleContainerList(HttpServletResponse response) {
         try (Writer writer = response.getWriter()) {
-            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
+            writer.write(XML_PROLOG +
                     "<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\r\n" +
                     "  <Owner>\r\n" +
                     "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
@@ -247,7 +250,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             writer.write("  </Buckets>\r\n" +
-                    "</ListAllMyBucketsResult>\r\n");
+                    "</ListAllMyBucketsResult>");
             writer.flush();
         } catch (IOException ioe) {
             logger.error("Error writing to client: {}", ioe.getMessage());
@@ -383,7 +386,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         try (Writer writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
-            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
+            writer.write(XML_PROLOG +
                     "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\r\n" +
                     "  <Name>");
             writer.write(containerName);
@@ -607,7 +610,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     builder.build());
             Date lastModified = blob.getMetadata().getLastModified();
             try (Writer writer = response.getWriter()) {
-                writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n");
+                writer.write(XML_PROLOG);
                 writer.write("<CopyObjectResult>\r\n");
                 writer.write("  <LastModified>");
                 writer.write(blobStore.getContext().utils().date()
@@ -793,7 +796,7 @@ final class S3ProxyHandler extends AbstractHandler {
         logger.debug("{} {} {} {}", status, code, message, extra);
         try (Writer writer = response.getWriter()) {
             response.setStatus(status);
-            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
+            writer.write(XML_PROLOG +
                     "<Error>\r\n" +
                     "  <Code>");
             writer.write(code);
