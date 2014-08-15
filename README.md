@@ -1,9 +1,8 @@
 S3Proxy
 =======
-S3Proxy allows applications using the S3 API to interface with a variety of
-object stores, e.g., EMC Atmos, Microsoft Azure, OpenStack Swift.  It also
-allows local testing against S3 without the cost or latency associated with
-using AWS.
+S3Proxy allows applications using the S3 API to access other object stores,
+e.g., EMC Atmos, Microsoft Azure, OpenStack Swift.  It also allows local
+testing of S3 without the cost or latency associated with using AWS.
 
 Features
 --------
@@ -33,7 +32,7 @@ produces a binary at `target/s3proxy`.  S3Proxy requires Java 7 to run.
 
 Examples
 --------
-Linux and Mac OS users can run S3Proxy via the executable jar:
+Linux and Mac OS X users can run S3Proxy via the executable jar:
 
 ```
 chmod +x s3proxy

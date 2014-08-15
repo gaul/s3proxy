@@ -14,7 +14,7 @@
 
   <name>S3 Proxy</name>
   <url>https://github.com/andrewgaul/s3proxy</url>
-  <description>S3Proxy allows applications using the S3 API to interface with a variety of object stores</description>
+  <description>S3Proxy allows applications using the S3 API to access other object stores</description>
 
   <licenses>
     <license>
