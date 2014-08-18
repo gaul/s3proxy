@@ -178,6 +178,11 @@
       <version>${jclouds.version}</version>
     </dependency>
     <dependency>
+      <groupId>org.apache.jclouds.driver</groupId>
+      <artifactId>jclouds-slf4j</artifactId>
+      <version>${jclouds.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.apache.jclouds.labs</groupId>
       <artifactId>glacier</artifactId>
       <version>${jclouds.version}</version>
@@ -196,11 +201,6 @@
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-      <version>${slf4j.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-simple</artifactId>
       <version>${slf4j.version}</version>
     </dependency>
   </dependencies>

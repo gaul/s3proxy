@@ -25,9 +25,11 @@ import java.util.Properties;
 import javax.servlet.http.HttpServletResponse;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
+import com.google.inject.Module;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -42,6 +44,7 @@ import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
+import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.rest.HttpClient;
 import org.junit.After;
 import org.junit.Before;
@@ -85,9 +88,12 @@ public final class S3ProxyTest {
         String forceMultiPartUpload = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
 
+        Properties properties = new Properties();
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
-                .credentials(identity, credential);
+                .credentials(identity, credential)
+                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .overrides(properties);
         if (!Strings.isNullOrEmpty(endpoint)) {
             builder.endpoint(endpoint);
         }
