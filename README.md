@@ -1,6 +1,8 @@
 S3Proxy
 =======
-S3Proxy allows applications using the S3 API to access other object stores,
+S3Proxy allows applications using the
+[S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
+to access other object stores,
 e.g., EMC Atmos, Microsoft Azure, OpenStack Swift.  It also allows local
 testing of S3 without the cost or latency associated with using AWS.
 
@@ -70,7 +72,7 @@ jclouds.credential=credential
 jclouds.filesystem.basedir=/tmp
 ```
 
-S3Proxy can listen on HTTPS when setting the endpoint to HTTPS and
+S3Proxy can listen on HTTPS by setting the endpoint and
 [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool).
 An example:
 
