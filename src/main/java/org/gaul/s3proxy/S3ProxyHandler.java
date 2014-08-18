@@ -64,6 +64,7 @@ import org.jclouds.blobstore.domain.StorageType;
 import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
@@ -93,11 +94,14 @@ final class S3ProxyHandler extends AbstractHandler {
     private final BlobStore blobStore;
     private final String identity;
     private final String credential;
+    private final boolean forceMultiPartUpload;
 
-    S3ProxyHandler(BlobStore blobStore, String identity, String credential) {
+    S3ProxyHandler(BlobStore blobStore, String identity, String credential,
+            boolean forceMultiPartUpload) {
         this.blobStore = Preconditions.checkNotNull(blobStore);
         this.identity = identity;
         this.credential = credential;
+        this.forceMultiPartUpload = forceMultiPartUpload;
     }
 
     @Override
@@ -723,8 +727,11 @@ final class S3ProxyHandler extends AbstractHandler {
             if (contentMD5 != null) {
                 builder = builder.contentMD5(contentMD5);
             }
+            PutOptions options = new PutOptions()
+                .multipart(forceMultiPartUpload);
             try {
-                String eTag = blobStore.putBlob(containerName, builder.build());
+                String eTag = blobStore.putBlob(containerName, builder.build(),
+                        options);
                 response.addHeader(HttpHeaders.ETAG, "\"" + eTag + "\"");
             } catch (ContainerNotFoundException cnfe) {
                 sendSimpleErrorResponse(response,

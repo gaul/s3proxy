@@ -80,6 +80,8 @@ public final class S3ProxyTest {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
+        String forceMultiPartUpload = s3ProxyProperties.getProperty(
+                S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
 
         Properties properties = new Properties();
         properties.setProperty(Constants.PROPERTY_ENDPOINT,
@@ -108,7 +110,8 @@ public final class S3ProxyTest {
 
         s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential,
                 Resources.getResource(keyStorePath).toString(),
-                keyStorePassword);
+                keyStorePassword,
+                "true".equalsIgnoreCase(forceMultiPartUpload));
         s3Proxy.start();
     }
 

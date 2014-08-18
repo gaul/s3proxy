@@ -49,8 +49,9 @@ public final class S3Proxy {
         System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
     }
 
-    public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
-            String credential, String keyStorePath, String keyStorePassword) {
+    S3Proxy(BlobStore blobStore, URI endpoint, String identity,
+            String credential, String keyStorePath, String keyStorePassword,
+            boolean forceMultiPartUpload) {
         Preconditions.checkNotNull(blobStore);
         Preconditions.checkNotNull(endpoint);
         // TODO: allow service paths?
@@ -73,7 +74,8 @@ public final class S3Proxy {
         connector.setHost(endpoint.getHost());
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
-        server.setHandler(new S3ProxyHandler(blobStore, identity, credential));
+        server.setHandler(new S3ProxyHandler(blobStore, identity, credential,
+                forceMultiPartUpload));
     }
 
     public void start() throws Exception {
@@ -150,6 +152,9 @@ public final class S3Proxy {
             }
         }
 
+        String forceMultiPartUpload = properties.getProperty(
+                S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
+
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
@@ -161,7 +166,8 @@ public final class S3Proxy {
         URI s3ProxyEndpoint = new URI(s3ProxyEndpointString);
         S3Proxy s3Proxy = new S3Proxy(context.getBlobStore(), s3ProxyEndpoint,
                 localIdentity, localCredential, keyStorePath,
-                keyStorePassword);
+                keyStorePassword,
+                "true".equalsIgnoreCase(forceMultiPartUpload));
         s3Proxy.start();
     }
 }

@@ -80,8 +80,10 @@ s3proxy.keystore-path=keystore.jks
 s3proxy.keystore-password=password
 ```
 
-Users can also set a variety of Java and
-[jclouds properties](https://github.com/jclouds/jclouds/blob/master/core/src/main/java/org/jclouds/Constants.java).
+Users can also set other Java,
+[jclouds](https://github.com/jclouds/jclouds/blob/master/core/src/main/java/org/jclouds/Constants.java),
+and [S3Proxy](https://github.com/andrewgaul/s3proxy/blob/master/src/main/java/org/gaul/s3proxy/S3ProxyConstants.java)
+properties.
 
 Limitations
 -----------
