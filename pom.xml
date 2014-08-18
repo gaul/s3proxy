@@ -123,6 +123,15 @@
         </configuration>
       </plugin>
       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <version>3.0.0</version>
+        <configuration>
+          <effort>Max</effort>
+          <omitVisitors>CrossSiteScripting</omitVisitors>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>org.skife.maven</groupId>
         <artifactId>really-executable-jar-maven-plugin</artifactId>
         <version>1.3.0</version>

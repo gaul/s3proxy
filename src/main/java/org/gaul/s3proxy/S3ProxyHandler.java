@@ -373,7 +373,7 @@ final class S3ProxyHandler extends AbstractHandler {
         String maxKeysString = request.getParameter("max-keys");
         if (maxKeysString != null) {
             try {
-                maxKeys = Integer.valueOf(maxKeysString);
+                maxKeys = Integer.parseInt(maxKeysString);
             } catch (NumberFormatException nfe) {
                 sendSimpleErrorResponse(response,
                         HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
