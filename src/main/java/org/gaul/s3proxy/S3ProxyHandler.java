@@ -721,7 +721,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     .contentLength(request.getContentLength())
                     .contentType(request.getContentType());
             long expires = request.getDateHeader(HttpHeaders.EXPIRES);
-            if (expires != 0) {
+            if (expires != -1) {
                 builder = builder.expires(new Date(expires));
             }
             if (contentMD5 != null) {
