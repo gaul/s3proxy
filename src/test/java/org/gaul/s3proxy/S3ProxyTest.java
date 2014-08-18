@@ -64,6 +64,8 @@ public final class S3ProxyTest {
             s3ProxyProperties.load(is);
         }
 
+        String provider = s3ProxyProperties.getProperty(
+                Constants.PROPERTY_PROVIDER);
         String identity = s3ProxyProperties.getProperty(
                 Constants.PROPERTY_IDENTITY);
         String credential = s3ProxyProperties.getProperty(
@@ -83,14 +85,9 @@ public final class S3ProxyTest {
         String forceMultiPartUpload = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
 
-        Properties properties = new Properties();
-        properties.setProperty(Constants.PROPERTY_ENDPOINT,
-                s3Endpoint.toString());
         ContextBuilder builder = ContextBuilder
-                .newBuilder(s3ProxyProperties.getProperty(
-                        Constants.PROPERTY_PROVIDER))
-                .credentials(identity, credential)
-                .overrides(properties);
+                .newBuilder(provider)
+                .credentials(identity, credential);
         if (!Strings.isNullOrEmpty(endpoint)) {
             builder.endpoint(endpoint);
         }
