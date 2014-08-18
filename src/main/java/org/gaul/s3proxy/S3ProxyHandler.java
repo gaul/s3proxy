@@ -779,9 +779,11 @@ final class S3ProxyHandler extends AbstractHandler {
         response.addHeader(HttpHeaders.CONTENT_LENGTH,
                 contentMetadata.getContentLength().toString());
         response.setContentType(contentMetadata.getContentType());
-        response.addHeader(HttpHeaders.CONTENT_MD5,
-                BaseEncoding.base64().encode(
-                        contentMetadata.getContentMD5AsHashCode().asBytes()));
+        HashCode contentMd5 = contentMetadata.getContentMD5AsHashCode();
+        if (contentMd5 != null) {
+            response.addHeader(HttpHeaders.CONTENT_MD5,
+                    BaseEncoding.base64().encode(contentMd5.asBytes()));
+        }
         Date expires = contentMetadata.getExpires();
         if (expires != null) {
             response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
