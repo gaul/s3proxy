@@ -41,16 +41,6 @@ import org.jclouds.blobstore.BlobStoreContext;
  * OpenStack Swift.
  */
 public final class S3Proxy {
-    static final String PROPERTY_S3PROXY_ENDPOINT = "s3proxy.endpoint";
-    private static final String PROPERTY_S3PROXY_AUTHORIZATION =
-            "s3proxy.authorization";
-    static final String PROPERTY_S3PROXY_IDENTITY = "s3proxy.identity";
-    static final String PROPERTY_S3PROXY_CREDENTIAL = "s3proxy.credential";
-    static final String PROPERTY_S3PROXY_KEYSTORE_PATH =
-            "s3proxy.keystore-path";
-    static final String PROPERTY_S3PROXY_KEYSTORE_PASSWORD =
-            "s3proxy.keystore-password";
-
     private final Server server;
 
     static {
@@ -110,9 +100,9 @@ public final class S3Proxy {
                 Constants.PROPERTY_CREDENTIAL);
         String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
         String s3ProxyEndpointString = properties.getProperty(
-                PROPERTY_S3PROXY_ENDPOINT);
+                S3ProxyConstants.PROPERTY_ENDPOINT);
         String s3ProxyAuthorization = properties.getProperty(
-                PROPERTY_S3PROXY_AUTHORIZATION);
+                S3ProxyConstants.PROPERTY_AUTHORIZATION);
         if (provider == null || identity == null || credential == null
                 || s3ProxyEndpointString == null
                 || s3ProxyAuthorization == null) {
@@ -120,38 +110,41 @@ public final class S3Proxy {
                     Constants.PROPERTY_PROVIDER + "\n" +
                     Constants.PROPERTY_IDENTITY + "\n" +
                     Constants.PROPERTY_CREDENTIAL + "\n" +
-                    PROPERTY_S3PROXY_ENDPOINT + "\n" +
-                    PROPERTY_S3PROXY_AUTHORIZATION);
+                    S3ProxyConstants.PROPERTY_ENDPOINT + "\n" +
+                    S3ProxyConstants.PROPERTY_AUTHORIZATION);
             System.exit(1);
         }
 
         String localIdentity = null;
         String localCredential = null;
         if (s3ProxyAuthorization.equalsIgnoreCase("aws-v2")) {
-            localIdentity = properties.getProperty(PROPERTY_S3PROXY_IDENTITY);
+            localIdentity = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_IDENTITY);
             localCredential = properties.getProperty(
-                    PROPERTY_S3PROXY_CREDENTIAL);
+                    S3ProxyConstants.PROPERTY_CREDENTIAL);
             if (localIdentity == null || localCredential == null) {
-                System.err.println("Both " + PROPERTY_S3PROXY_IDENTITY +
-                        " and " + PROPERTY_S3PROXY_CREDENTIAL +
+                System.err.println(
+                        "Both " + S3ProxyConstants.PROPERTY_IDENTITY +
+                        " and " + S3ProxyConstants.PROPERTY_CREDENTIAL +
                         " must be set");
                 System.exit(1);
             }
         } else if (!s3ProxyAuthorization.equalsIgnoreCase("none")) {
-            System.err.println(PROPERTY_S3PROXY_AUTHORIZATION +
+            System.err.println(S3ProxyConstants.PROPERTY_AUTHORIZATION +
                     " must be aws-v2 or none, was: " + s3ProxyAuthorization);
             System.exit(1);
         }
 
         String keyStorePath = properties.getProperty(
-                PROPERTY_S3PROXY_KEYSTORE_PATH);
+                S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = properties.getProperty(
-                PROPERTY_S3PROXY_KEYSTORE_PASSWORD);
+                S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         if (s3ProxyEndpointString.startsWith("https")) {
             if (Strings.isNullOrEmpty(keyStorePath) ||
                     Strings.isNullOrEmpty(keyStorePassword)) {
-                System.err.println("Both " + PROPERTY_S3PROXY_KEYSTORE_PATH +
-                        " and " + PROPERTY_S3PROXY_KEYSTORE_PASSWORD +
+                System.err.println(
+                        "Both " + S3ProxyConstants.PROPERTY_KEYSTORE_PATH +
+                        " and " + S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD +
                         " must be set with an HTTP endpoint");
                 System.exit(1);
             }

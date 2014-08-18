@@ -71,15 +71,15 @@ public final class S3ProxyTest {
         String endpoint = s3ProxyProperties.getProperty(
                 Constants.PROPERTY_ENDPOINT);
         String s3Identity = s3ProxyProperties.getProperty(
-                S3Proxy.PROPERTY_S3PROXY_IDENTITY);
+                S3ProxyConstants.PROPERTY_IDENTITY);
         String s3Credential = s3ProxyProperties.getProperty(
-                S3Proxy.PROPERTY_S3PROXY_CREDENTIAL);
+                S3ProxyConstants.PROPERTY_CREDENTIAL);
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
-                S3Proxy.PROPERTY_S3PROXY_ENDPOINT));
+                S3ProxyConstants.PROPERTY_ENDPOINT));
         String keyStorePath = s3ProxyProperties.getProperty(
-                S3Proxy.PROPERTY_S3PROXY_KEYSTORE_PATH);
+                S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
-                S3Proxy.PROPERTY_S3PROXY_KEYSTORE_PASSWORD);
+                S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
 
         Properties properties = new Properties();
         properties.setProperty(Constants.PROPERTY_ENDPOINT,
