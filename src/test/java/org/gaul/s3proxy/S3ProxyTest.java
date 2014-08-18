@@ -127,6 +127,7 @@ public final class S3ProxyTest {
             s3Context.close();
         }
         if (context != null) {
+            context.getBlobStore().deleteContainer(containerName);
             context.close();
         }
     }
