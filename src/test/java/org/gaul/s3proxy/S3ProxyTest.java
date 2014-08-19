@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.Properties;
+import java.util.Random;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -57,7 +58,7 @@ public final class S3ProxyTest {
     private BlobStoreContext context;
     private BlobStoreContext s3Context;
     private BlobStore s3BlobStore;
-    private static final String containerName = "container";
+    private String containerName;
 
     @Before
     public void setUp() throws Exception {
@@ -99,6 +100,7 @@ public final class S3ProxyTest {
         }
         context = builder.build(BlobStoreContext.class);
         BlobStore blobStore = context.getBlobStore();
+        containerName = createRandomContainerName();
         blobStore.createContainerInLocation(null, containerName);
 
         Properties s3Properties = new Properties();
@@ -155,21 +157,27 @@ public final class S3ProxyTest {
         for (StorageMetadata metadata : s3BlobStore.list()) {
             builder.add(metadata.getName());
         }
-        assertThat(builder.build()).containsOnly(containerName);
+        assertThat(builder.build()).contains(containerName);
     }
 
     @Test
     public void testContainerExists() throws Exception {
-        assertThat(s3BlobStore.containerExists("fakecontainer")).isFalse();
         assertThat(s3BlobStore.containerExists(containerName)).isTrue();
+        assertThat(s3BlobStore.containerExists(createRandomContainerName()))
+                .isFalse();
     }
 
     @Test
-    public void testContainerCreate() throws Exception {
+    public void testContainerCreateDelete() throws Exception {
+        String containerName2 = createRandomContainerName();
         assertThat(s3BlobStore.createContainerInLocation(null,
-                "newcontainer")).isTrue();
-        assertThat(s3BlobStore.createContainerInLocation(null,
-                "newcontainer")).isFalse();
+                containerName2)).isTrue();
+        try {
+            assertThat(s3BlobStore.createContainerInLocation(null,
+                    containerName2)).isFalse();
+        } finally {
+            s3BlobStore.deleteContainer(containerName2);
+        }
     }
 
     @Test
@@ -318,5 +326,9 @@ public final class S3ProxyTest {
         HttpResponse getResponse = httpClient.invoke(getRequest);
         assertThat(getResponse.getStatusCode())
                 .isEqualTo(HttpServletResponse.SC_OK);
+    }
+
+    private static String createRandomContainerName() {
+        return "s3proxy-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 }
