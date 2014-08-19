@@ -450,7 +450,16 @@ final class S3ProxyHandler extends AbstractHandler {
                 String eTag = metadata.getETag();
                 if (eTag != null) {
                     writer.write("    <ETag>&quot;");
-                    writer.write(metadata.getETag());
+                    if (eTag.startsWith("0x")) {
+                        // Azure returns Etag as 0x8D1895E13DF8EF1 but S3
+                        // expects "8d1895e13df8ef1" with zero-padding.
+                        eTag = eTag.substring(2).toLowerCase();
+                        if (eTag.length() < 16) {
+                            writer.write(Strings.repeat("0", 16 -
+                                    eTag.length()));
+                        }
+                    }
+                    writer.write(eTag);
                     writer.write("&quot;</ETag>\r\n");
                 }
                 writer.write(
