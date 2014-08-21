@@ -68,6 +68,7 @@ import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
+import org.jclouds.rest.AuthorizationException;
 import org.jclouds.util.Strings2;
 import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
@@ -318,9 +319,10 @@ final class S3ProxyHandler extends AbstractHandler {
                     S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     Optional.of("  <BucketName>" + containerName +
                             "</BucketName>\r\n"));
-        } catch (RuntimeException re) {
-            logger.error("Error creating container: {}", re.getMessage());
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        } catch (AuthorizationException ae) {
+            sendSimpleErrorResponse(response,
+                    S3ErrorCode.BUCKET_ALREADY_EXISTS);
+            return;
         }
     }
 

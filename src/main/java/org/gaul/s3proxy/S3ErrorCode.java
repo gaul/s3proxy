@@ -26,6 +26,10 @@ import com.google.common.base.Preconditions;
  * http://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
  */
 enum S3ErrorCode {
+    BUCKET_ALREADY_EXISTS(HttpServletResponse.SC_FORBIDDEN,
+            "The requested bucket name is not available." +
+            " The bucket namespace is shared by all users of the system." +
+            " Please select a different name and try again."),
     BUCKET_ALREADY_OWNED_BY_YOU(HttpServletResponse.SC_CONFLICT,
             "Your previous request to create the named bucket" +
             " succeeded and you already own it."),
