@@ -30,6 +30,7 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -119,6 +120,28 @@ final class S3ProxyHandler extends AbstractHandler {
                 logger.trace("header: {}: {}", headerName,
                         Strings.nullToEmpty(headerValue));
             }
+        }
+
+        long date;
+        try {
+            date = request.getDateHeader(HttpHeaders.DATE);
+        } catch (IllegalArgumentException iae) {
+            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+            baseRequest.setHandled(true);
+            return;
+        }
+        if (date < 0) {
+            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+            baseRequest.setHandled(true);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now + TimeUnit.DAYS.toMillis(1) < date ||
+                now - TimeUnit.DAYS.toMillis(1) > date) {
+            sendSimpleErrorResponse(response,
+                    S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
+            baseRequest.setHandled(true);
+            return;
         }
 
         if (identity != null) {

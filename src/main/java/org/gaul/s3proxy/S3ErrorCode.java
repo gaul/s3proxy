@@ -26,6 +26,7 @@ import com.google.common.base.Preconditions;
  * http://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
  */
 enum S3ErrorCode {
+    ACCESS_DENIED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     BUCKET_ALREADY_EXISTS(HttpServletResponse.SC_FORBIDDEN,
             "The requested bucket name is not available." +
             " The bucket namespace is shared by all users of the system." +
@@ -48,6 +49,7 @@ enum S3ErrorCode {
             "Length Required"),
     NO_SUCH_BUCKET(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     NO_SUCH_KEY(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
+    REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden");
 
