@@ -368,7 +368,7 @@ final class S3ProxyHandler extends AbstractHandler {
         try {
             set = blobStore.list(containerName, options);
         } catch (ContainerNotFoundException cnfe) {
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
         }
 
@@ -478,18 +478,23 @@ final class S3ProxyHandler extends AbstractHandler {
         try {
             blobStore.removeBlob(containerName, blobName);
             response.sendError(HttpServletResponse.SC_NO_CONTENT);
-        } catch (RuntimeException re) {
-            logger.error("Error removing blob {} {}: {}", containerName,
-                    blobName, re.getMessage());
-            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        } catch (ContainerNotFoundException cnfe) {
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
+            return;
         }
     }
 
     private void handleBlobMetadata(HttpServletResponse response,
             String containerName, String blobName) {
-        BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
+        BlobMetadata metadata;
+        try {
+            metadata = blobStore.blobMetadata(containerName, blobName);
+        } catch (ContainerNotFoundException cnfe) {
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
+            return;
+        }
         if (metadata == null) {
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
             return;
         }
 
