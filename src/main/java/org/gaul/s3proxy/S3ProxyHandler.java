@@ -131,8 +131,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (!expectedAuthorization.equals(headerAuthorization) &&
                     !expectedAuthorization.equals(queryStringAuthorization)) {
                 sendSimpleErrorResponse(response,
-                        HttpServletResponse.SC_FORBIDDEN,
-                        "SignatureDoesNotMatch", "Forbidden");
+                        S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -267,9 +266,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleContainerExists(HttpServletResponse response,
             String containerName) {
         if (!blobStore.containerExists(containerName)) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
-                    "Not Found");
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
         }
     }
@@ -278,15 +275,11 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, String containerName)
             throws IOException {
         if (containerName.isEmpty()) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED,
-                    "MethodNotAllowed", "Method Not Allowed");
+            sendSimpleErrorResponse(response, S3ErrorCode.METHOD_NOT_ALLOWED);
             return;
         }
         if (containerName.length() < 3 || containerName.length() > 255) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_BAD_REQUEST,
-                    "InvalidBucketName", "Bad Request");
+            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_BUCKET_NAME);
             return;
         }
 
@@ -304,11 +297,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
             if (location == null) {
                 sendSimpleErrorResponse(response,
-                        HttpServletResponse.SC_BAD_REQUEST,
-                        "InvalidLocationConstraint",
-                        "The specified location constraint is not valid. For" +
-                        " more information about Regions, see How to Select" +
-                        " a Region for Your Buckets.");
+                        S3ErrorCode.INVALID_LOCATION_CONSTRAINT);
                 return;
             }
         }
@@ -325,10 +314,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     options)) {
                 return;
             }
-            sendSimpleErrorResponse(response, HttpServletResponse.SC_CONFLICT,
-                    "BucketAlreadyOwnedByYou",
-                    "Your previous request to create the named bucket" +
-                    " succeeded and you already own it.",
+            sendSimpleErrorResponse(response,
+                    S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     Optional.of("  <BucketName>" + containerName +
                             "</BucketName>\r\n"));
         } catch (RuntimeException re) {
@@ -340,15 +327,11 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleContainerDelete(HttpServletResponse response,
             String containerName) {
         if (!blobStore.containerExists(containerName)) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
-                    "Not Found");
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
         }
         if (!blobStore.deleteContainerIfEmpty(containerName)) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_CONFLICT, "BucketNotEmpty",
-                    "Conflict");
+            sendSimpleErrorResponse(response, S3ErrorCode.BUCKET_NOT_EMPTY);
             return;
         }
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -375,9 +358,7 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 maxKeys = Integer.parseInt(maxKeysString);
             } catch (NumberFormatException nfe) {
-                sendSimpleErrorResponse(response,
-                        HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
-                        "Bad Request");
+                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
                 return;
             }
         }
@@ -542,15 +523,11 @@ final class S3ProxyHandler extends AbstractHandler {
         try {
             blob = blobStore.getBlob(containerName, blobName, options);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
-                    "Not Found");
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
         }
         if (blob == null) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_NOT_FOUND, "NoSuchKey",
-                    "Not Found");
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
             return;
         }
 
@@ -595,17 +572,13 @@ final class S3ProxyHandler extends AbstractHandler {
         if (sourceContainerName.equals(destContainerName) &&
                 sourceBlobName.equals(destBlobName) &&
                 !replaceMetadata) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_BAD_REQUEST, "InvalidRequest",
-                    "Bad Request");
+            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_REQUEST);
             return;
         }
 
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
         if (blob == null) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_NOT_FOUND, "NoSuchKey",
-                    "Not Found");
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
             return;
         }
 
@@ -683,17 +656,14 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
             if (!validDigest) {
-                sendSimpleErrorResponse(response,
-                        HttpServletResponse.SC_BAD_REQUEST, "InvalidDigest",
-                        "Bad Request");
+                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
                 return;
             }
         }
 
         if (!hasContentLength) {
             sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_LENGTH_REQUIRED,
-                    "MissingContentLength", "Length Required");
+                    S3ErrorCode.MISSING_CONTENT_LENGTH);
             return;
         }
         long contentLength = 0;
@@ -710,9 +680,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
         if (!validContentLength || contentLength < 0) {
-            sendSimpleErrorResponse(response,
-                    HttpServletResponse.SC_BAD_REQUEST, "InvalidArgument",
-                    "Invalid Argument");
+            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
             return;
         }
 
@@ -743,15 +711,13 @@ final class S3ProxyHandler extends AbstractHandler {
                         options);
                 response.addHeader(HttpHeaders.ETAG, "\"" + eTag + "\"");
             } catch (ContainerNotFoundException cnfe) {
-                sendSimpleErrorResponse(response,
-                        HttpServletResponse.SC_NOT_FOUND, "NoSuchBucket",
-                        "Not Found");
+                sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
                 return;
             } catch (HttpResponseException hre) {
                 int status = hre.getResponse().getStatusCode();
                 if (status == HttpServletResponse.SC_BAD_REQUEST) {
-                    sendSimpleErrorResponse(response, status, "InvalidDigest",
-                            "Bad Request");
+                    sendSimpleErrorResponse(response,
+                            S3ErrorCode.INVALID_DIGEST);
                 } else {
                     // TODO: emit hre.getContent() ?
                     response.sendError(status);
@@ -761,8 +727,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 if (Throwables2.getFirstThrowableOfType(re,
                         TimeoutException.class) != null) {
                     sendSimpleErrorResponse(response,
-                            HttpServletResponse.SC_BAD_REQUEST,
-                            "RequestTimeout", "Bad Request");
+                            S3ErrorCode.REQUEST_TIMEOUT);
                     return;
                 } else {
                     throw re;
@@ -807,23 +772,22 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private static void sendSimpleErrorResponse(HttpServletResponse response,
-            int status, String code, String message) {
-        sendSimpleErrorResponse(response, status, code, message,
-                Optional.<String>absent());
+            S3ErrorCode code) {
+        sendSimpleErrorResponse(response, code, Optional.<String>absent());
     }
 
     private static void sendSimpleErrorResponse(HttpServletResponse response,
-            int status, String code, String message, Optional<String> extra) {
-        logger.debug("{} {} {} {}", status, code, message, extra);
+            S3ErrorCode code, Optional<String> extra) {
+        logger.debug("{} {}", code, extra);
         try (Writer writer = response.getWriter()) {
-            response.setStatus(status);
+            response.setStatus(code.getHttpStatusCode());
             writer.write(XML_PROLOG +
                     "<Error>\r\n" +
                     "  <Code>");
-            writer.write(code);
+            writer.write(code.getErrorCode());
             writer.write("</Code>\r\n" +
                     "  <Message>");
-            writer.write(message);
+            writer.write(code.getMessage());
             writer.write("</Message>\r\n");
             if (extra.isPresent()) {
                 writer.write(extra.get());
