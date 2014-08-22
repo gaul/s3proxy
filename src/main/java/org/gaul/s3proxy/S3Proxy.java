@@ -87,7 +87,11 @@ public final class S3Proxy {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 2) {
+        if (args.length == 1 && args[0].equals("--version")) {
+            System.err.println(
+                    S3Proxy.class.getPackage().getImplementationVersion());
+            System.exit(0);
+        } else if (args.length != 2) {
             System.err.println("Usage: s3proxy --properties FILE");
             System.exit(1);
         }
