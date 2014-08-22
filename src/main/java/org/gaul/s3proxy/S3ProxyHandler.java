@@ -257,7 +257,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     "      <Permission>FULL_CONTROL</Permission>\r\n" +
                     "    </Grant>\r\n" +
                     "  </AccessControlList>\r\n" +
-                    "</AccessControlPolicy>\r\n");
+                    "</AccessControlPolicy>");
             writer.flush();
         }
     }
@@ -662,7 +662,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 writer.write("  <ETag>&quot;");
                 writer.write(eTag);
                 writer.write("&quot;</ETag>\r\n");
-                writer.write("</CopyObjectResult>\r\n");
+                writer.write("</CopyObjectResult>");
             }
         }
     }
@@ -841,7 +841,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
             writer.write("  <RequestId>" + FAKE_REQUEST_ID +
                     "</RequestId>\r\n" +
-                    "</Error>\r\n");
+                    "</Error>");
             writer.flush();
         }
     }
