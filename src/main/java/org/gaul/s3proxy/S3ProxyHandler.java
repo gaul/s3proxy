@@ -766,12 +766,16 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } catch (HttpResponseException hre) {
                 int status = hre.getResponse().getStatusCode();
-                if (status == HttpServletResponse.SC_BAD_REQUEST) {
+                switch (status) {
+                case HttpServletResponse.SC_BAD_REQUEST:
+                case 422:  // Swift returns 422 Unprocessable Entity
                     sendSimpleErrorResponse(response,
                             S3ErrorCode.INVALID_DIGEST);
-                } else {
+                    break;
+                default:
                     // TODO: emit hre.getContent() ?
                     response.sendError(status);
+                    break;
                 }
                 return;
             } catch (RuntimeException re) {
