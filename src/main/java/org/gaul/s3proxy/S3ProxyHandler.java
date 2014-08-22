@@ -760,7 +760,11 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 String eTag = blobStore.putBlob(containerName, builder.build(),
                         options);
-                response.addHeader(HttpHeaders.ETAG, "\"" + eTag + "\"");
+                // S3 quotes ETag while Swift does not
+                if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+                    eTag = '"' + eTag + '"';
+                }
+                response.addHeader(HttpHeaders.ETAG, eTag);
             } catch (ContainerNotFoundException cnfe) {
                 sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
                 return;
