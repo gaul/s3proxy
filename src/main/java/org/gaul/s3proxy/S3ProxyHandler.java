@@ -240,7 +240,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleContainerAcl(HttpServletResponse response,
-            String containerName) {
+            String containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
             writer.write("<AccessControlPolicy>\r\n" +
                     "  <Owner>\r\n" +
@@ -259,12 +259,11 @@ final class S3ProxyHandler extends AbstractHandler {
                     "  </AccessControlList>\r\n" +
                     "</AccessControlPolicy>\r\n");
             writer.flush();
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}", ioe.getMessage());
         }
     }
 
-    private void handleContainerList(HttpServletResponse response) {
+    private void handleContainerList(HttpServletResponse response)
+            throws IOException {
         try (Writer writer = response.getWriter()) {
             writer.write(XML_PROLOG +
                     "<ListAllMyBucketsResult " + AWS_XMLNS + ">\r\n" +
@@ -292,13 +291,11 @@ final class S3ProxyHandler extends AbstractHandler {
             writer.write("  </Buckets>\r\n" +
                     "</ListAllMyBucketsResult>");
             writer.flush();
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}", ioe.getMessage());
         }
     }
 
     private void handleContainerExists(HttpServletResponse response,
-            String containerName) {
+            String containerName) throws IOException {
         if (!blobStore.containerExists(containerName)) {
             sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
@@ -360,7 +357,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleContainerDelete(HttpServletResponse response,
-            String containerName) {
+            String containerName) throws IOException {
         if (!blobStore.containerExists(containerName)) {
             sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
@@ -373,7 +370,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleBlobList(HttpServletRequest request,
-            HttpServletResponse response, String containerName) {
+            HttpServletResponse response, String containerName)
+            throws IOException {
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
         if (!(delimiter != null && delimiter.equals("/"))) {
@@ -502,9 +500,6 @@ final class S3ProxyHandler extends AbstractHandler {
 
             writer.write("</ListBucketResult>");
             writer.flush();
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}",
-                    ioe.getMessage());
         }
     }
 
@@ -520,7 +515,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleMultiBlobRemove(HttpServletRequest request,
-            HttpServletResponse response, String containerName) {
+            HttpServletResponse response, String containerName)
+            throws IOException {
         try (Writer writer = response.getWriter()) {
             writer.write(XML_PROLOG);
             writer.write("<DeleteResult " + AWS_XMLNS + ">\r\n");
@@ -537,13 +533,11 @@ final class S3ProxyHandler extends AbstractHandler {
             }
             // TODO: emit error stanza
             writer.write("</DeleteResult>");
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}", ioe.getMessage());
         }
     }
 
     private void handleBlobMetadata(HttpServletResponse response,
-            String containerName, String blobName) {
+            String containerName, String blobName) throws IOException {
         BlobMetadata metadata;
         try {
             metadata = blobStore.blobMetadata(containerName, blobName);
@@ -600,9 +594,6 @@ final class S3ProxyHandler extends AbstractHandler {
              OutputStream os = response.getOutputStream()) {
             ByteStreams.copy(is, os);
             os.flush();
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}", ioe.getMessage());
-            return;
         }
     }
 
@@ -673,9 +664,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 writer.write("&quot;</ETag>\r\n");
                 writer.write("</CopyObjectResult>\r\n");
             }
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}", ioe.getMessage());
-            return;
         }
     }
 
@@ -796,10 +784,6 @@ final class S3ProxyHandler extends AbstractHandler {
                     throw re;
                 }
             }
-        } catch (IOException ioe) {
-            logger.error("Error reading from client: {}", ioe.getMessage());
-            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            return;
         }
     }
 
@@ -835,12 +819,12 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private static void sendSimpleErrorResponse(HttpServletResponse response,
-            S3ErrorCode code) {
+            S3ErrorCode code) throws IOException {
         sendSimpleErrorResponse(response, code, Optional.<String>absent());
     }
 
     private static void sendSimpleErrorResponse(HttpServletResponse response,
-            S3ErrorCode code, Optional<String> extra) {
+            S3ErrorCode code, Optional<String> extra) throws IOException {
         logger.debug("{} {}", code, extra);
         try (Writer writer = response.getWriter()) {
             response.setStatus(code.getHttpStatusCode());
@@ -859,9 +843,6 @@ final class S3ProxyHandler extends AbstractHandler {
                     "</RequestId>\r\n" +
                     "</Error>\r\n");
             writer.flush();
-        } catch (IOException ioe) {
-            logger.error("Error writing to client: {}",
-                    ioe.getMessage());
         }
     }
 
