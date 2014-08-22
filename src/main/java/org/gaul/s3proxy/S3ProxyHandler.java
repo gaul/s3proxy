@@ -81,6 +81,8 @@ final class S3ProxyHandler extends AbstractHandler {
     // Note that this excludes a trailing \r\n which the AWS SDK rejects.
     private static final String XML_PROLOG =
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+    private static final String AWS_XMLNS =
+            "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"";
     // TODO: support configurable metadata prefix
     private static final String USER_METADATA_PREFIX = "x-amz-meta-";
     // TODO: fake owner
@@ -257,7 +259,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleContainerList(HttpServletResponse response) {
         try (Writer writer = response.getWriter()) {
             writer.write(XML_PROLOG +
-                    "<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\r\n" +
+                    "<ListAllMyBucketsResult " + AWS_XMLNS + ">\r\n" +
                     "  <Owner>\r\n" +
                     "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
                     "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME + "</DisplayName>\r\n" +
@@ -400,7 +402,7 @@ final class S3ProxyHandler extends AbstractHandler {
         try (Writer writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             writer.write(XML_PROLOG +
-                    "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\r\n" +
+                    "<ListBucketResult " + AWS_XMLNS + ">\r\n" +
                     "  <Name>");
             writer.write(containerName);
             writer.write("</Name>\r\n");
