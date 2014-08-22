@@ -10,6 +10,7 @@ Features
 --------
 * create, remove, and list buckets (including user-specified regions)
 * put, get, delete, and list objects
+* copy objects and delete multiple objects (emulated operations)
 * store and retrieve object metadata, including user metadata
 * authorization via AWS signature v2 (including pre-signed URLs) or anonymous access
 * listen on HTTP or HTTPS

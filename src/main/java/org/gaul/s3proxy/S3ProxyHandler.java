@@ -92,8 +92,9 @@ final class S3ProxyHandler extends AbstractHandler {
             "CustomersName@amazon.com";
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
     private static final Pattern CREATE_BUCKET_LOCATION_PATTERN =
-            // TODO: non-greedy star .*?
-            Pattern.compile("<LocationConstraint>([^<]*)</LocationConstraint>");
+            Pattern.compile("<LocationConstraint>(.*?)</LocationConstraint>");
+    private static final Pattern MULTI_DELETE_KEY_PATTERN =
+            Pattern.compile("<Key>(.*?)</Key>");
 
     private final BlobStore blobStore;
     private final String identity;
@@ -203,6 +204,13 @@ final class S3ProxyHandler extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             }
+        case "POST":
+            if ("".equals(request.getParameter("delete"))) {
+                handleMultiBlobRemove(request, response, path[1]);
+                baseRequest.setHandled(true);
+                return;
+            }
+            break;
         case "PUT":
             if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
@@ -508,6 +516,29 @@ final class S3ProxyHandler extends AbstractHandler {
         } catch (ContainerNotFoundException cnfe) {
             sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
             return;
+        }
+    }
+
+    private void handleMultiBlobRemove(HttpServletRequest request,
+            HttpServletResponse response, String containerName) {
+        try (Writer writer = response.getWriter()) {
+            writer.write(XML_PROLOG);
+            writer.write("<DeleteResult " + AWS_XMLNS + ">\r\n");
+            // TODO: more robust XML parsing
+            Matcher matcher = MULTI_DELETE_KEY_PATTERN.matcher(
+                    Strings2.toStringAndClose(request.getInputStream()));
+            while (matcher.find()) {
+                String blobName = matcher.group(1);
+                blobStore.removeBlob(containerName, blobName);
+
+                writer.write("<Deleted><Key>");
+                writer.write(blobName);
+                writer.write("</Key></Deleted>\r\n");
+            }
+            // TODO: emit error stanza
+            writer.write("</DeleteResult>");
+        } catch (IOException ioe) {
+            logger.error("Error writing to client: {}", ioe.getMessage());
         }
     }
 
@@ -886,6 +917,8 @@ final class S3ProxyHandler extends AbstractHandler {
         builder.append(request.getRequestURI());
         if ("".equals(request.getParameter("acl"))) {
             builder.append("?acl");
+        } else if ("".equals(request.getParameter("delete"))) {
+            builder.append("?delete");
         }
         String stringToSign = builder.toString();
         logger.trace("stringToSign: {}", stringToSign);
