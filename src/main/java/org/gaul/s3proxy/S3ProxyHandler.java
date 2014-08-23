@@ -780,7 +780,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 case HttpServletResponse.SC_BAD_REQUEST:
                 case 422:  // Swift returns 422 Unprocessable Entity
                     sendSimpleErrorResponse(response,
-                            S3ErrorCode.INVALID_DIGEST);
+                            S3ErrorCode.BAD_DIGEST);
                     break;
                 default:
                     // TODO: emit hre.getContent() ?

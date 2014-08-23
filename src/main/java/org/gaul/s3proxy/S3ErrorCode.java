@@ -27,6 +27,7 @@ import com.google.common.base.Preconditions;
  */
 enum S3ErrorCode {
     ACCESS_DENIED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    BAD_DIGEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     BUCKET_ALREADY_EXISTS(HttpServletResponse.SC_FORBIDDEN,
             "The requested bucket name is not available." +
             " The bucket namespace is shared by all users of the system." +
