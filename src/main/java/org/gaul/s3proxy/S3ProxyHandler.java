@@ -26,7 +26,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -682,9 +681,7 @@ final class S3ProxyHandler extends AbstractHandler {
         boolean hasContentMD5 = false;
         ImmutableMap.Builder<String, String> userMetadata =
                 ImmutableMap.builder();
-        Enumeration<String> enumeration = request.getHeaderNames();
-        while (enumeration.hasMoreElements()) {
-            String headerName = enumeration.nextElement();
+        for (String headerName : Collections.list(request.getHeaderNames())) {
             if (headerName.equals(HttpHeaders.CONTENT_LENGTH)) {
                 hasContentLength = true;
             } else if (headerName.equals(HttpHeaders.CONTENT_MD5)) {
