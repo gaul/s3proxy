@@ -152,6 +152,12 @@ final class S3ProxyHandler extends AbstractHandler {
                     identity, credential);
             String headerAuthorization = request.getHeader(
                     HttpHeaders.AUTHORIZATION);
+            if (headerAuthorization == null) {
+                sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+                baseRequest.setHandled(true);
+                return;
+            }
+
             String queryStringAuthorization = "AWS " +
                     request.getParameter("AWSAccessKeyId") + ":" +
                     request.getParameter("Signature");
