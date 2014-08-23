@@ -38,6 +38,10 @@
       <property name="separated" value="true"/>
       <property name="option" value="top"/>
     </module>
+    <module name="Indentation">
+      <property name="caseIndent" value="0"/>
+      <property name="throwsIndent" value="8"/>
+    </module>
     <module name="InnerAssignment"/>
     <module name="InterfaceIsType"/>
     <module name="JavadocStyle"/>
