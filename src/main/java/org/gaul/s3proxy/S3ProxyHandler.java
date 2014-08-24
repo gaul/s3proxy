@@ -116,34 +116,53 @@ final class S3ProxyHandler extends AbstractHandler {
         String uri = request.getRequestURI();
         String[] path = uri.split("/", 3);
         logger.debug("request: {}", request);
+        boolean hasDateHeader = false;
+        boolean hasXAmzDateHeader = false;
         for (String headerName : Collections.list(request.getHeaderNames())) {
             for (String headerValue : Collections.list(request.getHeaders(
                     headerName))) {
                 logger.trace("header: {}: {}", headerName,
                         Strings.nullToEmpty(headerValue));
             }
+            if (headerName.equalsIgnoreCase(HttpHeaders.DATE)) {
+                hasDateHeader = true;
+            } else if (headerName.equalsIgnoreCase("x-amz-date")) {
+                hasXAmzDateHeader = true;
+            }
         }
 
-        long date;
-        try {
-            date = request.getDateHeader(HttpHeaders.DATE);
-        } catch (IllegalArgumentException iae) {
+        if (!hasDateHeader && !hasXAmzDateHeader &&
+                request.getParameter("Expires") == null) {
             sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
             baseRequest.setHandled(true);
             return;
         }
-        if (date < 0) {
-            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
-            baseRequest.setHandled(true);
-            return;
-        }
-        long now = System.currentTimeMillis();
-        if (now + TimeUnit.DAYS.toMillis(1) < date ||
-                now - TimeUnit.DAYS.toMillis(1) > date) {
-            sendSimpleErrorResponse(response,
-                    S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
-            baseRequest.setHandled(true);
-            return;
+
+        // TODO: apply sanity checks to X-Amz-Date
+        if (hasDateHeader) {
+            long date;
+            try {
+                date = request.getDateHeader(HttpHeaders.DATE);
+            } catch (IllegalArgumentException iae) {
+                sendSimpleErrorResponse(response,
+                        S3ErrorCode.ACCESS_DENIED);
+                baseRequest.setHandled(true);
+                return;
+            }
+            if (date < 0) {
+                sendSimpleErrorResponse(response,
+                        S3ErrorCode.ACCESS_DENIED);
+                baseRequest.setHandled(true);
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now + TimeUnit.DAYS.toMillis(1) < date ||
+                    now - TimeUnit.DAYS.toMillis(1) > date) {
+                sendSimpleErrorResponse(response,
+                        S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
+                baseRequest.setHandled(true);
+                return;
+            }
         }
 
         if (identity != null) {
