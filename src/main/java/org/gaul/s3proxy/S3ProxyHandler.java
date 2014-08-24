@@ -233,6 +233,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
+                if ("".equals(request.getParameter("acl"))) {
+                    response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+                    baseRequest.setHandled(true);
+                    return;
+                }
                 handleGetBlob(request, response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
@@ -269,6 +274,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
+                if ("".equals(request.getParameter("acl"))) {
+                    response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+                    baseRequest.setHandled(true);
+                    return;
+                }
                 handlePutBlob(request, response, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
