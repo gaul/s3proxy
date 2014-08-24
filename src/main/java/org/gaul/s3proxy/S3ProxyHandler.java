@@ -26,9 +26,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
@@ -497,7 +497,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 writer.write("  <IsTruncated>false</IsTruncated>\r\n");
             }
 
-            Set<String> commonPrefixes = new HashSet<>();
+            Set<String> commonPrefixes = new TreeSet<>();
             for (StorageMetadata metadata : set) {
                 if (metadata.getType() != StorageType.BLOB) {
                     commonPrefixes.add(metadata.getName());
