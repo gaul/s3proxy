@@ -151,19 +151,38 @@ final class S3ProxyHandler extends AbstractHandler {
                     identity, credential);
             String headerAuthorization = request.getHeader(
                     HttpHeaders.AUTHORIZATION);
-            if (headerAuthorization == null) {
-                sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
-                baseRequest.setHandled(true);
-                return;
-            }
+            String parameterSignature = request.getParameter("Signature");
+            if (headerAuthorization != null) {
+                if (!expectedAuthorization.equals(headerAuthorization)) {
+                    sendSimpleErrorResponse(response,
+                            S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
+                    baseRequest.setHandled(true);
+                    return;
+                }
+            } else if (parameterSignature != null) {
+                String queryStringAuthorization = "AWS " +
+                        request.getParameter("AWSAccessKeyId") + ":" +
+                        parameterSignature;
+                if (!expectedAuthorization.equals(queryStringAuthorization)) {
+                    sendSimpleErrorResponse(response,
+                            S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
+                    baseRequest.setHandled(true);
+                    return;
+                }
 
-            String queryStringAuthorization = "AWS " +
-                    request.getParameter("AWSAccessKeyId") + ":" +
-                    request.getParameter("Signature");
-            if (!expectedAuthorization.equals(headerAuthorization) &&
-                    !expectedAuthorization.equals(queryStringAuthorization)) {
-                sendSimpleErrorResponse(response,
-                        S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
+                String expiresString = request.getParameter("Expires");
+                if (expiresString != null) {
+                    long expires = Long.parseLong(expiresString);
+                    long nowSeconds = System.currentTimeMillis() / 1000;
+                    if (nowSeconds > expires) {
+                        sendSimpleErrorResponse(response,
+                                S3ErrorCode.ACCESS_DENIED);
+                        baseRequest.setHandled(true);
+                        return;
+                    }
+                }
+            } else {
+                sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
                 baseRequest.setHandled(true);
                 return;
             }
