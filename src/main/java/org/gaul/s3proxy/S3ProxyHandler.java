@@ -166,23 +166,40 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         if (identity != null) {
-            String expectedAuthorization = createAuthorizationHeader(request,
+            String expectedSignature = createAuthorizationSignature(request,
                     identity, credential);
             String headerAuthorization = request.getHeader(
                     HttpHeaders.AUTHORIZATION);
+            String headerIdentity = null;
+            String headerSignature = null;
+            if (headerAuthorization != null &&
+                    headerAuthorization.startsWith("AWS ")) {
+                String[] values =
+                        headerAuthorization.substring(4).split(":", 2);
+                if (values.length != 2) {
+                    sendSimpleErrorResponse(response,
+                            S3ErrorCode.INVALID_ARGUMENT);
+                    baseRequest.setHandled(true);
+                    return;
+                }
+                headerIdentity = values[0];
+                headerSignature = values[1];
+            }
+            String parameterIdentity = request.getParameter("AWSAccessKeyId");
             String parameterSignature = request.getParameter("Signature");
-            if (headerAuthorization != null) {
-                if (!expectedAuthorization.equals(headerAuthorization)) {
+
+            if (headerIdentity != null && headerSignature != null) {
+                if (!identity.equals(headerIdentity) ||
+                        !expectedSignature.equals(headerSignature)) {
                     sendSimpleErrorResponse(response,
                             S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                     baseRequest.setHandled(true);
                     return;
                 }
-            } else if (parameterSignature != null) {
-                String queryStringAuthorization = "AWS " +
-                        request.getParameter("AWSAccessKeyId") + ":" +
-                        parameterSignature;
-                if (!expectedAuthorization.equals(queryStringAuthorization)) {
+            } else if (parameterIdentity != null &&
+                    parameterSignature != null) {
+                if (!identity.equals(parameterIdentity) ||
+                        !expectedSignature.equals(parameterSignature)) {
                     sendSimpleErrorResponse(response,
                             S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                     baseRequest.setHandled(true);
@@ -906,11 +923,11 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     /**
-     * Create Amazon V2 authorization header.  Reference:
+     * Create Amazon V2 signature.  Reference:
      * http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html
      */
-    private static String createAuthorizationHeader(HttpServletRequest request,
-            String identity, String credential) {
+    private static String createAuthorizationSignature(
+            HttpServletRequest request, String identity, String credential) {
         // sort Amazon headers
         SortedSetMultimap<String, String> canonicalizedHeaders =
                 TreeMultimap.create();
@@ -972,9 +989,7 @@ final class S3ProxyHandler extends AbstractHandler {
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
             throw Throwables.propagate(e);
         }
-        String signature = BaseEncoding.base64().encode(mac.doFinal(
+        return BaseEncoding.base64().encode(mac.doFinal(
                 stringToSign.getBytes(StandardCharsets.UTF_8)));
-
-        return "AWS" + " " + identity + ":" + signature;
     }
 }
