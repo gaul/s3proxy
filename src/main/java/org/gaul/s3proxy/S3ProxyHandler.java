@@ -99,13 +99,15 @@ final class S3ProxyHandler extends AbstractHandler {
     private final String identity;
     private final String credential;
     private final boolean forceMultiPartUpload;
+    private final Optional<String> virtualHost;
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
-            boolean forceMultiPartUpload) {
+            boolean forceMultiPartUpload, Optional<String> virtualHost) {
         this.blobStore = Preconditions.checkNotNull(blobStore);
         this.identity = identity;
         this.credential = credential;
         this.forceMultiPartUpload = forceMultiPartUpload;
+        this.virtualHost = Preconditions.checkNotNull(virtualHost);
     }
 
     @Override
@@ -114,8 +116,17 @@ final class S3ProxyHandler extends AbstractHandler {
             throws IOException {
         String method = request.getMethod();
         String uri = request.getRequestURI();
-        String[] path = uri.split("/", 3);
         logger.debug("request: {}", request);
+        String hostHeader = request.getHeader(HttpHeaders.HOST);
+        if (hostHeader != null && virtualHost.isPresent()) {
+            String virtualHostSuffix = "." + virtualHost.get();
+            if (hostHeader.endsWith(virtualHostSuffix)) {
+                String bucket = hostHeader.substring(0,
+                        hostHeader.length() - virtualHostSuffix.length());
+                uri = "/" + bucket + uri;
+            }
+        }
+
         boolean hasDateHeader = false;
         boolean hasXAmzDateHeader = false;
         for (String headerName : Collections.list(request.getHeaderNames())) {
@@ -167,7 +178,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         if (identity != null) {
             String expectedSignature = createAuthorizationSignature(request,
-                    identity, credential);
+                    uri, identity, credential);
             String headerAuthorization = request.getHeader(
                     HttpHeaders.AUTHORIZATION);
             String headerIdentity = null;
@@ -224,6 +235,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
+        String[] path = uri.split("/", 3);
         switch (method) {
         case "DELETE":
             if (path.length <= 2 || path[2].isEmpty()) {
@@ -927,7 +939,8 @@ final class S3ProxyHandler extends AbstractHandler {
      * http://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html
      */
     private static String createAuthorizationSignature(
-            HttpServletRequest request, String identity, String credential) {
+            HttpServletRequest request, String uri, String identity,
+            String credential) {
         // sort Amazon headers
         SortedSetMultimap<String, String> canonicalizedHeaders =
                 TreeMultimap.create();
@@ -971,7 +984,7 @@ final class S3ProxyHandler extends AbstractHandler {
             builder.append(entry.getKey()).append(':')
                     .append(entry.getValue()).append('\n');
         }
-        builder.append(request.getRequestURI());
+        builder.append(uri);
         if ("".equals(request.getParameter("acl"))) {
             builder.append("?acl");
         } else if ("".equals(request.getParameter("delete"))) {

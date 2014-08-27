@@ -32,6 +32,14 @@ public final class S3ProxyConstants {
     /** Force all proxy-server put objects to use multi-part upload. */
     public static final String PROPERTY_FORCE_MULTI_PART_UPLOAD =
             "s3proxy.force-multi-part-upload";
+    /**
+     * Configure servicing of virtual host buckets.  Setting to localhost:8080
+     * allows bucket-in-hostname requests, e.g., bucketname.localhost:8080.
+     * This mode requires configuring DNS to forward all requests to the
+     * S3Proxy host.
+     */
+    public static final String PROPERTY_VIRTUAL_HOST =
+            "s3proxy.virtual-host";
 
     private S3ProxyConstants() {
         throw new AssertionError("Cannot instantiate utility constructor");

@@ -25,6 +25,7 @@ import java.util.Random;
 
 import javax.servlet.http.HttpServletResponse;
 
+import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -88,6 +89,9 @@ public final class S3ProxyTest {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String forceMultiPartUpload = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
+        Optional<String> virtualHost = Optional.fromNullable(
+                s3ProxyProperties.getProperty(
+                        S3ProxyConstants.PROPERTY_VIRTUAL_HOST));
 
         Properties properties = new Properties();
         ContextBuilder builder = ContextBuilder
@@ -116,7 +120,7 @@ public final class S3ProxyTest {
         s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential,
                 Resources.getResource(keyStorePath).toString(),
                 keyStorePassword,
-                "true".equalsIgnoreCase(forceMultiPartUpload));
+                "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
         s3Proxy.start();
     }
 

@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.Properties;
 
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
@@ -51,7 +52,7 @@ public final class S3Proxy {
 
     S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
-            boolean forceMultiPartUpload) {
+            boolean forceMultiPartUpload, Optional<String> virtualHost) {
         Preconditions.checkNotNull(blobStore);
         Preconditions.checkNotNull(endpoint);
         // TODO: allow service paths?
@@ -75,7 +76,7 @@ public final class S3Proxy {
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
         server.setHandler(new S3ProxyHandler(blobStore, identity, credential,
-                forceMultiPartUpload));
+                forceMultiPartUpload, virtualHost));
     }
 
     public void start() throws Exception {
@@ -158,6 +159,9 @@ public final class S3Proxy {
 
         String forceMultiPartUpload = properties.getProperty(
                 S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
+        Optional<String> virtualHost = Optional.fromNullable(
+                properties.getProperty(
+                        S3ProxyConstants.PROPERTY_VIRTUAL_HOST));
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
@@ -171,7 +175,7 @@ public final class S3Proxy {
         S3Proxy s3Proxy = new S3Proxy(context.getBlobStore(), s3ProxyEndpoint,
                 localIdentity, localCredential, keyStorePath,
                 keyStorePassword,
-                "true".equalsIgnoreCase(forceMultiPartUpload));
+                "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
         s3Proxy.start();
     }
 }
