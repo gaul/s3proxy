@@ -29,23 +29,43 @@ import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
+import org.kohsuke.args4j.Option;
 
 public final class Main {
     private Main() {
         throw new AssertionError("intentionally not implemented");
     }
 
+    private static final class Options {
+        @Option(name = "--properties",
+                usage = "S3Proxy configuration (required)")
+        private File propertiesFile;
+
+        @Option(name = "--version", usage = "display version")
+        private boolean version;
+    }
+
     public static void main(String[] args) throws Exception {
-        if (args.length == 1 && args[0].equals("--version")) {
+        Options options = new Options();
+        CmdLineParser parser = new CmdLineParser(options);
+        try {
+            parser.parseArgument(args);
+        } catch (CmdLineException cle) {
+            usage(parser);
+        }
+
+        if (options.version) {
             System.err.println(
                     Main.class.getPackage().getImplementationVersion());
             System.exit(0);
-        } else if (args.length != 2) {
-            System.err.println("Usage: s3proxy --properties FILE");
-            System.exit(1);
+        } else if (options.propertiesFile == null) {
+            usage(parser);
         }
+
         Properties properties = new Properties();
-        try (InputStream is = new FileInputStream(new File(args[1]))) {
+        try (InputStream is = new FileInputStream(options.propertiesFile)) {
             properties.load(is);
         }
         properties.putAll(System.getProperties());
@@ -137,5 +157,11 @@ public final class Main {
             System.err.println(e.getMessage());
             System.exit(1);
         }
+    }
+
+    private static void usage(CmdLineParser parser) {
+        System.err.println("Usage: s3proxy [options...]");
+        parser.printUsage(System.err);
+        System.exit(1);
     }
 }
