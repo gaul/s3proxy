@@ -42,10 +42,7 @@
     <module name="InterfaceIsType"/>
     <module name="JavadocStyle"/>
     <module name="LeftCurly"/>
-    <module name="LineLength">
-      <!-- ignore long string literals -->
-      <property name="ignorePattern" value="^ *&quot;.*&quot; \+$"/>
-    </module>
+    <module name="LineLength"/>
     <module name="LocalFinalVariableName"/>
     <module name="LocalVariableName"/>
     <module name="MagicNumber">

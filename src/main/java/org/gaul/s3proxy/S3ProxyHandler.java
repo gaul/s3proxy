@@ -327,14 +327,17 @@ final class S3ProxyHandler extends AbstractHandler {
             writer.write("<AccessControlPolicy>\r\n" +
                     "  <Owner>\r\n" +
                     "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME + "</DisplayName>\r\n" +
+                    "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
+                    "</DisplayName>\r\n" +
                     "  </Owner>\r\n" +
                     "  <AccessControlList>\r\n" +
                     "    <Grant>\r\n" +
-                    "      <Grantee xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\r\n" +
+                    "      <Grantee xmlns:xsi=" +
+                    "\"http://www.w3.org/2001/XMLSchema-instance\"\r\n" +
                     "            xsi:type=\"CanonicalUser\">\r\n" +
                     "        <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "        <DisplayName>" + FAKE_OWNER_DISPLAY_NAME + "</DisplayName>\r\n" +
+                    "        <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
+                    "</DisplayName>\r\n" +
                     "      </Grantee>\r\n" +
                     "      <Permission>FULL_CONTROL</Permission>\r\n" +
                     "    </Grant>\r\n" +
@@ -351,7 +354,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     "<ListAllMyBucketsResult " + AWS_XMLNS + ">\r\n" +
                     "  <Owner>\r\n" +
                     "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME + "</DisplayName>\r\n" +
+                    "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
+                    "</DisplayName>\r\n" +
                     "  </Owner>\r\n" +
                     "  <Buckets>\r\n");
 
@@ -564,7 +568,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     "    <StorageClass>STANDARD</StorageClass>\r\n" +
                     "    <Owner>\r\n" +
                     "      <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "      <DisplayName>" + FAKE_OWNER_DISPLAY_NAME + "</DisplayName>\r\n" +
+                    "      <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
+                    "</DisplayName>\r\n" +
                     "    </Owner>\r\n" +
                     "  </Contents>\r\n");
             }
