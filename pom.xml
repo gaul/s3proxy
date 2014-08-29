@@ -169,7 +169,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jclouds.version>1.8.0</jclouds.version>
+    <jclouds.version>1.8.1</jclouds.version>
     <slf4j.version>1.7.7</slf4j.version>
   </properties>
 
