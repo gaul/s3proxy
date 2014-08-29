@@ -256,7 +256,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else if (uri.lastIndexOf("/") == 0 &&
                     "".equals(request.getParameter("acl"))) {
-                handleContainerAcl(response, uri.substring(1));
+                handleContainerOrBlobAcl(response, uri.substring(1));
                 baseRequest.setHandled(true);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
@@ -265,7 +265,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+                    handleContainerOrBlobAcl(response, uri.substring(1));
                     baseRequest.setHandled(true);
                     return;
                 }
@@ -323,7 +323,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void handleContainerAcl(HttpServletResponse response,
+    private void handleContainerOrBlobAcl(HttpServletResponse response,
             String containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
             writer.write("<AccessControlPolicy>\r\n" +
