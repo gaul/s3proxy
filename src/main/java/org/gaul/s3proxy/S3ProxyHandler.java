@@ -90,6 +90,8 @@ final class S3ProxyHandler extends AbstractHandler {
     private static final String FAKE_OWNER_DISPLAY_NAME =
             "CustomersName@amazon.com";
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
+    private static final Pattern VALID_BUCKET_PATTERN =
+            Pattern.compile("[a-zA-Z0-9._-]+");
     private static final Pattern CREATE_BUCKET_LOCATION_PATTERN =
             Pattern.compile("<LocationConstraint>(.*?)</LocationConstraint>");
     private static final Pattern MULTI_DELETE_KEY_PATTERN =
@@ -395,7 +397,8 @@ final class S3ProxyHandler extends AbstractHandler {
             sendSimpleErrorResponse(response, S3ErrorCode.METHOD_NOT_ALLOWED);
             return;
         }
-        if (containerName.length() < 3 || containerName.length() > 255) {
+        if (containerName.length() < 3 || containerName.length() > 255 ||
+                !VALID_BUCKET_PATTERN.matcher(containerName).matches()) {
             sendSimpleErrorResponse(response, S3ErrorCode.INVALID_BUCKET_NAME);
             return;
         }
