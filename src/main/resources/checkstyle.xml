@@ -3,9 +3,6 @@
 
 <module name="Checker">
   <property name="severity" value="warning"/>
-  <module name="FileLength">
-    <property name="max" value="4000"/>
-  </module>
   <module name="FileTabCharacter"/>
   <module name="JavadocPackage">
     <property name="severity" value="ignore"/>
@@ -56,10 +53,6 @@
     <module name="MemberName">
         <property name="applyToPublic" value="false"/>
     </module>
-    <module name="MethodLength">
-      <property name="max" value="500"/>
-      <property name="countEmpty" value="false"/>
-    </module>
     <module name="MethodName"/>
     <module name="MethodParamPad"/>
     <module name="MissingSwitchDefault"/>
@@ -72,9 +65,6 @@
     <module name="OneStatementPerLine"/>
     <module name="PackageName"/>
     <module name="ParameterName"/>
-    <module name="ParameterNumber">
-        <property name="max" value="12"/>
-    </module>
     <module name="ParenPad"/>
     <module name="RedundantImport"/>
     <module name="RedundantModifier"/>
