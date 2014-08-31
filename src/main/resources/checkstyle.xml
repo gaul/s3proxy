@@ -12,24 +12,37 @@
   <module name="Translation"/>
   <module name="TreeWalker">
     <property name="cacheFile" value="target/cachefile"/>
+    <module name="AbstractClassName"/>
     <module name="ArrayTypeStyle"/>
     <module name="AvoidNestedBlocks"/>
     <module name="AvoidStarImport"/>
+    <module name="AvoidStaticImport">
+      <property name="excludes" value="org.assertj.core.api.Assertions.assertThat"/>
+    </module>
+    <module name="ClassTypeParameterName"/>
+    <module name="CovariantEquals"/>
+    <module name="DeclarationOrder"/>
     <module name="DesignForExtension"/>
     <module name="EmptyBlock">
       <property name="option" value="text"/>
     </module>
+    <module name="EmptyForInitializerPad"/>
     <module name="EmptyForIteratorPad"/>
     <module name="EmptyStatement"/>
     <module name="EqualsHashCode"/>
+    <module name="ExplicitInitialization"/>
+    <module name="FallThrough"/>
     <module name="FinalClass"/>
+    <module name="GenericWhitespace"/>
     <module name="HiddenField">
       <property name="ignoreConstructorParameter" value="true"/>
       <property name="ignoreSetter" value="true"/>
     </module>
     <module name="HideUtilityClassConstructor"/>
     <module name="IllegalImport"/>
-    <module name="IllegalInstantiation"/>
+    <module name="IllegalInstantiation">
+      <property name="classes" value="java.lang.Boolean,java.lang.Short,java.lang.Integer,java.lang.Long"/>
+    </module>
     <module name="ImportOrder">
       <property name="groups" value="java,javax,com,org"/>
       <property name="separated" value="true"/>
@@ -55,17 +68,24 @@
     </module>
     <module name="MethodName"/>
     <module name="MethodParamPad"/>
+    <module name="MethodTypeParameterName"/>
+    <module name="MissingDeprecated"/>
+    <module name="MissingOverride"/>
     <module name="MissingSwitchDefault"/>
     <module name="ModifierOrder"/>
     <module name="MultipleVariableDeclarations"/>
     <module name="MutableException"/>
     <module name="NeedBraces"/>
+    <module name="NoClone"/>
+    <module name="NoFinalizer"/>
     <module name="NoWhitespaceAfter"/>
     <module name="NoWhitespaceBefore"/>
     <module name="OneStatementPerLine"/>
     <module name="OperatorWrap">
       <property name="option" value="eol"/>
     </module>
+    <module name="OuterTypeFilename"/>
+    <module name="PackageDeclaration"/>
     <module name="PackageName"/>
     <module name="ParameterName"/>
     <module name="ParenPad"/>
@@ -78,12 +98,15 @@
     <module name="SimplifyBooleanExpression"/>
     <module name="SimplifyBooleanReturn"/>
     <module name="StaticVariableName"/>
+    <module name="StringLiteralEquality"/>
+    <module name="SuppressWarnings"/>
     <module name="TodoComment">
       <property name="severity" value="ignore"/>
       <metadata name="net.sf.eclipsecs.core.lastEnabledSeverity" value="inherit"/>
     </module>
     <module name="TypecastParenPad"/>
     <module name="TypeName"/>
+    <module name="UnnecessaryParentheses"/>
     <module name="UnusedImports"/>
     <module name="UpperEll"/>
     <module name="VisibilityModifier">
