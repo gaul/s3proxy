@@ -63,6 +63,9 @@
     <module name="NoWhitespaceAfter"/>
     <module name="NoWhitespaceBefore"/>
     <module name="OneStatementPerLine"/>
+    <module name="OperatorWrap">
+      <property name="option" value="eol"/>
+    </module>
     <module name="PackageName"/>
     <module name="ParameterName"/>
     <module name="ParenPad"/>

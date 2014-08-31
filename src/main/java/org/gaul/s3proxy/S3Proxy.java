@@ -110,9 +110,9 @@ public final class S3Proxy {
                 S3ProxyConstants.PROPERTY_ENDPOINT);
         String s3ProxyAuthorization = properties.getProperty(
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
-        if (provider == null || identity == null || credential == null
-                || s3ProxyEndpointString == null
-                || s3ProxyAuthorization == null) {
+        if (provider == null || identity == null || credential == null ||
+                s3ProxyEndpointString == null ||
+                s3ProxyAuthorization == null) {
             System.err.println("Properties file must contain:\n" +
                     Constants.PROPERTY_PROVIDER + "\n" +
                     Constants.PROPERTY_IDENTITY + "\n" +

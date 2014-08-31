@@ -650,9 +650,9 @@ final class S3ProxyHandler extends AbstractHandler {
         int status = HttpServletResponse.SC_OK;
         GetOptions options = new GetOptions();
         String range = request.getHeader(HttpHeaders.RANGE);
-        if (range != null && range.startsWith("bytes=")
+        if (range != null && range.startsWith("bytes=") &&
                 // ignore multiple ranges
-                && range.indexOf(',') == -1) {
+                range.indexOf(',') == -1) {
             range = range.substring("bytes=".length());
             String[] ranges = range.split("-", 2);
             if (ranges[0].isEmpty()) {
