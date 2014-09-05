@@ -25,6 +25,8 @@ import java.util.Properties;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.inject.Module;
 
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
@@ -34,6 +36,7 @@ import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 
 /**
  * S3Proxy translates S3 HTTP operations into jclouds provider-agnostic
@@ -166,6 +169,7 @@ public final class S3Proxy {
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
+                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
                 .overrides(properties);
         if (endpoint != null) {
             builder = builder.endpoint(endpoint);
