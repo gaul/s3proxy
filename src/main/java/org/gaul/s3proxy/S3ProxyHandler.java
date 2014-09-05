@@ -552,6 +552,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
                 String eTag = metadata.getETag();
                 if (eTag != null) {
+                    String id = blobStore.getContext().unwrap()
+                            .getProviderMetadata().getId();
                     writer.write("    <ETag>&quot;");
                     if (eTag.startsWith("0x")) {
                         // Azure returns Etag as 0x8D1895E13DF8EF1 but S3
@@ -561,6 +563,9 @@ final class S3ProxyHandler extends AbstractHandler {
                             writer.write(Strings.repeat("0", 16 -
                                     eTag.length()));
                         }
+                    } else if (id.equals("google-cloud-storage")) {
+                        eTag = BaseEncoding.base16().lowerCase().encode(
+                                BaseEncoding.base64().decode(eTag));
                     }
                     writer.write(eTag);
                     writer.write("&quot;</ETag>\r\n");

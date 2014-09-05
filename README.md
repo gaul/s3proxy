@@ -22,6 +22,7 @@ Supported object stores:
 * azureblob
 * cloudfiles-uk and cloudfiles-us
 * filesystem (on-disk storage)
+* google-cloud-storage
 * hpcloud-objectstorage
 * s3
 * swift and swift-keystone
