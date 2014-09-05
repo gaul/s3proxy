@@ -834,8 +834,11 @@ final class S3ProxyHandler extends AbstractHandler {
                             HttpHeaders.CONTENT_ENCODING))
                     .contentLanguage(request.getHeader(
                             HttpHeaders.CONTENT_LANGUAGE))
-                    .contentLength(request.getContentLength())
-                    .contentType(request.getContentType());
+                    .contentLength(request.getContentLength());
+            String contentType = request.getContentType();
+            if (contentType != null) {
+                builder.contentType(contentType);
+            }
             long expires = request.getDateHeader(HttpHeaders.EXPIRES);
             if (expires != -1) {
                 builder = builder.expires(new Date(expires));
@@ -843,6 +846,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (contentMD5 != null) {
                 builder = builder.contentMD5(contentMD5);
             }
+
             PutOptions options = new PutOptions()
                 .multipart(forceMultiPartUpload);
             try {
