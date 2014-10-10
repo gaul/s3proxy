@@ -103,6 +103,7 @@ public final class S3Proxy {
         try (InputStream is = new FileInputStream(new File(args[1]))) {
             properties.load(is);
         }
+        properties.putAll(System.getProperties());
 
         String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
