@@ -144,7 +144,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        if (!hasDateHeader && !hasXAmzDateHeader &&
+        if (identity != null && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("Expires") == null) {
             sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
             baseRequest.setHandled(true);
