@@ -20,12 +20,13 @@ Supported object stores:
 * atmos
 * aws-s3
 * azureblob
-* cloudfiles-uk and cloudfiles-us
 * filesystem (on-disk storage)
 * google-cloud-storage
 * hpcloud-objectstorage
+* openstack-swift
+* rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3
-* swift and swift-keystone
+* swift and swift-keystone (legacy)
 * transient (in-memory storage)
 
 Installation
@@ -57,7 +58,7 @@ s3proxy.endpoint=http://127.0.0.1:8080
 s3proxy.authorization=aws-v2
 s3proxy.identity=local-identity
 s3proxy.credential=local-credential
-jclouds.provider=cloudfiles-us
+jclouds.provider=rackspace-cloudfiles-us
 jclouds.identity=remote-identity
 jclouds.credential=remote-credential
 ```
