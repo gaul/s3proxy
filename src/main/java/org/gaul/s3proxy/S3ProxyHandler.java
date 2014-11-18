@@ -985,7 +985,10 @@ final class S3ProxyHandler extends AbstractHandler {
                 .append(Strings.nullToEmpty(request.getHeader(
                         HttpHeaders.CONTENT_TYPE)))
                 .append('\n');
-        if (!canonicalizedHeaders.containsKey("x-amz-date")) {
+        String expires = request.getParameter("Expires");
+        if (expires != null) {
+            builder.append(expires);
+        } else if (!canonicalizedHeaders.containsKey("x-amz-date")) {
             builder.append(request.getHeader(HttpHeaders.DATE));
         }
         builder.append('\n');
