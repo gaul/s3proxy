@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
@@ -766,64 +767,54 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, String containerName,
             String blobName) throws IOException {
         // Flag headers present since HttpServletResponse.getHeader returns
-        // null for empty headers.
-        boolean hasContentLength = false;
-        boolean hasContentMD5 = false;
+        // null for empty headers values.
+        String contentLengthString = null;
+        String contentMD5String = null;
         ImmutableMap.Builder<String, String> userMetadata =
                 ImmutableMap.builder();
         for (String headerName : Collections.list(request.getHeaderNames())) {
+            String headerValue = Strings.nullToEmpty(request.getHeader(
+                    headerName));
             if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
-                hasContentLength = true;
+                contentLengthString = headerValue;
             } else if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_MD5)) {
-                hasContentMD5 = true;
+                contentMD5String = headerValue;
             } else if (headerName.toLowerCase().startsWith(
                     USER_METADATA_PREFIX)) {
                 userMetadata.put(
                         headerName.substring(USER_METADATA_PREFIX.length()),
-                        Strings.nullToEmpty(request.getHeader(headerName)));
+                        headerValue);
             }
         }
 
         HashCode contentMD5 = null;
-        if (hasContentMD5) {
-            boolean validDigest = true;
-            String contentMD5String = request.getHeader(
-                    HttpHeaders.CONTENT_MD5);
-            if (contentMD5String == null) {
-                validDigest = false;
-            } else {
-                try {
-                    contentMD5 = HashCode.fromBytes(
-                            BaseEncoding.base64().decode(contentMD5String));
-                } catch (IllegalArgumentException iae) {
-                    validDigest = false;
-                }
+        if (contentMD5String != null) {
+            try {
+                contentMD5 = HashCode.fromBytes(
+                        BaseEncoding.base64().decode(contentMD5String));
+            } catch (IllegalArgumentException iae) {
+                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
+                return;
             }
-            if (!validDigest) {
+            if (contentMD5.bits() != Hashing.md5().bits()) {
                 sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
                 return;
             }
         }
 
-        if (!hasContentLength) {
+        if (contentLengthString == null) {
             sendSimpleErrorResponse(response,
                     S3ErrorCode.MISSING_CONTENT_LENGTH);
             return;
         }
-        long contentLength = 0;
-        boolean validContentLength = true;
-        String contentLengthString = request.getHeader(
-                HttpHeaders.CONTENT_LENGTH);
-        if (contentLengthString == null) {
-            validContentLength = false;
-        } else {
-            try {
-                contentLength = Long.parseLong(contentLengthString);
-            } catch (NumberFormatException nfe) {
-                validContentLength = false;
-            }
+        long contentLength;
+        try {
+            contentLength = Long.parseLong(contentLengthString);
+        } catch (NumberFormatException nfe) {
+            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
+            return;
         }
-        if (!validContentLength || contentLength < 0) {
+        if (contentLength < 0) {
             sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
             return;
         }
