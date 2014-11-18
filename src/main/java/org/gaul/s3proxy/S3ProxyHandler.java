@@ -50,6 +50,7 @@ import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HttpHeaders;
+import com.google.common.net.HostAndPort;
 
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
@@ -121,6 +122,7 @@ final class S3ProxyHandler extends AbstractHandler {
         logger.debug("request: {}", request);
         String hostHeader = request.getHeader(HttpHeaders.HOST);
         if (hostHeader != null && virtualHost.isPresent()) {
+            hostHeader = HostAndPort.fromString(hostHeader).getHostText();
             String virtualHostSuffix = "." + virtualHost.get();
             if (hostHeader.endsWith(virtualHostSuffix)) {
                 String bucket = hostHeader.substring(0,
@@ -983,10 +985,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 .append(Strings.nullToEmpty(request.getHeader(
                         HttpHeaders.CONTENT_TYPE)))
                 .append('\n');
-        String expires = request.getParameter("Expires");
-        if (expires != null) {
-            builder.append(expires);
-        } else if (!canonicalizedHeaders.containsKey("x-amz-date")) {
+        if (!canonicalizedHeaders.containsKey("x-amz-date")) {
             builder.append(request.getHeader(HttpHeaders.DATE));
         }
         builder.append('\n');
