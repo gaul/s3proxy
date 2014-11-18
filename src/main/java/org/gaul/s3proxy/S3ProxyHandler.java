@@ -44,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
@@ -97,6 +98,11 @@ final class S3ProxyHandler extends AbstractHandler {
             Pattern.compile("<LocationConstraint>(.*?)</LocationConstraint>");
     private static final Pattern MULTI_DELETE_KEY_PATTERN =
             Pattern.compile("<Key>(.*?)</Key>");
+    private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
+            "acl", "lifecycle", "location", "logging", "notification",
+            "partNumber", "policy", "requestPayment", "torrent", "uploadId",
+            "uploads", "versionId", "versioning", "versions", "website"
+    );
 
     private final BlobStore blobStore;
     private final String identity;
@@ -997,11 +1003,21 @@ final class S3ProxyHandler extends AbstractHandler {
                     .append(entry.getValue()).append('\n');
         }
         builder.append(uri);
-        if ("".equals(request.getParameter("acl"))) {
-            builder.append("?acl");
-        } else if ("".equals(request.getParameter("delete"))) {
-            builder.append("?delete");
+
+        char separator = '?';
+        for (String subresource : Collections.list(
+                request.getParameterNames())) {
+            if (SIGNED_SUBRESOURCES.contains(subresource)) {
+                builder.append(separator).append(subresource);
+
+                String value = request.getParameter(subresource);
+                if (!"".equals(value)) {
+                    builder.append('=').append(value);
+                }
+                separator = '&';
+            }
         }
+
         String stringToSign = builder.toString();
         logger.trace("stringToSign: {}", stringToSign);
 
