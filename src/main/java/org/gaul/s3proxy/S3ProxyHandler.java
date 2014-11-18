@@ -764,9 +764,9 @@ final class S3ProxyHandler extends AbstractHandler {
         ImmutableMap.Builder<String, String> userMetadata =
                 ImmutableMap.builder();
         for (String headerName : Collections.list(request.getHeaderNames())) {
-            if (headerName.equals(HttpHeaders.CONTENT_LENGTH)) {
+            if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
                 hasContentLength = true;
-            } else if (headerName.equals(HttpHeaders.CONTENT_MD5)) {
+            } else if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_MD5)) {
                 hasContentMD5 = true;
             } else if (headerName.toLowerCase().startsWith(
                     USER_METADATA_PREFIX)) {
