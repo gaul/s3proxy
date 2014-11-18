@@ -49,6 +49,7 @@ import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
+import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 
 import org.eclipse.jetty.server.Request;
@@ -121,6 +122,7 @@ final class S3ProxyHandler extends AbstractHandler {
         logger.debug("request: {}", request);
         String hostHeader = request.getHeader(HttpHeaders.HOST);
         if (hostHeader != null && virtualHost.isPresent()) {
+            hostHeader = HostAndPort.fromString(hostHeader).getHostText();
             String virtualHostSuffix = "." + virtualHost.get();
             if (hostHeader.endsWith(virtualHostSuffix)) {
                 String bucket = hostHeader.substring(0,
