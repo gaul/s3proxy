@@ -75,6 +75,21 @@ jclouds.credential=credential
 jclouds.filesystem.basedir=/tmp
 ```
 
+Another example using remote swift with non-keystone v1 auth (default
+accounts created with Swift-In-A-Box instructions) :
+
+```
+s3proxy.endpoint=http://127.0.0.1:8080
+s3proxy.authorization=aws-v2
+s3proxy.identity=local-identity
+s3proxy.credential=local-credential
+jclouds.provider=swift
+jclouds.endpoint=http://IP-OF-SWIFT:PORT/auth/v1.0
+jclouds.api=swift
+jclouds.identity=test:tester
+jclouds.credential=testing
+```
+
 S3Proxy can listen on HTTPS by setting the endpoint and
 [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool).
 An example:
