@@ -438,6 +438,22 @@ final class S3ProxyHandler extends AbstractHandler {
             options.publicRead();
         }
 
+        String contentLengthString = request.getHeader(
+                HttpHeaders.CONTENT_LENGTH);
+        if (contentLengthString != null) {
+            long contentLength;
+            try {
+                contentLength = Long.parseLong(contentLengthString);
+            } catch (NumberFormatException nfe) {
+                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
+                return;
+            }
+            if (contentLength < 0) {
+                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
+                return;
+            }
+        }
+
         try {
             if (blobStore.createContainerInLocation(location, containerName,
                     options)) {
