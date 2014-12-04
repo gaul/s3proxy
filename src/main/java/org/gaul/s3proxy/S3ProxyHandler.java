@@ -211,8 +211,12 @@ final class S3ProxyHandler extends AbstractHandler {
             String parameterSignature = request.getParameter("Signature");
 
             if (headerIdentity != null && headerSignature != null) {
-                if (!identity.equals(headerIdentity) ||
-                        !expectedSignature.equals(headerSignature)) {
+                if (!identity.equals(headerIdentity)) {
+                    sendSimpleErrorResponse(response,
+                            S3ErrorCode.INVALID_ACCESS_KEY_ID);
+                    baseRequest.setHandled(true);
+                    return;
+                } else if (!expectedSignature.equals(headerSignature)) {
                     sendSimpleErrorResponse(response,
                             S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                     baseRequest.setHandled(true);
@@ -220,8 +224,12 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             } else if (parameterIdentity != null &&
                     parameterSignature != null) {
-                if (!identity.equals(parameterIdentity) ||
-                        !expectedSignature.equals(parameterSignature)) {
+                if (!identity.equals(parameterIdentity)) {
+                    sendSimpleErrorResponse(response,
+                            S3ErrorCode.INVALID_ACCESS_KEY_ID);
+                    baseRequest.setHandled(true);
+                    return;
+                } else if (!expectedSignature.equals(parameterSignature)) {
                     sendSimpleErrorResponse(response,
                             S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                     baseRequest.setHandled(true);

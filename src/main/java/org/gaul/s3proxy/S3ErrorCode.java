@@ -36,6 +36,7 @@ enum S3ErrorCode {
             "Your previous request to create the named bucket" +
             " succeeded and you already own it."),
     BUCKET_NOT_EMPTY(HttpServletResponse.SC_CONFLICT, "Conflict"),
+    INVALID_ACCESS_KEY_ID(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     INVALID_ARGUMENT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_DIGEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
