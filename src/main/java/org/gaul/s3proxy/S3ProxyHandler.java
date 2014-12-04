@@ -100,7 +100,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private static final Pattern MULTI_DELETE_KEY_PATTERN =
             Pattern.compile("<Key>(.*?)</Key>");
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
-            "acl", "lifecycle", "location", "logging", "notification",
+            "acl", "delete", "lifecycle", "location", "logging", "notification",
             "partNumber", "policy", "requestPayment", "torrent", "uploadId",
             "uploads", "versionId", "versioning", "versions", "website"
     );
