@@ -37,6 +37,10 @@ enum S3ErrorCode {
             "Your previous request to create the named bucket" +
             " succeeded and you already own it."),
     BUCKET_NOT_EMPTY(HttpServletResponse.SC_CONFLICT, "Conflict"),
+    ENTITY_TOO_SMALL(HttpServletResponse.SC_BAD_REQUEST,
+            "Your proposed upload is smaller than the minimum allowed object" +
+            " size. Each part must be at least 5 MB in size, except the last" +
+            " part."),
     INVALID_ACCESS_KEY_ID(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     INVALID_ARGUMENT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
@@ -52,6 +56,7 @@ enum S3ErrorCode {
             "Length Required"),
     NO_SUCH_BUCKET(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     NO_SUCH_KEY(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
+    NO_SUCH_UPLOAD(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden");

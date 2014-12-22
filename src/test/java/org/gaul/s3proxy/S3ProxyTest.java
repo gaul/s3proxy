@@ -52,6 +52,7 @@ import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.rest.HttpClient;
+import org.jclouds.s3.S3Client;
 import org.jclouds.util.Throwables2;
 import org.junit.After;
 import org.junit.Before;
@@ -376,7 +377,7 @@ public final class S3ProxyTest {
     }
 
     @Test
-    public void testUnknownParameter() throws Exception {
+    public void testMultipartUpload() throws Exception {
         String blobName = "blob";
         int minMultipartSize = 32 * 1024 * 1024 + 1;
         ByteSource byteSource = ByteSource.wrap(new byte[minMultipartSize]);
@@ -384,9 +385,15 @@ public final class S3ProxyTest {
                 .payload(byteSource)
                 .contentLength(byteSource.size())
                 .build();
-        PutOptions options = new PutOptions().multipart(true);
+        s3BlobStore.putBlob(containerName, blob,
+                new PutOptions().multipart(true));
+    }
+
+    @Test
+    public void testUnknownParameter() throws Exception {
+        S3Client s3Client = s3Context.unwrapApi(S3Client.class);
         try {
-            s3BlobStore.putBlob(containerName, blob, options);
+            s3Client.disableBucketLogging(containerName);
             fail("Expected HttpResponseException");
         } catch (RuntimeException re) {
             // TODO: why does jclouds wrap this in a
