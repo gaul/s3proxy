@@ -26,6 +26,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -1020,8 +1021,10 @@ final class S3ProxyHandler extends AbstractHandler {
         builder.append(uri);
 
         char separator = '?';
-        for (String subresource : Collections.list(
-                request.getParameterNames())) {
+        List<String> subresources = Collections.list(
+                request.getParameterNames());
+        Collections.sort(subresources);
+        for (String subresource : subresources) {
             if (SIGNED_SUBRESOURCES.contains(subresource)) {
                 builder.append(separator).append(subresource);
 
