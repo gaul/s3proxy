@@ -654,6 +654,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
             // TODO: emit error stanza
             writer.write("</DeleteResult>");
+            writer.flush();
         }
     }
 
@@ -784,6 +785,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 writer.write(eTag);
                 writer.write("&quot;</ETag>\r\n");
                 writer.write("</CopyObjectResult>");
+                writer.flush();
             }
         }
     }
