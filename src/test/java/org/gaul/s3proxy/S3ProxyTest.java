@@ -139,12 +139,13 @@ public final class S3ProxyTest {
     }
 
     // TODO: why does this hang for 30 seconds?
+    // TODO: this test requires anonymous access
     @Ignore
     @Test
     public void testHttpClient() throws Exception {
         HttpClient httpClient = context.utils().http();
         // TODO: how to interpret this?
-        URI uri = URI.create(s3Endpoint + "/container/blob");
+        URI uri = URI.create(s3Endpoint + "/" + containerName + "/blob");
         ByteSource byteSource = ByteSource.wrap(new byte[1]);
         Payload payload = new ByteSourcePayload(byteSource);
         payload.getContentMetadata().setContentLength(byteSource.size());
