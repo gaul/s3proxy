@@ -348,7 +348,8 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleContainerOrBlobAcl(HttpServletResponse response,
             String... containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
-            writer.write("<AccessControlPolicy>\r\n" +
+            writer.write(XML_PROLOG +
+                    "<AccessControlPolicy " + AWS_XMLNS + ">\r\n" +
                     "  <Owner>\r\n" +
                     "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
                     "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
@@ -789,8 +790,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     builder.build());
             Date lastModified = blob.getMetadata().getLastModified();
             try (Writer writer = response.getWriter()) {
-                writer.write(XML_PROLOG);
-                writer.write("<CopyObjectResult>\r\n");
+                writer.write(XML_PROLOG +
+                        "<CopyObjectResult " + AWS_XMLNS + ">\r\n");
                 writer.write("  <LastModified>");
                 writer.write(blobStore.getContext().utils().date()
                         .iso8601DateFormat(lastModified));
