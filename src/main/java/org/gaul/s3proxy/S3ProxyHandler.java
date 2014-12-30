@@ -277,6 +277,10 @@ final class S3ProxyHandler extends AbstractHandler {
                     handleContainerOrBlobAcl(response, path[1]);
                     baseRequest.setHandled(true);
                     return;
+                } else if ("".equals(request.getParameter("location"))) {
+                    handleContainerLocation(response, path[1]);
+                    baseRequest.setHandled(true);
+                    return;
                 }
                 handleBlobList(request, response, path[1]);
                 baseRequest.setHandled(true);
@@ -396,6 +400,16 @@ final class S3ProxyHandler extends AbstractHandler {
 
             writer.write("  </Buckets>\r\n" +
                     "</ListAllMyBucketsResult>");
+            writer.flush();
+        }
+    }
+
+    private void handleContainerLocation(HttpServletResponse response,
+            String containerName) throws IOException {
+        try (Writer writer = response.getWriter()) {
+            // TODO: using us-standard semantics but could emit actual location
+            writer.write(XML_PROLOG +
+                    "<LocationConstraint " + AWS_XMLNS + "/>");
             writer.flush();
         }
     }
