@@ -207,6 +207,12 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
                 headerIdentity = values[0];
                 headerSignature = values[1];
+            } else if (headerAuthorization != null &&
+                    headerAuthorization.startsWith("AWS4-HMAC-SHA256 ")) {
+                // Fail V4 signature requests to allow clients to retry with V2.
+                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
+                baseRequest.setHandled(true);
+                return;
             }
             String parameterIdentity = request.getParameter("AWSAccessKeyId");
             String parameterSignature = request.getParameter("Signature");
