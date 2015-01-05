@@ -53,7 +53,7 @@ public final class S3Proxy {
         System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
     }
 
-    S3Proxy(BlobStore blobStore, URI endpoint, String identity,
+    public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
             boolean forceMultiPartUpload, Optional<String> virtualHost) {
         Preconditions.checkNotNull(blobStore);
