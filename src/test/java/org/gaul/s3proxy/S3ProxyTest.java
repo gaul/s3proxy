@@ -40,6 +40,7 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.http.HttpRequest;
@@ -217,6 +218,17 @@ public final class S3ProxyTest {
         putBlobAndCheckIt("blob");
         putBlobAndCheckIt("blob%");
         putBlobAndCheckIt("blob%%");
+    }
+
+    @Test
+    public void testBlobEscape() throws Exception {
+        assertThat(s3BlobStore.list(containerName)).isEmpty();
+        putBlobAndCheckIt("blob%");
+        PageSet<? extends StorageMetadata> res =
+                s3BlobStore.list(containerName);
+        StorageMetadata meta = res.iterator().next();
+        assertThat(meta.getName()).isEqualTo("blob%");
+        assertThat(res).hasSize(1);
     }
 
     @Test
