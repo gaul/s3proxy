@@ -93,6 +93,18 @@ public final class S3ProxyTest {
                 s3ProxyProperties.getProperty(
                         S3ProxyConstants.PROPERTY_VIRTUAL_HOST));
 
+        if (s3Endpoint.getPort() == 0) {
+            int port = new Random().nextInt(65535 - 1024) + 1025;
+            s3Endpoint = new URI(
+                    s3Endpoint.getScheme(),
+                    s3Endpoint.getUserInfo(),
+                    s3Endpoint.getHost(),
+                    port,
+                    s3Endpoint.getPath(),
+                    s3Endpoint.getQuery(),
+                    s3Endpoint.getFragment());
+        }
+
         Properties properties = new Properties();
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
