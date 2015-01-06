@@ -207,7 +207,9 @@ final class S3ProxyHandler extends AbstractHandler {
 
         if (identity != null && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("Expires") == null) {
-            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED,
+                    "AWS authentication requires a valid Date or" +
+                    " x-amz-date header", null, null);
             baseRequest.setHandled(true);
             return;
         }
@@ -787,8 +789,9 @@ final class S3ProxyHandler extends AbstractHandler {
                     options)) {
                 return;
             }
+            S3ErrorCode errorCode = S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU;
             sendSimpleErrorResponse(response,
-                    S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU, "BucketName",
+                    errorCode, errorCode.getMessage(), "BucketName",
                     containerName);
         } catch (AuthorizationException ae) {
             sendSimpleErrorResponse(response,
@@ -1637,11 +1640,11 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void sendSimpleErrorResponse(HttpServletResponse response,
             S3ErrorCode code) throws IOException {
-        sendSimpleErrorResponse(response, code, null, null);
+        sendSimpleErrorResponse(response, code, code.getMessage(), null, null);
     }
 
     private void sendSimpleErrorResponse(HttpServletResponse response,
-            S3ErrorCode code, String element, String characters)
+            S3ErrorCode code, String message, String element, String characters)
             throws IOException {
         checkArgument(!(element == null ^ characters == null),
                 "Must specify neither or both element and characters");
@@ -1659,7 +1662,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeEndElement();
 
             xml.writeStartElement("Message");
-            xml.writeCharacters(code.getMessage());
+            xml.writeCharacters(message);
             xml.writeEndElement();
 
             if (element != null) {
