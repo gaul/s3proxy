@@ -107,6 +107,16 @@ public final class S3ProxyTest {
         containerName = createRandomContainerName();
         blobStore.createContainerInLocation(null, containerName);
 
+        s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential,
+                Resources.getResource(keyStorePath).toString(),
+                keyStorePassword,
+                "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
+        s3Proxy.start();
+        // reset endpoint to handle zero port
+        s3Endpoint = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
+                s3Endpoint.getHost(), s3Proxy.getPort(), s3Endpoint.getPath(),
+                s3Endpoint.getQuery(), s3Endpoint.getFragment());
+
         Properties s3Properties = new Properties();
         s3Properties.setProperty(Constants.PROPERTY_TRUST_ALL_CERTS, "true");
         s3Context = ContextBuilder
@@ -116,12 +126,6 @@ public final class S3ProxyTest {
                 .overrides(s3Properties)
                 .build(BlobStoreContext.class);
         s3BlobStore = s3Context.getBlobStore();
-
-        s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential,
-                Resources.getResource(keyStorePath).toString(),
-                keyStorePassword,
-                "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
-        s3Proxy.start();
     }
 
     @After
