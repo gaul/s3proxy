@@ -192,9 +192,7 @@ public final class S3ProxyTest {
         assertThat(s3BlobStore.containerExists(containerName)).isFalse();
     }
 
-    @Test
-    public void testBlobPutGet() throws Exception {
-        String blobName = "blob";
+    private void putBlobAndCheckIt(String blobName) throws Exception {
         ByteSource byteSource = ByteSource.wrap(new byte[42]);
         Blob blob = s3BlobStore.blobBuilder(blobName)
                 .payload(byteSource)
@@ -203,10 +201,18 @@ public final class S3ProxyTest {
         s3BlobStore.putBlob(containerName, blob);
 
         Blob blob2 = s3BlobStore.getBlob(containerName, blobName);
+        assertThat(blob2.getMetadata().getName()).isEqualTo(blobName);
         try (InputStream actual = blob2.getPayload().openStream();
              InputStream expected = byteSource.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
+    }
+
+    @Test
+    public void testBlobPutGet() throws Exception {
+        putBlobAndCheckIt("blob");
+        putBlobAndCheckIt("blob%");
+        putBlobAndCheckIt("blob%%");
     }
 
     @Test
