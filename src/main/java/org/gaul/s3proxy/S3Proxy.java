@@ -90,6 +90,10 @@ public final class S3Proxy {
         server.stop();
     }
 
+    public int getPort() {
+        return ((ServerConnector) server.getConnectors()[0]).getLocalPort();
+    }
+
     public static void main(String[] args) throws Exception {
         if (args.length == 1 && args[0].equals("--version")) {
             System.err.println(
