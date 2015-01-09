@@ -112,7 +112,6 @@ final class S3ProxyHandler extends AbstractHandler {
     private final String credential;
     private final boolean forceMultiPartUpload;
     private final Optional<String> virtualHost;
-    private final URLDecoder urlDecoder = new URLDecoder();
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
             boolean forceMultiPartUpload, Optional<String> virtualHost) {
@@ -265,7 +264,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
-            path[i] = urlDecoder.decode(path[i], "UTF-8");
+            path[i] = URLDecoder.decode(path[i], "UTF-8");
         }
         switch (method) {
         case "DELETE":
