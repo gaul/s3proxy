@@ -40,6 +40,9 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamWriter;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -82,11 +85,8 @@ import org.slf4j.LoggerFactory;
 final class S3ProxyHandler extends AbstractHandler {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
-    // Note that this excludes a trailing \r\n which the AWS SDK rejects.
-    private static final String XML_PROLOG =
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
     private static final String AWS_XMLNS =
-            "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"";
+            "http://s3.amazonaws.com/doc/2006-03-01/";
     // TODO: support configurable metadata prefix
     private static final String USER_METADATA_PREFIX = "x-amz-meta-";
     // TODO: fake owner
@@ -112,6 +112,8 @@ final class S3ProxyHandler extends AbstractHandler {
     private final String credential;
     private final boolean forceMultiPartUpload;
     private final Optional<String> virtualHost;
+    private final XMLOutputFactory xmlOutputFactory =
+            XMLOutputFactory.newInstance();
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
             boolean forceMultiPartUpload, Optional<String> virtualHost) {
@@ -120,6 +122,8 @@ final class S3ProxyHandler extends AbstractHandler {
         this.credential = credential;
         this.forceMultiPartUpload = forceMultiPartUpload;
         this.virtualHost = Preconditions.checkNotNull(virtualHost);
+        xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
+                Boolean.FALSE);
     }
 
     @Override
@@ -358,70 +362,116 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleContainerOrBlobAcl(HttpServletResponse response,
             String... containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
-            writer.write(XML_PROLOG +
-                    "<AccessControlPolicy " + AWS_XMLNS + ">\r\n" +
-                    "  <Owner>\r\n" +
-                    "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
-                    "</DisplayName>\r\n" +
-                    "  </Owner>\r\n" +
-                    "  <AccessControlList>\r\n" +
-                    "    <Grant>\r\n" +
-                    "      <Grantee xmlns:xsi=" +
-                    "\"http://www.w3.org/2001/XMLSchema-instance\"\r\n" +
-                    "            xsi:type=\"CanonicalUser\">\r\n" +
-                    "        <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "        <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
-                    "</DisplayName>\r\n" +
-                    "      </Grantee>\r\n" +
-                    "      <Permission>FULL_CONTROL</Permission>\r\n" +
-                    "    </Grant>\r\n" +
-                    "  </AccessControlList>\r\n" +
-                    "</AccessControlPolicy>");
-            writer.flush();
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("AccessControlPolicy");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+
+            xml.writeStartElement("Owner");
+
+            xml.writeStartElement("ID");
+            xml.writeCharacters(FAKE_OWNER_ID);
+            xml.writeEndElement();
+
+            xml.writeStartElement("DisplayName");
+            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+
+            xml.writeStartElement("AccessControlList");
+            xml.writeStartElement("Grant");
+
+            xml.writeStartElement("Grantee");
+            xml.writeNamespace("xsi",
+                    "http://www.w3.org/2001/XMLSchema-instance");
+            xml.writeAttribute("xsi:type", "CanonicalUser");
+
+            xml.writeStartElement("ID");
+            xml.writeCharacters(FAKE_OWNER_ID);
+            xml.writeEndElement();
+
+            xml.writeStartElement("DisplayName");
+            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+
+            xml.writeStartElement("Permission");
+            xml.writeCharacters("FULL_CONTROL");
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 
     private void handleContainerList(HttpServletResponse response)
             throws IOException {
         try (Writer writer = response.getWriter()) {
-            writer.write(XML_PROLOG +
-                    "<ListAllMyBucketsResult " + AWS_XMLNS + ">\r\n" +
-                    "  <Owner>\r\n" +
-                    "    <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "    <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
-                    "</DisplayName>\r\n" +
-                    "  </Owner>\r\n" +
-                    "  <Buckets>\r\n");
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("ListAllMyBucketsResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
 
+            xml.writeStartElement("Owner");
+
+            xml.writeStartElement("ID");
+            xml.writeCharacters(FAKE_OWNER_ID);
+            xml.writeEndElement();
+
+            xml.writeStartElement("DisplayName");
+            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+
+            xml.writeStartElement("Buckets");
             for (StorageMetadata metadata : blobStore.list()) {
-                writer.write("    <Bucket>\r\n" +
-                        "      <Name>");
-                writer.write(metadata.getName());
-                writer.write("</Name>\r\n");
+                xml.writeStartElement("Bucket");
+
+                xml.writeStartElement("Name");
+                xml.writeCharacters(metadata.getName());
+                xml.writeEndElement();
+
                 Date creationDate = metadata.getCreationDate();
                 if (creationDate != null) {
-                    writer.write("      <CreationDate>");
-                    writer.write(blobStore.getContext().utils().date()
+                    xml.writeStartElement("CreationDate");
+                    xml.writeCharacters(blobStore.getContext().utils().date()
                             .iso8601DateFormat(creationDate).trim());
-                    writer.write("</CreationDate>\r\n");
+                    xml.writeEndElement();
                 }
-                writer.write("    </Bucket>\r\n");
+                xml.writeEndElement();
             }
+            xml.writeEndElement();
 
-            writer.write("  </Buckets>\r\n" +
-                    "</ListAllMyBucketsResult>");
-            writer.flush();
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 
     private void handleContainerLocation(HttpServletResponse response,
             String containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
             // TODO: using us-standard semantics but could emit actual location
-            writer.write(XML_PROLOG +
-                    "<LocationConstraint " + AWS_XMLNS + "/>");
-            writer.flush();
+            xml.writeStartElement("LocationConstraint");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 
@@ -494,9 +544,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             }
             sendSimpleErrorResponse(response,
-                    S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
-                    Optional.of("  <BucketName>" + containerName +
-                            "</BucketName>\r\n"));
+                    S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU, "BucketName",
+                    containerName);
         } catch (AuthorizationException ae) {
             sendSimpleErrorResponse(response,
                     S3ErrorCode.BUCKET_ALREADY_EXISTS);
@@ -555,41 +604,55 @@ final class S3ProxyHandler extends AbstractHandler {
 
         try (Writer writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
-            writer.write(XML_PROLOG +
-                    "<ListBucketResult " + AWS_XMLNS + ">\r\n" +
-                    "  <Name>");
-            writer.write(containerName);
-            writer.write("</Name>\r\n");
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("ListBucketResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+
+            xml.writeStartElement("Name");
+            xml.writeCharacters(containerName);
+            xml.writeEndElement();
+
             if (prefix == null) {
-                writer.write("  <Prefix/>\r\n");
+                xml.writeEmptyElement("Prefix");
             } else {
-                writer.write("  <Prefix>");
-                writer.write(prefix);
-                writer.write("</Prefix>\r\n");
+                xml.writeStartElement("Prefix");
+                xml.writeCharacters(prefix);
+                xml.writeEndElement();
             }
-            writer.write("  <MaxKeys>");
-            writer.write(String.valueOf(maxKeys));
-            writer.write("</MaxKeys>\r\n");
+
+            xml.writeStartElement("MaxKeys");
+            xml.writeCharacters(String.valueOf(maxKeys));
+            xml.writeEndElement();
+
             if (marker == null) {
-                writer.write("  <Marker/>\r\n");
+                xml.writeEmptyElement("Marker");
             } else {
-                writer.write("  <Marker>");
-                writer.write(marker);
-                writer.write("</Marker>\r\n");
+                xml.writeStartElement("Marker");
+                xml.writeCharacters(marker);
+                xml.writeEndElement();
             }
+
             if (delimiter != null) {
-                writer.write("  <Delimiter>");
-                writer.write(delimiter);
-                writer.write("</Delimiter>\r\n");
+                xml.writeStartElement("Delimiter");
+                xml.writeCharacters(delimiter);
+                xml.writeEndElement();
             }
+
             String nextMarker = set.getNextMarker();
             if (nextMarker != null) {
-                writer.write("  <IsTruncated>true</IsTruncated>\r\n" +
-                    "  <NextMarker>");
-                writer.write(nextMarker);
-                writer.write("</NextMarker>\r\n");
+                xml.writeStartElement("IsTruncated");
+                xml.writeCharacters("true");
+                xml.writeEndElement();
+
+                xml.writeStartElement("NextMarker");
+                xml.writeCharacters(nextMarker);
+                xml.writeEndElement();
             } else {
-                writer.write("  <IsTruncated>false</IsTruncated>\r\n");
+                xml.writeStartElement("IsTruncated");
+                xml.writeCharacters("false");
+                xml.writeEndElement();
             }
 
             Set<String> commonPrefixes = new TreeSet<>();
@@ -598,54 +661,74 @@ final class S3ProxyHandler extends AbstractHandler {
                     commonPrefixes.add(metadata.getName());
                     continue;
                 }
-                writer.write("  <Contents>\r\n" +
-                    "    <Key>");
-                writer.write(metadata.getName());
-                writer.write("</Key>\r\n");
+                xml.writeStartElement("Contents");
+
+                xml.writeStartElement("Key");
+                xml.writeCharacters(metadata.getName());
+                xml.writeEndElement();
+
                 Date lastModified = metadata.getLastModified();
                 if (lastModified != null) {
-                    writer.write("    <LastModified>");
-                    writer.write(blobStore.getContext().utils().date()
+                    xml.writeStartElement("LastModified");
+                    xml.writeCharacters(blobStore.getContext().utils().date()
                             .iso8601DateFormat(lastModified));
-                    writer.write("</LastModified>\r\n");
+                    xml.writeEndElement();
                 }
+
                 String eTag = metadata.getETag();
                 if (eTag != null) {
                     String id = blobStore.getContext().unwrap()
                             .getProviderMetadata().getId();
-                    writer.write("    <ETag>&quot;");
+                    xml.writeStartElement("ETag");
                     if (id.equals("google-cloud-storage")) {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
                     }
-                    writer.write(eTag);
-                    writer.write("&quot;</ETag>\r\n");
+                    xml.writeCharacters("\"" + eTag + "\"");
+                    xml.writeEndElement();
                 }
-                writer.write(
-                    // TODO: StorageMetadata does not contain size
-                    "    <Size>0</Size>\r\n" +
-                    "    <StorageClass>STANDARD</StorageClass>\r\n" +
-                    "    <Owner>\r\n" +
-                    "      <ID>" + FAKE_OWNER_ID + "</ID>\r\n" +
-                    "      <DisplayName>" + FAKE_OWNER_DISPLAY_NAME +
-                    "</DisplayName>\r\n" +
-                    "    </Owner>\r\n" +
-                    "  </Contents>\r\n");
+
+                // TODO: StorageMetadata does not contain size
+                xml.writeStartElement("Size");
+                xml.writeCharacters("0");
+                xml.writeEndElement();
+
+                xml.writeStartElement("StorageClass");
+                xml.writeCharacters("STANDARD");
+                xml.writeEndElement();
+
+                xml.writeStartElement("Owner");
+
+                xml.writeStartElement("ID");
+                xml.writeCharacters(FAKE_OWNER_ID);
+                xml.writeEndElement();
+
+                xml.writeStartElement("DisplayName");
+                xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
+                xml.writeEndElement();
+
+                xml.writeEndElement();
+
+                xml.writeEndElement();
             }
 
             for (String commonPrefix : commonPrefixes) {
-                writer.write("  <CommonPrefixes>\r\n" +
-                        "    <Prefix>");
-                writer.write(commonPrefix);
+                xml.writeStartElement("CommonPrefixes");
+
+                xml.writeStartElement("Prefix");
+                xml.writeCharacters(commonPrefix);
                 if (delimiter != null) {
-                    writer.write(delimiter);
+                    xml.writeCharacters(delimiter);
                 }
-                writer.write("</Prefix>\r\n" +
-                        "  </CommonPrefixes>\r\n");
+                xml.writeEndElement();
+
+                xml.writeEndElement();
             }
 
-            writer.write("</ListBucketResult>");
-            writer.flush();
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 
@@ -664,8 +747,11 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, String containerName)
             throws IOException {
         try (Writer writer = response.getWriter()) {
-            writer.write(XML_PROLOG);
-            writer.write("<DeleteResult " + AWS_XMLNS + ">\r\n");
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("DeleteResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
             // TODO: more robust XML parsing
             Matcher matcher = MULTI_DELETE_KEY_PATTERN.matcher(
                     Strings2.toStringAndClose(request.getInputStream()));
@@ -673,13 +759,17 @@ final class S3ProxyHandler extends AbstractHandler {
                 String blobName = matcher.group(1);
                 blobStore.removeBlob(containerName, blobName);
 
-                writer.write("<Deleted><Key>");
-                writer.write(blobName);
-                writer.write("</Key></Deleted>\r\n");
+                xml.writeStartElement("Deleted");
+                xml.writeStartElement("Key");
+                xml.writeCharacters(blobName);
+                xml.writeEndElement();
+                xml.writeEndElement();
             }
             // TODO: emit error stanza
-            writer.write("</DeleteResult>");
-            writer.flush();
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 
@@ -800,17 +890,25 @@ final class S3ProxyHandler extends AbstractHandler {
                     builder.build());
             Date lastModified = blob.getMetadata().getLastModified();
             try (Writer writer = response.getWriter()) {
-                writer.write(XML_PROLOG +
-                        "<CopyObjectResult " + AWS_XMLNS + ">\r\n");
-                writer.write("  <LastModified>");
-                writer.write(blobStore.getContext().utils().date()
+                XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                        writer);
+                xml.writeStartDocument();
+                xml.writeStartElement("CopyObjectResult");
+                xml.writeDefaultNamespace(AWS_XMLNS);
+
+                xml.writeStartElement("LastModified");
+                xml.writeCharacters(blobStore.getContext().utils().date()
                         .iso8601DateFormat(lastModified));
-                writer.write("</LastModified>\r\n");
-                writer.write("  <ETag>&quot;");
-                writer.write(eTag);
-                writer.write("&quot;</ETag>\r\n");
-                writer.write("</CopyObjectResult>");
-                writer.flush();
+                xml.writeEndElement();
+
+                xml.writeStartElement("ETag");
+                xml.writeCharacters("\"" + eTag + "\"");
+                xml.writeEndElement();
+
+                xml.writeEndElement();
+                xml.flush();
+            } catch (XMLStreamException xse) {
+                throw new IOException(xse);
             }
         }
     }
@@ -970,31 +1068,47 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private static void sendSimpleErrorResponse(HttpServletResponse response,
+    private void sendSimpleErrorResponse(HttpServletResponse response,
             S3ErrorCode code) throws IOException {
-        sendSimpleErrorResponse(response, code, Optional.<String>absent());
+        sendSimpleErrorResponse(response, code, null, null);
     }
 
-    private static void sendSimpleErrorResponse(HttpServletResponse response,
-            S3ErrorCode code, Optional<String> extra) throws IOException {
-        logger.debug("{} {}", code, extra);
+    private void sendSimpleErrorResponse(HttpServletResponse response,
+            S3ErrorCode code, String element, String characters)
+            throws IOException {
+        Preconditions.checkArgument(!(element == null ^ characters == null),
+                "Must specify neither or both element and characters");
+        logger.debug("{} {} {}", code, element, characters);
+
         try (Writer writer = response.getWriter()) {
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
             response.setStatus(code.getHttpStatusCode());
-            writer.write(XML_PROLOG +
-                    "<Error>\r\n" +
-                    "  <Code>");
-            writer.write(code.getErrorCode());
-            writer.write("</Code>\r\n" +
-                    "  <Message>");
-            writer.write(code.getMessage());
-            writer.write("</Message>\r\n");
-            if (extra.isPresent()) {
-                writer.write(extra.get());
+            xml.writeStartDocument();
+            xml.writeStartElement("Error");
+
+            xml.writeStartElement("Code");
+            xml.writeCharacters(code.getErrorCode());
+            xml.writeEndElement();
+
+            xml.writeStartElement("Message");
+            xml.writeCharacters(code.getMessage());
+            xml.writeEndElement();
+
+            if (element != null) {
+                xml.writeStartElement(element);
+                xml.writeCharacters(characters);
+                xml.writeEndElement();
             }
-            writer.write("  <RequestId>" + FAKE_REQUEST_ID +
-                    "</RequestId>\r\n" +
-                    "</Error>");
-            writer.flush();
+
+            xml.writeStartElement("RequestId");
+            xml.writeCharacters(FAKE_REQUEST_ID);
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 
