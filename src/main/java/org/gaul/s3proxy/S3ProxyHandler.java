@@ -19,11 +19,13 @@ package org.gaul.s3proxy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -33,15 +35,17 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.google.common.base.Optional;
@@ -77,7 +81,6 @@ import org.jclouds.domain.Location;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.rest.AuthorizationException;
-import org.jclouds.util.Strings2;
 import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,10 +100,6 @@ final class S3ProxyHandler extends AbstractHandler {
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
     private static final Pattern VALID_BUCKET_PATTERN =
             Pattern.compile("[a-zA-Z0-9._-]+");
-    private static final Pattern CREATE_BUCKET_LOCATION_PATTERN =
-            Pattern.compile("<LocationConstraint>(.*?)</LocationConstraint>");
-    private static final Pattern MULTI_DELETE_KEY_PATTERN =
-            Pattern.compile("<Key>(.*?)</Key>");
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
             "acl", "delete", "lifecycle", "location", "logging", "notification",
             "partNumber", "policy", "requestPayment", "torrent", "uploadId",
@@ -112,6 +111,8 @@ final class S3ProxyHandler extends AbstractHandler {
     private final String credential;
     private final boolean forceMultiPartUpload;
     private final Optional<String> virtualHost;
+    private final XMLInputFactory xmlInputFactory =
+            XMLInputFactory.newInstance();
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
 
@@ -496,12 +497,23 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
+        Collection<String> locations;
+        try (PushbackInputStream pis = new PushbackInputStream(
+                request.getInputStream())) {
+            int ch = pis.read();
+            if (ch == -1) {
+                // handle empty bodies
+                locations = new ArrayList<>();
+            } else {
+                pis.unread(ch);
+                locations = parseSimpleXmlElements(pis,
+                        "LocationConstraint");
+            }
+        }
+
         Location location = null;
-        // TODO: more robust XML parsing
-        Matcher matcher = CREATE_BUCKET_LOCATION_PATTERN.matcher(
-                Strings2.toStringAndClose(request.getInputStream()));
-        if (matcher.find()) {
-            String locationString = matcher.group(1);
+        if (locations.size() == 1) {
+            String locationString = locations.iterator().next();
             for (Location loc : blobStore.listAssignableLocations()) {
                 if (loc.getId().equalsIgnoreCase(locationString)) {
                     location = loc;
@@ -746,17 +758,14 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, String containerName)
             throws IOException {
-        try (Writer writer = response.getWriter()) {
+        try (InputStream is = request.getInputStream();
+             Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
             xml.writeStartElement("DeleteResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
-            // TODO: more robust XML parsing
-            Matcher matcher = MULTI_DELETE_KEY_PATTERN.matcher(
-                    Strings2.toStringAndClose(request.getInputStream()));
-            while (matcher.find()) {
-                String blobName = matcher.group(1);
+            for (String blobName : parseSimpleXmlElements(is, "Key")) {
                 blobStore.removeBlob(containerName, blobName);
 
                 xml.writeStartElement("Deleted");
@@ -1191,5 +1200,41 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         return BaseEncoding.base64().encode(mac.doFinal(
                 stringToSign.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private Collection<String> parseSimpleXmlElements(InputStream is,
+            String tagName) throws IOException {
+        Collection<String> elements = new ArrayList<>();
+        try {
+            XMLStreamReader reader = xmlInputFactory.createXMLStreamReader(is);
+            String startTag = null;
+            StringBuilder characters = new StringBuilder();
+
+            while (reader.hasNext()) {
+                switch (reader.getEventType()) {
+                case XMLStreamConstants.START_ELEMENT:
+                    startTag = reader.getLocalName();
+                    characters.setLength(0);
+                    break;
+                case XMLStreamConstants.CHARACTERS:
+                    characters.append(reader.getTextCharacters(),
+                            reader.getTextStart(), reader.getTextLength());
+                    break;
+                case XMLStreamConstants.END_ELEMENT:
+                    if (startTag != null && startTag.equals(tagName)) {
+                        elements.add(characters.toString());
+                    }
+                    startTag = null;
+                    characters.setLength(0);
+                    break;
+                default:
+                    break;
+                }
+                reader.next();
+            }
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+        return elements;
     }
 }
