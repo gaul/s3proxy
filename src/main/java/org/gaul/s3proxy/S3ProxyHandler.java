@@ -730,6 +730,9 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeStartElement("CommonPrefixes");
 
                 xml.writeStartElement("Prefix");
+                if (prefix != null) {
+                    xml.writeCharacters(prefix);
+                }
                 xml.writeCharacters(commonPrefix);
                 if (delimiter != null) {
                     xml.writeCharacters(delimiter);
