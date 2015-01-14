@@ -863,18 +863,6 @@ final class S3ProxyHandler extends AbstractHandler {
         boolean replaceMetadata = "REPLACE".equals(request.getHeader(
                 "x-amz-metadata-directive"));
 
-        ImmutableMap.Builder<String, String> userMetadataBuilder =
-                ImmutableMap.builder();
-        for (String headerName : Collections.list(request.getHeaderNames())) {
-            if (!headerName.startsWith(USER_METADATA_PREFIX)) {
-                continue;
-            }
-            userMetadataBuilder.put(
-                    headerName.substring(USER_METADATA_PREFIX.length()),
-                    Strings.nullToEmpty(request.getHeader(headerName)));
-        }
-        Map<String, String> userMetadata = userMetadataBuilder.build();
-
         if (sourceContainerName.equals(destContainerName) &&
                 sourceBlobName.equals(destBlobName) &&
                 !replaceMetadata) {
@@ -892,14 +880,17 @@ final class S3ProxyHandler extends AbstractHandler {
             ContentMetadata metadata = blob.getMetadata().getContentMetadata();
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(destBlobName)
-                    .userMetadata(replaceMetadata ? userMetadata :
-                            blob.getMetadata().getUserMetadata())
-                    .payload(is)
-                    .contentDisposition(metadata.getContentDisposition())
-                    .contentEncoding(metadata.getContentEncoding())
-                    .contentLanguage(metadata.getContentLanguage())
-                    .contentLength(metadata.getContentLength())
-                    .contentType(metadata.getContentType());
+                    .payload(is);
+            if (replaceMetadata) {
+                addContentMetdataFromHttpRequest(builder, request);
+            } else {
+                builder.contentDisposition(metadata.getContentDisposition())
+                        .contentEncoding(metadata.getContentEncoding())
+                        .contentLanguage(metadata.getContentLanguage())
+                        .contentLength(metadata.getContentLength())
+                        .contentType(metadata.getContentType())
+                        .userMetadata(blob.getMetadata().getUserMetadata());
+            }
 
             PutOptions options = new PutOptions()
                     .multipart(forceMultiPartUpload);
@@ -937,8 +928,6 @@ final class S3ProxyHandler extends AbstractHandler {
         // null for empty headers values.
         String contentLengthString = null;
         String contentMD5String = null;
-        ImmutableMap.Builder<String, String> userMetadata =
-                ImmutableMap.builder();
         for (String headerName : Collections.list(request.getHeaderNames())) {
             String headerValue = Strings.nullToEmpty(request.getHeader(
                     headerName));
@@ -946,11 +935,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 contentLengthString = headerValue;
             } else if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_MD5)) {
                 contentMD5String = headerValue;
-            } else if (headerName.toLowerCase().startsWith(
-                    USER_METADATA_PREFIX)) {
-                userMetadata.put(
-                        headerName.substring(USER_METADATA_PREFIX.length()),
-                        headerValue);
             }
         }
 
@@ -989,23 +973,8 @@ final class S3ProxyHandler extends AbstractHandler {
         try (InputStream is = request.getInputStream()) {
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(blobName)
-                    .userMetadata(userMetadata.build())
-                    .payload(is)
-                    .contentDisposition(request.getHeader(
-                            HttpHeaders.CONTENT_DISPOSITION))
-                    .contentEncoding(request.getHeader(
-                            HttpHeaders.CONTENT_ENCODING))
-                    .contentLanguage(request.getHeader(
-                            HttpHeaders.CONTENT_LANGUAGE))
-                    .contentLength(request.getContentLength());
-            String contentType = request.getContentType();
-            if (contentType != null) {
-                builder.contentType(contentType);
-            }
-            long expires = request.getDateHeader(HttpHeaders.EXPIRES);
-            if (expires != -1) {
-                builder = builder.expires(new Date(expires));
-            }
+                    .payload(is);
+            addContentMetdataFromHttpRequest(builder, request);
             if (contentMD5 != null) {
                 builder = builder.contentMD5(contentMD5);
             }
@@ -1244,5 +1213,35 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new IOException(xse);
         }
         return elements;
+    }
+
+    private static void addContentMetdataFromHttpRequest(
+            BlobBuilder.PayloadBlobBuilder builder,
+            HttpServletRequest request) {
+        ImmutableMap.Builder<String, String> userMetadata =
+                ImmutableMap.builder();
+        for (String headerName : Collections.list(request.getHeaderNames())) {
+            if (headerName.toLowerCase().startsWith(USER_METADATA_PREFIX)) {
+                userMetadata.put(
+                        headerName.substring(USER_METADATA_PREFIX.length()),
+                        Strings.nullToEmpty(request.getHeader(headerName)));
+            }
+        }
+        builder.contentDisposition(request.getHeader(
+                        HttpHeaders.CONTENT_DISPOSITION))
+                .contentEncoding(request.getHeader(
+                        HttpHeaders.CONTENT_ENCODING))
+                .contentLanguage(request.getHeader(
+                        HttpHeaders.CONTENT_LANGUAGE))
+                .contentLength(request.getContentLength())
+                .userMetadata(userMetadata.build());
+        String contentType = request.getContentType();
+        if (contentType != null) {
+            builder.contentType(contentType);
+        }
+        long expires = request.getDateHeader(HttpHeaders.EXPIRES);
+        if (expires != -1) {
+            builder.expires(new Date(expires));
+        }
     }
 }
