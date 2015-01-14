@@ -901,8 +901,10 @@ final class S3ProxyHandler extends AbstractHandler {
                     .contentLength(metadata.getContentLength())
                     .contentType(metadata.getContentType());
 
+            PutOptions options = new PutOptions()
+                    .multipart(forceMultiPartUpload);
             String eTag = blobStore.putBlob(destContainerName,
-                    builder.build());
+                    builder.build(), options);
             Date lastModified = blob.getMetadata().getLastModified();
             try (Writer writer = response.getWriter()) {
                 XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1009,7 +1011,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             PutOptions options = new PutOptions()
-                .multipart(forceMultiPartUpload);
+                    .multipart(forceMultiPartUpload);
             try {
                 String eTag = blobStore.putBlob(containerName, builder.build(),
                         options);
