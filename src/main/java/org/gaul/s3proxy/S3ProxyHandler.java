@@ -855,6 +855,9 @@ final class S3ProxyHandler extends AbstractHandler {
             copySourceHeader = copySourceHeader.substring(1);
         }
         String[] path = copySourceHeader.split("/", 2);
+        for (int i = 0; i < path.length; i++) {
+            path[i] = URLDecoder.decode(path[i], "UTF-8");
+        }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
         boolean replaceMetadata = "REPLACE".equals(request.getHeader(
