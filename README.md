@@ -97,7 +97,8 @@ S3Proxy does not support:
 * single-part uploads larger than 2 GB ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-264))
 * multi-part uploads
 * POST uploads
-* bucket and object ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-660))
+* bucket ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-660))
+* object ACLS ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-732))
 * object metadata with filesystem provider ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-658))
 * object server-side encryption
 * object versioning
