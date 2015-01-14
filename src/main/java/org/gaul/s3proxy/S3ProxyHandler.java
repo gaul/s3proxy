@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
@@ -614,7 +615,8 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        try (Writer writer = response.getWriter()) {
+        try (Writer writer = new OutputStreamWriter(response.getOutputStream(),
+                StandardCharsets.UTF_8)) {
             response.setStatus(HttpServletResponse.SC_OK);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -759,7 +761,8 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, String containerName)
             throws IOException {
         try (InputStream is = request.getInputStream();
-             Writer writer = response.getWriter()) {
+             Writer writer = new OutputStreamWriter(response.getOutputStream(),
+                    StandardCharsets.UTF_8)) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
