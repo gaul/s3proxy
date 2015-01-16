@@ -995,14 +995,10 @@ final class S3ProxyHandler extends AbstractHandler {
 
             PutOptions options = new PutOptions()
                     .multipart(forceMultiPartUpload);
+            String eTag;
             try {
-                String eTag = blobStore.putBlob(containerName, builder.build(),
+                eTag = blobStore.putBlob(containerName, builder.build(),
                         options);
-                // S3 quotes ETag while Swift does not
-                if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
-                    eTag = '"' + eTag + '"';
-                }
-                response.addHeader(HttpHeaders.ETAG, eTag);
             } catch (ContainerNotFoundException cnfe) {
                 sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
                 return;
@@ -1034,6 +1030,12 @@ final class S3ProxyHandler extends AbstractHandler {
                     throw re;
                 }
             }
+
+            // S3 quotes ETag while Swift does not
+            if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+                eTag = '"' + eTag + '"';
+            }
+            response.addHeader(HttpHeaders.ETAG, eTag);
         }
     }
 
