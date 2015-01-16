@@ -878,7 +878,13 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
+        Blob blob;
+        try {
+            blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
+        } catch (ContainerNotFoundException cnfe) {
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
+            return;
+        }
         if (blob == null) {
             sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
             return;
