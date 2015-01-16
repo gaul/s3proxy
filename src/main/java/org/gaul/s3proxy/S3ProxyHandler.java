@@ -79,6 +79,7 @@ import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
+import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.rest.AuthorizationException;
@@ -1000,7 +1001,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
                 return;
             } catch (HttpResponseException hre) {
-                int status = hre.getResponse().getStatusCode();
+                HttpResponse hr = hre.getResponse();
+                if (hr == null) {
+                    return;
+                }
+                int status = hr.getStatusCode();
                 switch (status) {
                 case HttpServletResponse.SC_BAD_REQUEST:
                 case 422:  // Swift returns 422 Unprocessable Entity
