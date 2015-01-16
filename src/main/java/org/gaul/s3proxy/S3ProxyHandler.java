@@ -444,12 +444,16 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeEndElement();
 
                 Date creationDate = metadata.getCreationDate();
-                if (creationDate != null) {
-                    xml.writeStartElement("CreationDate");
-                    xml.writeCharacters(blobStore.getContext().utils().date()
-                            .iso8601DateFormat(creationDate).trim());
-                    xml.writeEndElement();
+                if (creationDate == null) {
+                    // Some providers, e.g., Swift, do not provide container
+                    // creation date.  Emit a bogus one to satisfy clients like
+                    // s3cmd which require one.
+                    creationDate = new Date(0);
                 }
+                xml.writeStartElement("CreationDate");
+                xml.writeCharacters(blobStore.getContext().utils().date()
+                        .iso8601DateFormat(creationDate).trim());
+                xml.writeEndElement();
                 xml.writeEndElement();
             }
             xml.writeEndElement();
