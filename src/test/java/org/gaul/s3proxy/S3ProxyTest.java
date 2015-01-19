@@ -43,12 +43,15 @@ import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
+import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.rest.HttpClient;
+import org.jclouds.util.Throwables2;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -353,6 +356,29 @@ public final class S3ProxyTest {
         HttpResponse getResponse = httpClient.invoke(getRequest);
         assertThat(getResponse.getStatusCode())
                 .isEqualTo(HttpServletResponse.SC_OK);
+    }
+
+    // TODO: jclouds only supports MPU via aws-s3, not generic s3
+    @Ignore
+    @Test
+    public void testUnknownParameter() throws Exception {
+        String blobName = "blob";
+        ByteSource byteSource = ByteSource.wrap(new byte[1]);
+        Blob blob = s3BlobStore.blobBuilder(blobName)
+                .payload(byteSource)
+                .contentLength(byteSource.size())
+                .build();
+        PutOptions options = new PutOptions().multipart(true);
+        try {
+            s3BlobStore.putBlob(containerName, blob, options);
+        } catch (RuntimeException re) {
+            // TODO: why does jclouds wrap this in a
+            // UncheckedExecutionException?
+            HttpResponseException hre = Throwables2.getFirstThrowableOfType(
+                    re, HttpResponseException.class);
+            assertThat(hre.getResponse().getStatusCode()).isEqualTo(
+                    HttpServletResponse.SC_NOT_IMPLEMENTED);
+        }
     }
 
     private static String createRandomContainerName() {

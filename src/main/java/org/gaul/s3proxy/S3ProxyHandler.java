@@ -107,6 +107,18 @@ final class S3ProxyHandler extends AbstractHandler {
             "partNumber", "policy", "requestPayment", "torrent", "uploadId",
             "uploads", "versionId", "versioning", "versions", "website"
     );
+    private static final Set<String> SUPPORTED_PARAMETERS = ImmutableSet.of(
+            "acl",
+            "AWSAccessKeyId",
+            "delete",
+            "delimiter",
+            "Expires",
+            "location",
+            "marker",
+            "max-keys",
+            "prefix",
+            "Signature"
+    );
 
     private final BlobStore blobStore;
     private final String identity;
@@ -264,6 +276,18 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             } else {
                 sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+                baseRequest.setHandled(true);
+                return;
+            }
+        }
+
+        // emit NotImplemented for unknown parameters
+        for (String parameter : Collections.list(
+                request.getParameterNames())) {
+            if (!SUPPORTED_PARAMETERS.contains(parameter)) {
+                logger.error("Unknown parameters {} with URI {}",
+                        parameter, request.getRequestURI());
+                response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
                 baseRequest.setHandled(true);
                 return;
             }
