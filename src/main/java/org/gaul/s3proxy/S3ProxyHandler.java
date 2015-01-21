@@ -73,7 +73,6 @@ import org.jclouds.blobstore.domain.BlobBuilder;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.StorageType;
 import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
@@ -700,10 +699,25 @@ final class S3ProxyHandler extends AbstractHandler {
 
             Set<String> commonPrefixes = new TreeSet<>();
             for (StorageMetadata metadata : set) {
-                if (metadata.getType() != StorageType.BLOB) {
-                    commonPrefixes.add(metadata.getName());
+                switch (metadata.getType()) {
+                case FOLDER:
                     continue;
+                case RELATIVE_PATH:
+                    String name = metadata.getName();
+                    if (delimiter != null) {
+                        int index = name.indexOf(delimiter,
+                                Strings.nullToEmpty(prefix).length());
+                        if (index != -1) {
+                            name = name.substring(0, index + 1);
+                        }
+                        name += delimiter;
+                    }
+                    commonPrefixes.add(name);
+                    continue;
+                default:
+                    break;
                 }
+
                 xml.writeStartElement("Contents");
 
                 xml.writeStartElement("Key");
@@ -759,13 +773,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeStartElement("CommonPrefixes");
 
                 xml.writeStartElement("Prefix");
-                if (prefix != null) {
-                    xml.writeCharacters(prefix);
-                }
                 xml.writeCharacters(commonPrefix);
-                if (delimiter != null) {
-                    xml.writeCharacters(delimiter);
-                }
                 xml.writeEndElement();
 
                 xml.writeEndElement();
