@@ -3,15 +3,19 @@ S3Proxy
 S3Proxy allows applications using the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
 to access other object stores,
-e.g., EMC Atmos, Microsoft Azure, OpenStack Swift.  It also allows local
-testing of S3 without the cost or latency associated with using AWS.
+e.g., EMC Atmos, Google Cloud Storage, Microsoft Azure, OpenStack Swift.
+It also allows local testing of S3 without the cost or latency associated with
+using AWS.
 
 Features
 --------
 * create, remove, and list buckets (including user-specified regions)
 * put, get, delete, and list objects
-* copy objects and delete multiple objects (emulated operations)
+* multi-part uploads (emulated operation, see [#2](https://github.com/andrewgaul/s3proxy/issues/2))
+* copy objects (emulated operation, see [#46](https://github.com/andrewgaul/s3proxy/issues/46))
+* delete multiple objects
 * store and retrieve object metadata, including user metadata
+* set and get canned bucket and object ACLs (private and public-read only)
 * authorization via AWS signature v2 (including pre-signed URLs) or anonymous access
 * listen on HTTP or HTTPS
 
@@ -94,12 +98,8 @@ Limitations
 -----------
 S3Proxy does not support:
 
-* single-part uploads larger than 2 GB ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-264))
-* multi-part uploads
 * POST uploads
-* bucket ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-660))
-* object ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-732))
-* object metadata with filesystem provider ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-658))
+* object metadata with filesystem provider on Mac OS X ([OpenJDK issue](https://bugs.openjdk.java.net/browse/JDK-8030048))
 * object server-side encryption
 * object versioning
 
