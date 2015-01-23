@@ -1,0 +1,3 @@
+[submodule "s3-tests"]
+	path = s3-tests
+	url = https://github.com/andrewgaul/s3-tests.git
