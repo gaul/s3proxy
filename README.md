@@ -98,7 +98,7 @@ S3Proxy does not support:
 * multi-part uploads
 * POST uploads
 * bucket ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-660))
-* object ACLS ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-732))
+* object ACLs ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-732))
 * object metadata with filesystem provider ([jclouds issue](https://issues.apache.org/jira/browse/JCLOUDS-658))
 * object server-side encryption
 * object versioning
