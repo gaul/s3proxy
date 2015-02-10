@@ -17,7 +17,7 @@
     <module name="AvoidNestedBlocks"/>
     <module name="AvoidStarImport"/>
     <module name="AvoidStaticImport">
-      <property name="excludes" value="org.assertj.core.api.Assertions.assertThat"/>
+      <property name="excludes" value="org.assertj.core.api.Assertions.assertThat,org.junit.Assert.fail"/>
     </module>
     <module name="ClassTypeParameterName"/>
     <module name="CovariantEquals"/>

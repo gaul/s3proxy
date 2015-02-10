@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -358,12 +359,11 @@ public final class S3ProxyTest {
                 .isEqualTo(HttpServletResponse.SC_OK);
     }
 
-    // TODO: jclouds only supports MPU via aws-s3, not generic s3
-    @Ignore
     @Test
     public void testUnknownParameter() throws Exception {
         String blobName = "blob";
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
+        int minMultipartSize = 32 * 1024 * 1024 + 1;
+        ByteSource byteSource = ByteSource.wrap(new byte[minMultipartSize]);
         Blob blob = s3BlobStore.blobBuilder(blobName)
                 .payload(byteSource)
                 .contentLength(byteSource.size())
@@ -371,6 +371,7 @@ public final class S3ProxyTest {
         PutOptions options = new PutOptions().multipart(true);
         try {
             s3BlobStore.putBlob(containerName, blob, options);
+            fail("Expected HttpResponseException");
         } catch (RuntimeException re) {
             // TODO: why does jclouds wrap this in a
             // UncheckedExecutionException?
