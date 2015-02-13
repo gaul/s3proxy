@@ -910,14 +910,15 @@ final class S3ProxyHandler extends AbstractHandler {
         try (InputStream is = request.getInputStream();
              Writer writer = new OutputStreamWriter(response.getOutputStream(),
                     StandardCharsets.UTF_8)) {
+            Collection<String> blobNames = parseSimpleXmlElements(is, "Key");
+            blobStore.removeBlobs(containerName, blobNames);
+
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
             xml.writeStartElement("DeleteResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
-            for (String blobName : parseSimpleXmlElements(is, "Key")) {
-                blobStore.removeBlob(containerName, blobName);
-
+            for (String blobName : blobNames) {
                 xml.writeStartElement("Deleted");
                 xml.writeStartElement("Key");
                 xml.writeCharacters(blobName);
