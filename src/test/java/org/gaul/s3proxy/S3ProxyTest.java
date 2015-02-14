@@ -67,6 +67,8 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public final class S3ProxyTest {
+    private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
+
     @Rule
     public ExpectedException thrown = ExpectedException.none();
 
@@ -177,12 +179,11 @@ public final class S3ProxyTest {
         HttpClient httpClient = context.utils().http();
         // TODO: how to interpret this?
         URI uri = URI.create(s3Endpoint + "/" + containerName + "/blob");
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
-        Payload payload = new ByteSourcePayload(byteSource);
-        payload.getContentMetadata().setContentLength(byteSource.size());
+        Payload payload = new ByteSourcePayload(BYTE_SOURCE);
+        payload.getContentMetadata().setContentLength(BYTE_SOURCE.size());
         httpClient.put(uri, payload);
         try (InputStream actual = httpClient.get(uri);
-             InputStream expected = byteSource.openStream()) {
+             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
@@ -224,17 +225,16 @@ public final class S3ProxyTest {
     }
 
     private void putBlobAndCheckIt(String blobName) throws Exception {
-        ByteSource byteSource = ByteSource.wrap(new byte[42]);
         Blob blob = s3BlobStore.blobBuilder(blobName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob);
 
         Blob blob2 = s3BlobStore.getBlob(containerName, blobName);
         assertThat(blob2.getMetadata().getName()).isEqualTo(blobName);
         try (InputStream actual = blob2.getPayload().openStream();
-             InputStream expected = byteSource.openStream()) {
+             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
@@ -261,12 +261,10 @@ public final class S3ProxyTest {
     public void testBlobList() throws Exception {
         assertThat(s3BlobStore.list(containerName)).isEmpty();
 
-        // TODO: hang with zero length blobs?
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
         Blob blob1 = s3BlobStore.blobBuilder("blob1")
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob1);
         for (StorageMetadata metadata : s3BlobStore.list(containerName)) {
@@ -276,8 +274,8 @@ public final class S3ProxyTest {
 
         builder = ImmutableSet.builder();
         Blob blob2 = s3BlobStore.blobBuilder("blob2")
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob2);
         for (StorageMetadata metadata : s3BlobStore.list(containerName)) {
@@ -290,16 +288,15 @@ public final class S3ProxyTest {
     public void testBlobListRecursive() throws Exception {
         assertThat(s3BlobStore.list(containerName)).isEmpty();
 
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
         Blob blob1 = s3BlobStore.blobBuilder("prefix/blob1")
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob1);
 
         Blob blob2 = s3BlobStore.blobBuilder("prefix/blob2")
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob2);
 
@@ -321,10 +318,9 @@ public final class S3ProxyTest {
     @Test
     public void testBlobMetadata() throws Exception {
         String blobName = "blob";
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
         Blob blob1 = s3BlobStore.blobBuilder(blobName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob1);
 
@@ -332,7 +328,7 @@ public final class S3ProxyTest {
                 blobName);
         assertThat(metadata.getName()).isEqualTo(blobName);
         assertThat(metadata.getContentMetadata().getContentLength())
-                .isEqualTo(byteSource.size());
+                .isEqualTo(BYTE_SOURCE.size());
 
         assertThat(s3BlobStore.blobMetadata(containerName,
                 "fake-blob")).isNull();
@@ -341,10 +337,9 @@ public final class S3ProxyTest {
     @Test
     public void testBlobRemove() throws Exception {
         String blobName = "blob";
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
         Blob blob = s3BlobStore.blobBuilder(blobName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         s3BlobStore.putBlob(containerName, blob);
         assertThat(s3BlobStore.blobExists(containerName, blobName)).isTrue();
@@ -364,10 +359,9 @@ public final class S3ProxyTest {
         BlobRequestSigner signer = s3Context.getSigner();
 
         String blobName = "blob";
-        ByteSource byteSource = ByteSource.wrap(new byte[1]);
         Blob blob = s3BlobStore.blobBuilder(blobName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .build();
         HttpRequest putRequest = signer.signPutBlob(containerName, blob, 10);
         HttpResponse putResponse = httpClient.invoke(putRequest);
@@ -398,7 +392,6 @@ public final class S3ProxyTest {
     public void testCopyObjectPreserveMetadata() throws Exception {
         String fromName = "from-name";
         String toName = "to-name";
-        ByteSource byteSource = ByteSource.wrap(new byte[42]);
         String contentDisposition = "attachment; filename=old.jpg";
         String contentEncoding = "gzip";
         String contentLanguage = "en";
@@ -408,8 +401,8 @@ public final class S3ProxyTest {
                 "key1", "value1",
                 "key2", "value2");
         Blob fromBlob = s3BlobStore.blobBuilder(fromName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .contentDisposition(contentDisposition)
                 .contentEncoding(contentEncoding)
                 .contentLanguage(contentLanguage)
@@ -424,7 +417,7 @@ public final class S3ProxyTest {
 
         Blob toBlob = s3BlobStore.getBlob(containerName, toName);
         try (InputStream actual = toBlob.getPayload().openStream();
-                InputStream expected = byteSource.openStream()) {
+                InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
         ContentMetadata contentMetadata =
@@ -446,10 +439,9 @@ public final class S3ProxyTest {
     public void testCopyObjectReplaceMetadata() throws Exception {
         String fromName = "from-name";
         String toName = "to-name";
-        ByteSource byteSource = ByteSource.wrap(new byte[42]);
         Blob fromBlob = s3BlobStore.blobBuilder(fromName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
                 .contentDisposition("attachment; filename=old.jpg")
                 .contentEncoding("compress")
                 .contentLanguage("en")
@@ -484,7 +476,7 @@ public final class S3ProxyTest {
 
         Blob toBlob = s3BlobStore.getBlob(containerName, toName);
         try (InputStream actual = toBlob.getPayload().openStream();
-                InputStream expected = byteSource.openStream()) {
+                InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
         ContentMetadata toContentMetadata =

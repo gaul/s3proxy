@@ -16,7 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.Properties;
@@ -31,6 +30,7 @@ import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
 
@@ -56,6 +56,8 @@ public final class S3AwsSdkTest {
                 SDKGlobalConfiguration.ENFORCE_S3_SIGV4_SYSTEM_PROPERTY,
                 "true");
     }
+
+    private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
 
     @Rule
     public ExpectedException thrown = ExpectedException.none();
@@ -151,8 +153,8 @@ public final class S3AwsSdkTest {
         AmazonS3 client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
         client.setEndpoint(s3Endpoint.toString());
-        client.putObject(containerName, "foo",
-                new ByteArrayInputStream(new byte[0]), new ObjectMetadata());
+        client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
+                new ObjectMetadata());
     }
 
     @Test
@@ -167,8 +169,8 @@ public final class S3AwsSdkTest {
                     return ase.getErrorCode().equals(code);
                 }
             });
-        client.putObject(containerName, "foo",
-                new ByteArrayInputStream(new byte[0]), new ObjectMetadata());
+        client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
+                new ObjectMetadata());
     }
 
     private static String createRandomContainerName() {
