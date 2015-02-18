@@ -34,6 +34,7 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
 
+import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobRequestSigner;
@@ -117,6 +118,10 @@ public final class S3ProxyTest {
                 keyStorePassword,
                 "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
         s3Proxy.start();
+        while (s3Proxy.getState().equals(AbstractLifeCycle.RUNNING)) {
+            Thread.sleep(1);
+        }
+
         // reset endpoint to handle zero port
         s3Endpoint = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
                 s3Endpoint.getHost(), s3Proxy.getPort(), s3Endpoint.getPath(),
