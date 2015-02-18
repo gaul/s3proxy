@@ -160,7 +160,7 @@ public final class S3Proxy {
                 System.err.println(
                         "Both " + S3ProxyConstants.PROPERTY_KEYSTORE_PATH +
                         " and " + S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD +
-                        " must be set with an HTTP endpoint");
+                        " must be set with an HTTPS endpoint");
                 System.exit(1);
             }
         }
