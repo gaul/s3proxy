@@ -71,6 +71,7 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.ContainerAccess;
@@ -120,6 +121,15 @@ final class S3ProxyHandler extends AbstractHandler {
             "max-keys",
             "prefix",
             "Signature"
+    );
+    private static final Set<String> CANNED_ACLS = ImmutableSet.of(
+            "private",
+            "public-read",
+            "public-read-write",
+            "authenticated-read",
+            "bucket-owner-read",
+            "bucket-owner-full-control",
+            "log-delivery-write"
     );
 
     private final BlobStore blobStore;
@@ -333,7 +343,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleBlobAcl(response, path[1], path[2]);
+                    handleGetBlobAcl(response, path[1], path[2]);
                     baseRequest.setHandled(true);
                     return;
                 }
@@ -374,7 +384,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+                    handleSetBlobAcl(request, response, path[1], path[2]);
                     baseRequest.setHandled(true);
                     return;
                 }
@@ -486,8 +496,11 @@ final class S3ProxyHandler extends AbstractHandler {
             access = ContainerAccess.PRIVATE;
         } else if ("public-read".equals(cannedAcl)) {
             access = ContainerAccess.PUBLIC_READ;
-        } else {
+        } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
             response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            return;
+        } else {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
 
@@ -497,8 +510,16 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void handleBlobAcl(HttpServletResponse response,
+    private void handleGetBlobAcl(HttpServletResponse response,
             String containerName, String blobName) throws IOException {
+        BlobAccess access;
+        if (blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient")) {
+            access = BlobAccess.PRIVATE;
+        } else {
+            access = blobStore.getBlobAccess(containerName, blobName);
+        }
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -541,12 +562,59 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeEndElement();
 
             xml.writeEndElement();
+
+            if (access == BlobAccess.PUBLIC_READ) {
+                xml.writeStartElement("Grant");
+
+                xml.writeStartElement("Grantee");
+                xml.writeNamespace("xsi",
+                        "http://www.w3.org/2001/XMLSchema-instance");
+                xml.writeAttribute("xsi:type", "Group");
+
+                xml.writeStartElement("URI");
+                xml.writeCharacters(
+                        "http://acs.amazonaws.com/groups/global/AllUsers");
+                xml.writeEndElement();
+
+                xml.writeEndElement();
+
+                xml.writeStartElement("Permission");
+                xml.writeCharacters("READ");
+                xml.writeEndElement();
+
+                xml.writeEndElement();
+            }
+
             xml.writeEndElement();
 
             xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
+        }
+    }
+
+    private void handleSetBlobAcl(HttpServletRequest request,
+            HttpServletResponse response, String containerName,
+            String blobName) throws IOException {
+        BlobAccess access;
+
+        String cannedAcl = request.getHeader("x-amz-acl");
+        if ("private".equals(cannedAcl)) {
+            access = BlobAccess.PRIVATE;
+        } else if ("public-read".equals(cannedAcl)) {
+            access = BlobAccess.PUBLIC_READ;
+        } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
+            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            return;
+        } else {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
+        if (!(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"))) {
+            blobStore.setBlobAccess(containerName, blobName, access);
         }
     }
 
