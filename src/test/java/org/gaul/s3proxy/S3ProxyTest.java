@@ -26,7 +26,6 @@ import java.util.Random;
 
 import javax.servlet.http.HttpServletResponse;
 
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -95,9 +94,8 @@ public final class S3ProxyTest {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String forceMultiPartUpload = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
-        Optional<String> virtualHost = Optional.fromNullable(
-                s3ProxyProperties.getProperty(
-                        S3ProxyConstants.PROPERTY_VIRTUAL_HOST));
+        String virtualHost = s3ProxyProperties.getProperty(
+                S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
 
         Properties properties = new Properties();
         ContextBuilder builder = ContextBuilder
@@ -113,10 +111,23 @@ public final class S3ProxyTest {
         containerName = createRandomContainerName();
         blobStore.createContainerInLocation(null, containerName);
 
-        s3Proxy = new S3Proxy(blobStore, s3Endpoint, s3Identity, s3Credential,
-                Resources.getResource(keyStorePath).toString(),
-                keyStorePassword,
-                "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
+        S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
+                .blobStore(blobStore)
+                .endpoint(s3Endpoint)
+                .forceMultiPartUpload("true".equalsIgnoreCase(
+                        forceMultiPartUpload));
+        if (s3Identity != null || s3Credential != null) {
+            s3ProxyBuilder.awsAuthentication(s3Identity, s3Credential);
+        }
+        if (keyStorePath != null || keyStorePassword != null) {
+            s3ProxyBuilder.keyStore(
+                    Resources.getResource(keyStorePath).toString(),
+                    keyStorePassword);
+        }
+        if (virtualHost != null) {
+            s3ProxyBuilder.virtualHost(virtualHost);
+        }
+        s3Proxy = s3ProxyBuilder.build();
         s3Proxy.start();
         while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
             Thread.sleep(1);

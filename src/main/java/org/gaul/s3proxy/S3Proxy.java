@@ -55,7 +55,7 @@ public final class S3Proxy {
         System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
     }
 
-    public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
+    S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
             boolean forceMultiPartUpload, Optional<String> virtualHost) {
         checkNotNull(blobStore);
@@ -63,6 +63,15 @@ public final class S3Proxy {
         // TODO: allow service paths?
         checkArgument(endpoint.getPath().isEmpty(),
                 "endpoint path must be empty, was: " + endpoint.getPath());
+        checkArgument(Strings.isNullOrEmpty(identity) ^
+                !Strings.isNullOrEmpty(credential),
+                "Must provide both identity and credential");
+        if (endpoint.getScheme().equals("https:")) {
+            checkNotNull(keyStorePath,
+                    "Must provide keyStorePath with HTTPS endpoint");
+            checkNotNull(keyStorePassword,
+                    "Must provide keyStorePassword with HTTPS endpoint");
+        }
         checkNotNull(virtualHost);
 
         server = new Server();
@@ -83,6 +92,62 @@ public final class S3Proxy {
         server.addConnector(connector);
         server.setHandler(new S3ProxyHandler(blobStore, identity, credential,
                 forceMultiPartUpload, virtualHost));
+    }
+
+    public static final class Builder {
+        private BlobStore blobStore;
+        private URI endpoint;
+        private String identity;
+        private String credential;
+        private String keyStorePath;
+        private String keyStorePassword;
+        private boolean forceMultiPartUpload;
+        private String virtualHost;
+
+        Builder() {
+        }
+
+        public S3Proxy build() {
+            return new S3Proxy(blobStore, endpoint, identity, credential,
+                    keyStorePath, keyStorePassword, forceMultiPartUpload,
+                    Optional.fromNullable(virtualHost));
+        }
+
+        public Builder blobStore(BlobStore blobStore) {
+            this.blobStore = checkNotNull(blobStore);
+            return this;
+        }
+
+        public Builder endpoint(URI endpoint) {
+            this.endpoint = checkNotNull(endpoint);
+            return this;
+        }
+
+        public Builder awsAuthentication(String identity, String credential) {
+            this.identity = checkNotNull(identity);
+            this.credential = checkNotNull(credential);
+            return this;
+        }
+
+        public Builder keyStore(String keyStorePath, String keyStorePassword) {
+            this.keyStorePath = checkNotNull(keyStorePath);
+            this.keyStorePassword = checkNotNull(keyStorePassword);
+            return this;
+        }
+
+        public Builder forceMultiPartUpload(boolean forceMultiPartUpload) {
+            this.forceMultiPartUpload = forceMultiPartUpload;
+            return this;
+        }
+
+        public Builder virtualHost(String virtualHost) {
+            this.virtualHost = checkNotNull(virtualHost);
+            return this;
+        }
+    }
+
+    public static Builder builder() {
+        return new Builder();
     }
 
     public void start() throws Exception {
@@ -144,13 +209,6 @@ public final class S3Proxy {
                     S3ProxyConstants.PROPERTY_IDENTITY);
             localCredential = properties.getProperty(
                     S3ProxyConstants.PROPERTY_CREDENTIAL);
-            if (localIdentity == null || localCredential == null) {
-                System.err.println(
-                        "Both " + S3ProxyConstants.PROPERTY_IDENTITY +
-                        " and " + S3ProxyConstants.PROPERTY_CREDENTIAL +
-                        " must be set");
-                System.exit(1);
-            }
         } else if (!s3ProxyAuthorization.equalsIgnoreCase("none")) {
             System.err.println(S3ProxyConstants.PROPERTY_AUTHORIZATION +
                     " must be aws-v2 or none, was: " + s3ProxyAuthorization);
@@ -161,22 +219,10 @@ public final class S3Proxy {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = properties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
-        if (s3ProxyEndpointString.startsWith("https")) {
-            if (Strings.isNullOrEmpty(keyStorePath) ||
-                    Strings.isNullOrEmpty(keyStorePassword)) {
-                System.err.println(
-                        "Both " + S3ProxyConstants.PROPERTY_KEYSTORE_PATH +
-                        " and " + S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD +
-                        " must be set with an HTTPS endpoint");
-                System.exit(1);
-            }
-        }
-
         String forceMultiPartUpload = properties.getProperty(
                 S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
-        Optional<String> virtualHost = Optional.fromNullable(
-                properties.getProperty(
-                        S3ProxyConstants.PROPERTY_VIRTUAL_HOST));
+        String virtualHost = properties.getProperty(
+                S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
@@ -188,10 +234,30 @@ public final class S3Proxy {
         }
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         URI s3ProxyEndpoint = new URI(s3ProxyEndpointString);
-        S3Proxy s3Proxy = new S3Proxy(context.getBlobStore(), s3ProxyEndpoint,
-                localIdentity, localCredential, keyStorePath,
-                keyStorePassword,
-                "true".equalsIgnoreCase(forceMultiPartUpload), virtualHost);
+
+        S3Proxy s3Proxy;
+        try {
+            S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
+                    .blobStore(context.getBlobStore())
+                    .endpoint(s3ProxyEndpoint)
+                    .forceMultiPartUpload("true".equalsIgnoreCase(
+                            forceMultiPartUpload));
+            if (localIdentity != null || localCredential != null) {
+                s3ProxyBuilder.awsAuthentication(localIdentity,
+                        localCredential);
+            }
+            if (keyStorePath != null || keyStorePassword != null) {
+                s3ProxyBuilder.keyStore(keyStorePath, keyStorePassword);
+            }
+            if (virtualHost != null) {
+                s3ProxyBuilder.virtualHost(virtualHost);
+            }
+            s3Proxy = s3ProxyBuilder.build();
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+            throw e;
+        }
         s3Proxy.start();
     }
 }

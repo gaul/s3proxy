@@ -34,10 +34,14 @@
     <module name="FallThrough"/>
     <module name="FinalClass"/>
     <module name="GenericWhitespace"/>
+<!--
+    // TODO: Checkstyle dislikes builders without set prefix
+    https://github.com/checkstyle/checkstyle/issues/619
     <module name="HiddenField">
       <property name="ignoreConstructorParameter" value="true"/>
       <property name="ignoreSetter" value="true"/>
     </module>
+-->
     <module name="HideUtilityClassConstructor"/>
     <module name="IllegalImport"/>
     <module name="IllegalInstantiation">
