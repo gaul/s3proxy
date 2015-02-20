@@ -16,10 +16,11 @@
 
 package org.gaul.s3proxy;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import javax.servlet.http.HttpServletResponse;
 
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Preconditions;
 
 /**
  * List of S3 error codes.  Reference:
@@ -63,7 +64,7 @@ enum S3ErrorCode {
         this.errorCode = CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL,
                 name());
         this.httpStatusCode = httpStatusCode;
-        this.message = Preconditions.checkNotNull(message);
+        this.message = checkNotNull(message);
     }
 
     public String getErrorCode() {

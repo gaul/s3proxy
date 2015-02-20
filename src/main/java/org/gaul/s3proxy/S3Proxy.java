@@ -16,6 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -23,7 +26,6 @@ import java.net.URI;
 import java.util.Properties;
 
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Module;
@@ -56,11 +58,12 @@ public final class S3Proxy {
     public S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
             boolean forceMultiPartUpload, Optional<String> virtualHost) {
-        Preconditions.checkNotNull(blobStore);
-        Preconditions.checkNotNull(endpoint);
+        checkNotNull(blobStore);
+        checkNotNull(endpoint);
         // TODO: allow service paths?
-        Preconditions.checkArgument(endpoint.getPath().isEmpty(),
+        checkArgument(endpoint.getPath().isEmpty(),
                 "endpoint path must be empty, was: " + endpoint.getPath());
+        checkNotNull(virtualHost);
 
         server = new Server();
         HttpConnectionFactory httpConnectionFactory =

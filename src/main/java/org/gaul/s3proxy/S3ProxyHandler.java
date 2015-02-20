@@ -16,6 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -50,7 +53,6 @@ import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
@@ -133,13 +135,13 @@ final class S3ProxyHandler extends AbstractHandler {
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
             boolean forceMultiPartUpload, Optional<String> virtualHost) {
-        this.blobStore = Preconditions.checkNotNull(blobStore);
+        this.blobStore = checkNotNull(blobStore);
         this.blobStoreType =
                 blobStore.getContext().unwrap().getProviderMetadata().getId();
         this.identity = identity;
         this.credential = credential;
         this.forceMultiPartUpload = forceMultiPartUpload;
-        this.virtualHost = Preconditions.checkNotNull(virtualHost);
+        this.virtualHost = checkNotNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
     }
@@ -1222,7 +1224,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void sendSimpleErrorResponse(HttpServletResponse response,
             S3ErrorCode code, String element, String characters)
             throws IOException {
-        Preconditions.checkArgument(!(element == null ^ characters == null),
+        checkArgument(!(element == null ^ characters == null),
                 "Must specify neither or both element and characters");
         logger.debug("{} {} {}", code, element, characters);
 
