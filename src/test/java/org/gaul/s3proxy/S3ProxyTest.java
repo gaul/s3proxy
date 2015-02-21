@@ -393,6 +393,9 @@ public final class S3ProxyTest {
             // UncheckedExecutionException?
             HttpResponseException hre = Throwables2.getFirstThrowableOfType(
                     re, HttpResponseException.class);
+            if (hre == null) {
+                throw re;
+            }
             assertThat(hre.getResponse().getStatusCode()).isEqualTo(
                     HttpServletResponse.SC_NOT_IMPLEMENTED);
         }
