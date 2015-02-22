@@ -2,4 +2,6 @@ language: java
 before_install:
  - sudo apt-get update -qq
  - sudo apt-get install -qq python-pip python-virtualenv libevent-dev
+# skip install due to https://jira.codehaus.org/browse/MSHADE-183
+install: true
 after_script: src/test/resources/run-s3-tests.sh
