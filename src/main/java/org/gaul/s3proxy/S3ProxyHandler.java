@@ -486,19 +486,13 @@ final class S3ProxyHandler extends AbstractHandler {
                     "http://www.w3.org/2001/XMLSchema-instance");
             xml.writeAttribute("xsi:type", "CanonicalUser");
 
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_OWNER_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
+            writeSimpleElement(xml, "DisplayName",
+                    FAKE_OWNER_DISPLAY_NAME);
 
             xml.writeEndElement();
 
-            xml.writeStartElement("Permission");
-            xml.writeCharacters("FULL_CONTROL");
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Permission", "FULL_CONTROL");
 
             xml.writeEndElement();
 
@@ -510,16 +504,12 @@ final class S3ProxyHandler extends AbstractHandler {
                         "http://www.w3.org/2001/XMLSchema-instance");
                 xml.writeAttribute("xsi:type", "Group");
 
-                xml.writeStartElement("URI");
-                xml.writeCharacters(
+                writeSimpleElement(xml, "URI",
                         "http://acs.amazonaws.com/groups/global/AllUsers");
-                xml.writeEndElement();
 
                 xml.writeEndElement();
 
-                xml.writeStartElement("Permission");
-                xml.writeCharacters("READ");
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Permission", "READ");
 
                 xml.writeEndElement();
             }
@@ -576,19 +566,13 @@ final class S3ProxyHandler extends AbstractHandler {
                     "http://www.w3.org/2001/XMLSchema-instance");
             xml.writeAttribute("xsi:type", "CanonicalUser");
 
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_OWNER_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
+            writeSimpleElement(xml, "DisplayName",
+                    FAKE_OWNER_DISPLAY_NAME);
 
             xml.writeEndElement();
 
-            xml.writeStartElement("Permission");
-            xml.writeCharacters("FULL_CONTROL");
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Permission", "FULL_CONTROL");
 
             xml.writeEndElement();
 
@@ -600,16 +584,12 @@ final class S3ProxyHandler extends AbstractHandler {
                         "http://www.w3.org/2001/XMLSchema-instance");
                 xml.writeAttribute("xsi:type", "Group");
 
-                xml.writeStartElement("URI");
-                xml.writeCharacters(
+                writeSimpleElement(xml, "URI",
                         "http://acs.amazonaws.com/groups/global/AllUsers");
-                xml.writeEndElement();
 
                 xml.writeEndElement();
 
-                xml.writeStartElement("Permission");
-                xml.writeCharacters("READ");
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Permission", "READ");
 
                 xml.writeEndElement();
             }
@@ -659,9 +639,7 @@ final class S3ProxyHandler extends AbstractHandler {
             for (StorageMetadata metadata : blobStore.list()) {
                 xml.writeStartElement("Bucket");
 
-                xml.writeStartElement("Name");
-                xml.writeCharacters(metadata.getName());
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Name", metadata.getName());
 
                 Date creationDate = metadata.getCreationDate();
                 if (creationDate == null) {
@@ -670,10 +648,10 @@ final class S3ProxyHandler extends AbstractHandler {
                     // s3cmd which require one.
                     creationDate = new Date(0);
                 }
-                xml.writeStartElement("CreationDate");
-                xml.writeCharacters(blobStore.getContext().utils().date()
-                        .iso8601DateFormat(creationDate).trim());
-                xml.writeEndElement();
+                writeSimpleElement(xml, "CreationDate",
+                        blobStore.getContext().utils().date()
+                                .iso8601DateFormat(creationDate).trim());
+
                 xml.writeEndElement();
             }
             xml.writeEndElement();
@@ -842,49 +820,32 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("ListBucketResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Name");
-            xml.writeCharacters(containerName);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Name", containerName);
 
             if (prefix == null) {
                 xml.writeEmptyElement("Prefix");
             } else {
-                xml.writeStartElement("Prefix");
-                xml.writeCharacters(prefix);
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Prefix", prefix);
             }
 
-            xml.writeStartElement("MaxKeys");
-            xml.writeCharacters(String.valueOf(maxKeys));
-            xml.writeEndElement();
+            writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
 
             if (marker == null) {
                 xml.writeEmptyElement("Marker");
             } else {
-                xml.writeStartElement("Marker");
-                xml.writeCharacters(marker);
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Marker", marker);
             }
 
             if (delimiter != null) {
-                xml.writeStartElement("Delimiter");
-                xml.writeCharacters(delimiter);
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Delimiter", delimiter);
             }
 
             String nextMarker = set.getNextMarker();
             if (nextMarker != null) {
-                xml.writeStartElement("IsTruncated");
-                xml.writeCharacters("true");
-                xml.writeEndElement();
-
-                xml.writeStartElement("NextMarker");
-                xml.writeCharacters(nextMarker);
-                xml.writeEndElement();
+                writeSimpleElement(xml, "IsTruncated", "true");
+                writeSimpleElement(xml, "NextMarker", nextMarker);
             } else {
-                xml.writeStartElement("IsTruncated");
-                xml.writeCharacters("false");
-                xml.writeEndElement();
+                writeSimpleElement(xml, "IsTruncated", "false");
             }
 
             Set<String> commonPrefixes = new TreeSet<>();
@@ -910,37 +871,28 @@ final class S3ProxyHandler extends AbstractHandler {
 
                 xml.writeStartElement("Contents");
 
-                xml.writeStartElement("Key");
-                xml.writeCharacters(metadata.getName());
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Key", metadata.getName());
 
                 Date lastModified = metadata.getLastModified();
                 if (lastModified != null) {
-                    xml.writeStartElement("LastModified");
-                    xml.writeCharacters(blobStore.getContext().utils().date()
-                            .iso8601DateFormat(lastModified));
-                    xml.writeEndElement();
+                    writeSimpleElement(xml, "LastModified",
+                            blobStore.getContext().utils().date()
+                                    .iso8601DateFormat(lastModified));
                 }
 
                 String eTag = metadata.getETag();
                 if (eTag != null) {
-                    xml.writeStartElement("ETag");
                     String blobStoreType = getBlobStoreType(blobStore);
                     if (blobStoreType.equals("google-cloud-storage")) {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
                     }
-                    xml.writeCharacters("\"" + eTag + "\"");
-                    xml.writeEndElement();
+                    writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
                 }
 
-                xml.writeStartElement("Size");
-                xml.writeCharacters(String.valueOf(metadata.getSize()));
-                xml.writeEndElement();
-
-                xml.writeStartElement("StorageClass");
-                xml.writeCharacters("STANDARD");
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Size",
+                        String.valueOf(metadata.getSize()));
+                writeSimpleElement(xml, "StorageClass", "STANDARD");
 
                 writeOwnerStanza(xml);
 
@@ -950,9 +902,7 @@ final class S3ProxyHandler extends AbstractHandler {
             for (String commonPrefix : commonPrefixes) {
                 xml.writeStartElement("CommonPrefixes");
 
-                xml.writeStartElement("Prefix");
-                xml.writeCharacters(commonPrefix);
-                xml.writeEndElement();
+                writeSimpleElement(xml, "Prefix", commonPrefix);
 
                 xml.writeEndElement();
             }
@@ -987,9 +937,9 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
             for (String blobName : blobNames) {
                 xml.writeStartElement("Deleted");
-                xml.writeStartElement("Key");
-                xml.writeCharacters(blobName);
-                xml.writeEndElement();
+
+                writeSimpleElement(xml, "Key", blobName);
+
                 xml.writeEndElement();
             }
             // TODO: emit error stanza
@@ -1118,15 +1068,6 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartDocument();
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
-
-            xml.writeStartElement("LastModified");
-            xml.writeCharacters(blobStore.getContext().utils().date()
-                    .iso8601DateFormat(blobMetadata.getLastModified()));
-            xml.writeEndElement();
-
-            xml.writeStartElement("ETag");
-            xml.writeCharacters("\"" + eTag + "\"");
-            xml.writeEndElement();
 
             xml.writeEndElement();
             xml.flush();
@@ -1258,17 +1199,9 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("InitiateMultipartUploadResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Bucket");
-            xml.writeCharacters(containerName);
-            xml.writeEndElement();
-
-            xml.writeStartElement("Key");
-            xml.writeCharacters(blobName);
-            xml.writeEndElement();
-
-            xml.writeStartElement("UploadId");
-            xml.writeCharacters(uploadId);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Bucket", containerName);
+            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "UploadId", uploadId);
 
             xml.writeEndElement();
             xml.flush();
@@ -1338,29 +1271,20 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("CompleteMultipartUploadResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Location");
             // TODO: bogus value
-            xml.writeCharacters("http://Example-Bucket.s3.amazonaws.com/" +
-                    blobName);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Location",
+                    "http://Example-Bucket.s3.amazonaws.com/" + blobName);
 
-            xml.writeStartElement("Bucket");
-            xml.writeCharacters(containerName);
-            xml.writeEndElement();
-
-            xml.writeStartElement("Key");
-            xml.writeCharacters(blobName);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Bucket", containerName);
+            writeSimpleElement(xml, "Key", blobName);
 
             if (eTag != null) {
-                xml.writeStartElement("ETag");
                 String blobStoreType = getBlobStoreType(blobStore);
                 if (blobStoreType.equals("google-cloud-storage")) {
                     eTag = BaseEncoding.base16().lowerCase().encode(
                             BaseEncoding.base64().decode(eTag));
                 }
-                xml.writeCharacters("\"" + eTag + "\"");
-                xml.writeEndElement();
+                writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
             }
 
             xml.writeEndElement();
@@ -1402,54 +1326,29 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("ListPartsResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Bucket");
-            xml.writeCharacters(containerName);
-            xml.writeEndElement();
-
-            xml.writeStartElement("Key");
-            xml.writeCharacters(blobName);
-            xml.writeEndElement();
-
-            xml.writeStartElement("UploadId");
-            xml.writeCharacters(uploadId);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Bucket", containerName);
+            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "UploadId", uploadId);
 
             // TODO: bogus values
             xml.writeStartElement("Initiator");
 
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_INITIATOR_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_INITIATOR_DISPLAY_NAME);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "ID", FAKE_INITIATOR_ID);
+            writeSimpleElement(xml, "DisplayName",
+                    FAKE_INITIATOR_DISPLAY_NAME);
 
             xml.writeEndElement();
 
             writeOwnerStanza(xml);
 
-            xml.writeStartElement("StorageClass");
-            xml.writeCharacters("STANDARD");
-            xml.writeEndElement();
+            writeSimpleElement(xml, "StorageClass", "STANDARD");
 
             // TODO: pagination
 /*
-            xml.writeStartElement("PartNumberMarker");
-            xml.writeCharacters("1");
-            xml.writeEndElement();
-
-            xml.writeStartElement("NextPartNumberMarker");
-            xml.writeCharacters("3");
-            xml.writeEndElement();
-
-            xml.writeStartElement("MaxParts");
-            xml.writeCharacters("2");
-            xml.writeEndElement();
-
-            xml.writeStartElement("IsTruncated");
-            xml.writeCharacters("true");
-            xml.writeEndElement();
+            writeSimpleElement(xml, "PartNumberMarker", "1");
+            writeSimpleElement(xml, "NextPartNumberMarker", "3");
+            writeSimpleElement(xml, "MaxParts", "2");
+            writeSimpleElement(xml, "IsTruncated", "true");
 */
 
             PageSet<? extends StorageMetadata> pageSet = blobStore.list(
@@ -1465,35 +1364,28 @@ final class S3ProxyHandler extends AbstractHandler {
                         partName);
                 xml.writeStartElement("Part");
 
-                xml.writeStartElement("PartNumber");
-                xml.writeCharacters(partName.substring(
-                        (uploadId + ".").length()));
-                xml.writeEndElement();
+                writeSimpleElement(xml, "PartNumber",
+                        partName.substring((uploadId + ".").length()));
 
                 Date lastModified = sm.getLastModified();
                 if (lastModified != null) {
-                    xml.writeStartElement("LastModified");
-                    xml.writeCharacters(blobStore.getContext().utils().date()
-                            .iso8601DateFormat(lastModified));
-                    xml.writeEndElement();
+                    writeSimpleElement(xml, "LastModified",
+                            blobStore.getContext().utils().date()
+                                    .iso8601DateFormat(lastModified));
                 }
 
                 String eTag = sm.getETag();
                 if (eTag != null) {
-                    xml.writeStartElement("ETag");
                     String blobStoreType = getBlobStoreType(blobStore);
                     if (blobStoreType.equals("google-cloud-storage")) {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
                     }
-                    xml.writeCharacters("\"" + eTag + "\"");
-                    xml.writeEndElement();
+                    writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
                 }
 
-                xml.writeStartElement("Size");
-                xml.writeCharacters(String.valueOf(
+                writeSimpleElement(xml, "Size", String.valueOf(
                         metadata.getContentMetadata().getContentLength()));
-                xml.writeEndElement();
 
                 xml.writeEndElement();
             }
@@ -1626,23 +1518,14 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartDocument();
             xml.writeStartElement("Error");
 
-            xml.writeStartElement("Code");
-            xml.writeCharacters(code.getErrorCode());
-            xml.writeEndElement();
-
-            xml.writeStartElement("Message");
-            xml.writeCharacters(message);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "Code", code.getErrorCode());
+            writeSimpleElement(xml, "Message", message);
 
             if (element != null) {
-                xml.writeStartElement(element);
-                xml.writeCharacters(characters);
-                xml.writeEndElement();
+                writeSimpleElement(xml, element, characters);
             }
 
-            xml.writeStartElement("RequestId");
-            xml.writeCharacters(FAKE_REQUEST_ID);
-            xml.writeEndElement();
+            writeSimpleElement(xml, "RequestId", FAKE_REQUEST_ID);
 
             xml.writeEndElement();
             xml.flush();
@@ -1824,14 +1707,16 @@ final class S3ProxyHandler extends AbstractHandler {
             throws XMLStreamException {
         xml.writeStartElement("Owner");
 
-        xml.writeStartElement("ID");
-        xml.writeCharacters(FAKE_OWNER_ID);
-        xml.writeEndElement();
+        writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
+        writeSimpleElement(xml, "DisplayName", FAKE_OWNER_DISPLAY_NAME);
 
-        xml.writeStartElement("DisplayName");
-        xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
         xml.writeEndElement();
+    }
 
+    private static void writeSimpleElement(XMLStreamWriter xml,
+            String elementName, String characters) throws XMLStreamException {
+        xml.writeStartElement(elementName);
+        xml.writeCharacters(characters);
         xml.writeEndElement();
     }
 
