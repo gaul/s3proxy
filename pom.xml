@@ -120,50 +120,25 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>2.3</version>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>2.5.3</version>
         <configuration>
-          <createDependencyReducedPom>false</createDependencyReducedPom>
-          <filters>
-            <filter>
-              <artifact>*:*</artifact>
-              <excludes>
-                <exclude>META-INF/*.SF</exclude>
-                <exclude>META-INF/*.DSA</exclude>
-                <exclude>META-INF/*.RSA</exclude>
-                <exclude>about.html</exclude>
-              </excludes>
-            </filter>
-          </filters>
-          <shadedArtifactAttached>true</shadedArtifactAttached>
-          <transformers>
-            <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-              <manifestEntries>
-                <Main-Class>org.gaul.s3proxy.S3Proxy</Main-Class>
-                <Implementation-Build>${buildNumber}</Implementation-Build>
-                <Implementation-Version>${project.version}</Implementation-Version>
-                <Build-Date>${timestamp}</Build-Date>
-              </manifestEntries>
-            </transformer>
-            <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
-            <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
-            <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
-            <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-              <resource>logback.xml</resource>
-              <file>src/main/config/logback.xml</file>
-            </transformer>
-          </transformers>
+          <descriptors>
+            <descriptor>src/main/assembly/jar-with-dependencies.xml</descriptor>
+          </descriptors>
+          <archive>
+            <manifest>
+              <mainClass>org.gaul.s3proxy.S3Proxy</mainClass>
+            </manifest>
+          </archive>
         </configuration>
         <executions>
           <execution>
-            <id>jar-with-dependencies</id>
+            <id>make-assembly</id>
             <phase>package</phase>
             <goals>
-              <goal>shade</goal>
+              <goal>single</goal>
             </goals>
-            <configuration>
-              <shadedClassifierName>jar-with-dependencies</shadedClassifierName>
-            </configuration>
           </execution>
         </executions>
       </plugin>
