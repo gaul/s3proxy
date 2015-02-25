@@ -1214,6 +1214,12 @@ final class S3ProxyHandler extends AbstractHandler {
             }
             response.addHeader(HttpHeaders.ETAG, eTag);
         }
+
+        // TODO: jclouds should include this in PutOptions
+        String cannedAcl = request.getHeader("x-amz-acl");
+        if (cannedAcl != null && !cannedAcl.equals("private")) {
+            handleSetBlobAcl(request, response, containerName, blobName);
+        }
     }
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
