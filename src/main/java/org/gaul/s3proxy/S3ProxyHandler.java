@@ -505,11 +505,11 @@ final class S3ProxyHandler extends AbstractHandler {
         ContainerAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
-        if ("private".equals(cannedAcl)) {
+        if (cannedAcl == null || "private".equals(cannedAcl)) {
             access = ContainerAccess.PRIVATE;
         } else if ("public-read".equals(cannedAcl)) {
             access = ContainerAccess.PUBLIC_READ;
-        } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
+        } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
@@ -603,11 +603,11 @@ final class S3ProxyHandler extends AbstractHandler {
         BlobAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
-        if ("private".equals(cannedAcl)) {
+        if (cannedAcl == null || "private".equals(cannedAcl)) {
             access = BlobAccess.PRIVATE;
         } else if ("public-read".equals(cannedAcl)) {
             access = BlobAccess.PUBLIC_READ;
-        } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
+        } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
