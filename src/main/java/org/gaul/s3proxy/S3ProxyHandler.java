@@ -176,6 +176,18 @@ final class S3ProxyHandler extends AbstractHandler {
     public void handle(String target, Request baseRequest,
             HttpServletRequest request, HttpServletResponse response)
             throws IOException {
+        try {
+            doHandle(target, baseRequest, request, response);
+        } catch (S3Exception se) {
+            sendSimpleErrorResponse(response, se.getError());
+            baseRequest.setHandled(true);
+            return;
+        }
+    }
+
+    private void doHandle(String target, Request baseRequest,
+            HttpServletRequest request, HttpServletResponse response)
+            throws IOException, S3Exception {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         logger.debug("request: {}", request);
@@ -220,24 +232,15 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 date = request.getDateHeader(HttpHeaders.DATE);
             } catch (IllegalArgumentException iae) {
-                sendSimpleErrorResponse(response,
-                        S3ErrorCode.ACCESS_DENIED);
-                baseRequest.setHandled(true);
-                return;
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
             }
             if (date < 0) {
-                sendSimpleErrorResponse(response,
-                        S3ErrorCode.ACCESS_DENIED);
-                baseRequest.setHandled(true);
-                return;
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
             long now = System.currentTimeMillis();
             if (now + TimeUnit.DAYS.toMillis(1) < date ||
                     now - TimeUnit.DAYS.toMillis(1) > date) {
-                sendSimpleErrorResponse(response,
-                        S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
-                baseRequest.setHandled(true);
-                return;
+                throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
             }
         }
 
@@ -253,47 +256,30 @@ final class S3ProxyHandler extends AbstractHandler {
                 String[] values =
                         headerAuthorization.substring(4).split(":", 2);
                 if (values.length != 2) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.INVALID_ARGUMENT);
-                    baseRequest.setHandled(true);
-                    return;
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
                 }
                 headerIdentity = values[0];
                 headerSignature = values[1];
             } else if (headerAuthorization != null &&
                     headerAuthorization.startsWith("AWS4-HMAC-SHA256 ")) {
                 // Fail V4 signature requests to allow clients to retry with V2.
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-                baseRequest.setHandled(true);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
             }
             String parameterIdentity = request.getParameter("AWSAccessKeyId");
             String parameterSignature = request.getParameter("Signature");
 
             if (headerIdentity != null && headerSignature != null) {
                 if (!identity.equals(headerIdentity)) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.INVALID_ACCESS_KEY_ID);
-                    baseRequest.setHandled(true);
-                    return;
+                    throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
                 } else if (!expectedSignature.equals(headerSignature)) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
-                    baseRequest.setHandled(true);
-                    return;
+                    throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                 }
             } else if (parameterIdentity != null &&
                     parameterSignature != null) {
                 if (!identity.equals(parameterIdentity)) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.INVALID_ACCESS_KEY_ID);
-                    baseRequest.setHandled(true);
-                    return;
+                    throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
                 } else if (!expectedSignature.equals(parameterSignature)) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
-                    baseRequest.setHandled(true);
-                    return;
+                    throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
                 }
 
                 String expiresString = request.getParameter("Expires");
@@ -301,16 +287,11 @@ final class S3ProxyHandler extends AbstractHandler {
                     long expires = Long.parseLong(expiresString);
                     long nowSeconds = System.currentTimeMillis() / 1000;
                     if (nowSeconds > expires) {
-                        sendSimpleErrorResponse(response,
-                                S3ErrorCode.ACCESS_DENIED);
-                        baseRequest.setHandled(true);
-                        return;
+                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                     }
                 }
             } else {
-                sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
-                baseRequest.setHandled(true);
-                return;
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
         }
 
@@ -320,9 +301,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (!SUPPORTED_PARAMETERS.contains(parameter)) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
-                sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
-                baseRequest.setHandled(true);
-                return;
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 
@@ -443,9 +422,7 @@ final class S3ProxyHandler extends AbstractHandler {
         default:
             logger.error("Unknown method {} with URI {}",
                     method, request.getRequestURI());
-            sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
-            baseRequest.setHandled(true);
-            return;
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         }
     }
 
@@ -526,7 +503,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, String containerName)
-            throws IOException {
+            throws IOException, S3Exception {
         ContainerAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
@@ -535,8 +512,7 @@ final class S3ProxyHandler extends AbstractHandler {
         } else if ("public-read".equals(cannedAcl)) {
             access = ContainerAccess.PUBLIC_READ;
         } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
-            return;
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -625,7 +601,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleSetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName) throws IOException {
+            String blobName) throws IOException, S3Exception {
         BlobAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
@@ -634,8 +610,7 @@ final class S3ProxyHandler extends AbstractHandler {
         } else if ("public-read".equals(cannedAcl)) {
             access = BlobAccess.PUBLIC_READ;
         } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
-            return;
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -705,30 +680,27 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleListMultipartUploads(HttpServletResponse response,
-            String uploadId) throws IOException {
+            String uploadId) throws IOException, S3Exception {
         // TODO: list all blobs starting with uploadId
-        sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
+        throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
     private void handleContainerExists(HttpServletResponse response,
-            String containerName) throws IOException {
+            String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
     }
 
     private void handleContainerCreate(HttpServletRequest request,
             HttpServletResponse response, String containerName)
-            throws IOException {
+            throws IOException, S3Exception {
         if (containerName.isEmpty()) {
-            sendSimpleErrorResponse(response, S3ErrorCode.METHOD_NOT_ALLOWED);
-            return;
+            throw new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED);
         }
         if (containerName.length() < 3 || containerName.length() > 255 ||
                 !VALID_BUCKET_PATTERN.matcher(containerName).matches()) {
-            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_BUCKET_NAME);
-            return;
+            throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
         }
 
         Collection<String> locations;
@@ -755,9 +727,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
             if (location == null) {
-                sendSimpleErrorResponse(response,
-                        S3ErrorCode.INVALID_LOCATION_CONSTRAINT);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_LOCATION_CONSTRAINT);
             }
         }
         logger.debug("Creating bucket with location: {}", location);
@@ -775,12 +745,10 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 contentLength = Long.parseLong(contentLengthString);
             } catch (NumberFormatException nfe) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             if (contentLength < 0) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
             }
         }
 
@@ -794,28 +762,24 @@ final class S3ProxyHandler extends AbstractHandler {
                     errorCode, errorCode.getMessage(), "BucketName",
                     containerName);
         } catch (AuthorizationException ae) {
-            sendSimpleErrorResponse(response,
-                    S3ErrorCode.BUCKET_ALREADY_EXISTS);
-            return;
+            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, ae);
         }
     }
 
     private void handleContainerDelete(HttpServletResponse response,
-            String containerName) throws IOException {
+            String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
         if (!blobStore.deleteContainerIfEmpty(containerName)) {
-            sendSimpleErrorResponse(response, S3ErrorCode.BUCKET_NOT_EMPTY);
-            return;
+            throw new S3Exception(S3ErrorCode.BUCKET_NOT_EMPTY);
         }
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleBlobList(HttpServletRequest request,
             HttpServletResponse response, String containerName)
-            throws IOException {
+            throws IOException, S3Exception {
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
         if (!(delimiter != null && delimiter.equals("/"))) {
@@ -835,8 +799,7 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 maxKeys = Integer.parseInt(maxKeysString);
             } catch (NumberFormatException nfe) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
         }
         options = options.maxResults(maxKeys);
@@ -845,8 +808,7 @@ final class S3ProxyHandler extends AbstractHandler {
         try {
             set = blobStore.list(containerName, options);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
         }
 
         try (Writer writer = new OutputStreamWriter(response.getOutputStream(),
@@ -980,13 +942,13 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleBlobRemove(HttpServletResponse response,
-            String containerName, String blobName) throws IOException {
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         try {
             blobStore.removeBlob(containerName, blobName);
             response.sendError(HttpServletResponse.SC_NO_CONTENT);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
         }
     }
 
@@ -1020,17 +982,16 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleBlobMetadata(HttpServletResponse response,
-            String containerName, String blobName) throws IOException {
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         BlobMetadata metadata;
         try {
             metadata = blobStore.blobMetadata(containerName, blobName);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
         }
         if (metadata == null) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
@@ -1039,7 +1000,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleGetBlob(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName) throws IOException {
+            String blobName) throws IOException, S3Exception {
         int status = HttpServletResponse.SC_OK;
         GetOptions options = new GetOptions();
         String range = request.getHeader(HttpHeaders.RANGE);
@@ -1063,12 +1024,10 @@ final class S3ProxyHandler extends AbstractHandler {
         try {
             blob = blobStore.getBlob(containerName, blobName, options);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
         }
         if (blob == null) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
 
         response.setStatus(status);
@@ -1082,7 +1041,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleCopyBlob(HttpServletRequest request,
             HttpServletResponse response, String destContainerName,
-            String destBlobName) throws IOException {
+            String destBlobName) throws IOException, S3Exception {
         String copySourceHeader = request.getHeader("x-amz-copy-source");
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
@@ -1100,20 +1059,17 @@ final class S3ProxyHandler extends AbstractHandler {
         if (sourceContainerName.equals(destContainerName) &&
                 sourceBlobName.equals(destBlobName) &&
                 !replaceMetadata) {
-            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_REQUEST);
-            return;
+            throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
         }
 
         Blob blob;
         try {
             blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
         }
         if (blob == null) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_KEY);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
 
         try (InputStream is = blob.getPayload().openStream()) {
@@ -1163,7 +1119,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName) throws IOException {
+            String blobName) throws IOException, S3Exception {
         // Flag headers present since HttpServletResponse.getHeader returns
         // null for empty headers values.
         String contentLengthString = null;
@@ -1184,30 +1140,24 @@ final class S3ProxyHandler extends AbstractHandler {
                 contentMD5 = HashCode.fromBytes(
                         BaseEncoding.base64().decode(contentMD5String));
             } catch (IllegalArgumentException iae) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
             }
             if (contentMD5.bits() != Hashing.md5().bits()) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
             }
         }
 
         if (contentLengthString == null) {
-            sendSimpleErrorResponse(response,
-                    S3ErrorCode.MISSING_CONTENT_LENGTH);
-            return;
+            throw new S3Exception(S3ErrorCode.MISSING_CONTENT_LENGTH);
         }
         long contentLength;
         try {
             contentLength = Long.parseLong(contentLengthString);
         } catch (NumberFormatException nfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-            return;
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
         }
         if (contentLength < 0) {
-            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-            return;
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
         try (InputStream is = request.getInputStream()) {
@@ -1227,8 +1177,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 eTag = blobStore.putBlob(containerName, builder.build(),
                         options);
             } catch (ContainerNotFoundException cnfe) {
-                sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
-                return;
+                throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
             } catch (HttpResponseException hre) {
                 HttpResponse hr = hre.getResponse();
                 if (hr == null) {
@@ -1238,9 +1187,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 switch (status) {
                 case HttpServletResponse.SC_BAD_REQUEST:
                 case 422:  // Swift returns 422 Unprocessable Entity
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.BAD_DIGEST);
-                    break;
+                    throw new S3Exception(S3ErrorCode.BAD_DIGEST);
                 default:
                     // TODO: emit hre.getContent() ?
                     response.sendError(status);
@@ -1250,9 +1197,7 @@ final class S3ProxyHandler extends AbstractHandler {
             } catch (RuntimeException re) {
                 if (Throwables2.getFirstThrowableOfType(re,
                         TimeoutException.class) != null) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.REQUEST_TIMEOUT);
-                    return;
+                    throw new S3Exception(S3ErrorCode.REQUEST_TIMEOUT, re);
                 } else {
                     throw re;
                 }
@@ -1306,11 +1251,10 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleCompleteMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName, String uploadId) throws IOException {
-        try (InputStream is = request.getInputStream();
-                Writer writer = response.getWriter()) {
-            Collection<String> partNames = new ArrayList<>();
-            long totalContentLength = 0;
+            String blobName, String uploadId) throws IOException, S3Exception {
+        Collection<String> partNames = new ArrayList<>();
+        long totalContentLength = 0;
+        try (InputStream is = request.getInputStream()) {
             for (Iterator<String> it = parseSimpleXmlElements(is,
                     "PartNumber").iterator(); it.hasNext();) {
                 String partName = uploadId + "." + it.next();
@@ -1321,20 +1265,18 @@ final class S3ProxyHandler extends AbstractHandler {
                         metadata.getContentMetadata().getContentLength();
                 if (contentLength < MINIMUM_MULTIPART_PART_SIZE &&
                         it.hasNext()) {
-                    sendSimpleErrorResponse(response,
-                            S3ErrorCode.ENTITY_TOO_SMALL);
-                    return;
+                    throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
                 totalContentLength += contentLength;
             }
 
             if (partNames.isEmpty()) {
                 // Amazon requires at least one part
-                sendSimpleErrorResponse(response,
-                        S3ErrorCode.MALFORMED_X_M_L);
-                return;
+                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
             }
+        }
 
+        try (Writer writer = response.getWriter()) {
             BlobMetadata blobMetadata = blobStore.blobMetadata(
                     containerName, uploadId);
             ContentMetadata contentMetadata =
@@ -1400,10 +1342,9 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleAbortMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName, String uploadId) throws IOException {
+            String blobName, String uploadId) throws IOException, S3Exception {
         if (!blobStore.blobExists(containerName, uploadId)) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_UPLOAD);
-            return;
+            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
         }
         PageSet<? extends StorageMetadata> pageSet = blobStore.list(
                 containerName,
@@ -1533,7 +1474,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleUploadPart(HttpServletRequest request,
             HttpServletResponse response, String containerName,
-            String blobName, String uploadId) throws IOException {
+            String blobName, String uploadId)
+            throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
         String contentLengthString = null;
         String contentMD5String = null;
@@ -1553,30 +1495,24 @@ final class S3ProxyHandler extends AbstractHandler {
                 contentMD5 = HashCode.fromBytes(
                         BaseEncoding.base64().decode(contentMD5String));
             } catch (IllegalArgumentException iae) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
             }
             if (contentMD5.bits() != Hashing.md5().bits()) {
-                sendSimpleErrorResponse(response, S3ErrorCode.INVALID_DIGEST);
-                return;
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
             }
         }
 
         if (contentLengthString == null) {
-            sendSimpleErrorResponse(response,
-                    S3ErrorCode.MISSING_CONTENT_LENGTH);
-            return;
+            throw new S3Exception(S3ErrorCode.MISSING_CONTENT_LENGTH);
         }
         long contentLength;
         try {
             contentLength = Long.parseLong(contentLengthString);
         } catch (NumberFormatException nfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-            return;
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
         }
         if (contentLength < 0) {
-            sendSimpleErrorResponse(response, S3ErrorCode.INVALID_ARGUMENT);
-            return;
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
         String partNumber = request.getParameter("partNumber");
@@ -1679,6 +1615,23 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
+        }
+    }
+
+    static class S3Exception extends Exception {
+        private final S3ErrorCode error;
+
+        S3Exception(S3ErrorCode error) {
+            this(error, null);
+        }
+
+        S3Exception(S3ErrorCode error, Throwable cause) {
+            super(cause);
+            this.error = checkNotNull(error);
+        }
+
+        S3ErrorCode getError() {
+            return error;
         }
     }
 
