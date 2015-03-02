@@ -1111,10 +1111,10 @@ final class S3ProxyHandler extends AbstractHandler {
                 builder.contentDisposition(metadata.getContentDisposition())
                         .contentEncoding(metadata.getContentEncoding())
                         .contentLanguage(metadata.getContentLanguage())
-                        .contentLength(metadata.getContentLength())
                         .contentType(metadata.getContentType())
                         .userMetadata(blob.getMetadata().getUserMetadata());
             }
+            builder.contentLength(metadata.getContentLength());
 
             PutOptions options = new PutOptions()
                     .multipart(forceMultiPartUpload);
