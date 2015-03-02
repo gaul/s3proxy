@@ -1363,6 +1363,13 @@ final class S3ProxyHandler extends AbstractHandler {
                 totalContentLength += contentLength;
             }
 
+            if (partNames.isEmpty()) {
+                // Amazon requires at least one part
+                sendSimpleErrorResponse(response,
+                        S3ErrorCode.MALFORMED_X_M_L);
+                return;
+            }
+
             BlobMetadata blobMetadata = blobStore.blobMetadata(
                     containerName, uploadId);
             ContentMetadata contentMetadata =

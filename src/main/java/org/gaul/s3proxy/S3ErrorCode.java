@@ -50,6 +50,9 @@ enum S3ErrorCode {
             " more information about Regions, see How to Select" +
             " a Region for Your Buckets."),
     INVALID_REQUEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
+    MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
+            "The XML you provided was not well-formed or did not validate" +
+            " against our published schema."),
     METHOD_NOT_ALLOWED(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
             "Method Not Allowed"),
     MISSING_CONTENT_LENGTH(HttpServletResponse.SC_LENGTH_REQUIRED,
