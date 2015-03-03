@@ -1117,7 +1117,8 @@ final class S3ProxyHandler extends AbstractHandler {
             ContentMetadata metadata = blob.getMetadata().getContentMetadata();
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(destBlobName)
-                    .payload(is);
+                    .payload(is)
+                    .contentLength(metadata.getContentLength());
             if (replaceMetadata) {
                 addContentMetdataFromHttpRequest(builder, request);
             } else {
@@ -1127,7 +1128,6 @@ final class S3ProxyHandler extends AbstractHandler {
                         .contentType(metadata.getContentType())
                         .userMetadata(blob.getMetadata().getUserMetadata());
             }
-            builder.contentLength(metadata.getContentLength());
 
             PutOptions options = new PutOptions()
                     .multipart(forceMultiPartUpload);
@@ -1210,7 +1210,8 @@ final class S3ProxyHandler extends AbstractHandler {
         try (InputStream is = request.getInputStream()) {
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(blobName)
-                    .payload(is);
+                    .payload(is)
+                    .contentLength(request.getContentLength());
             addContentMetdataFromHttpRequest(builder, request);
             if (contentMD5 != null) {
                 builder = builder.contentMD5(contentMD5);
@@ -1582,7 +1583,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 request.getInputStream())) {
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(uploadId + "." + partNumber)
-                    .payload(his);
+                    .payload(his)
+                    .contentLength(request.getContentLength());
             addContentMetdataFromHttpRequest(builder, request);
             if (contentMD5 != null) {
                 builder = builder.contentMD5(contentMD5);
@@ -1812,7 +1814,6 @@ final class S3ProxyHandler extends AbstractHandler {
                         HttpHeaders.CONTENT_ENCODING))
                 .contentLanguage(request.getHeader(
                         HttpHeaders.CONTENT_LANGUAGE))
-                .contentLength(request.getContentLength())
                 .userMetadata(userMetadata.build());
         String contentType = request.getContentType();
         if (contentType != null) {
