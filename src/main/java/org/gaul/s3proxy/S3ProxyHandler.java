@@ -207,7 +207,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         if (identity != null && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("Expires") == null) {
-            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED,
+                    Optional.of("No date header provided."));
             baseRequest.setHandled(true);
             return;
         }
@@ -306,7 +307,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     }
                 }
             } else {
-                sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED);
+                sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED,
+                        Optional.of("No identity provided."));
                 baseRequest.setHandled(true);
                 return;
             }
