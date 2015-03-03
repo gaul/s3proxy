@@ -464,17 +464,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("AccessControlPolicy");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Owner");
-
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_OWNER_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-            xml.writeEndElement();
-
-            xml.writeEndElement();
+            writeOwnerStanza(xml);
 
             xml.writeStartElement("AccessControlList");
 
@@ -573,19 +563,10 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("AccessControlPolicy");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Owner");
-
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_OWNER_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-            xml.writeEndElement();
-
-            xml.writeEndElement();
+            writeOwnerStanza(xml);
 
             xml.writeStartElement("AccessControlList");
+
             xml.writeStartElement("Grant");
 
             xml.writeStartElement("Grantee");
@@ -673,17 +654,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("ListAllMyBucketsResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            xml.writeStartElement("Owner");
-
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_OWNER_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-            xml.writeEndElement();
-
-            xml.writeEndElement();
+            writeOwnerStanza(xml);
 
             xml.writeStartElement("Buckets");
             for (StorageMetadata metadata : blobStore.list()) {
@@ -983,17 +954,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeCharacters("STANDARD");
                 xml.writeEndElement();
 
-                xml.writeStartElement("Owner");
-
-                xml.writeStartElement("ID");
-                xml.writeCharacters(FAKE_OWNER_ID);
-                xml.writeEndElement();
-
-                xml.writeStartElement("DisplayName");
-                xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-                xml.writeEndElement();
-
-                xml.writeEndElement();
+                writeOwnerStanza(xml);
 
                 xml.writeEndElement();
             }
@@ -1489,17 +1450,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
             xml.writeEndElement();
 
-            xml.writeStartElement("Owner");
-
-            xml.writeStartElement("ID");
-            xml.writeCharacters(FAKE_OWNER_ID);
-            xml.writeEndElement();
-
-            xml.writeStartElement("DisplayName");
-            xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
-            xml.writeEndElement();
-
-            xml.writeEndElement();
+            writeOwnerStanza(xml);
 
             xml.writeStartElement("StorageClass");
             xml.writeCharacters("STANDARD");
@@ -1871,6 +1822,22 @@ final class S3ProxyHandler extends AbstractHandler {
         if (expires != -1) {
             builder.expires(new Date(expires));
         }
+    }
+
+    // TODO: bogus values
+    private static void writeOwnerStanza(XMLStreamWriter xml)
+            throws XMLStreamException {
+        xml.writeStartElement("Owner");
+
+        xml.writeStartElement("ID");
+        xml.writeCharacters(FAKE_OWNER_ID);
+        xml.writeEndElement();
+
+        xml.writeStartElement("DisplayName");
+        xml.writeCharacters(FAKE_OWNER_DISPLAY_NAME);
+        xml.writeEndElement();
+
+        xml.writeEndElement();
     }
 
     static final class MultiBlobByteSource extends ByteSource {
