@@ -62,7 +62,7 @@ public final class S3Proxy {
         checkNotNull(endpoint);
         // TODO: allow service paths?
         checkArgument(endpoint.getPath().isEmpty(),
-                "endpoint path must be empty, was: " + endpoint.getPath());
+                "endpoint path must be empty, was: %s", endpoint.getPath());
         checkArgument(Strings.isNullOrEmpty(identity) ^
                 !Strings.isNullOrEmpty(credential),
                 "Must provide both identity and credential");
