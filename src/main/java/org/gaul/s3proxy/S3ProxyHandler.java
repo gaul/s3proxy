@@ -320,7 +320,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (!SUPPORTED_PARAMETERS.contains(parameter)) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
-                response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+                sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -443,7 +443,7 @@ final class S3ProxyHandler extends AbstractHandler {
         default:
             logger.error("Unknown method {} with URI {}",
                     method, request.getRequestURI());
-            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
             baseRequest.setHandled(true);
             return;
         }
@@ -535,7 +535,7 @@ final class S3ProxyHandler extends AbstractHandler {
         } else if ("public-read".equals(cannedAcl)) {
             access = ContainerAccess.PUBLIC_READ;
         } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
-            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
             return;
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
@@ -634,7 +634,7 @@ final class S3ProxyHandler extends AbstractHandler {
         } else if ("public-read".equals(cannedAcl)) {
             access = BlobAccess.PUBLIC_READ;
         } else if (cannedAcl == null || CANNED_ACLS.contains(cannedAcl)) {
-            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
             return;
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
@@ -707,7 +707,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleListMultipartUploads(HttpServletResponse response,
             String uploadId) throws IOException {
         // TODO: list all blobs starting with uploadId
-        response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+        sendSimpleErrorResponse(response, S3ErrorCode.NOT_IMPLEMENTED);
     }
 
     private void handleContainerExists(HttpServletResponse response,

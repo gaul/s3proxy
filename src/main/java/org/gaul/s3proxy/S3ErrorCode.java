@@ -60,6 +60,9 @@ enum S3ErrorCode {
     NO_SUCH_BUCKET(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     NO_SUCH_KEY(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     NO_SUCH_UPLOAD(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
+    NOT_IMPLEMENTED(HttpServletResponse.SC_NOT_IMPLEMENTED,
+            "A header you provided implies functionality that is not" +
+            " implemented."),
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden");
