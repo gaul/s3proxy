@@ -44,6 +44,7 @@ import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.S3ClientOptions;
 import com.amazonaws.services.s3.model.AccessControlList;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
@@ -139,11 +140,63 @@ public final class S3AwsSdkTest {
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 metadata);
+
+        S3Object object = client.getObject(new GetObjectRequest(containerName,
+                "foo"));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
     }
 
     @Test
     public void testAwsV4Signature() throws Exception {
         AmazonS3 client = new AmazonS3Client(awsCreds);
+        client.setEndpoint(s3Endpoint.toString());
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo",
+                BYTE_SOURCE.openStream(), metadata);
+
+        S3Object object = client.getObject(new GetObjectRequest(containerName,
+                "foo"));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testAwsV4SignatureNonChunked() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds);
+        client.setEndpoint(s3Endpoint.toString());
+        client.setS3ClientOptions(
+                new S3ClientOptions().disableChunkedEncoding());
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo",
+                BYTE_SOURCE.openStream(), metadata);
+
+        S3Object object = client.getObject(new GetObjectRequest(containerName,
+                "foo"));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testAwsV4SignatureBadIdentity() throws Exception {
+        AmazonS3 client = new AmazonS3Client(new BasicAWSCredentials(
+                "bad-identity", awsCreds.getAWSSecretKey()));
         client.setEndpoint(s3Endpoint.toString());
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -153,7 +206,24 @@ public final class S3AwsSdkTest {
                     BYTE_SOURCE.openStream(), metadata);
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
-            assertThat(e.getErrorCode()).isEqualTo("InvalidArgument");
+            assertThat(e.getErrorCode()).isEqualTo("InvalidAccessKeyId");
+        }
+    }
+
+    @Test
+    public void testAwsV4SignatureBadCredential() throws Exception {
+        AmazonS3 client = new AmazonS3Client(new BasicAWSCredentials(
+                awsCreds.getAWSAccessKeyId(), "bad-credential"));
+        client.setEndpoint(s3Endpoint.toString());
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+
+        try {
+            client.putObject(containerName, "foo",
+                    BYTE_SOURCE.openStream(), metadata);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("SignatureDoesNotMatch");
         }
     }
 

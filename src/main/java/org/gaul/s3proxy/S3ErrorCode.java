@@ -59,6 +59,8 @@ enum S3ErrorCode {
     MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
             " against our published schema."),
+    MAX_MESSAGE_LENGTH_EXCEEDED(HttpServletResponse.SC_BAD_REQUEST,
+            "Your request was too big."),
     METHOD_NOT_ALLOWED(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
             "Method Not Allowed"),
     MISSING_CONTENT_LENGTH(HttpServletResponse.SC_LENGTH_REQUIRED,
