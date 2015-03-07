@@ -29,9 +29,6 @@ public final class S3ProxyConstants {
             "s3proxy.keystore-path";
     public static final String PROPERTY_KEYSTORE_PASSWORD =
             "s3proxy.keystore-password";
-    /** Force all proxy-server put objects to use multi-part upload. */
-    public static final String PROPERTY_FORCE_MULTI_PART_UPLOAD =
-            "s3proxy.force-multi-part-upload";
     /**
      * Configure servicing of virtual host buckets.  Setting to localhost:8080
      * allows bucket-in-hostname requests, e.g., bucketname.localhost:8080.

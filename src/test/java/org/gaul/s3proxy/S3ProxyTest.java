@@ -93,8 +93,6 @@ public final class S3ProxyTest {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
-        String forceMultiPartUpload = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
         String virtualHost = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
 
@@ -114,9 +112,7 @@ public final class S3ProxyTest {
 
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                 .blobStore(blobStore)
-                .endpoint(s3Endpoint)
-                .forceMultiPartUpload("true".equalsIgnoreCase(
-                        forceMultiPartUpload));
+                .endpoint(s3Endpoint);
         if (s3Identity != null || s3Credential != null) {
             s3ProxyBuilder.awsAuthentication(s3Identity, s3Credential);
         }

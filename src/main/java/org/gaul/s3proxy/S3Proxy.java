@@ -57,7 +57,7 @@ public final class S3Proxy {
 
     S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
-            boolean forceMultiPartUpload, Optional<String> virtualHost) {
+            Optional<String> virtualHost) {
         checkNotNull(blobStore);
         checkNotNull(endpoint);
         // TODO: allow service paths?
@@ -91,7 +91,7 @@ public final class S3Proxy {
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
         server.setHandler(new S3ProxyHandler(blobStore, identity, credential,
-                forceMultiPartUpload, virtualHost));
+                virtualHost));
     }
 
     public static final class Builder {
@@ -101,7 +101,6 @@ public final class S3Proxy {
         private String credential;
         private String keyStorePath;
         private String keyStorePassword;
-        private boolean forceMultiPartUpload;
         private String virtualHost;
 
         Builder() {
@@ -109,7 +108,7 @@ public final class S3Proxy {
 
         public S3Proxy build() {
             return new S3Proxy(blobStore, endpoint, identity, credential,
-                    keyStorePath, keyStorePassword, forceMultiPartUpload,
+                    keyStorePath, keyStorePassword,
                     Optional.fromNullable(virtualHost));
         }
 
@@ -132,11 +131,6 @@ public final class S3Proxy {
         public Builder keyStore(String keyStorePath, String keyStorePassword) {
             this.keyStorePath = checkNotNull(keyStorePath);
             this.keyStorePassword = checkNotNull(keyStorePassword);
-            return this;
-        }
-
-        public Builder forceMultiPartUpload(boolean forceMultiPartUpload) {
-            this.forceMultiPartUpload = forceMultiPartUpload;
             return this;
         }
 
@@ -219,8 +213,6 @@ public final class S3Proxy {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = properties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
-        String forceMultiPartUpload = properties.getProperty(
-                S3ProxyConstants.PROPERTY_FORCE_MULTI_PART_UPLOAD);
         String virtualHost = properties.getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
 
@@ -239,9 +231,7 @@ public final class S3Proxy {
         try {
             S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                     .blobStore(context.getBlobStore())
-                    .endpoint(s3ProxyEndpoint)
-                    .forceMultiPartUpload("true".equalsIgnoreCase(
-                            forceMultiPartUpload));
+                    .endpoint(s3ProxyEndpoint);
             if (localIdentity != null || localCredential != null) {
                 s3ProxyBuilder.awsAuthentication(localIdentity,
                         localCredential);

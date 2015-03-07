@@ -152,7 +152,6 @@ final class S3ProxyHandler extends AbstractHandler {
     private final String blobStoreType;
     private final String identity;
     private final String credential;
-    private final boolean forceMultiPartUpload;
     private final Optional<String> virtualHost;
     private final XMLInputFactory xmlInputFactory =
             XMLInputFactory.newInstance();
@@ -160,13 +159,12 @@ final class S3ProxyHandler extends AbstractHandler {
             XMLOutputFactory.newInstance();
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
-            boolean forceMultiPartUpload, Optional<String> virtualHost) {
+            Optional<String> virtualHost) {
         this.blobStore = checkNotNull(blobStore);
         this.blobStoreType =
                 blobStore.getContext().unwrap().getProviderMetadata().getId();
         this.identity = identity;
         this.credential = credential;
-        this.forceMultiPartUpload = forceMultiPartUpload;
         this.virtualHost = checkNotNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -1074,10 +1072,11 @@ final class S3ProxyHandler extends AbstractHandler {
 
         try (InputStream is = blob.getPayload().openStream()) {
             ContentMetadata metadata = blob.getMetadata().getContentMetadata();
+            long contentLength = metadata.getContentLength();
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(destBlobName)
                     .payload(is)
-                    .contentLength(metadata.getContentLength());
+                    .contentLength(contentLength);
             if (replaceMetadata) {
                 addContentMetdataFromHttpRequest(builder, request);
             } else {
@@ -1088,8 +1087,11 @@ final class S3ProxyHandler extends AbstractHandler {
                         .userMetadata(blob.getMetadata().getUserMetadata());
             }
 
-            PutOptions options = new PutOptions()
-                    .multipart(forceMultiPartUpload);
+            PutOptions options = new PutOptions();
+            if (blobStoreType.equals("azureblob") &&
+                    contentLength > 64 * 1024 * 1024) {
+                options.multipart(true);
+            }
             String eTag = blobStore.putBlob(destContainerName,
                     builder.build(), options);
             Date lastModified = blob.getMetadata().getLastModified();
@@ -1170,8 +1172,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 builder = builder.contentMD5(contentMD5);
             }
 
-            PutOptions options = new PutOptions()
-                    .multipart(forceMultiPartUpload);
+            PutOptions options = new PutOptions();
+            if (blobStoreType.equals("azureblob") &&
+                    contentLength > 64 * 1024 * 1024) {
+                options.multipart(true);
+            }
             String eTag;
             try {
                 eTag = blobStore.putBlob(containerName, builder.build(),
