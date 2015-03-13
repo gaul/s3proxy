@@ -99,6 +99,10 @@
       <property name="suppressLoadErrors" value="true"/>
     </module>
     <module name="RightCurly"/>
+    <module name="SeparatorWrap">
+      <property name="tokens" value="DOT"/>
+      <property name="option" value="nl"/>
+    </module>
     <module name="SimplifyBooleanExpression"/>
     <module name="SimplifyBooleanReturn"/>
     <module name="StaticVariableName"/>

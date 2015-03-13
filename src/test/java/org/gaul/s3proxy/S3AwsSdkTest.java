@@ -77,8 +77,8 @@ public final class S3AwsSdkTest {
                 S3ProxyConstants.PROPERTY_CREDENTIAL);
         // The AWS client fails if certificate verification fails
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_ENDPOINT).
-                replaceAll("https", "http"));
+                S3ProxyConstants.PROPERTY_ENDPOINT).replaceAll(
+                        "https", "http"));
         String keyStorePath = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
