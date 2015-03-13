@@ -198,7 +198,8 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletRequest request, HttpServletResponse response)
             throws IOException {
         try {
-            doHandle(target, baseRequest, request, response);
+            doHandle(request, response);
+            baseRequest.setHandled(true);
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
             sendSimpleErrorResponse(response, code, code.getMessage(),
@@ -213,9 +214,8 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void doHandle(String target, Request baseRequest,
-            HttpServletRequest request, HttpServletResponse response)
-            throws IOException, S3Exception {
+    private void doHandle(HttpServletRequest request,
+            HttpServletResponse response) throws IOException, S3Exception {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         logger.debug("request: {}", request);
@@ -347,82 +347,66 @@ final class S3ProxyHandler extends AbstractHandler {
         case "DELETE":
             if (path.length <= 2 || path[2].isEmpty()) {
                 handleContainerDelete(response, blobStore, path[1]);
-                baseRequest.setHandled(true);
                 return;
             } else if (uploadId != null) {
                 handleAbortMultipartUpload(request, response, blobStore,
                         path[1], path[2], uploadId);
-                baseRequest.setHandled(true);
                 return;
             } else {
                 handleBlobRemove(response, blobStore, path[1], path[2]);
-                baseRequest.setHandled(true);
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
                 handleContainerList(response, blobStore);
-                baseRequest.setHandled(true);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
                     handleGetContainerAcl(response, blobStore, path[1]);
-                    baseRequest.setHandled(true);
                     return;
                 } else if ("".equals(request.getParameter("location"))) {
                     handleContainerLocation(response, blobStore, path[1]);
-                    baseRequest.setHandled(true);
                     return;
                 } else if ("".equals(request.getParameter("uploads"))) {
                     handleListMultipartUploads(response, blobStore,
                             uploadId);
-                    baseRequest.setHandled(true);
                     return;
                 }
                 handleBlobList(request, response, blobStore, path[1]);
-                baseRequest.setHandled(true);
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
                     handleGetBlobAcl(response, blobStore, path[1],
                             path[2]);
-                    baseRequest.setHandled(true);
                     return;
                 } else if (uploadId != null) {
                     handleListParts(request, response, blobStore, path[1],
                             path[2], uploadId);
-                    baseRequest.setHandled(true);
                     return;
                 }
                 handleGetBlob(request, response, blobStore, path[1],
                         path[2]);
-                baseRequest.setHandled(true);
                 return;
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
                 handleContainerExists(response, blobStore, path[1]);
-                baseRequest.setHandled(true);
                 return;
             } else {
                 handleBlobMetadata(response, blobStore, path[1], path[2]);
-                baseRequest.setHandled(true);
                 return;
             }
         case "POST":
             if ("".equals(request.getParameter("delete"))) {
                 handleMultiBlobRemove(request, response, blobStore, path[1]);
-                baseRequest.setHandled(true);
                 return;
             } else if ("".equals(request.getParameter("uploads"))) {
                 handleInitiateMultipartUpload(request, response, blobStore,
                         path[1], path[2]);
-                baseRequest.setHandled(true);
                 return;
             } else if (uploadId != null) {
                 handleCompleteMultipartUpload(request, response, blobStore,
                         path[1], path[2], uploadId);
-                baseRequest.setHandled(true);
                 return;
             }
             break;
@@ -431,37 +415,32 @@ final class S3ProxyHandler extends AbstractHandler {
                 if ("".equals(request.getParameter("acl"))) {
                     handleSetContainerAcl(request, response, blobStore,
                             path[1]);
-                    baseRequest.setHandled(true);
                     return;
                 }
                 handleContainerCreate(request, response, blobStore, path[1]);
-                baseRequest.setHandled(true);
                 return;
             } else if (uploadId != null) {
                 handleUploadPart(request, response, blobStore, path[1],
                         path[2], uploadId);
-                baseRequest.setHandled(true);
                 return;
             } else if (request.getHeader("x-amz-copy-source") != null) {
                 handleCopyBlob(request, response, blobStore, path[1], path[2]);
-                baseRequest.setHandled(true);
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
                     handleSetBlobAcl(request, response, blobStore, path[1],
                             path[2]);
-                    baseRequest.setHandled(true);
                     return;
                 }
                 handlePutBlob(request, response, blobStore, path[1], path[2]);
-                baseRequest.setHandled(true);
                 return;
             }
         default:
-            logger.error("Unknown method {} with URI {}",
-                    method, request.getRequestURI());
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            break;
         }
+        logger.error("Unknown method {} with URI {}",
+                method, request.getRequestURI());
+        throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
     private void handleGetContainerAcl(HttpServletResponse response,
