@@ -21,6 +21,7 @@ import java.net.URI;
 import java.util.Properties;
 import java.util.Random;
 
+import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
@@ -43,6 +44,12 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public final class S3AwsSdkTest {
+    static {
+        System.setProperty(
+                SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
+                "true");
+    }
+
     @Rule
     public ExpectedException thrown = ExpectedException.none();
 
@@ -75,10 +82,8 @@ public final class S3AwsSdkTest {
                 S3ProxyConstants.PROPERTY_IDENTITY);
         s3Credential = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_CREDENTIAL);
-        // The AWS client fails if certificate verification fails
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_ENDPOINT).replaceAll(
-                        "https", "http"));
+                S3ProxyConstants.PROPERTY_ENDPOINT));
         String keyStorePath = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
