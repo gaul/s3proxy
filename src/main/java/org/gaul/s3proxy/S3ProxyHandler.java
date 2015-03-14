@@ -750,17 +750,18 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
+        boolean created;
         try {
-            if (blobStore.createContainerInLocation(location, containerName,
-                    options)) {
-                return;
-            }
+            created = blobStore.createContainerInLocation(location,
+                    containerName, options);
+        } catch (AuthorizationException ae) {
+            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, ae);
+        }
+        if (!created) {
             S3ErrorCode errorCode = S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU;
             sendSimpleErrorResponse(response,
                     errorCode, errorCode.getMessage(), "BucketName",
                     containerName);
-        } catch (AuthorizationException ae) {
-            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, ae);
         }
     }
 
