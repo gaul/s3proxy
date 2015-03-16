@@ -466,14 +466,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleGetContainerAcl(HttpServletResponse response,
             BlobStore blobStore, String containerName) throws IOException {
-        ContainerAccess access;
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient")) {
-            access = ContainerAccess.PRIVATE;
-        } else {
-            access = blobStore.getContainerAccess(containerName);
-        }
+        ContainerAccess access = blobStore.getContainerAccess(containerName);
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -557,24 +550,13 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (!(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"))) {
-            blobStore.setContainerAccess(containerName, access);
-        }
+        blobStore.setContainerAccess(containerName, access);
     }
 
     private void handleGetBlobAcl(HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException {
-        BlobAccess access;
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient")) {
-            access = BlobAccess.PRIVATE;
-        } else {
-            access = blobStore.getBlobAccess(containerName, blobName);
-        }
+        BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -659,11 +641,7 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (!(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"))) {
-            blobStore.setBlobAccess(containerName, blobName, access);
-        }
+        blobStore.setBlobAccess(containerName, blobName, access);
     }
 
     private void handleContainerList(HttpServletResponse response,
