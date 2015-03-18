@@ -177,6 +177,10 @@ final class S3ProxyHandler extends AbstractHandler {
             throws IOException {
         try {
             doHandle(target, baseRequest, request, response);
+        } catch (ContainerNotFoundException cnfe) {
+            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
+            baseRequest.setHandled(true);
+            return;
         } catch (S3Exception se) {
             sendSimpleErrorResponse(response, se.getError());
             baseRequest.setHandled(true);
@@ -804,12 +808,8 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         options = options.maxResults(maxKeys);
 
-        PageSet<? extends StorageMetadata> set;
-        try {
-            set = blobStore.list(containerName, options);
-        } catch (ContainerNotFoundException cnfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
-        }
+        PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
+                options);
 
         try (Writer writer = new OutputStreamWriter(response.getOutputStream(),
                 StandardCharsets.UTF_8)) {
@@ -944,12 +944,8 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleBlobRemove(HttpServletResponse response,
             String containerName, String blobName)
             throws IOException, S3Exception {
-        try {
-            blobStore.removeBlob(containerName, blobName);
-            response.sendError(HttpServletResponse.SC_NO_CONTENT);
-        } catch (ContainerNotFoundException cnfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
-        }
+        blobStore.removeBlob(containerName, blobName);
+        response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleMultiBlobRemove(HttpServletRequest request,
@@ -984,12 +980,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleBlobMetadata(HttpServletResponse response,
             String containerName, String blobName)
             throws IOException, S3Exception {
-        BlobMetadata metadata;
-        try {
-            metadata = blobStore.blobMetadata(containerName, blobName);
-        } catch (ContainerNotFoundException cnfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
-        }
+        BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
         if (metadata == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -1020,12 +1011,7 @@ final class S3ProxyHandler extends AbstractHandler {
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
-        Blob blob;
-        try {
-            blob = blobStore.getBlob(containerName, blobName, options);
-        } catch (ContainerNotFoundException cnfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
-        }
+        Blob blob = blobStore.getBlob(containerName, blobName, options);
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -1062,12 +1048,7 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
         }
 
-        Blob blob;
-        try {
-            blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
-        } catch (ContainerNotFoundException cnfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
-        }
+        Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -1183,8 +1164,6 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 eTag = blobStore.putBlob(containerName, builder.build(),
                         options);
-            } catch (ContainerNotFoundException cnfe) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, cnfe);
             } catch (HttpResponseException hre) {
                 HttpResponse hr = hre.getResponse();
                 if (hr == null) {
