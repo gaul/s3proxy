@@ -56,11 +56,8 @@ public final class S3AwsSdkTest {
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
-    private BlobStoreContext s3Context;
-    private BlobStore s3BlobStore;
     private String containerName;
-    private String s3Identity;
-    private String s3Credential;
+    private BasicAWSCredentials awsCreds;
 
     @Before
     public void setUp() throws Exception {
@@ -78,10 +75,11 @@ public final class S3AwsSdkTest {
                 Constants.PROPERTY_CREDENTIAL);
         String endpoint = s3ProxyProperties.getProperty(
                 Constants.PROPERTY_ENDPOINT);
-        s3Identity = s3ProxyProperties.getProperty(
+        String s3Identity = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_IDENTITY);
-        s3Credential = s3ProxyProperties.getProperty(
+        String s3Credential = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_CREDENTIAL);
+        awsCreds = new BasicAWSCredentials(s3Identity, s3Credential);
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT));
         String keyStorePath = s3ProxyProperties.getProperty(
@@ -129,25 +127,12 @@ public final class S3AwsSdkTest {
         s3Endpoint = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
                 s3Endpoint.getHost(), s3Proxy.getPort(), s3Endpoint.getPath(),
                 s3Endpoint.getQuery(), s3Endpoint.getFragment());
-
-        Properties s3Properties = new Properties();
-        s3Properties.setProperty(Constants.PROPERTY_TRUST_ALL_CERTS, "true");
-        s3Context = ContextBuilder
-                .newBuilder("s3")
-                .credentials(s3Identity, s3Credential)
-                .endpoint(s3Endpoint.toString())
-                .overrides(s3Properties)
-                .build(BlobStoreContext.class);
-        s3BlobStore = s3Context.getBlobStore();
     }
 
     @After
     public void tearDown() throws Exception {
         if (s3Proxy != null) {
             s3Proxy.stop();
-        }
-        if (s3Context != null) {
-            s3Context.close();
         }
         if (context != null) {
             context.getBlobStore().deleteContainer(containerName);
@@ -157,8 +142,6 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4Failure() throws Exception {
-        BasicAWSCredentials awsCreds = new BasicAWSCredentials(s3Identity,
-                s3Credential);
         AmazonS3 client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
 
