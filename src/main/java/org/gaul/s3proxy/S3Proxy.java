@@ -16,8 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -58,8 +59,8 @@ public final class S3Proxy {
     S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
             Optional<String> virtualHost) {
-        checkNotNull(blobStore);
-        checkNotNull(endpoint);
+        requireNonNull(blobStore);
+        requireNonNull(endpoint);
         // TODO: allow service paths?
         checkArgument(endpoint.getPath().isEmpty(),
                 "endpoint path must be empty, was: %s", endpoint.getPath());
@@ -67,12 +68,12 @@ public final class S3Proxy {
                 !Strings.isNullOrEmpty(credential),
                 "Must provide both identity and credential");
         if (endpoint.getScheme().equals("https:")) {
-            checkNotNull(keyStorePath,
+            requireNonNull(keyStorePath,
                     "Must provide keyStorePath with HTTPS endpoint");
-            checkNotNull(keyStorePassword,
+            requireNonNull(keyStorePassword,
                     "Must provide keyStorePassword with HTTPS endpoint");
         }
-        checkNotNull(virtualHost);
+        requireNonNull(virtualHost);
 
         server = new Server();
         HttpConnectionFactory httpConnectionFactory =
@@ -113,29 +114,29 @@ public final class S3Proxy {
         }
 
         public Builder blobStore(BlobStore blobStore) {
-            this.blobStore = checkNotNull(blobStore);
+            this.blobStore = requireNonNull(blobStore);
             return this;
         }
 
         public Builder endpoint(URI endpoint) {
-            this.endpoint = checkNotNull(endpoint);
+            this.endpoint = requireNonNull(endpoint);
             return this;
         }
 
         public Builder awsAuthentication(String identity, String credential) {
-            this.identity = checkNotNull(identity);
-            this.credential = checkNotNull(credential);
+            this.identity = requireNonNull(identity);
+            this.credential = requireNonNull(credential);
             return this;
         }
 
         public Builder keyStore(String keyStorePath, String keyStorePassword) {
-            this.keyStorePath = checkNotNull(keyStorePath);
-            this.keyStorePassword = checkNotNull(keyStorePassword);
+            this.keyStorePath = requireNonNull(keyStorePath);
+            this.keyStorePassword = requireNonNull(keyStorePassword);
             return this;
         }
 
         public Builder virtualHost(String virtualHost) {
-            this.virtualHost = checkNotNull(virtualHost);
+            this.virtualHost = requireNonNull(virtualHost);
             return this;
         }
     }

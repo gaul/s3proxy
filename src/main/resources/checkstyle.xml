@@ -17,7 +17,7 @@
     <module name="AvoidNestedBlocks"/>
     <module name="AvoidStarImport"/>
     <module name="AvoidStaticImport">
-      <property name="excludes" value="com.google.common.base.Preconditions.checkArgument,com.google.common.base.Preconditions.checkNotNull,com.google.common.base.Preconditions.checkState,org.assertj.core.api.Assertions.assertThat,org.junit.Assert.fail"/>
+      <property name="excludes" value="java.util.Objects.requireNonNull,com.google.common.base.Preconditions.checkArgument,com.google.common.base.Preconditions.checkState,org.assertj.core.api.Assertions.assertThat,org.junit.Assert.fail"/>
     </module>
     <module name="ClassTypeParameterName"/>
     <module name="CovariantEquals"/>

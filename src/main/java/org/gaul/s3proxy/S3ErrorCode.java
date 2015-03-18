@@ -16,7 +16,7 @@
 
 package org.gaul.s3proxy;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -75,7 +75,7 @@ enum S3ErrorCode {
         this.errorCode = CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL,
                 name());
         this.httpStatusCode = httpStatusCode;
-        this.message = checkNotNull(message);
+        this.message = requireNonNull(message);
     }
 
     public String getErrorCode() {

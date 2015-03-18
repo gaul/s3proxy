@@ -16,8 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -160,12 +161,12 @@ final class S3ProxyHandler extends AbstractHandler {
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
             Optional<String> virtualHost) {
-        this.blobStore = checkNotNull(blobStore);
+        this.blobStore = requireNonNull(blobStore);
         this.blobStoreType =
                 blobStore.getContext().unwrap().getProviderMetadata().getId();
         this.identity = identity;
         this.credential = credential;
-        this.virtualHost = checkNotNull(virtualHost);
+        this.virtualHost = requireNonNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
     }
@@ -1639,7 +1640,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         S3Exception(S3ErrorCode error, Throwable cause) {
             super(cause);
-            this.error = checkNotNull(error);
+            this.error = requireNonNull(error);
         }
 
         S3ErrorCode getError() {
@@ -1816,9 +1817,9 @@ final class S3ProxyHandler extends AbstractHandler {
 
         MultiBlobByteSource(BlobStore blobStore, String containerName,
                 Collection<String> blobNames) {
-            this.blobStore = checkNotNull(blobStore);
-            this.containerName = checkNotNull(containerName);
-            this.blobNames = checkNotNull(blobNames);
+            this.blobStore = requireNonNull(blobStore);
+            this.containerName = requireNonNull(containerName);
+            this.blobNames = requireNonNull(blobNames);
         }
 
         @Override
@@ -1836,8 +1837,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         MultiBlobInputStream(BlobStore blobStore, String containerName,
                 Collection<String> blobNames) throws IOException {
-            this.blobStore = checkNotNull(blobStore);
-            this.containerName = checkNotNull(containerName);
+            this.blobStore = requireNonNull(blobStore);
+            this.containerName = requireNonNull(containerName);
             this.blobNames = blobNames.iterator();
             resetInputStream();
         }
