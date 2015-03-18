@@ -17,7 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Fail.failBecauseExceptionWasNotThrown;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -36,6 +36,7 @@ import com.google.inject.Module;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
+import org.jclouds.aws.AWSResponseException;
 import org.jclouds.blobstore.BlobRequestSigner;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
@@ -47,13 +48,11 @@ import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.rest.HttpClient;
 import org.jclouds.s3.S3Client;
-import org.jclouds.util.Throwables2;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -390,17 +389,10 @@ public final class S3ProxyTest {
         S3Client s3Client = s3Context.unwrapApi(S3Client.class);
         try {
             s3Client.disableBucketLogging(containerName);
-            fail("Expected HttpResponseException");
-        } catch (RuntimeException re) {
-            // TODO: why does jclouds wrap this in a
-            // UncheckedExecutionException?
-            HttpResponseException hre = Throwables2.getFirstThrowableOfType(
-                    re, HttpResponseException.class);
-            if (hre == null) {
-                throw re;
-            }
-            assertThat(hre.getResponse().getStatusCode()).isEqualTo(
-                    HttpServletResponse.SC_NOT_IMPLEMENTED);
+            failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).as("code").isEqualTo(
+                    "NotImplemented");
         }
     }
 
