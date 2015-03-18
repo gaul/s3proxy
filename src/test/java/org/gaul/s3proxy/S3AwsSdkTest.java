@@ -32,6 +32,7 @@ import com.google.common.io.Resources;
 import com.google.inject.Module;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import org.hamcrest.CustomTypeSafeMatcher;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -144,8 +145,13 @@ public final class S3AwsSdkTest {
         AmazonS3 client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
 
-        thrown.expect(AmazonS3Exception.class);
-        thrown.expectMessage("Status Code: 400; Error Code: InvalidArgument");
+        final String code = "InvalidArgument";
+        thrown.expect(new CustomTypeSafeMatcher<AmazonS3Exception>(code) {
+                @Override
+                public boolean matchesSafely(AmazonS3Exception ase) {
+                    return ase.getErrorCode().equals(code);
+                }
+            });
         client.getObject(containerName, "foo");
     }
 

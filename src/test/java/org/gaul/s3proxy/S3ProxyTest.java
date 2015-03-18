@@ -17,7 +17,6 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Fail.failBecauseExceptionWasNotThrown;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -34,6 +33,7 @@ import com.google.common.io.Resources;
 import com.google.inject.Module;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import org.hamcrest.CustomTypeSafeMatcher;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.aws.AWSResponseException;
@@ -56,9 +56,14 @@ import org.jclouds.s3.S3Client;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public final class S3ProxyTest {
+    @Rule
+    public ExpectedException thrown = ExpectedException.none();
+
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
@@ -386,13 +391,15 @@ public final class S3ProxyTest {
     @Test
     public void testUnknownParameter() throws Exception {
         S3Client s3Client = s3Context.unwrapApi(S3Client.class);
-        try {
-            s3Client.disableBucketLogging(containerName);
-            failBecauseExceptionWasNotThrown(AWSResponseException.class);
-        } catch (AWSResponseException are) {
-            assertThat(are.getError().getCode()).as("code").isEqualTo(
-                    "NotImplemented");
-        }
+
+        final String code = "NotImplemented";
+        thrown.expect(new CustomTypeSafeMatcher<AWSResponseException>(code) {
+                @Override
+                public boolean matchesSafely(AWSResponseException are) {
+                    return are.getError().getCode().equals(code);
+                }
+            });
+        s3Client.disableBucketLogging(containerName);
     }
 
     private static String createRandomContainerName() {
