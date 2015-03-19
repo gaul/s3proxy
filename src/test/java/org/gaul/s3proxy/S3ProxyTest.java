@@ -95,12 +95,11 @@ public final class S3ProxyTest {
         String virtualHost = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
 
-        Properties properties = new Properties();
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
                 .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
-                .overrides(properties);
+                .overrides(s3ProxyProperties);
         if (!Strings.isNullOrEmpty(endpoint)) {
             builder.endpoint(endpoint);
         }
