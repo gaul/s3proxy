@@ -128,7 +128,7 @@
           </descriptors>
           <archive>
             <manifest>
-              <mainClass>org.gaul.s3proxy.S3Proxy</mainClass>
+              <mainClass>org.gaul.s3proxy.Main</mainClass>
             </manifest>
           </archive>
         </configuration>
