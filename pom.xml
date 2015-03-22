@@ -129,6 +129,7 @@
           <archive>
             <manifest>
               <mainClass>org.gaul.s3proxy.Main</mainClass>
+              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
             </manifest>
           </archive>
         </configuration>
