@@ -21,6 +21,7 @@ import static java.util.Objects.requireNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
+import java.util.Map;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -39,6 +40,7 @@ import org.jclouds.blobstore.BlobStore;
  */
 public final class S3Proxy {
     private final Server server;
+    private final S3ProxyHandler handler;
 
     static {
         // Prevent Jetty from rewriting headers:
@@ -81,8 +83,9 @@ public final class S3Proxy {
         connector.setHost(endpoint.getHost());
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
-        server.setHandler(new S3ProxyHandler(blobStore, identity, credential,
-                virtualHost));
+        handler = new S3ProxyHandler(blobStore, identity, credential,
+                virtualHost);
+        server.setHandler(handler);
     }
 
     public static final class Builder {
@@ -149,5 +152,10 @@ public final class S3Proxy {
 
     public String getState() {
         return server.getState();
+    }
+
+    public void setProviders(
+            Map<String, Map.Entry<String, BlobStore>> providers) {
+        handler.setProviders(providers);
     }
 }
