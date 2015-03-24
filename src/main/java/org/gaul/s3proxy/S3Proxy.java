@@ -21,6 +21,7 @@ import static java.util.Objects.requireNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
+import java.util.Map;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -45,6 +46,8 @@ public final class S3Proxy {
         // https://bugs.eclipse.org/bugs/show_bug.cgi?id=414449
         System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
     }
+
+    private final S3ProxyHandler handler;
 
     S3Proxy(BlobStore blobStore, URI endpoint, String identity,
             String credential, String keyStorePath, String keyStorePassword,
@@ -81,8 +84,14 @@ public final class S3Proxy {
         connector.setHost(endpoint.getHost());
         connector.setPort(endpoint.getPort());
         server.addConnector(connector);
-        server.setHandler(new S3ProxyHandler(blobStore, identity, credential,
-                virtualHost));
+        handler = new S3ProxyHandler(blobStore, identity, credential,
+                virtualHost);
+        server.setHandler(handler);
+    }
+
+    public void setProviders(
+            Map<String, Map.Entry<String, BlobStore>> providers) {
+        handler.setProviders(providers);
     }
 
     public static final class Builder {
