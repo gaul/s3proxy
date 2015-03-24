@@ -183,7 +183,7 @@
         <version>3.0.1</version>
         <configuration>
           <effort>Max</effort>
-          <omitVisitors>CrossSiteScripting</omitVisitors>
+          <omitVisitors>FindNullDeref</omitVisitors>
         </configuration>
       </plugin>
       <plugin>
