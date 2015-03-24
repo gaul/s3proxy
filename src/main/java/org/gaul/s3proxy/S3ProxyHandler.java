@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +61,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
@@ -149,10 +151,9 @@ final class S3ProxyHandler extends AbstractHandler {
             "log-delivery-write"
     );
 
-    private final BlobStore blobStore;
-    private final String blobStoreType;
-    private final String identity;
-    private final String credential;
+    private Map<String, Map.Entry<String, BlobStore>> providers =
+            new HashMap<>();
+    private final BlobStore defaultBlobStore;
     private final Optional<String> virtualHost;
     private final XMLInputFactory xmlInputFactory =
             XMLInputFactory.newInstance();
@@ -161,14 +162,20 @@ final class S3ProxyHandler extends AbstractHandler {
 
     S3ProxyHandler(BlobStore blobStore, String identity, String credential,
             Optional<String> virtualHost) {
-        this.blobStore = requireNonNull(blobStore);
-        this.blobStoreType =
-                blobStore.getContext().unwrap().getProviderMetadata().getId();
-        this.identity = identity;
-        this.credential = credential;
+        requireNonNull(blobStore);
+        if (identity != null) {
+            providers.put(identity, Maps.immutableEntry(credential, blobStore));
+            defaultBlobStore = null;
+        } else {
+            defaultBlobStore = blobStore;
+        }
         this.virtualHost = requireNonNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
+    }
+
+    private static String getBlobStoreType(BlobStore blobStore) {
+        return blobStore.getContext().unwrap().getProviderMetadata().getId();
     }
 
     @Override
@@ -220,7 +227,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        if (identity != null && !hasDateHeader && !hasXAmzDateHeader &&
+        if (defaultBlobStore == null && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("Expires") == null) {
             sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED,
                     "AWS authentication requires a valid Date or" +
@@ -247,54 +254,59 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        if (identity != null) {
-            String expectedSignature = createAuthorizationSignature(request,
-                    uri, identity, credential);
-            String headerAuthorization = request.getHeader(
-                    HttpHeaders.AUTHORIZATION);
-            String headerIdentity = null;
-            String headerSignature = null;
-            if (headerAuthorization != null &&
-                    headerAuthorization.startsWith("AWS ")) {
+        BlobStore blobStore;
+        String requestIdentity = null;
+        String requestSignature = null;
+        String headerAuthorization = request.getHeader(
+                HttpHeaders.AUTHORIZATION);
+
+        if (headerAuthorization != null) {
+            if (headerAuthorization.startsWith("AWS ")) {
                 String[] values =
                         headerAuthorization.substring(4).split(":", 2);
                 if (values.length != 2) {
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
                 }
-                headerIdentity = values[0];
-                headerSignature = values[1];
-            } else if (headerAuthorization != null &&
-                    headerAuthorization.startsWith("AWS4-HMAC-SHA256 ")) {
+                requestIdentity = values[0];
+                requestSignature = values[1];
+            } else if (headerAuthorization.startsWith("AWS4-HMAC-SHA256 ")) {
                 // Fail V4 signature requests to allow clients to retry with V2.
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
             }
-            String parameterIdentity = request.getParameter("AWSAccessKeyId");
-            String parameterSignature = request.getParameter("Signature");
+        } else {
+            requestIdentity = request.getParameter("AWSAccessKeyId");
+            requestSignature = request.getParameter("Signature");
+        }
 
-            if (headerIdentity != null && headerSignature != null) {
-                if (!identity.equals(headerIdentity)) {
-                    throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
-                } else if (!expectedSignature.equals(headerSignature)) {
-                    throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
-                }
-            } else if (parameterIdentity != null &&
-                    parameterSignature != null) {
-                if (!identity.equals(parameterIdentity)) {
-                    throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
-                } else if (!expectedSignature.equals(parameterSignature)) {
-                    throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
-                }
+        if (requestIdentity != null) {
+            Map.Entry<String, BlobStore> provider =
+                    providers.get(requestIdentity);
 
-                String expiresString = request.getParameter("Expires");
-                if (expiresString != null) {
-                    long expires = Long.parseLong(expiresString);
-                    long nowSeconds = System.currentTimeMillis() / 1000;
-                    if (nowSeconds > expires) {
-                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-                    }
+            if (provider == null) {
+                throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
+            }
+
+            String expectedSignature = createAuthorizationSignature(request,
+                    uri, requestIdentity, provider.getKey());
+            if (!expectedSignature.equals(requestSignature)) {
+                throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
+            }
+
+            blobStore = provider.getValue();
+
+            String expiresString = request.getParameter("Expires");
+            if (expiresString != null) {
+                long expires = Long.parseLong(expiresString);
+                long nowSeconds = System.currentTimeMillis() / 1000;
+                if (nowSeconds > expires) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
-            } else {
+            }
+        } else {
+            if (defaultBlobStore == null) {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            } else {
+                blobStore = defaultBlobStore;
             }
         }
 
@@ -316,79 +328,82 @@ final class S3ProxyHandler extends AbstractHandler {
         switch (method) {
         case "DELETE":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerDelete(response, path[1]);
+                handleContainerDelete(response, blobStore, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else if (uploadId != null) {
-                handleAbortMultipartUpload(request, response, path[1], path[2],
-                        uploadId);
+                handleAbortMultipartUpload(request, response, blobStore,
+                        path[1], path[2], uploadId);
                 baseRequest.setHandled(true);
                 return;
             } else {
-                handleBlobRemove(response, path[1], path[2]);
+                handleBlobRemove(response, blobStore, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response);
+                handleContainerList(response, blobStore);
                 baseRequest.setHandled(true);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleGetContainerAcl(response, path[1]);
+                    handleGetContainerAcl(response, blobStore, path[1]);
                     baseRequest.setHandled(true);
                     return;
                 } else if ("".equals(request.getParameter("location"))) {
-                    handleContainerLocation(response, path[1]);
+                    handleContainerLocation(response, blobStore, path[1]);
                     baseRequest.setHandled(true);
                     return;
                 } else if ("".equals(request.getParameter("uploads"))) {
-                    handleListMultipartUploads(response, uploadId);
-                    baseRequest.setHandled(true);
-                    return;
-                }
-                handleBlobList(request, response, path[1]);
-                baseRequest.setHandled(true);
-                return;
-            } else {
-                if ("".equals(request.getParameter("acl"))) {
-                    handleGetBlobAcl(response, path[1], path[2]);
-                    baseRequest.setHandled(true);
-                    return;
-                } else if (uploadId != null) {
-                    handleListParts(request, response, path[1], path[2],
+                    handleListMultipartUploads(response, blobStore,
                             uploadId);
                     baseRequest.setHandled(true);
                     return;
                 }
-                handleGetBlob(request, response, path[1], path[2]);
+                handleBlobList(request, response, blobStore, path[1]);
+                baseRequest.setHandled(true);
+                return;
+            } else {
+                if ("".equals(request.getParameter("acl"))) {
+                    handleGetBlobAcl(response, path[1], blobStore,
+                            path[2]);
+                    baseRequest.setHandled(true);
+                    return;
+                } else if (uploadId != null) {
+                    handleListParts(request, response, blobStore, path[1],
+                            path[2], uploadId);
+                    baseRequest.setHandled(true);
+                    return;
+                }
+                handleGetBlob(request, response, blobStore, path[1],
+                        path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerExists(response, path[1]);
+                handleContainerExists(response, blobStore, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else {
-                handleBlobMetadata(response, path[1], path[2]);
+                handleBlobMetadata(response, blobStore, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
         case "POST":
             if ("".equals(request.getParameter("delete"))) {
-                handleMultiBlobRemove(request, response, path[1]);
+                handleMultiBlobRemove(request, response, blobStore, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else if ("".equals(request.getParameter("uploads"))) {
-                handleInitiateMultipartUpload(request, response, path[1],
-                        path[2]);
+                handleInitiateMultipartUpload(request, response, blobStore,
+                        path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             } else if (uploadId != null) {
-                handleCompleteMultipartUpload(request, response, path[1],
-                        path[2], uploadId);
+                handleCompleteMultipartUpload(request, response, blobStore,
+                        path[1], path[2], uploadId);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -396,29 +411,31 @@ final class S3ProxyHandler extends AbstractHandler {
         case "PUT":
             if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleSetContainerAcl(request, response, path[1]);
+                    handleSetContainerAcl(request, response, blobStore,
+                            path[1]);
                     baseRequest.setHandled(true);
                     return;
                 }
-                handleContainerCreate(request, response, path[1]);
+                handleContainerCreate(request, response, blobStore, path[1]);
                 baseRequest.setHandled(true);
                 return;
             } else if (uploadId != null) {
-                handleUploadPart(request, response, path[1], path[2],
-                        uploadId);
+                handleUploadPart(request, response, blobStore, path[1],
+                        path[2], uploadId);
                 baseRequest.setHandled(true);
                 return;
             } else if (request.getHeader("x-amz-copy-source") != null) {
-                handleCopyBlob(request, response, path[1], path[2]);
+                handleCopyBlob(request, response, blobStore, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleSetBlobAcl(request, response, path[1], path[2]);
+                    handleSetBlobAcl(request, response, blobStore, path[1],
+                            path[2]);
                     baseRequest.setHandled(true);
                     return;
                 }
-                handlePutBlob(request, response, path[1], path[2]);
+                handlePutBlob(request, response, blobStore, path[1], path[2]);
                 baseRequest.setHandled(true);
                 return;
             }
@@ -430,8 +447,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleGetContainerAcl(HttpServletResponse response,
-            String containerName) throws IOException {
+            BlobStore blobStore, String containerName) throws IOException {
         ContainerAccess access;
+        String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient")) {
             access = ContainerAccess.PRIVATE;
@@ -505,8 +523,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleSetContainerAcl(HttpServletRequest request,
-            HttpServletResponse response, String containerName)
-            throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         ContainerAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
@@ -521,6 +539,7 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
+        String blobStoreType = getBlobStoreType(blobStore);
         if (!(blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient"))) {
             blobStore.setContainerAccess(containerName, access);
@@ -528,8 +547,10 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleGetBlobAcl(HttpServletResponse response,
-            String containerName, String blobName) throws IOException {
+            String containerName, BlobStore blobStore,
+            String blobName) throws IOException {
         BlobAccess access;
+        String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient")) {
             access = BlobAccess.PRIVATE;
@@ -603,8 +624,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleSetBlobAcl(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName) throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         BlobAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
@@ -619,14 +641,15 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
+        String blobStoreType = getBlobStoreType(blobStore);
         if (!(blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient"))) {
             blobStore.setBlobAccess(containerName, blobName, access);
         }
     }
 
-    private void handleContainerList(HttpServletResponse response)
-            throws IOException {
+    private void handleContainerList(HttpServletResponse response,
+            BlobStore blobStore) throws IOException {
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -667,7 +690,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleContainerLocation(HttpServletResponse response,
-            String containerName) throws IOException {
+            BlobStore blobStore, String containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -683,21 +706,23 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleListMultipartUploads(HttpServletResponse response,
-            String uploadId) throws IOException, S3Exception {
+            BlobStore blobStore, String uploadId)
+            throws IOException, S3Exception {
         // TODO: list all blobs starting with uploadId
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
     private void handleContainerExists(HttpServletResponse response,
-            String containerName) throws IOException, S3Exception {
+            BlobStore blobStore, String containerName)
+            throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
     }
 
     private void handleContainerCreate(HttpServletRequest request,
-            HttpServletResponse response, String containerName)
-            throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
             throw new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED);
         }
@@ -771,7 +796,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleContainerDelete(HttpServletResponse response,
-            String containerName) throws IOException, S3Exception {
+            BlobStore blobStore, String containerName)
+            throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
@@ -782,8 +808,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleBlobList(HttpServletRequest request,
-            HttpServletResponse response, String containerName)
-            throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
         if (!(delimiter != null && delimiter.equals("/"))) {
@@ -903,6 +929,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 String eTag = metadata.getETag();
                 if (eTag != null) {
                     xml.writeStartElement("ETag");
+                    String blobStoreType = getBlobStoreType(blobStore);
                     if (blobStoreType.equals("google-cloud-storage")) {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
@@ -942,15 +969,15 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleBlobRemove(HttpServletResponse response,
-            String containerName, String blobName)
-            throws IOException, S3Exception {
+            BlobStore blobStore, String containerName,
+            String blobName) throws IOException, S3Exception {
         blobStore.removeBlob(containerName, blobName);
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleMultiBlobRemove(HttpServletRequest request,
-            HttpServletResponse response, String containerName)
-            throws IOException {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException {
         try (InputStream is = request.getInputStream();
              Writer writer = new OutputStreamWriter(response.getOutputStream(),
                     StandardCharsets.UTF_8)) {
@@ -978,8 +1005,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleBlobMetadata(HttpServletResponse response,
-            String containerName, String blobName)
-            throws IOException, S3Exception {
+            BlobStore blobStore, String containerName,
+            String blobName) throws IOException, S3Exception {
         BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
         if (metadata == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
@@ -990,8 +1017,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleGetBlob(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName) throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         int status = HttpServletResponse.SC_OK;
         GetOptions options = new GetOptions();
         String range = request.getHeader(HttpHeaders.RANGE);
@@ -1026,8 +1054,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleCopyBlob(HttpServletRequest request,
-            HttpServletResponse response, String destContainerName,
-            String destBlobName) throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String destContainerName, String destBlobName)
+            throws IOException, S3Exception {
         String copySourceHeader = request.getHeader("x-amz-copy-source");
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
@@ -1071,6 +1100,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             PutOptions options = new PutOptions();
+            String blobStoreType = getBlobStoreType(blobStore);
             if (blobStoreType.equals("azureblob") &&
                     contentLength > 64 * 1024 * 1024) {
                 options.multipart(true);
@@ -1103,8 +1133,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handlePutBlob(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName) throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         // Flag headers present since HttpServletResponse.getHeader returns
         // null for empty headers values.
         String contentLengthString = null;
@@ -1156,6 +1187,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             PutOptions options = new PutOptions();
+            String blobStoreType = getBlobStoreType(blobStore);
             if (blobStoreType.equals("azureblob") &&
                     contentLength > 64 * 1024 * 1024) {
                 options.multipart(true);
@@ -1199,13 +1231,14 @@ final class S3ProxyHandler extends AbstractHandler {
         // TODO: jclouds should include this in PutOptions
         String cannedAcl = request.getHeader("x-amz-acl");
         if (cannedAcl != null && !cannedAcl.equals("private")) {
-            handleSetBlobAcl(request, response, containerName, blobName);
+            handleSetBlobAcl(request, response, blobStore, containerName,
+                    blobName);
         }
     }
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName) throws IOException {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName) throws IOException {
         String uploadId = FAKE_UPLOAD_ID + UUID.randomUUID().toString();
         ByteSource payload = ByteSource.empty();
         BlobBuilder.PayloadBlobBuilder builder = blobStore
@@ -1242,8 +1275,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleCompleteMultipartUpload(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName, String uploadId) throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName, String uploadId)
+            throws IOException, S3Exception {
         Collection<String> partNames = new ArrayList<>();
         long totalContentLength = 0;
         try (InputStream is = request.getInputStream()) {
@@ -1317,6 +1351,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
             if (eTag != null) {
                 xml.writeStartElement("ETag");
+                String blobStoreType = getBlobStoreType(blobStore);
                 if (blobStoreType.equals("google-cloud-storage")) {
                     eTag = BaseEncoding.base16().lowerCase().encode(
                             BaseEncoding.base64().decode(eTag));
@@ -1333,8 +1368,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleAbortMultipartUpload(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName, String uploadId) throws IOException, S3Exception {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName, String uploadId)
+            throws IOException, S3Exception {
         if (!blobStore.blobExists(containerName, uploadId)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
         }
@@ -1353,8 +1389,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleListParts(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName, String uploadId) throws IOException {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName, String uploadId)
+            throws IOException {
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -1441,6 +1478,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 String eTag = sm.getETag();
                 if (eTag != null) {
                     xml.writeStartElement("ETag");
+                    String blobStoreType = getBlobStoreType(blobStore);
                     if (blobStoreType.equals("google-cloud-storage")) {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
@@ -1465,8 +1503,8 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleUploadPart(HttpServletRequest request,
-            HttpServletResponse response, String containerName,
-            String blobName, String uploadId)
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
         String contentLengthString = null;
@@ -1608,6 +1646,11 @@ final class S3ProxyHandler extends AbstractHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+    }
+
+    public void setProviders(
+            Map<String, Map.Entry<String, BlobStore>> providers) {
+        this.providers = ImmutableMap.copyOf(providers);
     }
 
     static class S3Exception extends Exception {
@@ -1815,7 +1858,7 @@ final class S3ProxyHandler extends AbstractHandler {
         private InputStream is;
 
         MultiBlobInputStream(BlobStore blobStore, String containerName,
-                Collection<String> blobNames) throws IOException {
+                             Collection<String> blobNames) throws IOException {
             this.blobStore = requireNonNull(blobStore);
             this.containerName = requireNonNull(containerName);
             this.blobNames = blobNames.iterator();
