@@ -365,7 +365,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleGetBlobAcl(response, path[1], blobStore,
+                    handleGetBlobAcl(response, blobStore, path[1],
                             path[2]);
                     baseRequest.setHandled(true);
                     return;
@@ -546,7 +546,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleGetBlobAcl(HttpServletResponse response,
-            String containerName, BlobStore blobStore,
+            BlobStore blobStore, String containerName,
             String blobName) throws IOException {
         BlobAccess access;
         String blobStoreType = getBlobStoreType(blobStore);
