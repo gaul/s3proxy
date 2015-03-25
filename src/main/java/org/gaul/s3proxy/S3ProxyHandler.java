@@ -34,7 +34,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -151,22 +150,34 @@ final class S3ProxyHandler extends AbstractHandler {
             "log-delivery-write"
     );
 
-    private Map<String, Map.Entry<String, BlobStore>> providers =
-            new HashMap<>();
     private final BlobStore defaultBlobStore;
     private final Optional<String> virtualHost;
     private final XMLInputFactory xmlInputFactory =
             XMLInputFactory.newInstance();
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
+    private BlobStoreLocator blobStoreLocator;
 
-    S3ProxyHandler(BlobStore blobStore, String identity, String credential,
-            Optional<String> virtualHost) {
-        requireNonNull(blobStore);
+    S3ProxyHandler(final BlobStore blobStore, String identity,
+                   final String credential, Optional<String> virtualHost) {
         if (identity != null) {
-            providers.put(identity, Maps.immutableEntry(credential, blobStore));
+            blobStoreLocator = new BlobStoreLocator() {
+                @Override
+                public Map.Entry<String, BlobStore> locateBlobStore(
+                        String identity, String container, String blob) {
+                    return Maps.immutableEntry(credential, blobStore);
+                }
+            };
+
             defaultBlobStore = null;
         } else {
+            blobStoreLocator = new BlobStoreLocator() {
+                @Override
+                public Map.Entry<String, BlobStore> locateBlobStore(
+                        String identity, String container, String blob) {
+                    return null;
+                }
+            };
             defaultBlobStore = blobStore;
         }
         this.virtualHost = requireNonNull(virtualHost);
@@ -278,9 +289,16 @@ final class S3ProxyHandler extends AbstractHandler {
             requestSignature = request.getParameter("Signature");
         }
 
+        String[] path = uri.split("/", 3);
+        for (int i = 0; i < path.length; i++) {
+            path[i] = URLDecoder.decode(path[i], "UTF-8");
+        }
+
         if (requestIdentity != null) {
             Map.Entry<String, BlobStore> provider =
-                    providers.get(requestIdentity);
+                    blobStoreLocator.locateBlobStore(
+                            requestIdentity, path.length > 1 ? path[1] : null,
+                            path.length > 2 ? path[2] : null);
             if (provider == null) {
                 throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
@@ -319,10 +337,6 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        String[] path = uri.split("/", 3);
-        for (int i = 0; i < path.length; i++) {
-            path[i] = URLDecoder.decode(path[i], "UTF-8");
-        }
         String uploadId = request.getParameter("uploadId");
         switch (method) {
         case "DELETE":
@@ -365,7 +379,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleGetBlobAcl(response, path[1], blobStore,
+                    handleGetBlobAcl(response, blobStore, path[1],
                             path[2]);
                     baseRequest.setHandled(true);
                     return;
@@ -546,7 +560,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleGetBlobAcl(HttpServletResponse response,
-            String containerName, BlobStore blobStore,
+            BlobStore blobStore, String containerName,
             String blobName) throws IOException {
         BlobAccess access;
         String blobStoreType = getBlobStoreType(blobStore);
@@ -1647,9 +1661,8 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    public void setProviders(
-            Map<String, Map.Entry<String, BlobStore>> providers) {
-        this.providers = ImmutableMap.copyOf(providers);
+    public void setBlobStoreLocator(BlobStoreLocator locator) {
+        this.blobStoreLocator = locator;
     }
 
     static class S3Exception extends Exception {
