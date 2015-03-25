@@ -21,7 +21,6 @@ import static java.util.Objects.requireNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
-import java.util.Map;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -154,8 +153,8 @@ public final class S3Proxy {
         return server.getState();
     }
 
-    public void setProviders(
-            Map<String, Map.Entry<String, BlobStore>> providers) {
-        handler.setProviders(providers);
+    public void setBlobStoreLocator(BlobStoreLocator lookup) {
+        handler.setBlobStoreLocator(lookup);
     }
+
 }
