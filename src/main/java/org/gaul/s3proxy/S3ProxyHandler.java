@@ -1665,6 +1665,7 @@ final class S3ProxyHandler extends AbstractHandler {
         this.blobStoreLocator = locator;
     }
 
+    @SuppressWarnings("serial")
     static class S3Exception extends Exception {
         private final S3ErrorCode error;
 
