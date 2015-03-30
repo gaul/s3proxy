@@ -48,7 +48,6 @@ public final class S3Proxy {
     }
 
     S3Proxy(Builder builder) {
-        requireNonNull(builder.blobStore);
         requireNonNull(builder.endpoint);
         // TODO: allow service paths?
         checkArgument(builder.endpoint.getPath().isEmpty(),
