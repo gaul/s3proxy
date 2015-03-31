@@ -47,43 +47,41 @@ public final class S3Proxy {
         System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
     }
 
-    S3Proxy(BlobStore blobStore, URI endpoint, String identity,
-            String credential, String keyStorePath, String keyStorePassword,
-            Optional<String> virtualHost) {
-        requireNonNull(blobStore);
-        requireNonNull(endpoint);
+    S3Proxy(Builder builder) {
+        requireNonNull(builder.blobStore);
+        requireNonNull(builder.endpoint);
         // TODO: allow service paths?
-        checkArgument(endpoint.getPath().isEmpty(),
-                "endpoint path must be empty, was: %s", endpoint.getPath());
-        checkArgument(Strings.isNullOrEmpty(identity) ^
-                !Strings.isNullOrEmpty(credential),
+        checkArgument(builder.endpoint.getPath().isEmpty(),
+                "endpoint path must be empty, was: %s",
+                builder.endpoint.getPath());
+        checkArgument(Strings.isNullOrEmpty(builder.identity) ^
+                !Strings.isNullOrEmpty(builder.credential),
                 "Must provide both identity and credential");
-        if (endpoint.getScheme().equals("https:")) {
-            requireNonNull(keyStorePath,
+        if (builder.endpoint.getScheme().equals("https:")) {
+            requireNonNull(builder.keyStorePath,
                     "Must provide keyStorePath with HTTPS endpoint");
-            requireNonNull(keyStorePassword,
+            requireNonNull(builder.keyStorePassword,
                     "Must provide keyStorePassword with HTTPS endpoint");
         }
-        requireNonNull(virtualHost);
 
         server = new Server();
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
         ServerConnector connector;
-        if (endpoint.getScheme().equals("https")) {
+        if (builder.endpoint.getScheme().equals("https")) {
             SslContextFactory sslContextFactory = new SslContextFactory();
-            sslContextFactory.setKeyStorePath(keyStorePath);
-            sslContextFactory.setKeyStorePassword(keyStorePassword);
+            sslContextFactory.setKeyStorePath(builder.keyStorePath);
+            sslContextFactory.setKeyStorePassword(builder.keyStorePassword);
             connector = new ServerConnector(server, sslContextFactory,
                     httpConnectionFactory);
         } else {
             connector = new ServerConnector(server, httpConnectionFactory);
         }
-        connector.setHost(endpoint.getHost());
-        connector.setPort(endpoint.getPort());
+        connector.setHost(builder.endpoint.getHost());
+        connector.setPort(builder.endpoint.getPort());
         server.addConnector(connector);
-        handler = new S3ProxyHandler(blobStore, identity, credential,
-                virtualHost);
+        handler = new S3ProxyHandler(builder.blobStore, builder.identity,
+                builder.credential, Optional.fromNullable(builder.virtualHost));
         server.setHandler(handler);
     }
 
@@ -100,9 +98,7 @@ public final class S3Proxy {
         }
 
         public S3Proxy build() {
-            return new S3Proxy(blobStore, endpoint, identity, credential,
-                    keyStorePath, keyStorePassword,
-                    Optional.fromNullable(virtualHost));
+            return new S3Proxy(this);
         }
 
         public Builder blobStore(BlobStore blobStore) {
