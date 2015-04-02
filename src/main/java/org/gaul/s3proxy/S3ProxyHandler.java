@@ -83,6 +83,7 @@ import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
@@ -91,6 +92,7 @@ import org.jclouds.domain.Location;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
+import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
@@ -1093,58 +1095,65 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
         }
 
-        Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName);
-        if (blob == null) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+        CopyOptions.Builder options = CopyOptions.builder();
+        if (replaceMetadata) {
+            ContentMetadataBuilder contentMetadata =
+                    ContentMetadataBuilder.create();
+            ImmutableMap.Builder<String, String> userMetadata =
+                    ImmutableMap.builder();
+            for (String headerName : Collections.list(
+                    request.getHeaderNames())) {
+                String headerValue = Strings.nullToEmpty(request.getHeader(
+                        headerName));
+                if (headerName.equalsIgnoreCase(
+                        HttpHeaders.CONTENT_DISPOSITION)) {
+                    contentMetadata.contentDisposition(headerValue);
+                } else if (headerName.equalsIgnoreCase(
+                        HttpHeaders.CONTENT_ENCODING)) {
+                    contentMetadata.contentEncoding(headerValue);
+                } else if (headerName.equalsIgnoreCase(
+                        HttpHeaders.CONTENT_LANGUAGE)) {
+                    contentMetadata.contentLanguage(headerValue);
+                } else if (headerName.equalsIgnoreCase(
+                        HttpHeaders.CONTENT_TYPE)) {
+                    contentMetadata.contentType(headerValue);
+                } else if (headerName.toLowerCase().startsWith(
+                        USER_METADATA_PREFIX)) {
+                    userMetadata.put(
+                            headerName.substring(USER_METADATA_PREFIX.length()),
+                            headerValue);
+                }
+                // TODO: Expires
+            }
+            options.contentMetadata(contentMetadata.build());
+            options.userMetadata(userMetadata.build());
         }
 
-        try (InputStream is = blob.getPayload().openStream()) {
-            ContentMetadata metadata = blob.getMetadata().getContentMetadata();
-            long contentLength = metadata.getContentLength();
-            BlobBuilder.PayloadBlobBuilder builder = blobStore
-                    .blobBuilder(destBlobName)
-                    .payload(is)
-                    .contentLength(contentLength);
-            if (replaceMetadata) {
-                addContentMetdataFromHttpRequest(builder, request);
-            } else {
-                builder.contentDisposition(metadata.getContentDisposition())
-                        .contentEncoding(metadata.getContentEncoding())
-                        .contentLanguage(metadata.getContentLanguage())
-                        .contentType(metadata.getContentType())
-                        .userMetadata(blob.getMetadata().getUserMetadata());
-            }
+        String eTag = blobStore.copyBlob(
+                sourceContainerName, sourceBlobName,
+                destContainerName, destBlobName, options.build());
+        BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
+                destBlobName);
+        try (Writer writer = response.getWriter()) {
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("CopyObjectResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
 
-            PutOptions options = new PutOptions();
-            String blobStoreType = getBlobStoreType(blobStore);
-            if (blobStoreType.equals("azureblob") &&
-                    contentLength > 64 * 1024 * 1024) {
-                options.multipart(true);
-            }
-            String eTag = blobStore.putBlob(destContainerName,
-                    builder.build(), options);
-            Date lastModified = blob.getMetadata().getLastModified();
-            try (Writer writer = response.getWriter()) {
-                XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
-                        writer);
-                xml.writeStartDocument();
-                xml.writeStartElement("CopyObjectResult");
-                xml.writeDefaultNamespace(AWS_XMLNS);
+            xml.writeStartElement("LastModified");
+            xml.writeCharacters(blobStore.getContext().utils().date()
+                    .iso8601DateFormat(blobMetadata.getLastModified()));
+            xml.writeEndElement();
 
-                xml.writeStartElement("LastModified");
-                xml.writeCharacters(blobStore.getContext().utils().date()
-                        .iso8601DateFormat(lastModified));
-                xml.writeEndElement();
+            xml.writeStartElement("ETag");
+            xml.writeCharacters("\"" + eTag + "\"");
+            xml.writeEndElement();
 
-                xml.writeStartElement("ETag");
-                xml.writeCharacters("\"" + eTag + "\"");
-                xml.writeEndElement();
-
-                xml.writeEndElement();
-                xml.flush();
-            } catch (XMLStreamException xse) {
-                throw new IOException(xse);
-            }
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
         }
     }
 

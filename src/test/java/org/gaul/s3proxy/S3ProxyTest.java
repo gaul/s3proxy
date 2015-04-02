@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.util.Date;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 
@@ -27,6 +29,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
@@ -44,10 +47,13 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
+import org.jclouds.io.ContentMetadata;
+import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
@@ -386,6 +392,114 @@ public final class S3ProxyTest {
                 .build();
         s3BlobStore.putBlob(containerName, blob,
                 new PutOptions().multipart(true));
+    }
+
+    @Test
+    public void testCopyObjectPreserveMetadata() throws Exception {
+        String fromName = "from-name";
+        String toName = "to-name";
+        ByteSource byteSource = ByteSource.wrap(new byte[42]);
+        String contentDisposition = "attachment; filename=old.jpg";
+        String contentEncoding = "gzip";
+        String contentLanguage = "en";
+        String contentType = "audio/ogg";
+        Date expires = new Date(1000);
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key1", "value1",
+                "key2", "value2");
+        Blob fromBlob = s3BlobStore.blobBuilder(fromName)
+                .payload(byteSource)
+                .contentLength(byteSource.size())
+                .contentDisposition(contentDisposition)
+                .contentEncoding(contentEncoding)
+                .contentLanguage(contentLanguage)
+                .contentType(contentType)
+                .expires(expires)
+                .userMetadata(userMetadata)
+                .build();
+        s3BlobStore.putBlob(containerName, fromBlob);
+
+        s3BlobStore.copyBlob(containerName, fromName, containerName, toName,
+                CopyOptions.NONE);
+
+        Blob toBlob = s3BlobStore.getBlob(containerName, toName);
+        try (InputStream actual = toBlob.getPayload().openStream();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ContentMetadata contentMetadata =
+                toBlob.getMetadata().getContentMetadata();
+        assertThat(contentMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        assertThat(contentMetadata.getContentEncoding()).isEqualTo(
+                contentEncoding);
+        assertThat(contentMetadata.getContentLanguage()).isEqualTo(
+                contentLanguage);
+        assertThat(contentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(toBlob.getMetadata().getUserMetadata()).isEqualTo(
+                userMetadata);
+    }
+
+    @Test
+    public void testCopyObjectReplaceMetadata() throws Exception {
+        String fromName = "from-name";
+        String toName = "to-name";
+        ByteSource byteSource = ByteSource.wrap(new byte[42]);
+        Blob fromBlob = s3BlobStore.blobBuilder(fromName)
+                .payload(byteSource)
+                .contentLength(byteSource.size())
+                .contentDisposition("attachment; filename=old.jpg")
+                .contentEncoding("compress")
+                .contentLanguage("en")
+                .contentType("audio/ogg")
+                .expires(new Date(1000))
+                .userMetadata(ImmutableMap.of(
+                        "key1", "value1",
+                        "key2", "value2"))
+                .build();
+        s3BlobStore.putBlob(containerName, fromBlob);
+
+        String contentDisposition = "attachment; filename=new.jpg";
+        String contentEncoding = "gzip";
+        String contentLanguage = "fr";
+        String contentType = "audio/mp4";
+        Date expires = new Date(2000);
+        ContentMetadata contentMetadata = ContentMetadataBuilder.create()
+                .contentDisposition(contentDisposition)
+                .contentEncoding(contentEncoding)
+                .contentLanguage(contentLanguage)
+                .contentType(contentType)
+                .expires(expires)
+                .build();
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key3", "value3",
+                "key4", "value4");
+        s3BlobStore.copyBlob(containerName, fromName, containerName, toName,
+                CopyOptions.builder()
+                        .contentMetadata(contentMetadata)
+                        .userMetadata(userMetadata)
+                        .build());
+
+        Blob toBlob = s3BlobStore.getBlob(containerName, toName);
+        try (InputStream actual = toBlob.getPayload().openStream();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ContentMetadata toContentMetadata =
+                toBlob.getMetadata().getContentMetadata();
+        assertThat(toContentMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
+                contentEncoding);
+        assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
+                contentLanguage);
+        assertThat(toContentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(toBlob.getMetadata().getUserMetadata()).isEqualTo(
+                userMetadata);
     }
 
     @Test
