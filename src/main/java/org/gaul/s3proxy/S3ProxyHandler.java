@@ -158,13 +158,16 @@ final class S3ProxyHandler extends AbstractHandler {
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
 
-    S3ProxyHandler(final BlobStore blobStore, String identity,
+    S3ProxyHandler(final BlobStore blobStore, final String identity,
                    final String credential, Optional<String> virtualHost) {
         if (identity != null) {
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
                 public Map.Entry<String, BlobStore> locateBlobStore(
-                        String identity, String container, String blob) {
+                        String identityArg, String container, String blob) {
+                    if (!identity.equals(identityArg)) {
+                        return null;
+                    }
                     return Maps.immutableEntry(credential, blobStore);
                 }
             };
@@ -174,7 +177,7 @@ final class S3ProxyHandler extends AbstractHandler {
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
                 public Map.Entry<String, BlobStore> locateBlobStore(
-                        String identity, String container, String blob) {
+                        String identityArg, String container, String blob) {
                     return null;
                 }
             };
