@@ -20,8 +20,6 @@ file system as the storage backend with anonymous access:
 s3proxy.authorization=none
 s3proxy.endpoint=http://127.0.0.1:8080
 jclouds.provider=filesystem
-jclouds.identity=identity
-jclouds.credential=credential
 jclouds.filesystem.basedir=/tmp/s3proxy
 ```
 
@@ -60,13 +58,12 @@ Supported storage backends
 * atmos
 * aws-s3
 * azureblob
+* b2
 * filesystem (on-disk storage)
 * google-cloud-storage
-* hpcloud-objectstorage
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3
-* swift and swift-keystone (legacy)
 * transient (in-memory storage)
 
 Limitations
@@ -75,23 +72,17 @@ Limitations
 S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 * ACLs other than private and public-read
-* AWS signature V4, see [#24](https://github.com/andrewgaul/s3proxy/issues/24)
 * BitTorrent hosting
 * bucket logging
-* Cache-Control header, see [#115](https://github.com/andrewgaul/s3proxy/issues/115)
-* conditional copy object, see [#113](https://github.com/andrewgaul/s3proxy/issues/113)
 * cross-origin resource sharing, see [#142](https://github.com/andrewgaul/s3proxy/issues/142)
-* listing multipart uploads, see [#118](https://github.com/andrewgaul/s3proxy/issues/118)
-* POST uploads, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
+* POST upload policies, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
 * object server-side encryption
 * object versioning, see [#74](https://github.com/andrewgaul/s3proxy/issues/74)
 * requester pays buckets
-* XML ACLs, see [#116](https://github.com/andrewgaul/s3proxy/issues/116)
 
 S3Proxy emulates the following operations:
 
-* multi-part uploads, see [#2](https://github.com/andrewgaul/s3proxy/issues/2)
-* copy objects, see [#46](https://github.com/andrewgaul/s3proxy/issues/46)
+* copy multi-part objects, see [#76](https://github.com/andrewgaul/s3proxy/issues/76)
 
 The wiki collects
 [compatability notes](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-compatibility)
