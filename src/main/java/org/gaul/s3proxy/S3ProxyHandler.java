@@ -539,9 +539,9 @@ final class S3ProxyHandler extends AbstractHandler {
         ContainerAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
-        if (cannedAcl == null || "private".equals(cannedAcl)) {
+        if (cannedAcl == null || "private".equalsIgnoreCase(cannedAcl)) {
             access = ContainerAccess.PRIVATE;
-        } else if ("public-read".equals(cannedAcl)) {
+        } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
             access = ContainerAccess.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
@@ -630,9 +630,9 @@ final class S3ProxyHandler extends AbstractHandler {
         BlobAccess access;
 
         String cannedAcl = request.getHeader("x-amz-acl");
-        if (cannedAcl == null || "private".equals(cannedAcl)) {
+        if (cannedAcl == null || "private".equalsIgnoreCase(cannedAcl)) {
             access = BlobAccess.PRIVATE;
-        } else if ("public-read".equals(cannedAcl)) {
+        } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
             access = BlobAccess.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
@@ -758,7 +758,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         CreateContainerOptions options = new CreateContainerOptions();
         String acl = request.getHeader("x-amz-acl");
-        if ("public-read".equals(acl)) {
+        if ("public-read".equalsIgnoreCase(acl)) {
             options.publicRead();
         }
 
@@ -1064,7 +1064,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
-        boolean replaceMetadata = "REPLACE".equals(request.getHeader(
+        boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
                 "x-amz-metadata-directive"));
 
         if (sourceContainerName.equals(destContainerName) &&
@@ -1233,7 +1233,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // TODO: jclouds should include this in PutOptions
         String cannedAcl = request.getHeader("x-amz-acl");
-        if (cannedAcl != null && !cannedAcl.equals("private")) {
+        if (cannedAcl != null && !cannedAcl.equalsIgnoreCase("private")) {
             handleSetBlobAcl(request, response, blobStore, containerName,
                     blobName);
         }
