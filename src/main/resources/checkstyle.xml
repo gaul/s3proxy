@@ -17,7 +17,7 @@
     <module name="AvoidNestedBlocks"/>
     <module name="AvoidStarImport"/>
     <module name="AvoidStaticImport">
-      <property name="excludes" value="java.util.Objects.requireNonNull,com.google.common.base.Preconditions.checkArgument,com.google.common.base.Preconditions.checkState,org.assertj.core.api.Assertions.assertThat"/>
+      <property name="excludes" value="java.util.Objects.requireNonNull,com.google.common.base.Preconditions.checkArgument,com.google.common.base.Preconditions.checkState,org.assertj.core.api.Assertions.assertThat,org.assertj.core.api.Assertions.catchThrowable"/>
     </module>
     <module name="ClassTypeParameterName"/>
     <module name="CovariantEquals"/>
@@ -120,7 +120,7 @@
     <module name="VisibilityModifier">
       <property name="protectedAllowed" value="true"/>
       <property name="publicMemberPattern"
-          value="(^thrown$|^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$)"/>
+          value="^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$"/>
     </module>
     <module name="WhitespaceAfter"/>
     <module name="WhitespaceAround"/>

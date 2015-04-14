@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -52,8 +53,8 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
-import org.hamcrest.CustomTypeSafeMatcher;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -61,9 +62,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public final class S3AwsSdkTest {
     static {
@@ -77,9 +76,6 @@ public final class S3AwsSdkTest {
     }
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
-
-    @Rule
-    public ExpectedException thrown = ExpectedException.none();
 
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
@@ -178,18 +174,18 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4Signature() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds);
+        final AmazonS3 client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
 
-        final String code = "InvalidArgument";
-        thrown.expect(new CustomTypeSafeMatcher<AmazonS3Exception>(code) {
+        Throwable thrown = catchThrowable(new ThrowingCallable() {
                 @Override
-                public boolean matchesSafely(AmazonS3Exception ase) {
-                    return ase.getErrorCode().equals(code);
+                public void call() throws Exception {
+                    client.putObject(containerName, "foo",
+                            BYTE_SOURCE.openStream(), new ObjectMetadata());
                 }
             });
-        client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
-                new ObjectMetadata());
+        assertThat(thrown).isInstanceOf(AmazonS3Exception.class);
+        ((AmazonS3Exception) thrown).getErrorCode().equals("InvalidArgument");
     }
 
     // TODO: cannot test with jclouds since S3BlobRequestSigner does not

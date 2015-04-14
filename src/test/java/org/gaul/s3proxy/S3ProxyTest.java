@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -35,8 +36,8 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
-import org.hamcrest.CustomTypeSafeMatcher;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.aws.AWSResponseException;
@@ -62,15 +63,10 @@ import org.jclouds.s3.S3Client;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public final class S3ProxyTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
-
-    @Rule
-    public ExpectedException thrown = ExpectedException.none();
 
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
@@ -496,16 +492,17 @@ public final class S3ProxyTest {
 
     @Test
     public void testUnknownParameter() throws Exception {
-        S3Client s3Client = s3Context.unwrapApi(S3Client.class);
+        final S3Client s3Client = s3Context.unwrapApi(S3Client.class);
 
-        final String code = "NotImplemented";
-        thrown.expect(new CustomTypeSafeMatcher<AWSResponseException>(code) {
+        Throwable thrown = catchThrowable(new ThrowingCallable() {
                 @Override
-                public boolean matchesSafely(AWSResponseException are) {
-                    return are.getError().getCode().equals(code);
+                public void call() throws Exception {
+                    s3Client.disableBucketLogging(containerName);
                 }
             });
-        s3Client.disableBucketLogging(containerName);
+        assertThat(thrown).isInstanceOf(AWSResponseException.class);
+        ((AWSResponseException) thrown).getError().getCode().equals(
+                "NotImplemented");
     }
 
     private static String createRandomContainerName() {
