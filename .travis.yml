@@ -1,8 +1,10 @@
-sudo: required
+sudo: false
 language: java
-before_install:
- - sudo apt-get update -qq
- - sudo apt-get install -qq python-pip python-virtualenv libevent-dev
+addons:
+  apt_packages:
+   - python-pip
+   - python-virtualenv
+   - libevent-dev
 script:
  - mvn test
  - ./src/test/resources/run-s3-tests.sh
