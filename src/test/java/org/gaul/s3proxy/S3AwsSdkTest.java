@@ -16,16 +16,19 @@
 
 package org.gaul.s3proxy;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.Properties;
 import java.util.Random;
 
+import com.amazonaws.ClientConfiguration;
 import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
@@ -48,6 +51,9 @@ public final class S3AwsSdkTest {
     static {
         System.setProperty(
                 SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
+                "true");
+        System.setProperty(
+                SDKGlobalConfiguration.ENFORCE_S3_SIGV4_SYSTEM_PROPERTY,
                 "true");
     }
 
@@ -141,7 +147,16 @@ public final class S3AwsSdkTest {
     }
 
     @Test
-    public void testAwsV4Failure() throws Exception {
+    public void testAwsV2Signature() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+        client.putObject(containerName, "foo",
+                new ByteArrayInputStream(new byte[0]), new ObjectMetadata());
+    }
+
+    @Test
+    public void testAwsV4Signature() throws Exception {
         AmazonS3 client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
 
@@ -152,7 +167,8 @@ public final class S3AwsSdkTest {
                     return ase.getErrorCode().equals(code);
                 }
             });
-        client.getObject(containerName, "foo");
+        client.putObject(containerName, "foo",
+                new ByteArrayInputStream(new byte[0]), new ObjectMetadata());
     }
 
     private static String createRandomContainerName() {
