@@ -705,6 +705,20 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
         }
 
+        String contentLengthString = request.getHeader(
+                HttpHeaders.CONTENT_LENGTH);
+        if (contentLengthString != null) {
+            long contentLength;
+            try {
+                contentLength = Long.parseLong(contentLengthString);
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            }
+            if (contentLength < 0) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            }
+        }
+
         Collection<String> locations;
         try (PushbackInputStream pis = new PushbackInputStream(
                 request.getInputStream())) {
@@ -738,20 +752,6 @@ final class S3ProxyHandler extends AbstractHandler {
         String acl = request.getHeader("x-amz-acl");
         if ("public-read".equalsIgnoreCase(acl)) {
             options.publicRead();
-        }
-
-        String contentLengthString = request.getHeader(
-                HttpHeaders.CONTENT_LENGTH);
-        if (contentLengthString != null) {
-            long contentLength;
-            try {
-                contentLength = Long.parseLong(contentLengthString);
-            } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
-            }
-            if (contentLength < 0) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
-            }
         }
 
         boolean created;
