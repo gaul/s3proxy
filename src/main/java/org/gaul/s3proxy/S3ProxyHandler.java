@@ -1067,6 +1067,13 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, knfe);
         }
 
+        // TODO: jclouds should include this in CopyOptions
+        String cannedAcl = request.getHeader("x-amz-acl");
+        if (cannedAcl != null && !cannedAcl.equalsIgnoreCase("private")) {
+            handleSetBlobAcl(request, response, blobStore, destContainerName,
+                    destBlobName);
+        }
+
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
                 destBlobName);
         try (Writer writer = response.getWriter()) {
