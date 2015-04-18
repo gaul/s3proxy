@@ -76,6 +76,7 @@ import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
+import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
@@ -1057,9 +1058,15 @@ final class S3ProxyHandler extends AbstractHandler {
             options.userMetadata(userMetadata.build());
         }
 
-        String eTag = blobStore.copyBlob(
-                sourceContainerName, sourceBlobName,
-                destContainerName, destBlobName, options.build());
+        String eTag;
+        try {
+            eTag = blobStore.copyBlob(
+                    sourceContainerName, sourceBlobName,
+                    destContainerName, destBlobName, options.build());
+        } catch (KeyNotFoundException knfe) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, knfe);
+        }
+
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
                 destBlobName);
         try (Writer writer = response.getWriter()) {
