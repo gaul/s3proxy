@@ -1076,6 +1076,11 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
+            writeSimpleElement(xml, "LastModified",
+                    blobStore.getContext().utils().date()
+                            .iso8601DateFormat(blobMetadata.getLastModified()));
+            writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
+
             xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {
