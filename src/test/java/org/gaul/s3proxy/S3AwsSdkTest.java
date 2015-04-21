@@ -16,19 +16,37 @@
 
 package org.gaul.s3proxy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URL;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import java.util.Date;
 import java.util.Properties;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import com.amazonaws.ClientConfiguration;
+import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
@@ -55,6 +73,7 @@ public final class S3AwsSdkTest {
         System.setProperty(
                 SDKGlobalConfiguration.ENFORCE_S3_SIGV4_SYSTEM_PROPERTY,
                 "true");
+        disableSslVerification();
     }
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
@@ -171,6 +190,77 @@ public final class S3AwsSdkTest {
             });
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 new ObjectMetadata());
+    }
+
+    // TODO: cannot test with jclouds since S3BlobRequestSigner does not
+    // implement the same logic as
+    // AWSS3BlobRequestSigner.signForTemporaryAccess.
+    @Test
+    public void testUrlSigning() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
+        String blobName = "foo";
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                new ObjectMetadata());
+
+        Date expiration = new Date(System.currentTimeMillis() +
+                TimeUnit.HOURS.toMillis(1));
+        GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(
+                containerName, blobName);
+        request.setMethod(HttpMethod.GET);
+        request.setExpiration(expiration);
+
+        URL url = client.generatePresignedUrl(request);
+        try (InputStream actual = url.openStream();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    private static final class NullX509TrustManager
+            implements X509TrustManager {
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return null;
+        }
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] certs,
+                String authType) {
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] certs,
+                String authType) {
+        }
+    }
+
+    private static void disableSslVerification() {
+        try {
+            // Create a trust manager that does not validate certificate chains
+            TrustManager[] trustAllCerts = new TrustManager[] {
+                new NullX509TrustManager() };
+
+            // Install the all-trusting trust manager
+            SSLContext sc = SSLContext.getInstance("SSL");
+            sc.init(null, trustAllCerts, new java.security.SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(
+                    sc.getSocketFactory());
+
+            // Create all-trusting host name verifier
+            HostnameVerifier allHostsValid = new HostnameVerifier() {
+                public boolean verify(String hostname, SSLSession session) {
+                    return true;
+                }
+            };
+
+            // Install the all-trusting host verifier
+            HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
+        } catch (KeyManagementException | NoSuchAlgorithmException e) {
+            throw Throwables.propagate(e);
+        }
     }
 
     private static String createRandomContainerName() {
