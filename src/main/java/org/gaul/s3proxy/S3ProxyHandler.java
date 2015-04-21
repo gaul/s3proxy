@@ -1283,6 +1283,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     new PutOptions().multipart(true));
 
             blobStore.removeBlobs(containerName, partNames);
+            blobStore.removeBlob(containerName, uploadId);
 
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -1328,6 +1329,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (!partName.startsWith(uploadId + ".")) {
                 break;
             }
+            // TODO: call removeBlobs
             blobStore.removeBlob(containerName, partName);
         }
         blobStore.removeBlob(containerName, uploadId);
