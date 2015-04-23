@@ -6,6 +6,8 @@ to access other object stores,
 e.g., EMC Atmos, Google Cloud Storage, Microsoft Azure, OpenStack Swift.
 It also allows local testing of S3 without the cost or latency associated with
 using AWS.
+Finally users can extend S3Proxy with custom middlewares, e.g., caching,
+encryption, tiering.
 
 Features
 --------
