@@ -102,6 +102,7 @@ S3Proxy does not support:
 * object metadata with filesystem provider on Mac OS X ([OpenJDK issue](https://bugs.openjdk.java.net/browse/JDK-8030048))
 * object server-side encryption
 * object versioning
+* XML ACLs
 
 References
 ----------
