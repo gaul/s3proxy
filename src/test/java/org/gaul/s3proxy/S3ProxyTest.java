@@ -46,16 +46,18 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
+import org.jclouds.io.Payloads;
 import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.rest.HttpClient;
@@ -71,6 +73,7 @@ public final class S3ProxyTest {
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
+    private BlobStore blobStore;
     private BlobStoreContext s3Context;
     private BlobStore s3BlobStore;
     private String containerName;
@@ -113,7 +116,7 @@ public final class S3ProxyTest {
             builder.endpoint(endpoint);
         }
         context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
+        blobStore = context.getBlobStore();
         containerName = createRandomContainerName();
         blobStore.createContainerInLocation(null, containerName);
 
@@ -371,17 +374,65 @@ public final class S3ProxyTest {
                 .isEqualTo(HttpServletResponse.SC_OK);
     }
 
+    // TODO: fails for GCS (jclouds not implemented)
+    // TODO: fails for Swift (content and user metadata not set)
     @Test
     public void testMultipartUpload() throws Exception {
         String blobName = "blob";
-        int minMultipartSize = 32 * 1024 * 1024 + 1;
-        ByteSource byteSource = ByteSource.wrap(new byte[minMultipartSize]);
-        Blob blob = s3BlobStore.blobBuilder(blobName)
-                .payload(byteSource)
-                .contentLength(byteSource.size())
-                .build();
-        s3BlobStore.putBlob(containerName, blob,
-                new PutOptions().multipart(true));
+        String contentDisposition = "attachment; filename=new.jpg";
+        String contentEncoding = "gzip";
+        String contentLanguage = "fr";
+        String contentType = "audio/mp4";
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key1", "value1",
+                "key2", "value2");
+        BlobMetadata blobMetadata = s3BlobStore.blobBuilder(blobName)
+                .payload(new byte[0])  // fake payload to add content metadata
+                .contentDisposition(contentDisposition)
+                .contentEncoding(contentEncoding)
+                .contentLanguage(contentLanguage)
+                .contentType(contentType)
+                // TODO: expires
+                .userMetadata(userMetadata)
+                .build()
+                .getMetadata();
+        MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
+                containerName, blobMetadata);
+
+        ByteSource byteSource = ByteSource.wrap(
+                new byte[(int) blobStore.getMinimumMultipartPartSize() + 1]);
+        ByteSource byteSource1 = byteSource.slice(
+                0, blobStore.getMinimumMultipartPartSize());
+        ByteSource byteSource2 = byteSource.slice(
+                blobStore.getMinimumMultipartPartSize(), 1);
+        Payload payload1 = Payloads.newByteSourcePayload(byteSource1);
+        Payload payload2 = Payloads.newByteSourcePayload(byteSource2);
+        payload1.getContentMetadata().setContentLength(byteSource1.size());
+        payload2.getContentMetadata().setContentLength(byteSource2.size());
+        MultipartPart part1 = s3BlobStore.uploadMultipartPart(mpu, 1, payload1);
+        MultipartPart part2 = s3BlobStore.uploadMultipartPart(mpu, 2, payload2);
+
+        s3BlobStore.completeMultipartUpload(mpu, ImmutableList.of(part1,
+                part2));
+
+        Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
+        try (InputStream expected = newBlob.getPayload().openStream();
+                InputStream actual = byteSource.openStream()) {
+            assertThat(expected).hasContentEqualTo(actual);
+        }
+        ContentMetadata expectedContentMetadata =
+                blobMetadata.getContentMetadata();
+        assertThat(expectedContentMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        assertThat(expectedContentMetadata.getContentEncoding()).isEqualTo(
+                contentEncoding);
+        assertThat(expectedContentMetadata.getContentLanguage()).isEqualTo(
+                contentLanguage);
+        assertThat(expectedContentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(newBlob.getMetadata().getUserMetadata()).isEqualTo(
+                userMetadata);
     }
 
     @Test

@@ -36,8 +36,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
@@ -63,7 +64,6 @@ import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
@@ -80,6 +80,8 @@ import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.CopyOptions;
@@ -92,6 +94,8 @@ import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
+import org.jclouds.io.Payload;
+import org.jclouds.io.Payloads;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
@@ -115,10 +119,6 @@ final class S3ProxyHandler extends AbstractHandler {
     private static final String FAKE_INITIATOR_DISPLAY_NAME =
             "umat-user-11116a31-17b5-4fb7-9df5-b288870f11xx";
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
-    private static final String FAKE_UPLOAD_ID =
-            "EXAMPLEJZ6e0YupT2h66iePQCc9IEbYbDUy4RTpMeoSMLPRp8Z5o1u8feSRo" +
-            "npvnWsKKG35tI2LB9VDPiCgTy.Gq2VxQLYjrue4Nq.NBdqI-";
-    private static final long MINIMUM_MULTIPART_PART_SIZE = 5 * 1024 * 1024;
     private static final Pattern VALID_BUCKET_PATTERN =
             Pattern.compile("[a-zA-Z0-9._-]+");
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
@@ -158,6 +158,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
+    private final BlobMetadata fakeBlobMetadata;
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
                    final String credential, Optional<String> virtualHost) {
@@ -187,6 +188,10 @@ final class S3ProxyHandler extends AbstractHandler {
         this.virtualHost = requireNonNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
+
+        fakeBlobMetadata = blobStore.blobBuilder("fake-name")
+                .build()
+                .getMetadata();
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
@@ -1178,14 +1183,21 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleInitiateMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName) throws IOException {
-        String uploadId = FAKE_UPLOAD_ID + UUID.randomUUID().toString();
         ByteSource payload = ByteSource.empty();
         BlobBuilder.PayloadBlobBuilder builder = blobStore
-                .blobBuilder(uploadId)
+                .blobBuilder(blobName)
                 .payload(payload);
         addContentMetdataFromHttpRequest(builder, request);
         builder.contentLength(payload.size());
-        blobStore.putBlob(containerName, builder.build());
+        Blob blob = builder.build();
+
+        // S3 requires blob metadata during the initiate call while Azure and
+        // Swift require it in the complete call.  Store a stub blob which
+        // allows reproducing this metadata later.
+        blobStore.putBlob(containerName, blob);
+
+        MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
+                blob.getMetadata());
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1196,7 +1208,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", blobName);
-            writeSimpleElement(xml, "UploadId", uploadId);
+            writeSimpleElement(xml, "UploadId", mpu.id());
 
             xml.writeEndElement();
             xml.flush();
@@ -1209,57 +1221,41 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
-        Collection<String> partNames = new ArrayList<>();
-        long totalContentLength = 0;
+        Blob stubBlob = blobStore.getBlob(containerName, blobName);
+        MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, stubBlob.getMetadata());
+
+        // list parts to get part sizes
+        ImmutableMap.Builder<Integer, MultipartPart> builder =
+                ImmutableMap.builder();
+        for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
+            builder.put(part.partNumber(), part);
+        }
+        ImmutableMap<Integer, MultipartPart> partsByListing = builder.build();
+
+        List<MultipartPart> parts = new ArrayList<>();
         try (InputStream is = request.getInputStream()) {
-            for (Iterator<String> it = parseSimpleXmlElements(is,
-                    "PartNumber").iterator(); it.hasNext();) {
-                String partName = uploadId + "." + it.next();
-                partNames.add(partName);
-                BlobMetadata metadata = blobStore.blobMetadata(containerName,
-                        partName);
-                long contentLength =
-                        metadata.getContentMetadata().getContentLength();
-                if (contentLength < MINIMUM_MULTIPART_PART_SIZE &&
-                        it.hasNext()) {
+            for (Iterator<Map.Entry<Integer, String>> it =
+                    parseCompleteMultipartUpload(is).entrySet().iterator();
+                    it.hasNext();) {
+                Map.Entry<Integer, String> entry = it.next();
+                long partSize = partsByListing.get(entry.getKey()).partSize();
+                if (partSize < blobStore.getMinimumMultipartPartSize() &&
+                        partSize != -1 && it.hasNext()) {
                     throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
-                totalContentLength += contentLength;
-            }
-
-            if (partNames.isEmpty()) {
-                // Amazon requires at least one part
-                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+                parts.add(MultipartPart.create(entry.getKey(),
+                        partSize, entry.getValue()));
             }
         }
 
+        if (parts.isEmpty()) {
+            // Amazon requires at least one part
+            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+        }
+
         try (Writer writer = response.getWriter()) {
-            BlobMetadata blobMetadata = blobStore.blobMetadata(
-                    containerName, uploadId);
-            ContentMetadata contentMetadata =
-                    blobMetadata.getContentMetadata();
-            BlobBuilder.PayloadBlobBuilder builder = blobStore
-                    .blobBuilder(blobName)
-                    .userMetadata(blobMetadata.getUserMetadata())
-                    .payload(new MultiBlobByteSource(blobStore, containerName,
-                            partNames))
-                    .contentDisposition(
-                            contentMetadata.getContentDisposition())
-                    .contentEncoding(contentMetadata.getContentEncoding())
-                    .contentLanguage(contentMetadata.getContentLanguage())
-                    .contentLength(totalContentLength)
-                    .expires(contentMetadata.getExpires());
-            String contentType = contentMetadata.getContentType();
-            if (contentType != null) {
-                builder.contentType(contentType);
-            }
-
-            // TODO: will the client time out here?
-            String eTag = blobStore.putBlob(containerName, builder.build(),
-                    new PutOptions().multipart(true));
-
-            blobStore.removeBlobs(containerName, partNames);
-            blobStore.removeBlob(containerName, uploadId);
+            String eTag = blobStore.completeMultipartUpload(mpu, parts);
 
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -1294,21 +1290,16 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
-        if (!blobStore.blobExists(containerName, uploadId)) {
+        if (!blobStore.blobExists(containerName, blobName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
         }
-        PageSet<? extends StorageMetadata> pageSet = blobStore.list(
-                containerName,
-                new ListContainerOptions().afterMarker(uploadId));
-        for (StorageMetadata sm : pageSet) {
-            String partName = sm.getName();
-            if (!partName.startsWith(uploadId + ".")) {
-                break;
-            }
-            // TODO: call removeBlobs
-            blobStore.removeBlob(containerName, partName);
-        }
-        blobStore.removeBlob(containerName, uploadId);
+
+        blobStore.removeBlob(containerName, blobName);
+
+        // TODO: how to reconstruct original mpu?
+        MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, fakeBlobMetadata);
+        blobStore.abortMultipartUpload(mpu);
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
@@ -1348,30 +1339,25 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "IsTruncated", "true");
 */
 
-            PageSet<? extends StorageMetadata> pageSet = blobStore.list(
-                    containerName,
-                    new ListContainerOptions().afterMarker(uploadId));
-            for (StorageMetadata sm : pageSet) {
-                String partName = sm.getName();
-                if (!partName.startsWith(uploadId + ".")) {
-                    break;
-                }
+            // TODO: how to reconstruct original mpu?
+            MultipartUpload mpu = MultipartUpload.create(containerName,
+                    blobName, uploadId, fakeBlobMetadata);
 
-                BlobMetadata metadata = blobStore.blobMetadata(containerName,
-                        partName);
+            List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
+            for (MultipartPart part : parts) {
                 xml.writeStartElement("Part");
 
-                writeSimpleElement(xml, "PartNumber",
-                        partName.substring((uploadId + ".").length()));
+                writeSimpleElement(xml, "PartNumber", String.valueOf(
+                        part.partNumber()));
 
-                Date lastModified = sm.getLastModified();
+                Date lastModified = null;  // TODO: not part of MultipartPart
                 if (lastModified != null) {
                     writeSimpleElement(xml, "LastModified",
                             blobStore.getContext().utils().date()
                                     .iso8601DateFormat(lastModified));
                 }
 
-                String eTag = sm.getETag();
+                String eTag = part.partETag();
                 if (eTag != null) {
                     String blobStoreType = getBlobStoreType(blobStore);
                     if (blobStoreType.equals("google-cloud-storage")) {
@@ -1382,7 +1368,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
 
                 writeSimpleElement(xml, "Size", String.valueOf(
-                        metadata.getContentMetadata().getContentLength()));
+                        part.partSize()));
 
                 xml.writeEndElement();
             }
@@ -1437,27 +1423,42 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
-        String partNumber = request.getParameter("partNumber");
-        // TODO: sanity checking
+        String partNumberString = request.getParameter("partNumber");
+        if (partNumberString == null) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        int partNumber;
+        try {
+            partNumber = Integer.parseInt(partNumberString);
+        } catch (NumberFormatException nfe) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                    "Part number must be an integer between 1 and 10000" +
+                    ", inclusive", nfe, ImmutableMap.of(
+                            "ArgumentName", "partNumber",
+                            "ArgumentValue", partNumberString));
+        }
+        if (partNumber < 1 || partNumber > 10_000) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                    "Part number must be an integer between 1 and 10000" +
+                    ", inclusive", (Throwable) null, ImmutableMap.of(
+                            "ArgumentName", "partNumber",
+                            "ArgumentValue", partNumberString));
+        }
 
-        try (HashingInputStream his = new HashingInputStream(Hashing.md5(),
-                request.getInputStream())) {
-            BlobBuilder.PayloadBlobBuilder builder = blobStore
-                    .blobBuilder(uploadId + "." + partNumber)
-                    .payload(his)
-                    .contentLength(request.getContentLength());
-            addContentMetdataFromHttpRequest(builder, request);
+        // TODO: how to reconstruct original mpu?
+        MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, fakeBlobMetadata);
+
+        try (InputStream is = request.getInputStream()) {
+            Payload payload = Payloads.newInputStreamPayload(is);
+            payload.getContentMetadata().setContentLength(contentLength);
             if (contentMD5 != null) {
-                builder = builder.contentMD5(contentMD5);
+                payload.getContentMetadata().setContentMD5(contentMD5);
             }
 
-            blobStore.putBlob(containerName, builder.build());
-
-            // recalculate ETag since some object stores like Azure return
-            // non-hash
-            byte[] hashCode = his.hash().asBytes();
-            response.addHeader(HttpHeaders.ETAG, "\"" +
-                    BaseEncoding.base16().lowerCase().encode(hashCode) + "\"");
+            MultipartPart part = blobStore.uploadMultipartPart(mpu, partNumber,
+                    payload);
+            response.addHeader(HttpHeaders.ETAG, part.partETag());
         }
     }
 
@@ -1681,6 +1682,46 @@ final class S3ProxyHandler extends AbstractHandler {
         return elements;
     }
 
+    private SortedMap<Integer, String> parseCompleteMultipartUpload(
+            InputStream is) throws IOException {
+        SortedMap<Integer, String> parts = new TreeMap<>();
+        try {
+            XMLStreamReader reader = xmlInputFactory.createXMLStreamReader(is);
+            int partNumber = -1;
+            String eTag = null;
+            StringBuilder characters = new StringBuilder();
+
+            while (reader.hasNext()) {
+                switch (reader.getEventType()) {
+                case XMLStreamConstants.CHARACTERS:
+                    characters.append(reader.getTextCharacters(),
+                            reader.getTextStart(), reader.getTextLength());
+                    break;
+                case XMLStreamConstants.END_ELEMENT:
+                    String tag = reader.getLocalName();
+                    if (tag.equalsIgnoreCase("PartNumber")) {
+                        partNumber = Integer.parseInt(
+                                characters.toString().trim());
+                    } else if (tag.equalsIgnoreCase("ETag")) {
+                        eTag = characters.toString();
+                    } else if (tag.equalsIgnoreCase("Part")) {
+                        parts.put(partNumber, eTag);
+                        partNumber = -1;
+                        eTag = null;
+                    }
+                    characters.setLength(0);
+                    break;
+                default:
+                    break;
+                }
+                reader.next();
+            }
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+        return parts;
+    }
+
     private static void addContentMetdataFromHttpRequest(
             BlobBuilder.PayloadBlobBuilder builder,
             HttpServletRequest request) {
@@ -1726,71 +1767,5 @@ final class S3ProxyHandler extends AbstractHandler {
         xml.writeStartElement(elementName);
         xml.writeCharacters(characters);
         xml.writeEndElement();
-    }
-
-    static final class MultiBlobByteSource extends ByteSource {
-        private final BlobStore blobStore;
-        private final String containerName;
-        private final Collection<String> blobNames;
-
-        MultiBlobByteSource(BlobStore blobStore, String containerName,
-                Collection<String> blobNames) {
-            this.blobStore = requireNonNull(blobStore);
-            this.containerName = requireNonNull(containerName);
-            this.blobNames = requireNonNull(blobNames);
-        }
-
-        @Override
-        public InputStream openStream() throws IOException {
-            return new MultiBlobInputStream(blobStore, containerName,
-                    blobNames);
-        }
-    }
-
-    static final class MultiBlobInputStream extends InputStream {
-        private final BlobStore blobStore;
-        private final String containerName;
-        private final Iterator<String> blobNames;
-        private InputStream is;
-
-        MultiBlobInputStream(BlobStore blobStore, String containerName,
-                Collection<String> blobNames) throws IOException {
-            this.blobStore = requireNonNull(blobStore);
-            this.containerName = requireNonNull(containerName);
-            this.blobNames = blobNames.iterator();
-            resetInputStream();
-        }
-
-        @Override
-        public int read() throws IOException {
-            int ch = is.read();
-            if (ch != -1) {
-                return ch;
-            } else if (blobNames.hasNext()) {
-                resetInputStream();
-                return is.read();
-            } else {
-                return -1;
-            }
-        }
-
-        @Override
-        public int read(byte[] array, int offset, int length)
-                throws IOException {
-            int ch = is.read(array, offset, length);
-            if (ch != -1) {
-                return ch;
-            } else if (blobNames.hasNext()) {
-                resetInputStream();
-                return is.read(array, offset, length);
-            } else {
-                return -1;
-            }
-        }
-
-        private void resetInputStream() throws IOException {
-            Blob blob = blobStore.getBlob(containerName, blobNames.next());
-            is = blob.getPayload().openStream();
-        }
     }
 }
