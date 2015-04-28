@@ -791,7 +791,7 @@ final class S3ProxyHandler extends AbstractHandler {
             options = options.recursive();
         }
         String prefix = request.getParameter("prefix");
-        if (prefix != null) {
+        if (prefix != null && !prefix.isEmpty()) {
             options = options.inDirectory(prefix);
         }
         String marker = request.getParameter("marker");
