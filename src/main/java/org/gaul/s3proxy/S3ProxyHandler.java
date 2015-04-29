@@ -279,13 +279,13 @@ final class S3ProxyHandler extends AbstractHandler {
 
         if (headerAuthorization != null) {
             if (headerAuthorization.startsWith("AWS ")) {
-                String[] values =
-                        headerAuthorization.substring(4).split(":", 2);
-                if (values.length != 2) {
+                int colon = headerAuthorization.lastIndexOf(':',
+                        headerAuthorization.length() - 2);
+                if (colon < 4) {
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
                 }
-                requestIdentity = values[0];
-                requestSignature = values[1];
+                requestIdentity = headerAuthorization.substring(4, colon);
+                requestSignature = headerAuthorization.substring(colon + 1);
             } else if (headerAuthorization.startsWith("AWS4-HMAC-SHA256 ")) {
                 // Fail V4 signature requests to allow clients to retry with V2.
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
