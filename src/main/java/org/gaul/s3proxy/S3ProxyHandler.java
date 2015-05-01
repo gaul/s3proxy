@@ -1458,7 +1458,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
             MultipartPart part = blobStore.uploadMultipartPart(mpu, partNumber,
                     payload);
-            response.addHeader(HttpHeaders.ETAG, part.partETag());
+            response.addHeader(HttpHeaders.ETAG,
+                    "\"" + part.partETag() + "\"");
         }
     }
 
