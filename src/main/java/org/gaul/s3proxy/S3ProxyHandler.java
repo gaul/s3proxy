@@ -18,8 +18,6 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -202,11 +200,14 @@ final class S3ProxyHandler extends AbstractHandler {
         try {
             doHandle(target, baseRequest, request, response);
         } catch (ContainerNotFoundException cnfe) {
-            sendSimpleErrorResponse(response, S3ErrorCode.NO_SUCH_BUCKET);
+            S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
+            sendSimpleErrorResponse(response, code, code.getMessage(),
+                    ImmutableMap.<String, String>of());
             baseRequest.setHandled(true);
             return;
         } catch (S3Exception se) {
-            sendSimpleErrorResponse(response, se.getError());
+            sendSimpleErrorResponse(response, se.getError(),
+                    se.getMessage(), se.getElements());
             baseRequest.setHandled(true);
             return;
         }
@@ -246,11 +247,9 @@ final class S3ProxyHandler extends AbstractHandler {
 
         if (defaultBlobStore == null && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("Expires") == null) {
-            sendSimpleErrorResponse(response, S3ErrorCode.ACCESS_DENIED,
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
                     "AWS authentication requires a valid Date or" +
-                    " x-amz-date header", null, null);
-            baseRequest.setHandled(true);
-            return;
+                    " x-amz-date header");
         }
 
         // TODO: apply sanity checks to X-Amz-Date
@@ -763,10 +762,8 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, ae);
         }
         if (!created) {
-            S3ErrorCode errorCode = S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU;
-            sendSimpleErrorResponse(response,
-                    errorCode, errorCode.getMessage(), "BucketName",
-                    containerName);
+            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
+                    null, null, ImmutableMap.of("BucketName", containerName));
         }
     }
 
@@ -1521,16 +1518,9 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void sendSimpleErrorResponse(HttpServletResponse response,
-            S3ErrorCode code) throws IOException {
-        sendSimpleErrorResponse(response, code, code.getMessage(), null, null);
-    }
-
-    private void sendSimpleErrorResponse(HttpServletResponse response,
-            S3ErrorCode code, String message, String element, String characters)
-            throws IOException {
-        checkArgument(!(element == null ^ characters == null),
-                "Must specify neither or both element and characters");
-        logger.debug("{} {} {}", code, element, characters);
+            S3ErrorCode code, String message,
+            Map<String, String> elements) throws IOException {
+        logger.debug("{} {}", code, elements);
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1542,8 +1532,8 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "Code", code.getErrorCode());
             writeSimpleElement(xml, "Message", message);
 
-            if (element != null) {
-                writeSimpleElement(xml, element, characters);
+            for (Map.Entry<String, String> entry : elements.entrySet()) {
+                writeSimpleElement(xml, entry.getKey(), entry.getValue());
             }
 
             writeSimpleElement(xml, "RequestId", FAKE_REQUEST_ID);
@@ -1562,18 +1552,36 @@ final class S3ProxyHandler extends AbstractHandler {
     @SuppressWarnings("serial")
     static class S3Exception extends Exception {
         private final S3ErrorCode error;
+        private final Map<String, String> elements;
 
         S3Exception(S3ErrorCode error) {
-            this(error, null);
+            this(error, error.getMessage(), (Throwable) null,
+                    ImmutableMap.<String, String>of());
+        }
+
+        S3Exception(S3ErrorCode error, String message) {
+            this(error, message, (Throwable) null,
+                    ImmutableMap.<String, String>of());
         }
 
         S3Exception(S3ErrorCode error, Throwable cause) {
-            super(cause);
+            this(error, error.getMessage(), cause,
+                    ImmutableMap.<String, String>of());
+        }
+
+        S3Exception(S3ErrorCode error, String message, Throwable cause,
+                Map<String, String> elements) {
+            super(message, cause);
             this.error = requireNonNull(error);
+            this.elements = ImmutableMap.copyOf(elements);
         }
 
         S3ErrorCode getError() {
             return error;
+        }
+
+        Map<String, String> getElements() {
+            return elements;
         }
     }
 
