@@ -1248,6 +1248,12 @@ final class S3ProxyHandler extends AbstractHandler {
                         partSize != -1 && it.hasNext()) {
                     throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
+                String partETag = "\"" + part.partETag() + "\"";
+                if (!partETag.equals(entry.getValue())) {
+                    logger.error("list: {} request: {}", partETag,
+                            entry.getValue());
+                    throw new S3Exception(S3ErrorCode.INVALID_PART);
+                }
                 parts.add(MultipartPart.create(entry.getKey(),
                         partSize, entry.getValue()));
             }
@@ -1708,7 +1714,7 @@ final class S3ProxyHandler extends AbstractHandler {
                         partNumber = Integer.parseInt(
                                 characters.toString().trim());
                     } else if (tag.equalsIgnoreCase("ETag")) {
-                        eTag = characters.toString();
+                        eTag = characters.toString().trim();
                     } else if (tag.equalsIgnoreCase("Part")) {
                         parts.put(partNumber, eTag);
                         partNumber = -1;
