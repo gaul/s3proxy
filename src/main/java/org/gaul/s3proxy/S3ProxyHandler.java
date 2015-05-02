@@ -1239,7 +1239,11 @@ final class S3ProxyHandler extends AbstractHandler {
                     parseCompleteMultipartUpload(is).entrySet().iterator();
                     it.hasNext();) {
                 Map.Entry<Integer, String> entry = it.next();
-                long partSize = partsByListing.get(entry.getKey()).partSize();
+                MultipartPart part = partsByListing.get(entry.getKey());
+                if (part == null) {
+                    throw new S3Exception(S3ErrorCode.INVALID_PART);
+                }
+                long partSize = part.partSize();
                 if (partSize < blobStore.getMinimumMultipartPartSize() &&
                         partSize != -1 && it.hasNext()) {
                     throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);

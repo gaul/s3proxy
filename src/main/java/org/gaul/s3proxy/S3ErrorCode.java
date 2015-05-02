@@ -49,6 +49,10 @@ enum S3ErrorCode {
             "The specified location constraint is not valid. For" +
             " more information about Regions, see How to Select" +
             " a Region for Your Buckets."),
+    INVALID_PART(HttpServletResponse.SC_BAD_REQUEST,
+            "One or more of the specified parts could not be found." +
+            "  The part may not have been uploaded, or the specified entity" +
+            " tag may not match the part's entity tag."),
     INVALID_REQUEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
