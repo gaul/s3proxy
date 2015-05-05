@@ -1250,8 +1250,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
                 String partETag = "\"" + part.partETag() + "\"";
                 if (!partETag.equals(entry.getValue())) {
-                    logger.error("list: {} request: {}", partETag,
-                            entry.getValue());
                     throw new S3Exception(S3ErrorCode.INVALID_PART);
                 }
                 parts.add(MultipartPart.create(entry.getKey(),
