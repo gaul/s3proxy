@@ -58,6 +58,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SortedSetMultimap;
@@ -72,9 +73,11 @@ import com.google.common.net.HttpHeaders;
 
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.jclouds.blobstore.BlobRequestSigner;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
+import org.jclouds.blobstore.LocalBlobRequestSigner;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
@@ -90,6 +93,7 @@ import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
+import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
@@ -158,6 +162,8 @@ final class S3ProxyHandler extends AbstractHandler {
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
+    // TODO: hack to allow per-request anonymous access
+    private final BlobStore defaultBlobStore;
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
                    final String credential, Optional<String> virtualHost) {
@@ -186,6 +192,7 @@ final class S3ProxyHandler extends AbstractHandler {
             };
         }
         this.virtualHost = requireNonNull(virtualHost);
+        this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
     }
@@ -249,6 +256,15 @@ final class S3ProxyHandler extends AbstractHandler {
             } else if (headerName.equalsIgnoreCase("x-amz-date")) {
                 hasXAmzDateHeader = true;
             }
+        }
+
+        // anonymous request
+        if (method.equals("GET") &&
+                request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
+                request.getParameter("AWSAccessKeyId") == null &&
+                defaultBlobStore != null) {
+            doHandleAnonymous(request, response, uri, defaultBlobStore);
+            return;
         }
 
         if (!anonymousIdentity && !hasDateHeader && !hasXAmzDateHeader &&
@@ -441,6 +457,69 @@ final class S3ProxyHandler extends AbstractHandler {
                 handlePutBlob(request, response, blobStore, path[1], path[2]);
                 return;
             }
+        default:
+            break;
+        }
+        logger.error("Unknown method {} with URI {}",
+                method, request.getRequestURI());
+        throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+    }
+
+    private void doHandleAnonymous(HttpServletRequest request,
+            HttpServletResponse response, String uri, BlobStore blobStore)
+            throws IOException, S3Exception {
+        String method = request.getMethod();
+        String[] path = uri.split("/", 3);
+        switch (method) {
+        case "GET":
+            if (path.length <= 1) {
+                throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
+            } else if (path.length == 2) {
+                handleContainerList(response, blobStore);
+                return;
+            }
+
+            BlobRequestSigner signer = blobStore
+                    .getContext()
+                    .getSigner();
+            if (signer instanceof LocalBlobRequestSigner) {
+                // Local blobstores do not have an HTTP server --
+                // must handle these calls directly.
+                Blob blob = blobStore.getBlob(path[1], path[2]);
+                if (blob == null) {
+                    // TODO: NO_SUCH_BUCKET
+                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                }
+                // TODO: getBlob should return BlobAccess
+                BlobAccess access = blobStore.getBlobAccess(path[1],
+                        path[2]);
+                if (access != BlobAccess.PUBLIC_READ) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+                try (InputStream payload = blob.getPayload().openStream();
+                        OutputStream os = response.getOutputStream()) {
+                    ByteStreams.copy(payload, os);
+                }
+            } else {
+                HttpRequest anonymousRequest = signer
+                        .signGetBlob(path[1], path[2])
+                        .toBuilder()
+                        .headers(ImmutableMultimap.<String, String>of())
+                        // TODO: replace parameters?
+                        .build();
+                logger.debug("issuing anonymous request: {}", anonymousRequest);
+                HttpResponse anonymousResponse = blobStore
+                        .getContext()
+                        .utils()
+                        .http()
+                        .invoke(anonymousRequest);
+                try (InputStream payload =
+                        anonymousResponse.getPayload().openStream();
+                        OutputStream os = response.getOutputStream()) {
+                    ByteStreams.copy(payload, os);
+                }
+            }
+            return;
         default:
             break;
         }

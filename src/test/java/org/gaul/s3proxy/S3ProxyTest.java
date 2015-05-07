@@ -41,6 +41,7 @@ import org.jclouds.blobstore.BlobRequestSigner;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
@@ -54,7 +55,6 @@ import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
-import org.jclouds.io.payloads.ByteSourcePayload;
 import org.jclouds.rest.HttpClient;
 import org.jclouds.s3.S3Client;
 
@@ -110,17 +110,23 @@ public final class S3ProxyTest {
         }
     }
 
-    // TODO: why does this hang for 30 seconds?
-    // TODO: this test requires anonymous access
-    @Ignore
     @Test
     public void testHttpClient() throws Exception {
-        HttpClient httpClient = context.utils().http();
-        // TODO: how to interpret this?
-        URI uri = URI.create(s3Endpoint + "/" + containerName + "/blob");
-        Payload payload = new ByteSourcePayload(BYTE_SOURCE);
-        payload.getContentMetadata().setContentLength(BYTE_SOURCE.size());
-        httpClient.put(uri, payload);
+        String blobName = "blob-name";
+        Blob blob = blobStore.blobBuilder(blobName)
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
+                .build();
+        blobStore.putBlob(containerName, blob);
+        // TODO: jclouds PutOptions should include BlobAccess
+        blobStore.setBlobAccess(containerName, blobName,
+                BlobAccess.PUBLIC_READ);
+
+        HttpClient httpClient = s3Context.utils().http();
+        URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
+                s3Endpoint.getHost(), s3Proxy.getPort(),
+                "/" + containerName + "/" + blobName,
+                /*query=*/ null, /*fragment=*/ null);
         try (InputStream actual = httpClient.get(uri);
              InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
