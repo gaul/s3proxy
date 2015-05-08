@@ -151,7 +151,7 @@ final class S3ProxyHandler extends AbstractHandler {
             "log-delivery-write"
     );
 
-    private final BlobStore defaultBlobStore;
+    private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
     private final XMLInputFactory xmlInputFactory =
             XMLInputFactory.newInstance();
@@ -163,6 +163,7 @@ final class S3ProxyHandler extends AbstractHandler {
     S3ProxyHandler(final BlobStore blobStore, final String identity,
                    final String credential, Optional<String> virtualHost) {
         if (identity != null) {
+            anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
                 public Map.Entry<String, BlobStore> locateBlobStore(
@@ -173,17 +174,17 @@ final class S3ProxyHandler extends AbstractHandler {
                     return Maps.immutableEntry(credential, blobStore);
                 }
             };
-
-            defaultBlobStore = null;
         } else {
+            anonymousIdentity = true;
+            final Map.Entry<String, BlobStore> anonymousBlobStore =
+                    Maps.immutableEntry(null, blobStore);
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
                 public Map.Entry<String, BlobStore> locateBlobStore(
                         String identityArg, String container, String blob) {
-                    return null;
+                    return anonymousBlobStore;
                 }
             };
-            defaultBlobStore = blobStore;
         }
         this.virtualHost = requireNonNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
@@ -250,7 +251,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        if (defaultBlobStore == null && !hasDateHeader && !hasXAmzDateHeader &&
+        if (!anonymousIdentity && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("Expires") == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
                     "AWS authentication requires a valid Date or" +
@@ -304,11 +305,11 @@ final class S3ProxyHandler extends AbstractHandler {
             path[i] = URLDecoder.decode(path[i], "UTF-8");
         }
 
+        Map.Entry<String, BlobStore> provider =
+                blobStoreLocator.locateBlobStore(
+                        requestIdentity, path.length > 1 ? path[1] : null,
+                        path.length > 2 ? path[2] : null);
         if (requestIdentity != null) {
-            Map.Entry<String, BlobStore> provider =
-                    blobStoreLocator.locateBlobStore(
-                            requestIdentity, path.length > 1 ? path[1] : null,
-                            path.length > 2 ? path[2] : null);
             if (provider == null) {
                 throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
@@ -330,10 +331,10 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
         } else {
-            if (defaultBlobStore == null) {
+            if (!anonymousIdentity) {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             } else {
-                blobStore = defaultBlobStore;
+                blobStore = provider.getValue();
             }
         }
 
