@@ -158,7 +158,6 @@ final class S3ProxyHandler extends AbstractHandler {
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
-    private final BlobMetadata fakeBlobMetadata;
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
                    final String credential, Optional<String> virtualHost) {
@@ -188,10 +187,6 @@ final class S3ProxyHandler extends AbstractHandler {
         this.virtualHost = requireNonNull(virtualHost);
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
-
-        fakeBlobMetadata = blobStore.blobBuilder("fake-name")
-                .build()
-                .getMetadata();
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
@@ -1307,7 +1302,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, fakeBlobMetadata);
+                blobName, uploadId, createFakeBlobMetadata(blobStore));
         blobStore.abortMultipartUpload(mpu);
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
@@ -1350,7 +1345,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
             // TODO: how to reconstruct original mpu?
             MultipartUpload mpu = MultipartUpload.create(containerName,
-                    blobName, uploadId, fakeBlobMetadata);
+                    blobName, uploadId, createFakeBlobMetadata(blobStore));
 
             List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
             for (MultipartPart part : parts) {
@@ -1456,7 +1451,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, fakeBlobMetadata);
+                blobName, uploadId, createFakeBlobMetadata(blobStore));
 
         try (InputStream is = request.getInputStream()) {
             Payload payload = Payloads.newInputStreamPayload(is);
@@ -1777,5 +1772,11 @@ final class S3ProxyHandler extends AbstractHandler {
         xml.writeStartElement(elementName);
         xml.writeCharacters(characters);
         xml.writeEndElement();
+    }
+
+    private static BlobMetadata createFakeBlobMetadata(BlobStore blobStore) {
+        return blobStore.blobBuilder("fake-name")
+                .build()
+                .getMetadata();
     }
 }
