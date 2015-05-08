@@ -986,13 +986,14 @@ final class S3ProxyHandler extends AbstractHandler {
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
         String copySourceHeader = request.getHeader("x-amz-copy-source");
+        copySourceHeader = URLDecoder.decode(copySourceHeader, "UTF-8");
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
         }
         String[] path = copySourceHeader.split("/", 2);
-        for (int i = 0; i < path.length; i++) {
-            path[i] = URLDecoder.decode(path[i], "UTF-8");
+        if (path.length != 2) {
+            throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
