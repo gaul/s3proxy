@@ -91,6 +91,17 @@ s3proxy.keystore-path=keystore.jks
 s3proxy.keystore-password=password
 ```
 
+To setup the keystore, do `keytool -keystore keystore.jks -alias aws
+-genkey -keyalg RSA`. Use `*.s3.amazonaws.com` if you wish to proxy
+access to Amazon S3 itself. Applications will reject the self-signed
+certificate, unless you import it to the application's trusted
+store. If the application is written in Java, you can do:
+
+```
+$ keytool -exportcert -keystore keystore.jks -alias aws -rfc > aws.crt
+$ keytool -keystore $JAVA_HOME/jre/lib/security/cacerts -import -alias aws -file aws.crt -trustcacerts
+```
+
 Users can also set other Java,
 [jclouds](https://github.com/jclouds/jclouds/blob/master/core/src/main/java/org/jclouds/Constants.java),
 and [S3Proxy](https://github.com/andrewgaul/s3proxy/blob/master/src/main/java/org/gaul/s3proxy/S3ProxyConstants.java)
