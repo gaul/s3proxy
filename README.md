@@ -97,7 +97,7 @@ To setup the keystore, do
 $ keytool -keystore keystore.jks -alias aws -genkey -keyalg RSA
 ```
 
-Use `*.s3.amazonaws.com` if you wish to proxy
+Use `*.s3.amazonaws.com` as the `CN` if you wish to proxy
 access to Amazon S3 itself. Applications will reject the self-signed
 certificate, unless you import it to the application's trusted
 store. If the application is written in Java, you can do:
