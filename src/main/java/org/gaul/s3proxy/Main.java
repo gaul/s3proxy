@@ -57,6 +57,7 @@ public final class Main {
         String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
         String s3ProxyEndpointString = properties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT);
+        String secureEndpoint = properties.getProperty(S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
         String s3ProxyAuthorization = properties.getProperty(
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
         if (provider == null || identity == null || credential == null ||
@@ -107,6 +108,9 @@ public final class Main {
             S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                     .blobStore(context.getBlobStore())
                     .endpoint(s3ProxyEndpoint);
+            if (secureEndpoint != null) {
+                s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
+            }
             if (localIdentity != null || localCredential != null) {
                 s3ProxyBuilder.awsAuthentication(localIdentity,
                         localCredential);
