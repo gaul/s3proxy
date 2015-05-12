@@ -100,6 +100,8 @@ public final class S3ProxyTest {
                 S3ProxyConstants.PROPERTY_CREDENTIAL);
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT));
+        String secureEndpoint = s3ProxyProperties.getProperty(
+                S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
         String keyStorePath = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
@@ -123,6 +125,9 @@ public final class S3ProxyTest {
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                 .blobStore(blobStore)
                 .endpoint(s3Endpoint);
+        if (secureEndpoint != null) {
+            s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
+        }
         if (s3Identity != null || s3Credential != null) {
             s3ProxyBuilder.awsAuthentication(s3Identity, s3Credential);
         }

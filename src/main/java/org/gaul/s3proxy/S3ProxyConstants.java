@@ -19,6 +19,8 @@ package org.gaul.s3proxy;
 public final class S3ProxyConstants {
     public static final String PROPERTY_ENDPOINT =
             "s3proxy.endpoint";
+    public static final String PROPERTY_SECURE_ENDPOINT =
+            "s3proxy.secure-endpoint";
     public static final String PROPERTY_AUTHORIZATION =
             "s3proxy.authorization";
     public static final String PROPERTY_IDENTITY =

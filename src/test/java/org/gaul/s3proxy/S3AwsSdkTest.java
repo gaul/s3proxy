@@ -106,6 +106,8 @@ public final class S3AwsSdkTest {
         awsCreds = new BasicAWSCredentials(s3Identity, s3Credential);
         s3Endpoint = new URI(s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT));
+        String secureEndpoint = s3ProxyProperties.getProperty(
+                S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
         String keyStorePath = s3ProxyProperties.getProperty(
                 S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
         String keyStorePassword = s3ProxyProperties.getProperty(
@@ -129,6 +131,9 @@ public final class S3AwsSdkTest {
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                 .blobStore(blobStore)
                 .endpoint(s3Endpoint);
+        if (secureEndpoint != null) {
+            s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
+        }
         if (s3Identity != null || s3Credential != null) {
             s3ProxyBuilder.awsAuthentication(s3Identity, s3Credential);
         }
@@ -147,8 +152,8 @@ public final class S3AwsSdkTest {
         }
 
         // reset endpoint to handle zero port
-        s3Endpoint = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
-                s3Endpoint.getHost(), s3Proxy.getPort(), s3Endpoint.getPath(),
+        s3Endpoint = new URI("https", s3Endpoint.getUserInfo(),
+                s3Endpoint.getHost(), s3Proxy.getSecurePort(), s3Endpoint.getPath(),
                 s3Endpoint.getQuery(), s3Endpoint.getFragment());
     }
 

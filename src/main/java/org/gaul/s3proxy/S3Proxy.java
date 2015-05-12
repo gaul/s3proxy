@@ -67,18 +67,21 @@ public final class S3Proxy {
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
         ServerConnector connector;
-        if (builder.endpoint.getScheme().equals("https")) {
+        connector = new ServerConnector(server, httpConnectionFactory);
+        connector.setHost(builder.endpoint.getHost());
+        connector.setPort(builder.endpoint.getPort());
+        server.addConnector(connector);
+
+        if (builder.secureEndpoint != null) {
             SslContextFactory sslContextFactory = new SslContextFactory();
             sslContextFactory.setKeyStorePath(builder.keyStorePath);
             sslContextFactory.setKeyStorePassword(builder.keyStorePassword);
             connector = new ServerConnector(server, sslContextFactory,
                     httpConnectionFactory);
-        } else {
-            connector = new ServerConnector(server, httpConnectionFactory);
+            connector.setHost(builder.secureEndpoint.getHost());
+            connector.setPort(builder.secureEndpoint.getPort());
+            server.addConnector(connector);
         }
-        connector.setHost(builder.endpoint.getHost());
-        connector.setPort(builder.endpoint.getPort());
-        server.addConnector(connector);
         handler = new S3ProxyHandler(builder.blobStore, builder.identity,
                 builder.credential, Optional.fromNullable(builder.virtualHost));
         server.setHandler(handler);
@@ -87,6 +90,7 @@ public final class S3Proxy {
     public static final class Builder {
         private BlobStore blobStore;
         private URI endpoint;
+        private URI secureEndpoint;
         private String identity;
         private String credential;
         private String keyStorePath;
@@ -107,6 +111,11 @@ public final class S3Proxy {
 
         public Builder endpoint(URI endpoint) {
             this.endpoint = requireNonNull(endpoint);
+            return this;
+        }
+
+        public Builder secureEndpoint(URI secureEndpoint) {
+            this.secureEndpoint = requireNonNull(secureEndpoint);
             return this;
         }
 
@@ -142,6 +151,10 @@ public final class S3Proxy {
 
     public int getPort() {
         return ((ServerConnector) server.getConnectors()[0]).getLocalPort();
+    }
+
+    public int getSecurePort() {
+        return ((ServerConnector) server.getConnectors()[1]).getLocalPort();
     }
 
     public String getState() {
