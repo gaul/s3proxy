@@ -223,10 +223,15 @@ final class S3ProxyHandler extends AbstractHandler {
         if (hostHeader != null && virtualHost.isPresent()) {
             hostHeader = HostAndPort.fromString(hostHeader).getHostText();
             String virtualHostSuffix = "." + virtualHost.get();
-            if (hostHeader.endsWith(virtualHostSuffix)) {
-                String bucket = hostHeader.substring(0,
-                        hostHeader.length() - virtualHostSuffix.length());
-                uri = "/" + bucket + uri;
+            if (!hostHeader.equals(virtualHost.get())) {
+                if (hostHeader.endsWith(virtualHostSuffix)) {
+                    String bucket = hostHeader.substring(0,
+                            hostHeader.length() - virtualHostSuffix.length());
+                    uri = "/" + bucket + uri;
+                } else {
+                    String bucket = hostHeader.toLowerCase();
+                    uri = "/" + bucket + uri;
+                }
             }
         }
 
