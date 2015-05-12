@@ -57,18 +57,21 @@ public final class Main {
         String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
         String s3ProxyEndpointString = properties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT);
-        String secureEndpoint = properties.getProperty(S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
+        String secureEndpoint = properties.getProperty(
+                S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
         String s3ProxyAuthorization = properties.getProperty(
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
         if (provider == null || identity == null || credential == null ||
-                s3ProxyEndpointString == null ||
+                (s3ProxyEndpointString == null && secureEndpoint == null) ||
                 s3ProxyAuthorization == null) {
             System.err.println("Properties file must contain:\n" +
                     Constants.PROPERTY_PROVIDER + "\n" +
                     Constants.PROPERTY_IDENTITY + "\n" +
                     Constants.PROPERTY_CREDENTIAL + "\n" +
+                    S3ProxyConstants.PROPERTY_AUTHORIZATION + "\n" +
+                    "and one of\n" +
                     S3ProxyConstants.PROPERTY_ENDPOINT + "\n" +
-                    S3ProxyConstants.PROPERTY_AUTHORIZATION);
+                    S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
             System.exit(1);
         }
 
@@ -101,13 +104,14 @@ public final class Main {
             builder = builder.endpoint(endpoint);
         }
         BlobStoreContext context = builder.build(BlobStoreContext.class);
-        URI s3ProxyEndpoint = new URI(s3ProxyEndpointString);
 
         S3Proxy s3Proxy;
         try {
             S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                    .blobStore(context.getBlobStore())
-                    .endpoint(s3ProxyEndpoint);
+                    .blobStore(context.getBlobStore());
+            if (s3ProxyEndpointString != null) {
+                s3ProxyBuilder.endpoint(new URI(s3ProxyEndpointString));
+            }
             if (secureEndpoint != null) {
                 s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
             }
