@@ -153,8 +153,9 @@ public final class S3AwsSdkTest {
 
         // reset endpoint to handle zero port
         s3Endpoint = new URI("https", s3Endpoint.getUserInfo(),
-                s3Endpoint.getHost(), s3Proxy.getSecurePort(), s3Endpoint.getPath(),
-                s3Endpoint.getQuery(), s3Endpoint.getFragment());
+                s3Endpoint.getHost(), s3Proxy.getSecurePort(),
+                s3Endpoint.getPath(), s3Endpoint.getQuery(),
+                s3Endpoint.getFragment());
     }
 
     @After

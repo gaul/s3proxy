@@ -40,6 +40,8 @@ import org.jclouds.blobstore.BlobStore;
 public final class S3Proxy {
     private final Server server;
     private final S3ProxyHandler handler;
+    private final boolean listenHTTP;
+    private final boolean listenHTTPS;
 
     static {
         // Prevent Jetty from rewriting headers:
@@ -48,29 +50,41 @@ public final class S3Proxy {
     }
 
     S3Proxy(Builder builder) {
-        requireNonNull(builder.endpoint);
+        checkArgument(builder.endpoint != null ||
+                        builder.secureEndpoint != null,
+                "Must provide endpoint or secure-endpoint");
         // TODO: allow service paths?
-        checkArgument(builder.endpoint.getPath().isEmpty(),
-                "endpoint path must be empty, was: %s",
-                builder.endpoint.getPath());
-        checkArgument(Strings.isNullOrEmpty(builder.identity) ^
-                !Strings.isNullOrEmpty(builder.credential),
-                "Must provide both identity and credential");
-        if (builder.endpoint.getScheme().equals("https:")) {
+        if (builder.endpoint != null) {
+            checkArgument(builder.endpoint.getPath().isEmpty(),
+                    "endpoint path must be empty, was: %s",
+                    builder.endpoint.getPath());
+        }
+        if (builder.secureEndpoint != null) {
+            checkArgument(builder.secureEndpoint.getPath().isEmpty(),
+                    "secure-endpoint path must be empty, was: %s",
+                    builder.secureEndpoint.getPath());
             requireNonNull(builder.keyStorePath,
                     "Must provide keyStorePath with HTTPS endpoint");
             requireNonNull(builder.keyStorePassword,
                     "Must provide keyStorePassword with HTTPS endpoint");
         }
+        checkArgument(Strings.isNullOrEmpty(builder.identity) ^
+                !Strings.isNullOrEmpty(builder.credential),
+                "Must provide both identity and credential");
 
         server = new Server();
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
         ServerConnector connector;
-        connector = new ServerConnector(server, httpConnectionFactory);
-        connector.setHost(builder.endpoint.getHost());
-        connector.setPort(builder.endpoint.getPort());
-        server.addConnector(connector);
+        if (builder.endpoint != null) {
+            connector = new ServerConnector(server, httpConnectionFactory);
+            connector.setHost(builder.endpoint.getHost());
+            connector.setPort(builder.endpoint.getPort());
+            server.addConnector(connector);
+            listenHTTP = true;
+        } else {
+            listenHTTP = false;
+        }
 
         if (builder.secureEndpoint != null) {
             SslContextFactory sslContextFactory = new SslContextFactory();
@@ -81,6 +95,9 @@ public final class S3Proxy {
             connector.setHost(builder.secureEndpoint.getHost());
             connector.setPort(builder.secureEndpoint.getPort());
             server.addConnector(connector);
+            listenHTTPS = true;
+        } else {
+            listenHTTPS = false;
         }
         handler = new S3ProxyHandler(builder.blobStore, builder.identity,
                 builder.credential, Optional.fromNullable(builder.virtualHost));
@@ -150,11 +167,25 @@ public final class S3Proxy {
     }
 
     public int getPort() {
-        return ((ServerConnector) server.getConnectors()[0]).getLocalPort();
+        if (listenHTTP) {
+            return ((ServerConnector) server.getConnectors()[0]).getLocalPort();
+        } else {
+            return -1;
+        }
     }
 
     public int getSecurePort() {
-        return ((ServerConnector) server.getConnectors()[1]).getLocalPort();
+        if (listenHTTPS) {
+            ServerConnector connector;
+            if (listenHTTP) {
+                connector = (ServerConnector) server.getConnectors()[1];
+            } else {
+                connector = (ServerConnector) server.getConnectors()[0];
+            }
+            return connector.getLocalPort();
+        }
+
+        return -1;
     }
 
     public String getState() {
