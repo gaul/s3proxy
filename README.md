@@ -81,12 +81,12 @@ jclouds.credential=credential
 jclouds.filesystem.basedir=/tmp
 ```
 
-S3Proxy can listen on HTTPS by setting the endpoint and
+S3Proxy can listen on HTTPS by setting the `secure-endpoint` and
 [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool).
 An example:
 
 ```
-s3proxy.endpoint=https://127.0.0.1:8080
+s3proxy.secure-endpoint=https://127.0.0.1:8080
 s3proxy.keystore-path=keystore.jks
 s3proxy.keystore-password=password
 ```
