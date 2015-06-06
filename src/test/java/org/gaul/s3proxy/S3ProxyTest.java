@@ -404,8 +404,8 @@ public final class S3ProxyTest {
         MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
                 containerName, blobMetadata);
 
-        ByteSource byteSource = ByteSource.wrap(
-                new byte[(int) blobStore.getMinimumMultipartPartSize() + 1]);
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, blobStore.getMinimumMultipartPartSize() + 1);
         ByteSource byteSource1 = byteSource.slice(
                 0, blobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
