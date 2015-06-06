@@ -65,6 +65,7 @@ import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
+import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
@@ -1312,7 +1313,8 @@ final class S3ProxyHandler extends AbstractHandler {
         MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, stubBlob.getMetadata());
 
-        // list parts to get part sizes
+        // List parts to get part sizes and to map multiple Azure parts
+        // into single parts.
         ImmutableMap.Builder<Integer, MultipartPart> builder =
                 ImmutableMap.builder();
         for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
@@ -1321,26 +1323,34 @@ final class S3ProxyHandler extends AbstractHandler {
         ImmutableMap<Integer, MultipartPart> partsByListing = builder.build();
 
         List<MultipartPart> parts = new ArrayList<>();
-        try (InputStream is = request.getInputStream()) {
-            for (Iterator<Map.Entry<Integer, String>> it =
-                    parseCompleteMultipartUpload(is).entrySet().iterator();
-                    it.hasNext();) {
-                Map.Entry<Integer, String> entry = it.next();
-                MultipartPart part = partsByListing.get(entry.getKey());
-                if (part == null) {
-                    throw new S3Exception(S3ErrorCode.INVALID_PART);
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (blobStoreType.equals("azureblob")) {
+            // TODO: how to sanity check parts?
+            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
+                parts.add(part);
+            }
+        } else {
+            try (InputStream is = request.getInputStream()) {
+                for (Iterator<Map.Entry<Integer, String>> it =
+                        parseCompleteMultipartUpload(is).entrySet().iterator();
+                        it.hasNext();) {
+                    Map.Entry<Integer, String> entry = it.next();
+                    MultipartPart part = partsByListing.get(entry.getKey());
+                    if (part == null) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    }
+                    long partSize = part.partSize();
+                    if (partSize < blobStore.getMinimumMultipartPartSize() &&
+                            partSize != -1 && it.hasNext()) {
+                        throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
+                    }
+                    String partETag = "\"" + part.partETag() + "\"";
+                    if (!partETag.equals(entry.getValue())) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    }
+                    parts.add(MultipartPart.create(entry.getKey(),
+                            partSize, entry.getValue()));
                 }
-                long partSize = part.partSize();
-                if (partSize < blobStore.getMinimumMultipartPartSize() &&
-                        partSize != -1 && it.hasNext()) {
-                    throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
-                }
-                String partETag = "\"" + part.partETag() + "\"";
-                if (!partETag.equals(entry.getValue())) {
-                    throw new S3Exception(S3ErrorCode.INVALID_PART);
-                }
-                parts.add(MultipartPart.create(entry.getKey(),
-                        partSize, entry.getValue()));
             }
         }
 
@@ -1366,7 +1376,6 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "Key", blobName);
 
             if (eTag != null) {
-                String blobStoreType = getBlobStoreType(blobStore);
                 if (blobStoreType.equals("google-cloud-storage")) {
                     eTag = BaseEncoding.base16().lowerCase().encode(
                             BaseEncoding.base64().decode(eTag));
@@ -1545,16 +1554,40 @@ final class S3ProxyHandler extends AbstractHandler {
                 blobName, uploadId, createFakeBlobMetadata(blobStore));
 
         try (InputStream is = request.getInputStream()) {
-            Payload payload = Payloads.newInputStreamPayload(is);
-            payload.getContentMetadata().setContentLength(contentLength);
-            if (contentMD5 != null) {
-                payload.getContentMetadata().setContentMD5(contentMD5);
-            }
+            if (getBlobStoreType(blobStore).equals("azureblob")) {
+                // Azure has a maximum part size of 4 MB while S3 has a minimum
+                // part size of 5 MB and a maximum of 5 GB.  Split a single S3
+                // part multiple Azure parts.
+                long azureMaximumMultipartPartSize = 4 * 1024 * 1024;
+                HashingInputStream his = new HashingInputStream(Hashing.md5(),
+                        is);
+                for (int offset = 0, subPartNumber = 0; offset < contentLength;
+                        offset += azureMaximumMultipartPartSize,
+                        ++subPartNumber) {
+                    Payload payload = Payloads.newInputStreamPayload(
+                            ByteStreams.limit(his,
+                                    azureMaximumMultipartPartSize));
+                    payload.getContentMetadata().setContentLength(
+                            Math.min(azureMaximumMultipartPartSize,
+                                    contentLength - offset));
+                    blobStore.uploadMultipartPart(mpu,
+                            10_000 * partNumber + subPartNumber, payload);
+                }
+                response.addHeader(HttpHeaders.ETAG, "\"" +
+                        BaseEncoding.base16().lowerCase().encode(
+                                his.hash().asBytes()) + "\"");
+            } else {
+                Payload payload = Payloads.newInputStreamPayload(is);
+                payload.getContentMetadata().setContentLength(contentLength);
+                if (contentMD5 != null) {
+                    payload.getContentMetadata().setContentMD5(contentMD5);
+                }
 
-            MultipartPart part = blobStore.uploadMultipartPart(mpu, partNumber,
-                    payload);
-            response.addHeader(HttpHeaders.ETAG,
-                    "\"" + part.partETag() + "\"");
+                MultipartPart part = blobStore.uploadMultipartPart(mpu,
+                        partNumber, payload);
+                response.addHeader(HttpHeaders.ETAG,
+                        "\"" + part.partETag() + "\"");
+            }
         }
     }
 

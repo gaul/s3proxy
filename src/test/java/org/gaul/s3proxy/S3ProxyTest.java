@@ -389,11 +389,11 @@ public final class S3ProxyTest {
                 containerName, blobMetadata);
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
-                0, blobStore.getMinimumMultipartPartSize() + 1);
+                0, s3BlobStore.getMinimumMultipartPartSize() + 1);
         ByteSource byteSource1 = byteSource.slice(
-                0, blobStore.getMinimumMultipartPartSize());
+                0, s3BlobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
-                blobStore.getMinimumMultipartPartSize(), 1);
+                s3BlobStore.getMinimumMultipartPartSize(), 1);
         Payload payload1 = Payloads.newByteSourcePayload(byteSource1);
         Payload payload2 = Payloads.newByteSourcePayload(byteSource2);
         payload1.getContentMetadata().setContentLength(byteSource1.size());
