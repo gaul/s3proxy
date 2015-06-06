@@ -421,9 +421,9 @@ public final class S3ProxyTest {
                 part2));
 
         Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
-        try (InputStream expected = newBlob.getPayload().openStream();
-                InputStream actual = byteSource.openStream()) {
-            assertThat(expected).hasContentEqualTo(actual);
+        try (InputStream actual = newBlob.getPayload().openStream();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
         }
         ContentMetadata expectedContentMetadata =
                 blobMetadata.getContentMetadata();
