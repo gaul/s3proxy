@@ -49,6 +49,8 @@ enum S3ErrorCode {
             "The specified location constraint is not valid. For" +
             " more information about Regions, see How to Select" +
             " a Region for Your Buckets."),
+    INVALID_RANGE(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE,
+            "The requested range is not satisfiable"),
     INVALID_PART(HttpServletResponse.SC_BAD_REQUEST,
             "One or more of the specified parts could not be found." +
             "  The part may not have been uploaded, or the specified entity" +

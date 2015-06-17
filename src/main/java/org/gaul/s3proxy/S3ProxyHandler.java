@@ -967,7 +967,12 @@ final class S3ProxyHandler extends AbstractHandler {
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
-        Blob blob = blobStore.getBlob(containerName, blobName, options);
+        Blob blob;
+        try {
+            blob = blobStore.getBlob(containerName, blobName, options);
+        } catch (IllegalArgumentException iae) {
+            throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+        }
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
