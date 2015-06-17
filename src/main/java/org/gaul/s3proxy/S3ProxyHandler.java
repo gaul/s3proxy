@@ -978,7 +978,15 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         response.setStatus(status);
+
         addMetadataToResponse(response, blob.getMetadata());
+        Collection<String> contentRanges =
+                blob.getAllHeaders().get(HttpHeaders.CONTENT_RANGE);
+        if (!contentRanges.isEmpty()) {
+            response.addHeader(HttpHeaders.CONTENT_RANGE,
+                    contentRanges.iterator().next());
+        }
+
         try (InputStream is = blob.getPayload().openStream();
              OutputStream os = response.getOutputStream()) {
             ByteStreams.copy(is, os);
