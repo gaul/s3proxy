@@ -16,6 +16,25 @@
 
 package org.gaul.s3proxy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URL;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import java.util.Date;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
@@ -25,41 +44,17 @@ import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
 import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.google.common.base.Strings;
+
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
-import com.google.common.io.Resources;
-import com.google.inject.Module;
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
-import org.jclouds.Constants;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
+
+import org.assertj.core.api.Fail;
+
 import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import java.io.InputStream;
-import java.net.URI;
-import java.net.URL;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.X509Certificate;
-import java.util.Date;
-import java.util.Properties;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
 
 public final class S3AwsSdkTest {
     static {
@@ -82,77 +77,15 @@ public final class S3AwsSdkTest {
 
     @Before
     public void setUp() throws Exception {
-        Properties s3ProxyProperties = new Properties();
-        try (InputStream is = Resources.asByteSource(Resources.getResource(
-                "s3proxy.conf")).openStream()) {
-            s3ProxyProperties.load(is);
-        }
+        TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy();
+        awsCreds = new BasicAWSCredentials(info.getS3Identity(),
+                info.getS3Credential());
+        context = info.getBlobStore().getContext();
+        s3Proxy = info.getS3Proxy();
+        s3Endpoint = info.getEndpoint();
 
-        String provider = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_PROVIDER);
-        String identity = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_IDENTITY);
-        String credential = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_CREDENTIAL);
-        String endpoint = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_ENDPOINT);
-        String s3Identity = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_IDENTITY);
-        String s3Credential = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_CREDENTIAL);
-        awsCreds = new BasicAWSCredentials(s3Identity, s3Credential);
-        s3Endpoint = new URI(s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_ENDPOINT));
-        String secureEndpoint = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
-        String keyStorePath = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
-        String keyStorePassword = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
-        String virtualHost = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
-
-        ContextBuilder builder = ContextBuilder
-                .newBuilder(provider)
-                .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
-                .overrides(s3ProxyProperties);
-        if (!Strings.isNullOrEmpty(endpoint)) {
-            builder.endpoint(endpoint);
-        }
-        context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
         containerName = createRandomContainerName();
-        blobStore.createContainerInLocation(null, containerName);
-
-        S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                .blobStore(blobStore)
-                .endpoint(s3Endpoint);
-        if (secureEndpoint != null) {
-            s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
-        }
-        if (s3Identity != null || s3Credential != null) {
-            s3ProxyBuilder.awsAuthentication(s3Identity, s3Credential);
-        }
-        if (keyStorePath != null || keyStorePassword != null) {
-            s3ProxyBuilder.keyStore(
-                    Resources.getResource(keyStorePath).toString(),
-                    keyStorePassword);
-        }
-        if (virtualHost != null) {
-            s3ProxyBuilder.virtualHost(virtualHost);
-        }
-        s3Proxy = s3ProxyBuilder.build();
-        s3Proxy.start();
-        while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
-            Thread.sleep(1);
-        }
-
-        // reset endpoint to handle zero port
-        s3Endpoint = new URI("https", s3Endpoint.getUserInfo(),
-                s3Endpoint.getHost(), s3Proxy.getSecurePort(),
-                s3Endpoint.getPath(), s3Endpoint.getQuery(),
-                s3Endpoint.getFragment());
+        info.getBlobStore().createContainerInLocation(null, containerName);
     }
 
     @After
@@ -183,7 +116,7 @@ public final class S3AwsSdkTest {
         try {
             client.putObject(containerName, "foo",
                     BYTE_SOURCE.openStream(), new ObjectMetadata());
-            failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("InvalidArgument");
         }

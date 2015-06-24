@@ -16,14 +16,24 @@
 
 package org.gaul.s3proxy;
 
-import com.google.common.base.Strings;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.InputStream;
+import java.net.URI;
+import java.util.Date;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Random;
+
+import javax.servlet.http.HttpServletResponse;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
-import com.google.common.io.Resources;
-import com.google.inject.Module;
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
+
+import org.assertj.core.api.Fail;
+
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.aws.AWSResponseException;
@@ -45,24 +55,13 @@ import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.jclouds.io.payloads.ByteSourcePayload;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.rest.HttpClient;
 import org.jclouds.s3.S3Client;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-
-import javax.servlet.http.HttpServletResponse;
-import java.io.InputStream;
-import java.net.URI;
-import java.util.Date;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
 
 public final class S3ProxyTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
@@ -77,81 +76,20 @@ public final class S3ProxyTest {
 
     @Before
     public void setUp() throws Exception {
-        Properties s3ProxyProperties = new Properties();
-        try (InputStream is = Resources.asByteSource(Resources.getResource(
-                "s3proxy.conf")).openStream()) {
-            s3ProxyProperties.load(is);
-        }
+        TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy();
+        s3Proxy = info.getS3Proxy();
+        context = info.getBlobStore().getContext();
+        blobStore = info.getBlobStore();
+        s3Endpoint = info.getEndpoint();
 
-        String provider = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_PROVIDER);
-        String identity = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_IDENTITY);
-        String credential = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_CREDENTIAL);
-        String endpoint = s3ProxyProperties.getProperty(
-                Constants.PROPERTY_ENDPOINT);
-        String s3Identity = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_IDENTITY);
-        String s3Credential = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_CREDENTIAL);
-        s3Endpoint = new URI(s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_ENDPOINT));
-        String secureEndpoint = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
-        String keyStorePath = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
-        String keyStorePassword = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
-        String virtualHost = s3ProxyProperties.getProperty(
-                S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
-
-        ContextBuilder builder = ContextBuilder
-                .newBuilder(provider)
-                .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
-                .overrides(s3ProxyProperties);
-        if (!Strings.isNullOrEmpty(endpoint)) {
-            builder.endpoint(endpoint);
-        }
-        context = builder.build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
         containerName = createRandomContainerName();
         blobStore.createContainerInLocation(null, containerName);
-
-        S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                .blobStore(blobStore)
-                .endpoint(s3Endpoint);
-        if (secureEndpoint != null) {
-            s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
-        }
-        if (s3Identity != null || s3Credential != null) {
-            s3ProxyBuilder.awsAuthentication(s3Identity, s3Credential);
-        }
-        if (keyStorePath != null || keyStorePassword != null) {
-            s3ProxyBuilder.keyStore(
-                    Resources.getResource(keyStorePath).toString(),
-                    keyStorePassword);
-        }
-        if (virtualHost != null) {
-            s3ProxyBuilder.virtualHost(virtualHost);
-        }
-        s3Proxy = s3ProxyBuilder.build();
-        s3Proxy.start();
-        while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
-            Thread.sleep(1);
-        }
-
-        // reset endpoint to handle zero port
-        s3Endpoint = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
-                s3Endpoint.getHost(), s3Proxy.getPort(), s3Endpoint.getPath(),
-                s3Endpoint.getQuery(), s3Endpoint.getFragment());
 
         Properties s3Properties = new Properties();
         s3Properties.setProperty(Constants.PROPERTY_TRUST_ALL_CERTS, "true");
         s3Context = ContextBuilder
                 .newBuilder("s3")
-                .credentials(s3Identity, s3Credential)
+                .credentials(info.getS3Identity(), info.getS3Credential())
                 .endpoint(s3Endpoint.toString())
                 .overrides(s3Properties)
                 .build(BlobStoreContext.class);
@@ -549,7 +487,7 @@ public final class S3ProxyTest {
 
         try {
             s3Client.disableBucketLogging(containerName);
-            failBecauseExceptionWasNotThrown(AWSResponseException.class);
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
         } catch (AWSResponseException e) {
             assertThat(e.getError().getCode()).isEqualTo("NotImplemented");
         }
