@@ -16,27 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
-
-import java.io.InputStream;
-import java.net.URI;
-import java.net.URL;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.X509Certificate;
-import java.util.Date;
-import java.util.Properties;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
@@ -52,8 +31,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
-
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -63,6 +40,26 @@ import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URL;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import java.util.Date;
+import java.util.Properties;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
 
 public final class S3AwsSdkTest {
     static {
@@ -183,15 +180,13 @@ public final class S3AwsSdkTest {
         final AmazonS3 client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
 
-        Throwable thrown = catchThrowable(new ThrowingCallable() {
-                @Override
-                public void call() throws Exception {
-                    client.putObject(containerName, "foo",
-                            BYTE_SOURCE.openStream(), new ObjectMetadata());
-                }
-            });
-        assertThat(thrown).isInstanceOf(AmazonS3Exception.class);
-        ((AmazonS3Exception) thrown).getErrorCode().equals("InvalidArgument");
+        try {
+            client.putObject(containerName, "foo",
+                    BYTE_SOURCE.openStream(), new ObjectMetadata());
+            failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("InvalidArgument");
+        }
     }
 
     // TODO: cannot test with jclouds since S3BlobRequestSigner does not

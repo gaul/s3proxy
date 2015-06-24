@@ -16,18 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
-
-import java.io.InputStream;
-import java.net.URI;
-import java.util.Date;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Random;
-
-import javax.servlet.http.HttpServletResponse;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -35,8 +23,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
-
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -66,6 +52,17 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+
+import javax.servlet.http.HttpServletResponse;
+import java.io.InputStream;
+import java.net.URI;
+import java.util.Date;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Random;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
 
 public final class S3ProxyTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
@@ -550,15 +547,12 @@ public final class S3ProxyTest {
     public void testUnknownParameter() throws Exception {
         final S3Client s3Client = s3Context.unwrapApi(S3Client.class);
 
-        Throwable thrown = catchThrowable(new ThrowingCallable() {
-                @Override
-                public void call() throws Exception {
-                    s3Client.disableBucketLogging(containerName);
-                }
-            });
-        assertThat(thrown).isInstanceOf(AWSResponseException.class);
-        ((AWSResponseException) thrown).getError().getCode().equals(
-                "NotImplemented");
+        try {
+            s3Client.disableBucketLogging(containerName);
+            failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException e) {
+            assertThat(e.getError().getCode()).isEqualTo("NotImplemented");
+        }
     }
 
     private static String createRandomContainerName() {
