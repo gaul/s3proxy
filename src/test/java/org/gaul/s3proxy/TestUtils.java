@@ -199,10 +199,10 @@ final class TestUtils {
         }
 
         // reset endpoint to handle zero port
-        info.endpoint = new URI("https", info.endpoint.getUserInfo(),
-                info.endpoint.getHost(), info.s3Proxy.getSecurePort(),
-                info.endpoint.getPath(), info.endpoint.getQuery(),
-                info.endpoint.getFragment());
+        info.endpoint = new URI(info.endpoint.getScheme(),
+                info.endpoint.getUserInfo(), info.endpoint.getHost(),
+                info.s3Proxy.getPort(), info.endpoint.getPath(),
+                info.endpoint.getQuery(), info.endpoint.getFragment());
 
         return info;
     }
