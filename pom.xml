@@ -170,11 +170,12 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>2.18.1</version>
         <configuration>
-          <parallel>classes</parallel>
+          <parallel>all</parallel>
           <threadCount>1</threadCount>
           <argLine>-Xmx256m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
           <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+          <runOrder>random</runOrder>
         </configuration>
       </plugin>
       <plugin>

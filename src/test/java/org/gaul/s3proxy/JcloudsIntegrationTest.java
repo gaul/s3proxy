@@ -80,6 +80,7 @@ public final class JcloudsIntegrationTest extends S3BlobIntegrationLiveTest {
                 info.getS3Credential());
         props.setProperty(Constants.PROPERTY_ENDPOINT,
                 info.getEndpoint().toString());
+        props.setProperty(Constants.PROPERTY_STRIP_EXPECT_HEADER, "true");
         return props;
     }
 }

@@ -29,6 +29,7 @@ import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.jclouds.blobstore.BlobStore;
 
 /**
@@ -73,6 +74,7 @@ public final class S3Proxy {
                 "Must provide both identity and credential");
 
         server = new Server();
+        ((QueuedThreadPool) server.getThreadPool()).setName("S3Proxy");
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
         ServerConnector connector;
