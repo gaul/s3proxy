@@ -314,11 +314,54 @@ public final class S3ProxyTest {
                 .isEqualTo(HttpServletResponse.SC_OK);
     }
 
+    @Test
+    public void testSinglepartUpload() throws Exception {
+        String blobName = "singlepart-upload";
+        String contentDisposition = "attachment; filename=new.jpg";
+        String contentEncoding = "gzip";
+        String contentLanguage = "fr";
+        String contentType = "audio/mp4";
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key1", "value1",
+                "key2", "value2");
+        Blob blob = s3BlobStore.blobBuilder(blobName)
+                .payload(BYTE_SOURCE)
+                .contentDisposition(contentDisposition)
+                .contentEncoding(contentEncoding)
+                .contentLanguage(contentLanguage)
+                .contentLength(BYTE_SOURCE.size())
+                .contentType(contentType)
+                // TODO: expires
+                .userMetadata(userMetadata)
+                .build();
+
+        s3BlobStore.putBlob(containerName, blob);
+
+        Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
+        try (InputStream actual = newBlob.getPayload().openStream();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ContentMetadata newContentMetadata =
+                newBlob.getMetadata().getContentMetadata();
+        assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
+                contentEncoding);
+        assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
+                contentLanguage);
+        assertThat(newContentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(newBlob.getMetadata().getUserMetadata()).isEqualTo(
+                userMetadata);
+    }
+
     // TODO: fails for GCS (jclouds not implemented)
     // TODO: fails for Swift (content and user metadata not set)
     @Test
     public void testMultipartUpload() throws Exception {
-        String blobName = "blob";
+        String blobName = "multipart-upload";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
