@@ -360,15 +360,15 @@ public final class S3ProxyTest {
                 InputStream expected = byteSource.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
-        ContentMetadata expectedContentMetadata =
-                blobMetadata.getContentMetadata();
-        assertThat(expectedContentMetadata.getContentDisposition()).isEqualTo(
+        ContentMetadata newContentMetadata =
+                newBlob.getMetadata().getContentMetadata();
+        assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
-        assertThat(expectedContentMetadata.getContentEncoding()).isEqualTo(
+        assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        assertThat(expectedContentMetadata.getContentLanguage()).isEqualTo(
+        assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                 contentLanguage);
-        assertThat(expectedContentMetadata.getContentType()).isEqualTo(
+        assertThat(newContentMetadata.getContentType()).isEqualTo(
                 contentType);
         // TODO: expires
         assertThat(newBlob.getMetadata().getUserMetadata()).isEqualTo(
