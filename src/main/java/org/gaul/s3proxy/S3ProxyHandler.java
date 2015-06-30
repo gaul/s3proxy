@@ -773,7 +773,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         String prefix = request.getParameter("prefix");
         if (prefix != null && !prefix.isEmpty()) {
-            options = options.inDirectory(prefix);
+            options = options.prefix(prefix);
         }
         String marker = request.getParameter("marker");
         if (marker != null) {
@@ -836,16 +836,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 case FOLDER:
                     continue;
                 case RELATIVE_PATH:
-                    String name = metadata.getName();
-                    if (delimiter != null) {
-                        int index = name.indexOf(delimiter,
-                                Strings.nullToEmpty(prefix).length());
-                        if (index != -1) {
-                            name = name.substring(0, index + 1);
-                        }
-                        name += delimiter;
-                    }
-                    commonPrefixes.add(name);
+                    commonPrefixes.add(metadata.getName());
                     continue;
                 default:
                     break;
