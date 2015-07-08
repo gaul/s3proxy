@@ -7,5 +7,4 @@ addons:
    - libevent-dev
 script:
  - mvn test
-# TODO: disable s3-tests due to a Travis regression
-# - ./src/test/resources/run-s3-tests.sh
+ - ./src/test/resources/run-s3-tests.sh
