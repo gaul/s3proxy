@@ -770,15 +770,15 @@ final class S3ProxyHandler extends AbstractHandler {
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
         if (!(delimiter != null && delimiter.equals("/"))) {
-            options = options.recursive();
+            options.recursive();
         }
         String prefix = request.getParameter("prefix");
         if (prefix != null && !prefix.isEmpty()) {
-            options = options.prefix(prefix);
+            options.prefix(prefix);
         }
         String marker = request.getParameter("marker");
         if (marker != null) {
-            options = options.afterMarker(request.getParameter("marker"));
+            options.afterMarker(marker);
         }
         int maxKeys = 1000;
         String maxKeysString = request.getParameter("max-keys");
@@ -789,7 +789,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
         }
-        options = options.maxResults(maxKeys);
+        options.maxResults(maxKeys);
 
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
@@ -949,11 +949,11 @@ final class S3ProxyHandler extends AbstractHandler {
             range = range.substring("bytes=".length());
             String[] ranges = range.split("-", 2);
             if (ranges[0].isEmpty()) {
-                options = options.tail(Long.parseLong(ranges[1]));
+                options.tail(Long.parseLong(ranges[1]));
             } else if (ranges[1].isEmpty()) {
-                options = options.startAt(Long.parseLong(ranges[0]));
+                options.startAt(Long.parseLong(ranges[0]));
             } else {
-                options = options.range(Long.parseLong(ranges[0]),
+                options.range(Long.parseLong(ranges[0]),
                         Long.parseLong(ranges[1]));
             }
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
