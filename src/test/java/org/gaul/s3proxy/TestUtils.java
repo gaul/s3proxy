@@ -49,7 +49,7 @@ final class TestUtils {
         return new RandomByteSource(seed);
     }
 
-    private static class RandomByteSource extends ByteSource {
+    private static final class RandomByteSource extends ByteSource {
         private final long seed;
 
         RandomByteSource(long seed) {
@@ -62,7 +62,7 @@ final class TestUtils {
         }
     }
 
-    private static class RandomInputStream extends InputStream {
+    private static final class RandomInputStream extends InputStream {
         private final Random random;
         private boolean closed;
 
@@ -99,7 +99,7 @@ final class TestUtils {
         }
     }
 
-    static class S3ProxyLaunchInfo {
+    static final class S3ProxyLaunchInfo {
         private S3Proxy s3Proxy;
         private Properties properties = new Properties();
         private String s3Identity;

@@ -1545,7 +1545,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     @SuppressWarnings("serial")
-    static class S3Exception extends Exception {
+    static final class S3Exception extends Exception {
         private final S3ErrorCode error;
         private final Map<String, String> elements;
 
