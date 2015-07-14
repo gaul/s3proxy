@@ -848,7 +848,9 @@ final class S3ProxyHandler extends AbstractHandler {
             String containerName) throws IOException, S3Exception {
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
-        if (!(delimiter != null && delimiter.equals("/"))) {
+        if (delimiter != null) {
+            options.delimiter(delimiter);
+        } else {
             options.recursive();
         }
         String prefix = request.getParameter("prefix");

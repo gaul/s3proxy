@@ -229,7 +229,6 @@ public final class S3ProxyTest {
         assertThat(builder.build()).containsOnly("blob1", "blob2");
     }
 
-    @Ignore
     @Test
     public void testBlobListRecursive() throws Exception {
         assertThat(s3BlobStore.list(containerName)).isEmpty();
@@ -250,7 +249,7 @@ public final class S3ProxyTest {
         for (StorageMetadata metadata : s3BlobStore.list(containerName)) {
             builder.add(metadata.getName());
         }
-        assertThat(builder.build()).containsOnly("prefix");
+        assertThat(builder.build()).containsOnly("prefix/");
 
         builder = ImmutableSet.builder();
         for (StorageMetadata metadata : s3BlobStore.list(containerName,
