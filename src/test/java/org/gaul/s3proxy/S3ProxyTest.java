@@ -229,6 +229,7 @@ public final class S3ProxyTest {
         assertThat(builder.build()).containsOnly("blob1", "blob2");
     }
 
+    @Ignore
     @Test
     public void testBlobListRecursive() throws Exception {
         assertThat(s3BlobStore.list(containerName)).isEmpty();
