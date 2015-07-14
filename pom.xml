@@ -306,7 +306,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
-      <version>9.2.11.v20150529</version>
+      <version>9.2.12.v20150709</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
