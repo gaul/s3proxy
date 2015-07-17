@@ -57,9 +57,12 @@ import javax.xml.stream.XMLStreamWriter;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
@@ -165,6 +168,16 @@ final class S3ProxyHandler extends AbstractHandler {
     private BlobStoreLocator blobStoreLocator;
     // TODO: hack to allow per-request anonymous access
     private final BlobStore defaultBlobStore;
+    /**
+     * S3 supports arbitrary keys for the marker while Azure only supports its
+     * opaque marker.  Emulate the common case for Azure by mapping the last
+     * key from a listing to the corresponding previously returned marker.
+     */
+    private final Cache<Map.Entry<String, String>, String> lastKeyToMarker =
+            CacheBuilder.newBuilder()
+            .maximumSize(10000)
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .build();
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
                    final String credential, Optional<String> virtualHost) {
@@ -847,6 +860,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleBlobList(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
+        String blobStoreType = getBlobStoreType(blobStore);
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null) {
@@ -860,6 +874,13 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         String marker = request.getParameter("marker");
         if (marker != null) {
+            if (blobStoreType.equals("azureblob")) {
+                String realMarker = lastKeyToMarker.getIfPresent(
+                        Maps.immutableEntry(containerName, marker));
+                if (realMarker != null) {
+                    marker = realMarker;
+                }
+            }
             options.afterMarker(marker);
         }
         int maxKeys = 1000;
@@ -909,6 +930,10 @@ final class S3ProxyHandler extends AbstractHandler {
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml, "NextMarker", nextMarker);
+                if (blobStoreType.equals("azureblob")) {
+                    lastKeyToMarker.put(Maps.immutableEntry(containerName,
+                            Iterables.getLast(set).getName()), nextMarker);
+                }
             } else {
                 writeSimpleElement(xml, "IsTruncated", "false");
             }
@@ -938,7 +963,6 @@ final class S3ProxyHandler extends AbstractHandler {
 
                 String eTag = metadata.getETag();
                 if (eTag != null) {
-                    String blobStoreType = getBlobStoreType(blobStore);
                     if (blobStoreType.equals("google-cloud-storage")) {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));

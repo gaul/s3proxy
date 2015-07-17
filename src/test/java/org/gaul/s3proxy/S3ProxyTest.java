@@ -261,6 +261,33 @@ public final class S3ProxyTest {
     }
 
     @Test
+    public void testBlobListRecursiveImplicitMarker() throws Exception {
+        assertThat(s3BlobStore.list(containerName)).isEmpty();
+
+        Blob blob1 = s3BlobStore.blobBuilder("blob1")
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
+                .build();
+        s3BlobStore.putBlob(containerName, blob1);
+
+        Blob blob2 = s3BlobStore.blobBuilder("blob2")
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
+                .build();
+        s3BlobStore.putBlob(containerName, blob2);
+
+        PageSet<? extends StorageMetadata> pageSet = s3BlobStore.list(
+                containerName, new ListContainerOptions().maxResults(1));
+        String blobName = pageSet.iterator().next().getName();
+        assertThat(blobName).isEqualTo("blob1");
+
+        pageSet = s3BlobStore.list(containerName,
+                new ListContainerOptions().maxResults(1).afterMarker(blobName));
+        blobName = pageSet.iterator().next().getName();
+        assertThat(blobName).isEqualTo("blob2");
+    }
+
+    @Test
     public void testBlobMetadata() throws Exception {
         String blobName = "blob";
         Blob blob1 = s3BlobStore.blobBuilder(blobName)
