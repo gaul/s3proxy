@@ -974,10 +974,6 @@ final class S3ProxyHandler extends AbstractHandler {
 
                 String eTag = metadata.getETag();
                 if (eTag != null) {
-                    if (blobStoreType.equals("google-cloud-storage")) {
-                        eTag = BaseEncoding.base16().lowerCase().encode(
-                                BaseEncoding.base64().decode(eTag));
-                    }
                     writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
@@ -1407,10 +1403,6 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "Key", blobName);
 
             if (eTag != null) {
-                if (blobStoreType.equals("google-cloud-storage")) {
-                    eTag = BaseEncoding.base16().lowerCase().encode(
-                            BaseEncoding.base64().decode(eTag));
-                }
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
 
@@ -1494,11 +1486,6 @@ final class S3ProxyHandler extends AbstractHandler {
 
                 String eTag = part.partETag();
                 if (eTag != null) {
-                    String blobStoreType = getBlobStoreType(blobStore);
-                    if (blobStoreType.equals("google-cloud-storage")) {
-                        eTag = BaseEncoding.base16().lowerCase().encode(
-                                BaseEncoding.base64().decode(eTag));
-                    }
                     writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
