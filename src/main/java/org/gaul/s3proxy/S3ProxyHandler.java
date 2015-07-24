@@ -1488,6 +1488,12 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
+        // TODO: implement multipart copy
+        if (request.getHeader("x-amz-copy-source") != null ||
+                request.getHeader("x-amz-copy-source-range") != null) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+
         // TODO: duplicated from handlePutBlob
         String contentLengthString = null;
         String contentMD5String = null;
