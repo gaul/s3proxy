@@ -189,15 +189,7 @@ public final class S3AwsSdkTest {
                 .withFirstByte(0L)
                 .withLastByte(BYTE_SOURCE.size() - 1)
                 .withPartNumber(1);
-        // TODO: S3Proxy lacks support for multipart copy
-        CopyPartResult copyPartResult = null;
-        try {
-            copyPartResult = client.copyPart(copyRequest);
-            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
-        } catch (AmazonS3Exception e) {
-            assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
-            return;
-        }
+        CopyPartResult copyPartResult = client.copyPart(copyRequest);
 
         List<PartETag> partETags = new ArrayList<>();
         partETags.add(copyPartResult.getPartETag());
