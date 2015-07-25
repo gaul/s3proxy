@@ -24,7 +24,9 @@ import java.net.URL;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -42,8 +44,17 @@ import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
+import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
+import com.amazonaws.services.s3.model.CopyPartRequest;
+import com.amazonaws.services.s3.model.CopyPartResult;
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
+import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.PartETag;
+import com.amazonaws.services.s3.model.S3Object;
 
 import com.google.common.base.Throwables;
 import com.google.common.io.ByteSource;
@@ -144,6 +155,63 @@ public final class S3AwsSdkTest {
 
         URL url = client.generatePresignedUrl(request);
         try (InputStream actual = url.openStream();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    // TODO: jclouds lacks support for multipart copy
+    @Test
+    public void testMultipartCopy() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
+        String sourceBlobName = "testMultipartCopy-source";
+        String targetBlobName = "testMultipartCopy-target";
+
+        client.putObject(containerName, sourceBlobName,
+                BYTE_SOURCE.openStream(), new ObjectMetadata());
+
+        InitiateMultipartUploadRequest initiateRequest =
+                new InitiateMultipartUploadRequest(containerName,
+                        targetBlobName);
+        InitiateMultipartUploadResult initResult =
+                client.initiateMultipartUpload(initiateRequest);
+        String uploadId = initResult.getUploadId();
+
+        CopyPartRequest copyRequest = new CopyPartRequest()
+                .withDestinationBucketName(containerName)
+                .withDestinationKey(targetBlobName)
+                .withSourceBucketName(containerName)
+                .withSourceKey(sourceBlobName)
+                .withUploadId(initResult.getUploadId())
+                .withFirstByte(0L)
+                .withLastByte(BYTE_SOURCE.size() - 1)
+                .withPartNumber(1);
+        // TODO: S3Proxy lacks support for multipart copy
+        CopyPartResult copyPartResult = null;
+        try {
+            copyPartResult = client.copyPart(copyRequest);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+            return;
+        }
+
+        List<PartETag> partETags = new ArrayList<>();
+        partETags.add(copyPartResult.getPartETag());
+        CompleteMultipartUploadRequest completeRequest =
+                new CompleteMultipartUploadRequest(
+                        containerName, targetBlobName,
+                        initResult.getUploadId(), partETags);
+
+        CompleteMultipartUploadResult completeUploadResponse =
+                client.completeMultipartUpload(completeRequest);
+
+        S3Object object = client.getObject(new GetObjectRequest(containerName,
+                targetBlobName));
+        try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
