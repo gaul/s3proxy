@@ -158,6 +158,11 @@ final class S3ProxyHandler extends AbstractHandler {
             "bucket-owner-full-control",
             "log-delivery-write"
     );
+    /** Blobstores with opaque markers. */
+    private static final Set<String> BLOBSTORE_OPAQUE_MARKERS = ImmutableSet.of(
+            "azureblob",
+            "google-cloud-storage"
+    );
 
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
@@ -169,9 +174,10 @@ final class S3ProxyHandler extends AbstractHandler {
     // TODO: hack to allow per-request anonymous access
     private final BlobStore defaultBlobStore;
     /**
-     * S3 supports arbitrary keys for the marker while Azure only supports its
-     * opaque marker.  Emulate the common case for Azure by mapping the last
-     * key from a listing to the corresponding previously returned marker.
+     * S3 supports arbitrary keys for the marker while some blobstores only
+     * support opaque markers.  Emulate the common case for these by mapping
+     * the last key from a listing to the corresponding previously returned
+     * marker.
      */
     private final Cache<Map.Entry<String, String>, String> lastKeyToMarker =
             CacheBuilder.newBuilder()
@@ -874,7 +880,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         String marker = request.getParameter("marker");
         if (marker != null) {
-            if (blobStoreType.equals("azureblob")) {
+            if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
                 String realMarker = lastKeyToMarker.getIfPresent(
                         Maps.immutableEntry(containerName, marker));
                 if (realMarker != null) {
@@ -930,7 +936,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml, "NextMarker", nextMarker);
-                if (blobStoreType.equals("azureblob")) {
+                if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
                     lastKeyToMarker.put(Maps.immutableEntry(containerName,
                             Iterables.getLast(set).getName()), nextMarker);
                 }
