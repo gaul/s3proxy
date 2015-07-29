@@ -24,6 +24,7 @@ import java.util.Date;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
+import java.util.Set;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -65,6 +66,11 @@ import org.junit.Test;
 
 public final class S3ProxyTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
+    private static final Set<String> SWIFT_BLOBSTORES = ImmutableSet.of(
+            "rackspace-cloudfiles-uk",
+            "rackspace-cloudfiles-us",
+            "openstack-swift"
+    );
 
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
@@ -381,8 +387,12 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
-                contentLanguage);
+        String blobStoreType =
+                blobStore.getContext().unwrap().getProviderMetadata().getId();
+        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
         assertThat(newContentMetadata.getContentType()).isEqualTo(
                 contentType);
         // TODO: expires
@@ -442,8 +452,12 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
-                contentLanguage);
+        String blobStoreType =
+                blobStore.getContext().unwrap().getProviderMetadata().getId();
+        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
         assertThat(newContentMetadata.getContentType()).isEqualTo(
                 contentType);
         // TODO: expires
@@ -489,8 +503,12 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(contentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        assertThat(contentMetadata.getContentLanguage()).isEqualTo(
-                contentLanguage);
+        String blobStoreType =
+                blobStore.getContext().unwrap().getProviderMetadata().getId();
+        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+            assertThat(contentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
         assertThat(contentMetadata.getContentType()).isEqualTo(
                 contentType);
         // TODO: expires
@@ -548,8 +566,12 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
-                contentLanguage);
+        String blobStoreType =
+                blobStore.getContext().unwrap().getProviderMetadata().getId();
+        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+            assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
         assertThat(toContentMetadata.getContentType()).isEqualTo(
                 contentType);
         // TODO: expires
