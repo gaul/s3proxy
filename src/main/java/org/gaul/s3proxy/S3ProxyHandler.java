@@ -1389,9 +1389,9 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
 
-        try (Writer writer = response.getWriter()) {
-            String eTag = blobStore.completeMultipartUpload(mpu, parts);
+        String eTag = blobStore.completeMultipartUpload(mpu, parts);
 
+        try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
