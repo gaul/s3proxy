@@ -973,7 +973,7 @@ final class S3ProxyHandler extends AbstractHandler {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
                     }
-                    writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
+                    writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
                 writeSimpleElement(xml, "Size",
@@ -1185,7 +1185,7 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "LastModified",
                     blobStore.getContext().utils().date()
                             .iso8601DateFormat(blobMetadata.getLastModified()));
-            writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
+            writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
 
             xml.writeEndElement();
             xml.flush();
@@ -1283,11 +1283,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
 
-            // S3 quotes ETag while Swift does not
-            if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
-                eTag = '"' + eTag + '"';
-            }
-            response.addHeader(HttpHeaders.ETAG, eTag);
+            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
         }
 
         // TODO: jclouds should include this in PutOptions
@@ -1374,12 +1370,12 @@ final class S3ProxyHandler extends AbstractHandler {
                             partSize != -1 && it.hasNext()) {
                         throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
                     }
-                    String partETag = "\"" + part.partETag() + "\"";
-                    if (!partETag.equals(entry.getValue())) {
+                    if (!equalsIgnoringSurroundingQuotes(part.partETag(),
+                            entry.getValue())) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART);
                     }
                     parts.add(MultipartPart.create(entry.getKey(),
-                            partSize, entry.getValue()));
+                            partSize, part.partETag()));
                 }
             }
         }
@@ -1410,7 +1406,7 @@ final class S3ProxyHandler extends AbstractHandler {
                     eTag = BaseEncoding.base16().lowerCase().encode(
                             BaseEncoding.base64().decode(eTag));
                 }
-                writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
+                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
 
             xml.writeEndElement();
@@ -1498,7 +1494,7 @@ final class S3ProxyHandler extends AbstractHandler {
                         eTag = BaseEncoding.base16().lowerCase().encode(
                                 BaseEncoding.base64().decode(eTag));
                     }
-                    writeSimpleElement(xml, "ETag", "\"" + eTag + "\"");
+                    writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
                 writeSimpleElement(xml, "Size", String.valueOf(
@@ -1609,9 +1605,9 @@ final class S3ProxyHandler extends AbstractHandler {
                     blobStore.uploadMultipartPart(mpu,
                             10_000 * partNumber + subPartNumber, payload);
                 }
-                response.addHeader(HttpHeaders.ETAG, "\"" +
+                response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(
                         BaseEncoding.base16().lowerCase().encode(
-                                his.hash().asBytes()) + "\"");
+                                his.hash().asBytes())));
             } else {
                 Payload payload = Payloads.newInputStreamPayload(is);
                 payload.getContentMetadata().setContentLength(contentLength);
@@ -1622,7 +1618,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 MultipartPart part = blobStore.uploadMultipartPart(mpu,
                         partNumber, payload);
                 response.addHeader(HttpHeaders.ETAG,
-                        "\"" + part.partETag() + "\"");
+                        maybeQuoteETag(part.partETag()));
             }
         }
     }
@@ -1645,9 +1641,8 @@ final class S3ProxyHandler extends AbstractHandler {
             byte[] contentMd5Bytes = contentMd5.asBytes();
             response.addHeader(HttpHeaders.CONTENT_MD5,
                     BaseEncoding.base64().encode(contentMd5Bytes));
-            response.addHeader(HttpHeaders.ETAG, "\"" +
-                    BaseEncoding.base16().lowerCase().encode(contentMd5Bytes) +
-                    "\"");
+            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(
+                    BaseEncoding.base16().lowerCase().encode(contentMd5Bytes)));
         }
         Date expires = contentMetadata.getExpires();
         if (expires != null) {
@@ -1938,5 +1933,23 @@ final class S3ProxyHandler extends AbstractHandler {
         return blobStore.blobBuilder("fake-name")
                 .build()
                 .getMetadata();
+    }
+
+    private static boolean equalsIgnoringSurroundingQuotes(String s1,
+            String s2) {
+        if (s1.length() >= 2 && s1.startsWith("\"") && s1.endsWith("\"")) {
+            s1 = s1.substring(1, s1.length() - 1);
+        }
+        if (s2.length() >= 2 && s2.startsWith("\"") && s2.endsWith("\"")) {
+            s2 = s2.substring(1, s2.length() - 1);
+        }
+        return s1.equals(s2);
+    }
+
+    private static String maybeQuoteETag(String eTag) {
+        if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+            eTag = "\"" + eTag + "\"";
+        }
+        return eTag;
     }
 }
