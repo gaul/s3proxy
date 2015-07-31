@@ -1601,6 +1601,7 @@ final class S3ProxyHandler extends AbstractHandler {
             } else {
                 Payload payload = Payloads.newInputStreamPayload(is);
                 payload.getContentMetadata().setContentLength(contentLength);
+                payload.getContentMetadata().setContentMD5(contentMD5);
 
                 MultipartPart part = blobStore.uploadMultipartPart(mpu,
                         partNumber, payload);
