@@ -715,6 +715,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleContainerList(HttpServletResponse response,
             BlobStore blobStore) throws IOException {
+        PageSet<? extends StorageMetadata> buckets = blobStore.list();
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -725,7 +727,7 @@ final class S3ProxyHandler extends AbstractHandler {
             writeOwnerStanza(xml);
 
             xml.writeStartElement("Buckets");
-            for (StorageMetadata metadata : blobStore.list()) {
+            for (StorageMetadata metadata : buckets) {
                 xml.writeStartElement("Bucket");
 
                 writeSimpleElement(xml, "Name", metadata.getName());
@@ -1011,12 +1013,15 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException {
-        try (InputStream is = request.getInputStream();
-             Writer writer = new OutputStreamWriter(response.getOutputStream(),
-                    StandardCharsets.UTF_8)) {
-            Collection<String> blobNames = parseSimpleXmlElements(is, "Key");
-            blobStore.removeBlobs(containerName, blobNames);
+        Collection<String> blobNames;
+        try (InputStream is = request.getInputStream()) {
+            blobNames = parseSimpleXmlElements(is, "Key");
+        }
 
+        blobStore.removeBlobs(containerName, blobNames);
+
+        try (Writer writer = new OutputStreamWriter(response.getOutputStream(),
+                StandardCharsets.UTF_8)) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
@@ -1434,6 +1439,12 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException {
+        // TODO: how to reconstruct original mpu?
+        MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, createFakeBlobMetadata(blobStore));
+
+        List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -1466,11 +1477,6 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "IsTruncated", "true");
 */
 
-            // TODO: how to reconstruct original mpu?
-            MultipartUpload mpu = MultipartUpload.create(containerName,
-                    blobName, uploadId, createFakeBlobMetadata(blobStore));
-
-            List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
             for (MultipartPart part : parts) {
                 xml.writeStartElement("Part");
 
