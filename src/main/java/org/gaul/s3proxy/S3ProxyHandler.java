@@ -21,7 +21,6 @@ import static java.util.Objects.requireNonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
@@ -910,8 +909,7 @@ final class S3ProxyHandler extends AbstractHandler {
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
-        try (Writer writer = new OutputStreamWriter(response.getOutputStream(),
-                StandardCharsets.UTF_8)) {
+        try (Writer writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -1020,8 +1018,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         blobStore.removeBlobs(containerName, blobNames);
 
-        try (Writer writer = new OutputStreamWriter(response.getOutputStream(),
-                StandardCharsets.UTF_8)) {
+        try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
