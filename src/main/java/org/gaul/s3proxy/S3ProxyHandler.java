@@ -148,6 +148,15 @@ final class S3ProxyHandler extends AbstractHandler {
             "uploadId",
             "uploads"
     );
+    /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
+    private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
+            "x-amz-acl",
+            "x-amz-copy-source",
+            "x-amz-copy-source-range",
+            "x-amz-date",
+            "x-amz-metadata-directive",
+            "x-amz-storage-class"  // ignored
+    );
     private static final Set<String> CANNED_ACLS = ImmutableSet.of(
             "private",
             "public-read",
@@ -379,6 +388,21 @@ final class S3ProxyHandler extends AbstractHandler {
             if (!SUPPORTED_PARAMETERS.contains(parameter)) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
+        }
+
+        // emit NotImplemented for unknown x-amz- headers
+        for (String headerName : Collections.list(request.getHeaderNames())) {
+            if (!headerName.startsWith("x-amz-")) {
+                continue;
+            }
+            if (headerName.startsWith("x-amz-meta-")) {
+                continue;
+            }
+            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
+                logger.error("Unknown header {} with URI {}",
+                        headerName, request.getRequestURI());
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
