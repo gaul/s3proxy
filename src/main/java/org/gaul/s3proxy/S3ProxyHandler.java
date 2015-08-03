@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -74,6 +75,7 @@ import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 
+import org.apache.commons.fileupload.MultipartStream;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.jclouds.blobstore.BlobRequestSigner;
@@ -287,7 +289,8 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         // anonymous request
-        if ((method.equals("GET") || method.equals("HEAD")) &&
+        if ((method.equals("GET") || method.equals("HEAD") ||
+                    method.equals("POST")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 request.getParameter("AWSAccessKeyId") == null &&
                 defaultBlobStore != null) {
@@ -589,6 +592,12 @@ final class S3ProxyHandler extends AbstractHandler {
                 if (!blobStore.containerExists(containerName)) {
                     throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
                 }
+                return;
+            }
+            break;
+        case "POST":
+            if (path.length <= 2 || path[2].isEmpty()) {
+                handlePostBlob(request, response, blobStore, path[1]);
                 return;
             }
             break;
@@ -1343,6 +1352,110 @@ final class S3ProxyHandler extends AbstractHandler {
             handleSetBlobAcl(request, response, blobStore, containerName,
                     blobName);
         }
+    }
+
+    private void handlePostBlob(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName)
+            throws IOException, S3Exception {
+        String boundaryHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
+        if (boundaryHeader == null ||
+                !boundaryHeader.startsWith("multipart/form-data; boundary=")) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+        String boundary =
+                boundaryHeader.substring(boundaryHeader.indexOf('=') + 1);
+
+        String blobName = null;
+        String contentType = null;
+        String identity = null;
+        // TODO: handle policy
+        byte[] policy = null;
+        String signature = null;
+        byte[] payload = null;
+        try (InputStream is = request.getInputStream()) {
+            MultipartStream multipartStream = new MultipartStream(is,
+                    boundary.getBytes(StandardCharsets.UTF_8), 4096, null);
+            boolean nextPart = multipartStream.skipPreamble();
+            while (nextPart) {
+                String header = multipartStream.readHeaders();
+                try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                    multipartStream.readBodyData(baos);
+                    if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"acl\"")) {
+                        // TODO: acl
+                    } else if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"AWSAccessKeyId\"")) {
+                        identity = new String(baos.toByteArray());
+                    } else if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"Content-Type\"")) {
+                        contentType = new String(baos.toByteArray());
+                    } else if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"file\"")) {
+                        // TODO: buffers entire payload
+                        payload = baos.toByteArray();
+                    } else if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"key\"")) {
+                        blobName = new String(baos.toByteArray());
+                    } else if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"policy\"")) {
+                        policy = baos.toByteArray();
+                    } else if (startsWithIgnoreCase(header,
+                            "Content-Disposition: form-data;" +
+                            " name=\"signature\"")) {
+                        signature = new String(baos.toByteArray());
+                    }
+                }
+                nextPart = multipartStream.readBoundary();
+            }
+        }
+
+        if (identity == null || signature == null || blobName == null ||
+                policy == null) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
+        Map.Entry<String, BlobStore> provider =
+                blobStoreLocator.locateBlobStore(identity, null, null);
+        if (provider == null) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
+        String credential = provider.getKey();
+
+        Mac mac;
+        try {
+            mac = Mac.getInstance("HmacSHA1");
+            mac.init(new SecretKeySpec(credential.getBytes(
+                    StandardCharsets.UTF_8), "HmacSHA1"));
+        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
+            throw Throwables.propagate(e);
+        }
+        String expectedSignature = BaseEncoding.base64().encode(
+                mac.doFinal(policy));
+        if (!signature.equals(expectedSignature)) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
+
+        BlobBuilder.PayloadBlobBuilder builder = blobStore
+                .blobBuilder(blobName)
+                .payload(payload);
+        if (contentType != null) {
+            builder.contentType(contentType);
+        }
+        Blob blob = builder.build();
+        blobStore.putBlob(containerName, blob);
+
+        response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
@@ -2119,5 +2232,9 @@ final class S3ProxyHandler extends AbstractHandler {
             eTag = "\"" + eTag + "\"";
         }
         return eTag;
+    }
+
+    private static boolean startsWithIgnoreCase(String string, String prefix) {
+        return string.toLowerCase().startsWith(prefix.toLowerCase());
     }
 }
