@@ -116,10 +116,10 @@ Limitations
 -----------
 S3Proxy does not support:
 
-* POST uploads
-* object metadata with filesystem provider on Mac OS X ([OpenJDK issue](https://bugs.openjdk.java.net/browse/JDK-8030048))
+* POST uploads, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
+* object metadata with filesystem provider on Mac OS X, see [JDK-8030048](https://bugs.openjdk.java.net/browse/JDK-8030048)
 * object server-side encryption
-* object versioning
+* object versioning, see [#74](https://github.com/andrewgaul/s3proxy/issues/74)
 * XML ACLs
 
 References
