@@ -353,7 +353,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 blobStoreLocator.locateBlobStore(
                         requestIdentity, path.length > 1 ? path[1] : null,
                         path.length > 2 ? path[2] : null);
-        if (requestIdentity != null) {
+        if (anonymousIdentity) {
+            blobStore = provider.getValue();
+        } else if (requestIdentity == null) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+        } else {
             if (provider == null) {
                 throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
@@ -373,12 +377,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 if (nowSeconds > expires) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
-            }
-        } else {
-            if (!anonymousIdentity) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-            } else {
-                blobStore = provider.getValue();
             }
         }
 
