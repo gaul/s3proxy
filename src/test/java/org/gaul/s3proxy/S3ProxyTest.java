@@ -49,9 +49,11 @@ import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.CopyOptions;
+import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
+import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
@@ -608,6 +610,29 @@ public final class S3ProxyTest {
         // TODO: expires
         assertThat(toBlob.getMetadata().getUserMetadata()).isEqualTo(
                 userMetadata);
+    }
+
+    @Test
+    public void testConditionalGet() throws Exception {
+        String blobName = "blob-name";
+        Blob putBlob = s3BlobStore.blobBuilder(blobName)
+                .payload(BYTE_SOURCE)
+                .contentLength(BYTE_SOURCE.size())
+                .build();
+        String eTag = s3BlobStore.putBlob(containerName, putBlob);
+
+        Blob getBlob = s3BlobStore.getBlob(containerName, blobName,
+                new GetOptions().ifETagMatches(eTag));
+        assertThat(getBlob.getPayload()).isNotNull();
+
+        try {
+            s3BlobStore.getBlob(containerName, blobName,
+                    new GetOptions().ifETagDoesntMatch(eTag));
+            Fail.failBecauseExceptionWasNotThrown(HttpResponseException.class);
+        } catch (HttpResponseException hre) {
+            assertThat(hre.getResponse().getStatusCode()).isEqualTo(
+                    HttpServletResponse.SC_NOT_MODIFIED);
+        }
     }
 
     @Test

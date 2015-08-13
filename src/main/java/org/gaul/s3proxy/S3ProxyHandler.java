@@ -244,6 +244,10 @@ final class S3ProxyHandler extends AbstractHandler {
                     ImmutableMap.<String, String>of());
             baseRequest.setHandled(true);
             return;
+        } catch (HttpResponseException hre) {
+            response.sendError(hre.getResponse().getStatusCode());
+            baseRequest.setHandled(true);
+            return;
         } catch (S3Exception se) {
             sendSimpleErrorResponse(request, response, se.getError(),
                     se.getMessage(), se.getElements());
@@ -1116,6 +1120,29 @@ final class S3ProxyHandler extends AbstractHandler {
             throws IOException, S3Exception {
         int status = HttpServletResponse.SC_OK;
         GetOptions options = new GetOptions();
+
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        if (ifMatch != null) {
+            options.ifETagMatches(ifMatch);
+        }
+
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        if (ifNoneMatch != null) {
+            options.ifETagDoesntMatch(ifNoneMatch);
+        }
+
+        long ifModifiedSince = request.getDateHeader(
+                HttpHeaders.IF_MODIFIED_SINCE);
+        if (ifModifiedSince != -1) {
+            options.ifModifiedSince(new Date(ifModifiedSince));
+        }
+
+        long ifUnmodifiedSince = request.getDateHeader(
+                HttpHeaders.IF_UNMODIFIED_SINCE);
+        if (ifUnmodifiedSince != -1) {
+            options.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
+        }
+
         String range = request.getHeader(HttpHeaders.RANGE);
         if (range != null && range.startsWith("bytes=") &&
                 // ignore multiple ranges
