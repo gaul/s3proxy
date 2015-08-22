@@ -131,6 +131,11 @@ public final class Main {
             System.exit(1);
             throw e;
         }
-        s3Proxy.start();
+        try {
+            s3Proxy.start();
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+        }
     }
 }
