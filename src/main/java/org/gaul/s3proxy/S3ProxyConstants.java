@@ -41,6 +41,20 @@ public final class S3ProxyConstants {
             "s3proxy.virtual-host";
     public static final String PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE =
             "s3proxy.v4-max-non-chunked-request-size";
+    /** When true, model eventual consistency using two storage backends. */
+    public static final String PROPERTY_EVENTUAL_CONSISTENCY =
+            "s3proxy.eventual-consistency";
+    /**
+     * Minimum delay, in seconds, when propagating modifications from the
+     * write backend to the read backend.
+     */
+    public static final String PROPERTY_EVENTUAL_CONSISTENCY_DELAY =
+            "s3proxy.eventual-consistency.delay";
+    /** Probability of eventual consistency, between 0.0 and 1.0. */
+    public static final String PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY =
+            "s3proxy.eventual-consistency.probability";
+
+    static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
         throw new AssertionError("Cannot instantiate utility constructor");

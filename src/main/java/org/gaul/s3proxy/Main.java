@@ -18,10 +18,14 @@ package org.gaul.s3proxy;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -76,36 +80,15 @@ public final class Main {
         }
         properties.putAll(System.getProperties());
 
-        String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
-        String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
-        String credential = properties.getProperty(
-                Constants.PROPERTY_CREDENTIAL);
-        String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
         String s3ProxyEndpointString = properties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT);
         String secureEndpoint = properties.getProperty(
                 S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
         String s3ProxyAuthorization = properties.getProperty(
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
-        if (provider.equals("filesystem") || provider.equals("transient")) {
-            // local blobstores do not require credentials
-            identity = Strings.nullToEmpty(identity);
-            credential = Strings.nullToEmpty(credential);
-        } else if (provider.equals("google-cloud-storage")) {
-            File credentialFile = new File(credential);
-            if (credentialFile.exists()) {
-                credential = Files.toString(credentialFile,
-                        StandardCharsets.UTF_8);
-            }
-        }
-
-        if (provider == null || identity == null || credential == null ||
-                (s3ProxyEndpointString == null && secureEndpoint == null) ||
+        if ((s3ProxyEndpointString == null && secureEndpoint == null) ||
                 s3ProxyAuthorization == null) {
             System.err.println("Properties file must contain:\n" +
-                    Constants.PROPERTY_PROVIDER + "\n" +
-                    Constants.PROPERTY_IDENTITY + "\n" +
-                    Constants.PROPERTY_CREDENTIAL + "\n" +
                     S3ProxyConstants.PROPERTY_AUTHORIZATION + "\n" +
                     "and one of\n" +
                     S3ProxyConstants.PROPERTY_ENDPOINT + "\n" +
@@ -139,25 +122,38 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String virtualHost = properties.getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
-        String region = properties.getProperty(
-                LocationConstants.PROPERTY_REGION);
         String v4MaxNonChunkedRequestSize = properties.getProperty(
                 S3ProxyConstants.PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
 
-        ContextBuilder builder = ContextBuilder
-                .newBuilder(provider)
-                .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
-                .overrides(properties);
-        if (endpoint != null) {
-            builder = builder.endpoint(endpoint);
+        BlobStore blobStore = createBlobStore(properties);
+
+        Properties altProperties = new Properties();
+        for (Map.Entry<Object, Object> entry : properties.entrySet()) {
+            String key = (String) entry.getKey();
+            if (key.startsWith(S3ProxyConstants.PROPERTY_ALT_JCLOUDS_PREFIX)) {
+                key = key.substring(
+                        S3ProxyConstants.PROPERTY_ALT_JCLOUDS_PREFIX.length());
+                altProperties.put(key, (String) entry.getValue());
+            }
         }
-        BlobStoreContext context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
-        if (context instanceof RegionScopedBlobStoreContext &&
-                region != null) {
-            blobStore = ((RegionScopedBlobStoreContext) context)
-                    .getBlobStore(region);
+
+        String eventualConsistency = properties.getProperty(
+                S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY);
+        if ("true".equalsIgnoreCase(eventualConsistency)) {
+            BlobStore altBlobStore = createBlobStore(altProperties);
+            int delay = Integer.parseInt(properties.getProperty(
+                    S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_DELAY,
+                    "5"));
+            double probability = Double.parseDouble(properties.getProperty(
+                    S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY,
+                    "1.0"));
+            System.err.println("Emulating eventual consistency with delay " +
+                    delay + " seconds and probability " + (probability * 100) +
+                    "%");
+            blobStore = EventualBlobStore.newEventualBlobStore(
+                    blobStore, altBlobStore,
+                    Executors.newScheduledThreadPool(1),
+                    delay, TimeUnit.SECONDS, probability);
         }
 
         S3Proxy s3Proxy;
@@ -196,6 +192,54 @@ public final class Main {
             System.err.println(e.getMessage());
             System.exit(1);
         }
+    }
+
+    private static BlobStore createBlobStore(Properties properties)
+            throws IOException {
+        String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
+        String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
+        String credential = properties.getProperty(
+                Constants.PROPERTY_CREDENTIAL);
+        String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
+        String region = properties.getProperty(
+                LocationConstants.PROPERTY_REGION);
+
+        if (provider.equals("filesystem") || provider.equals("transient")) {
+            // local blobstores do not require credentials
+            identity = Strings.nullToEmpty(identity);
+            credential = Strings.nullToEmpty(credential);
+        } else if (provider.equals("google-cloud-storage")) {
+            File credentialFile = new File(credential);
+            if (credentialFile.exists()) {
+                credential = Files.toString(credentialFile,
+                        StandardCharsets.UTF_8);
+            }
+        }
+
+        if (provider == null || identity == null || credential == null) {
+            System.err.println("Properties file must contain:\n" +
+                    Constants.PROPERTY_PROVIDER + "\n" +
+                    Constants.PROPERTY_IDENTITY + "\n" +
+                    Constants.PROPERTY_CREDENTIAL + "\n");
+        }
+
+        ContextBuilder builder = ContextBuilder
+                .newBuilder(provider)
+                .credentials(identity, credential)
+                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .overrides(properties);
+        if (endpoint != null) {
+            builder = builder.endpoint(endpoint);
+        }
+
+        BlobStoreContext context = builder.build(BlobStoreContext.class);
+        BlobStore blobStore = context.getBlobStore();
+        if (context instanceof RegionScopedBlobStoreContext &&
+                region != null) {
+            blobStore = ((RegionScopedBlobStoreContext) context)
+                    .getBlobStore(region);
+        }
+        return blobStore;
     }
 
     private static void usage(CmdLineParser parser) {
