@@ -1597,8 +1597,6 @@ final class S3ProxyHandler extends AbstractHandler {
         BlobMetadata blobMetadata = blob.getMetadata();
         long contentLength =
                 blobMetadata.getContentMetadata().getContentLength();
-        HashCode contentMD5 =
-                blobMetadata.getContentMetadata().getContentMD5AsHashCode();
         String eTag;
 
         try (InputStream is = blob.getPayload().openStream()) {
@@ -1626,7 +1624,6 @@ final class S3ProxyHandler extends AbstractHandler {
             } else {
                 Payload payload = Payloads.newInputStreamPayload(is);
                 payload.getContentMetadata().setContentLength(contentLength);
-                payload.getContentMetadata().setContentMD5(contentMD5);
 
                 MultipartPart part = blobStore.uploadMultipartPart(mpu,
                         partNumber, payload);
