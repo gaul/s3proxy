@@ -326,22 +326,26 @@ final class S3ProxyHandler extends AbstractHandler {
         String headerAuthorization = request.getHeader(
                 HttpHeaders.AUTHORIZATION);
 
-        if (headerAuthorization != null) {
-            if (headerAuthorization.startsWith("AWS ")) {
-                int colon = headerAuthorization.lastIndexOf(':',
-                        headerAuthorization.length() - 2);
-                if (colon < 4) {
+        if (!anonymousIdentity) {
+            if (headerAuthorization != null) {
+                if (headerAuthorization.startsWith("AWS ")) {
+                    int colon = headerAuthorization.lastIndexOf(':',
+                            headerAuthorization.length() - 2);
+                    if (colon < 4) {
+                        throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                    }
+                    requestIdentity = headerAuthorization.substring(4, colon);
+                    requestSignature = headerAuthorization.substring(colon + 1);
+                } else if (headerAuthorization.startsWith(
+                        "AWS4-HMAC-SHA256 ")) {
+                    // Fail V4 signature requests to allow clients to retry
+                    // with V2.
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
                 }
-                requestIdentity = headerAuthorization.substring(4, colon);
-                requestSignature = headerAuthorization.substring(colon + 1);
-            } else if (headerAuthorization.startsWith("AWS4-HMAC-SHA256 ")) {
-                // Fail V4 signature requests to allow clients to retry with V2.
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            } else {
+                requestIdentity = request.getParameter("AWSAccessKeyId");
+                requestSignature = request.getParameter("Signature");
             }
-        } else {
-            requestIdentity = request.getParameter("AWSAccessKeyId");
-            requestSignature = request.getParameter("Signature");
         }
 
         String[] path = uri.split("/", 3);
