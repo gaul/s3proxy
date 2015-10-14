@@ -27,8 +27,11 @@ import com.google.inject.Module;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
+import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.location.reference.LocationConstants;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -114,6 +117,8 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String virtualHost = properties.getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
+        String region = properties.getProperty(
+                LocationConstants.PROPERTY_REGION);
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
@@ -124,11 +129,17 @@ public final class Main {
             builder = builder.endpoint(endpoint);
         }
         BlobStoreContext context = builder.build(BlobStoreContext.class);
+        BlobStore blobStore = context.getBlobStore();
+        if (context instanceof RegionScopedBlobStoreContext &&
+                region != null) {
+            blobStore = ((RegionScopedBlobStoreContext) context)
+                    .getBlobStore(region);
+        }
 
         S3Proxy s3Proxy;
         try {
             S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                    .blobStore(context.getBlobStore());
+                    .blobStore(blobStore);
             if (s3ProxyEndpointString != null) {
                 s3ProxyBuilder.endpoint(new URI(s3ProxyEndpointString));
             }
