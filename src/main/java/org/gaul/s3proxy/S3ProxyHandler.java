@@ -287,7 +287,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         // anonymous request
-        if (method.equals("GET") &&
+        if ((method.equals("GET") || method.equals("HEAD")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 request.getParameter("AWSAccessKeyId") == null &&
                 defaultBlobStore != null) {
@@ -522,10 +522,17 @@ final class S3ProxyHandler extends AbstractHandler {
         String[] path = uri.split("/", 3);
         switch (method) {
         case "GET":
-            if (path.length <= 1) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
-            } else if (path.length == 2) {
+            if (uri.equals("/")) {
                 handleContainerList(response, blobStore);
+                return;
+            } else if (path.length <= 2 || path[2].isEmpty()) {
+                String containerName = path[1];
+                ContainerAccess access = blobStore.getContainerAccess(
+                        containerName);
+                if (access == ContainerAccess.PRIVATE) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+                handleBlobList(request, response, blobStore, containerName);
                 return;
             }
 
@@ -570,6 +577,20 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
             return;
+        case "HEAD":
+            if (path.length <= 2 || path[2].isEmpty()) {
+                String containerName = path[1];
+                ContainerAccess access = blobStore.getContainerAccess(
+                        containerName);
+                if (access == ContainerAccess.PRIVATE) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (!blobStore.containerExists(containerName)) {
+                    throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+                }
+                return;
+            }
+            break;
         default:
             break;
         }
