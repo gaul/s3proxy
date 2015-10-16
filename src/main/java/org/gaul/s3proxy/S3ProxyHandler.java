@@ -522,10 +522,23 @@ final class S3ProxyHandler extends AbstractHandler {
         String[] path = uri.split("/", 3);
         switch (method) {
         case "GET":
-            if (path.length <= 1) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
-            } else if (path.length == 2) {
+            if (uri.equals("/")) {
                 handleContainerList(response, blobStore);
+                return;
+            } else if (path.length <= 2 || path[2].isEmpty()) {
+                if ("".equals(request.getParameter("acl"))) {
+                    handleGetContainerAcl(response, blobStore, path[1]);
+                    return;
+                } else if ("".equals(request.getParameter("location"))) {
+                    handleContainerLocation(response, blobStore, path[1]);
+                    return;
+                } else if ("".equals(request.getParameter("uploads"))) {
+                    String uploadId = request.getParameter("uploadId");
+                    handleListMultipartUploads(response, blobStore,
+                            uploadId);
+                    return;
+                }
+                handleBlobList(request, response, blobStore, path[1]);
                 return;
             }
 
