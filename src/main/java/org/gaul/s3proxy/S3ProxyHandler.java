@@ -471,7 +471,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 handleInitiateMultipartUpload(request, response, blobStore,
                         path[1], path[2]);
                 return;
-            } else if (uploadId != null) {
+            } else if (uploadId != null &&
+                    request.getParameter("partNumber") == null) {
                 handleCompleteMultipartUpload(request, response, blobStore,
                         path[1], path[2], uploadId);
                 return;
