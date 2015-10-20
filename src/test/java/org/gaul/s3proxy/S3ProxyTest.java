@@ -466,6 +466,40 @@ public final class S3ProxyTest {
     }
 
     @Test
+    public void testMaximumMultipartUpload() throws Exception {
+        String blobName = "multipart-upload";
+        int numParts = 10_000;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, numParts);
+
+        BlobMetadata blobMetadata = s3BlobStore.blobBuilder(blobName)
+                .payload(new byte[0])  // fake payload to add content metadata
+                .build()
+                .getMetadata();
+        MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
+                containerName, blobMetadata);
+        ImmutableList.Builder<MultipartPart> parts = ImmutableList.builder();
+
+        for (int i = 0; i < numParts; ++i) {
+            ByteSource partByteSource = byteSource.slice(i, 1);
+            // TODO: wrap sliced byte source to work around zero length bug
+            partByteSource = ByteSource.wrap(partByteSource.read());
+            assertThat(partByteSource.size()).isEqualTo(1);  // TODO:
+            Payload payload = Payloads.newByteSourcePayload(partByteSource);
+            payload.getContentMetadata().setContentLength(
+                    partByteSource.size());
+            parts.add(s3BlobStore.uploadMultipartPart(mpu, i + 1, payload));
+        }
+
+        s3BlobStore.completeMultipartUpload(mpu, parts.build());
+
+        Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
+        try (InputStream actual = newBlob.getPayload().openStream();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
         String fromName = "from-name";
         String toName = "to-name";
