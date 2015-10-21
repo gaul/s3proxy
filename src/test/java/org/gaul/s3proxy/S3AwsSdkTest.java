@@ -25,6 +25,7 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Random;
@@ -43,6 +44,7 @@ import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
+
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
@@ -55,7 +57,8 @@ import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.S3Object;
-
+import com.amazonaws.services.s3.model.UploadPartRequest;
+import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.base.Throwables;
 import com.google.common.io.ByteSource;
 
@@ -65,6 +68,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public final class S3AwsSdkTest {
@@ -207,6 +211,43 @@ public final class S3AwsSdkTest {
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
+    }
+
+    @Ignore
+    @Test
+    public void testBigMultipartUpload() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
+        String key = "multipart-upload";
+        int size = 10_000_000;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(containerName, key);
+        InitiateMultipartUploadResult initResponse = client.initiateMultipartUpload(initRequest);
+        String uploadId = initResponse.getUploadId();
+
+        UploadPartRequest uploadRequest = new UploadPartRequest()
+                .withBucketName(containerName).withKey(key)
+                .withUploadId(uploadId).withPartNumber(1)
+                .withInputStream(byteSource.openStream())
+                .withPartSize(size);
+
+        UploadPartResult uploadPartResult = client.uploadPart(uploadRequest);
+        PartETag partETag = uploadPartResult.getPartETag();
+        List<PartETag> partETagList = Collections.singletonList(partETag);
+
+        CompleteMultipartUploadRequest completeRequest = new
+                CompleteMultipartUploadRequest(
+                containerName,
+                key,
+                uploadId,
+                partETagList);
+        client.completeMultipartUpload(completeRequest);
+
+        // TODO test that the results are equal
+
     }
 
     private static final class NullX509TrustManager
