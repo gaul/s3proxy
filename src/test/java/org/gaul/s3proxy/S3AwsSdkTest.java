@@ -226,10 +226,18 @@ public final class S3AwsSdkTest {
                 client.initiateMultipartUpload(initRequest);
         String uploadId = initResponse.getUploadId();
 
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentType("application/unknown");
         UploadPartRequest uploadRequest = new UploadPartRequest()
                 .withBucketName(containerName).withKey(key)
                 .withUploadId(uploadId).withPartNumber(1)
                 .withInputStream(byteSource.openStream())
+                // TODO: AWS Java SDK incorrectly provides Content-Type:
+                // application/x-www-form-urlencoded; charset=utf-8
+                // which causes Jetty to parse the HTTP entity as if it
+                // were form-encoded.  With a large upload this exhausts
+                // the Jetty form limit.
+                .withObjectMetadata(metadata)
                 .withPartSize(size);
 
         UploadPartResult uploadPartResult = client.uploadPart(uploadRequest);
