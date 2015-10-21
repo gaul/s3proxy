@@ -55,7 +55,8 @@ import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.S3Object;
-
+import com.amazonaws.services.s3.model.UploadPartRequest;
+import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.base.Throwables;
 import com.google.common.io.ByteSource;
 
@@ -205,6 +206,50 @@ public final class S3AwsSdkTest {
                 targetBlobName));
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testBigMultipartUpload() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
+        String key = "multipart-upload";
+        int size = 10_000_000;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        InitiateMultipartUploadRequest initRequest =
+                new InitiateMultipartUploadRequest(containerName, key);
+        InitiateMultipartUploadResult initResponse =
+                client.initiateMultipartUpload(initRequest);
+        String uploadId = initResponse.getUploadId();
+
+        UploadPartRequest uploadRequest = new UploadPartRequest()
+                .withBucketName(containerName).withKey(key)
+                .withUploadId(uploadId).withPartNumber(1)
+                .withInputStream(byteSource.openStream())
+                .withPartSize(size);
+
+        UploadPartResult uploadPartResult = client.uploadPart(uploadRequest);
+        PartETag partETag = uploadPartResult.getPartETag();
+        // must be mutable since AWK SDK sorts parts
+        List<PartETag> partETagList = new ArrayList<PartETag>();
+        partETagList.add(partETag);
+
+        CompleteMultipartUploadRequest completeRequest = new
+                CompleteMultipartUploadRequest(
+                containerName,
+                key,
+                uploadId,
+                partETagList);
+        client.completeMultipartUpload(completeRequest);
+
+        S3Object object = client.getObject(new GetObjectRequest(containerName,
+                key));
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = byteSource.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
