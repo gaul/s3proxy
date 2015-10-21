@@ -68,6 +68,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public final class S3AwsSdkTest {
@@ -212,6 +213,7 @@ public final class S3AwsSdkTest {
         }
     }
 
+    @Ignore
     @Test
     public void testBigMultipartUpload() throws Exception {
         AmazonS3 client = new AmazonS3Client(awsCreds,
