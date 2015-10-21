@@ -20,7 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
@@ -495,6 +497,34 @@ public final class S3ProxyTest {
         Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
         try (InputStream actual = newBlob.getPayload().openStream();
                 InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testBigPartMultipartUpload() throws Exception {
+        String blobName = "multipart-upload";
+        int size = 10_000_000;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        BlobMetadata blobMetadata = s3BlobStore.blobBuilder(blobName)
+                .payload(new byte[0])  // fake payload to add content metadata
+                .build()
+                .getMetadata();
+        MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
+                containerName, blobMetadata);
+
+        Payload payload = Payloads.newByteSourcePayload(byteSource);
+        payload.getContentMetadata().setContentLength(
+                byteSource.size());
+
+        MultipartPart part = s3BlobStore.uploadMultipartPart(mpu, 1, payload);
+        List<MultipartPart> partList = Collections.singletonList(part);
+        s3BlobStore.completeMultipartUpload(mpu, partList);
+
+        Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
+        try (InputStream actual = newBlob.getPayload().openStream();
+             InputStream expected = byteSource.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
