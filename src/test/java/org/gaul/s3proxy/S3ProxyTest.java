@@ -481,9 +481,6 @@ public final class S3ProxyTest {
 
         for (int i = 0; i < numParts; ++i) {
             ByteSource partByteSource = byteSource.slice(i, 1);
-            // TODO: wrap sliced byte source to work around zero length bug
-            partByteSource = ByteSource.wrap(partByteSource.read());
-            assertThat(partByteSource.size()).isEqualTo(1);  // TODO:
             Payload payload = Payloads.newByteSourcePayload(partByteSource);
             payload.getContentMetadata().setContentLength(
                     partByteSource.size());

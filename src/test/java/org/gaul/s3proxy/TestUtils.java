@@ -75,7 +75,8 @@ final class TestUtils {
             if (closed) {
                 throw new IOException("Stream already closed");
             }
-            return (byte) random.nextInt();
+            // return value between 0 and 255
+            return random.nextInt() & 0xff;
         }
 
         @Override
