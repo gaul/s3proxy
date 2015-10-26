@@ -77,7 +77,7 @@ enum S3ErrorCode {
     private final int httpStatusCode;
     private final String message;
 
-    private S3ErrorCode(int httpStatusCode, String message) {
+    S3ErrorCode(int httpStatusCode, String message) {
         this.errorCode = CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL,
                 name());
         this.httpStatusCode = httpStatusCode;
