@@ -127,7 +127,7 @@ References
 
 * Apache [jclouds](http://jclouds.apache.org/) provides object store support for S3Proxy
 * Ceph [s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
-* [fake-s3](https://github.com/jubos/fake-s3) provides functionality similar to S3Proxy when using the filesystem provider
+* [fake-s3](https://github.com/jubos/fake-s3) and [S3 ninja](https://github.com/scireum/s3ninja) provide functionality similar to S3Proxy when using the filesystem provider
 * Another project named [s3proxy](https://github.com/abustany/s3proxy) provides HTTP access to non-S3-aware applications
 * [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provides similar functionality for the OpenStack Swift API
 
