@@ -2,38 +2,8 @@ S3Proxy
 =======
 S3Proxy allows applications using the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
-to access other object stores,
-e.g., EMC Atmos, Google Cloud Storage, Microsoft Azure, OpenStack Swift.
-It also allows local testing of S3 without the cost or latency associated with
-using AWS.
-Finally users can extend S3Proxy with custom middlewares, e.g., caching,
-encryption, tiering.
-
-Features
---------
-* create, remove, and list buckets (including user-specified regions)
-* put, get, delete, and list objects
-* multi-part uploads (emulated operation, see [#2](https://github.com/andrewgaul/s3proxy/issues/2))
-* copy objects (emulated operation, see [#46](https://github.com/andrewgaul/s3proxy/issues/46))
-* delete multiple objects
-* store and retrieve object metadata, including user metadata
-* set and get canned bucket and object ACLs (private and public-read only)
-* authorization via AWS signature v2 (including pre-signed URLs) or anonymous access
-* listen on HTTP or HTTPS
-
-Supported object stores:
-
-* atmos
-* aws-s3
-* azureblob
-* filesystem (on-disk storage)
-* google-cloud-storage
-* hpcloud-objectstorage
-* openstack-swift
-* rackspace-cloudfiles-uk and rackspace-cloudfiles-us
-* s3
-* swift and swift-keystone (legacy)
-* transient (in-memory storage)
+to access other storage backends,
+e.g., local file system, Google Cloud Storage, Microsoft Azure, OpenStack Swift.
 
 Installation
 ------------
@@ -112,6 +82,20 @@ Users can also set other Java,
 and [S3Proxy](https://github.com/andrewgaul/s3proxy/blob/master/src/main/java/org/gaul/s3proxy/S3ProxyConstants.java)
 properties.
 
+Supported storage backends
+--------------------------
+* atmos
+* aws-s3
+* azureblob
+* filesystem (on-disk storage)
+* google-cloud-storage
+* hpcloud-objectstorage
+* openstack-swift
+* rackspace-cloudfiles-uk and rackspace-cloudfiles-us
+* s3
+* swift and swift-keystone (legacy)
+* transient (in-memory storage)
+
 Limitations
 -----------
 S3Proxy does not support:
@@ -121,6 +105,11 @@ S3Proxy does not support:
 * object server-side encryption
 * object versioning, see [#74](https://github.com/andrewgaul/s3proxy/issues/74)
 * XML ACLs
+
+S3Proxy emulates the following operations:
+
+* multi-part uploads, see [#2](https://github.com/andrewgaul/s3proxy/issues/2)
+* copy objects, see [#46](https://github.com/andrewgaul/s3proxy/issues/46)
 
 References
 ----------
