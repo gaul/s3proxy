@@ -238,12 +238,12 @@ final class S3ProxyHandler extends AbstractHandler {
             baseRequest.setHandled(true);
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
-            sendSimpleErrorResponse(response, code, code.getMessage(),
+            sendSimpleErrorResponse(request, response, code, code.getMessage(),
                     ImmutableMap.<String, String>of());
             baseRequest.setHandled(true);
             return;
         } catch (S3Exception se) {
-            sendSimpleErrorResponse(response, se.getError(),
+            sendSimpleErrorResponse(request, response, se.getError(),
                     se.getMessage(), se.getElements());
             baseRequest.setHandled(true);
             return;
@@ -1817,15 +1817,23 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void sendSimpleErrorResponse(HttpServletResponse response,
+    private void sendSimpleErrorResponse(
+            HttpServletRequest request, HttpServletResponse response,
             S3ErrorCode code, String message,
             Map<String, String> elements) throws IOException {
         logger.debug("{} {}", code, elements);
 
+        response.setStatus(code.getHttpStatusCode());
+
+        if (request.getMethod().equals("HEAD")) {
+            // The HEAD method is identical to GET except that the server MUST
+            // NOT return a message-body in the response.
+            return;
+        }
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
-            response.setStatus(code.getHttpStatusCode());
             xml.writeStartDocument();
             xml.writeStartElement("Error");
 
