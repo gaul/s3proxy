@@ -75,7 +75,6 @@ S3Proxy does not support:
 
 * AWS signature V4, see [#24](https://github.com/andrewgaul/s3proxy/issues/24)
 * POST uploads, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
-* object metadata with filesystem provider on Mac OS X, see [JDK-8030048](https://bugs.openjdk.java.net/browse/JDK-8030048)
 * object server-side encryption
 * object versioning, see [#74](https://github.com/andrewgaul/s3proxy/issues/74)
 * XML ACLs
@@ -84,6 +83,8 @@ S3Proxy emulates the following operations:
 
 * multi-part uploads, see [#2](https://github.com/andrewgaul/s3proxy/issues/2)
 * copy objects, see [#46](https://github.com/andrewgaul/s3proxy/issues/46)
+
+The wiki collects other [compatability notes](https://github.com/andrewgaul/s3proxy/wiki/Compatibility-notes).
 
 References
 ----------
