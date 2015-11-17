@@ -288,9 +288,11 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        // anonymous request
-        if ((method.equals("GET") || method.equals("HEAD") ||
-                    method.equals("POST")) &&
+        // when access information is not provided in request header,
+        // treat it as anonymous, return all public accessible information
+        if (!anonymousIdentity &&
+                (method.equals("GET") || method.equals("HEAD") ||
+                method.equals("POST")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 request.getParameter("AWSAccessKeyId") == null &&
                 defaultBlobStore != null) {
