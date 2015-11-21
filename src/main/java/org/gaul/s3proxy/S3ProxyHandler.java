@@ -248,6 +248,12 @@ final class S3ProxyHandler extends AbstractHandler {
             response.sendError(hre.getResponse().getStatusCode());
             baseRequest.setHandled(true);
             return;
+        } catch (KeyNotFoundException knfe) {
+            S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
+            sendSimpleErrorResponse(request, response, code, code.getMessage(),
+                    ImmutableMap.<String, String>of());
+            baseRequest.setHandled(true);
+            return;
         } catch (S3Exception se) {
             sendSimpleErrorResponse(request, response, se.getError(),
                     se.getMessage(), se.getElements());
