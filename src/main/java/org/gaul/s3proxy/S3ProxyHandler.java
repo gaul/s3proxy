@@ -259,6 +259,10 @@ final class S3ProxyHandler extends AbstractHandler {
                     se.getMessage(), se.getElements());
             baseRequest.setHandled(true);
             return;
+        } catch (UnsupportedOperationException uoe) {
+            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            baseRequest.setHandled(true);
+            return;
         }
     }
 
