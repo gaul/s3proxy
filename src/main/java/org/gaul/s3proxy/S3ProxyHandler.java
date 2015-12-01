@@ -245,7 +245,10 @@ final class S3ProxyHandler extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (HttpResponseException hre) {
-            response.sendError(hre.getResponse().getStatusCode());
+            HttpResponse httpResponse = hre.getResponse();
+            response.sendError(httpResponse == null ?
+                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR :
+                    httpResponse.getStatusCode());
             baseRequest.setHandled(true);
             return;
         } catch (IllegalArgumentException iae) {
