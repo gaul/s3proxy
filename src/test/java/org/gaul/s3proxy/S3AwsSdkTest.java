@@ -219,7 +219,10 @@ public final class S3AwsSdkTest {
         client.setEndpoint(s3Endpoint.toString());
 
         String key = "multipart-upload";
-        int size = 10_000_000;
+        // If size <= partSize, then only one UploadPartRequest is needed
+        // to upload all of the blob content.
+        int size = 9_000_000;
+        int partSize = 5_000_000;
         ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
 
         InitiateMultipartUploadRequest initRequest =
@@ -228,17 +231,39 @@ public final class S3AwsSdkTest {
                 client.initiateMultipartUpload(initRequest);
         String uploadId = initResponse.getUploadId();
 
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentType("application/unknown");
+
         UploadPartRequest uploadRequest = new UploadPartRequest()
                 .withBucketName(containerName).withKey(key)
                 .withUploadId(uploadId).withPartNumber(1)
                 .withInputStream(byteSource.openStream())
-                .withPartSize(size);
+                // TODO: AWS Java SDK incorrectly provides Content-Type:
+                // application/x-www-form-urlencoded; charset=utf-8
+                // which causes Jetty to parse the HTTP entity as if it
+                // were form-encoded.  With a large upload this exhausts
+                // the Jetty form limit.
+                .withObjectMetadata(metadata)
+                .withPartSize(partSize);
 
         UploadPartResult uploadPartResult = client.uploadPart(uploadRequest);
         PartETag partETag = uploadPartResult.getPartETag();
+
+        // Second uploadRequest with partNumber = 2 to upload rest of the blob
+        UploadPartRequest uploadRequest2 = new UploadPartRequest()
+                .withBucketName(containerName).withKey(key)
+                .withUploadId(uploadId).withPartNumber(2)
+                .withInputStream(byteSource
+                        .slice(partSize, size - partSize).openStream())
+                .withObjectMetadata(metadata)
+                .withPartSize(size - partSize);
+
+        UploadPartResult uploadPartResult2 = client.uploadPart(uploadRequest2);
+        PartETag partETag2 = uploadPartResult2.getPartETag();
         // must be mutable since AWK SDK sorts parts
         List<PartETag> partETagList = new ArrayList<PartETag>();
         partETagList.add(partETag);
+        partETagList.add(partETag2);
 
         CompleteMultipartUploadRequest completeRequest = new
                 CompleteMultipartUploadRequest(
