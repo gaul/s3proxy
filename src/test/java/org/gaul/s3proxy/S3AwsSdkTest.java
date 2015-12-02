@@ -204,6 +204,8 @@ public final class S3AwsSdkTest {
 
         S3Object object = client.getObject(new GetObjectRequest(containerName,
                 targetBlobName));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
@@ -256,6 +258,8 @@ public final class S3AwsSdkTest {
 
         S3Object object = client.getObject(new GetObjectRequest(containerName,
                 key));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                size);
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = byteSource.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
