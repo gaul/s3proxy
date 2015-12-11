@@ -25,6 +25,7 @@ import java.io.OutputStream;
 import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -148,7 +149,8 @@ final class S3ProxyHandler extends AbstractHandler {
             "prefix",
             "Signature",
             "uploadId",
-            "uploads"
+            "uploads",
+            "encoding-type"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
@@ -1103,9 +1105,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
             for (String blobName : blobNames) {
                 xml.writeStartElement("Deleted");
-
-                writeSimpleElement(xml, "Key", blobName);
-
+                writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
                 xml.writeEndElement();
             }
             // TODO: emit error stanza
@@ -1528,7 +1528,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
             writeSimpleElement(xml, "UploadId", mpu.id());
 
             xml.writeEndElement();
@@ -1606,8 +1606,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     "http://Example-Bucket.s3.amazonaws.com/" + blobName);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", blobName);
-
+            writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
+            
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
@@ -1654,7 +1654,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
             writeSimpleElement(xml, "UploadId", uploadId);
 
             // TODO: bogus values
@@ -2279,5 +2279,14 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
+    }
+
+    // Protects against illegal characters in blob names only if the client requests it
+    private String encodeBlob(String encodingType, String blobName) {
+        if (encodingType.equals("url")) {
+            return URLEncoder.encode(blobName, "UTF-8");
+        } else {
+            return blobName;
+        }
     }
 }
