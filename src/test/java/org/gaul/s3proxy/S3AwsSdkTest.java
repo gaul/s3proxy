@@ -98,6 +98,15 @@ public final class S3AwsSdkTest {
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
+
+        String blobStoreType = context.unwrap().getProviderMetadata().getId();
+        if (blobStoreType.equals("azureblob")) {
+            // AWK SDK checks that ETag matches Content-MD5 during PUT but
+            // Azure returns an opaque ETag.
+            System.setProperty(
+                    "com.amazonaws.services.s3.disablePutObjectMD5Validation",
+                    "true");
+        }
     }
 
     @After
