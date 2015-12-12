@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -477,6 +478,9 @@ public final class S3ProxyTest {
 
     @Test
     public void testMaximumMultipartUpload() throws Exception {
+        // skip with large part sizes to avoid excessive run-times
+        assumeTrue(blobStore.getMinimumMultipartPartSize() == 1);
+
         String blobName = "multipart-upload";
         int numParts = 10_000;
         ByteSource byteSource = TestUtils.randomByteSource().slice(0, numParts);
