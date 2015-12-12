@@ -44,6 +44,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
@@ -126,9 +127,16 @@ public final class S3ProxyTest {
                 .contentLength(BYTE_SOURCE.size())
                 .build();
         blobStore.putBlob(containerName, blob);
-        // TODO: jclouds PutOptions should include BlobAccess
-        blobStore.setBlobAccess(containerName, blobName,
-                BlobAccess.PUBLIC_READ);
+
+        String blobStoreType = context.unwrap().getProviderMetadata().getId();
+        if (blobStoreType.equals("azureblob")) {
+            // Azure does not support public read objects
+            blobStore.setContainerAccess(containerName,
+                    ContainerAccess.PUBLIC_READ);
+        } else {
+            blobStore.setBlobAccess(containerName, blobName,
+                    BlobAccess.PUBLIC_READ);
+        }
 
         HttpClient httpClient = s3Context.utils().http();
         URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
