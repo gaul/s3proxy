@@ -131,18 +131,22 @@ public final class S3AwsSdkTest {
         AmazonS3 client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
         client.setEndpoint(s3Endpoint.toString());
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
-                new ObjectMetadata());
+                metadata);
     }
 
     @Test
     public void testAwsV4Signature() throws Exception {
-        final AmazonS3 client = new AmazonS3Client(awsCreds);
+        AmazonS3 client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
 
         try {
             client.putObject(containerName, "foo",
-                    BYTE_SOURCE.openStream(), new ObjectMetadata());
+                    BYTE_SOURCE.openStream(), metadata);
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("InvalidArgument");
@@ -159,8 +163,10 @@ public final class S3AwsSdkTest {
         client.setEndpoint(s3Endpoint.toString());
 
         String blobName = "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
-                new ObjectMetadata());
+                metadata);
 
         Date expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
@@ -186,8 +192,10 @@ public final class S3AwsSdkTest {
         String sourceBlobName = "testMultipartCopy-source";
         String targetBlobName = "testMultipartCopy-target";
 
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, sourceBlobName,
-                BYTE_SOURCE.openStream(), new ObjectMetadata());
+                BYTE_SOURCE.openStream(), metadata);
 
         InitiateMultipartUploadRequest initiateRequest =
                 new InitiateMultipartUploadRequest(containerName,
