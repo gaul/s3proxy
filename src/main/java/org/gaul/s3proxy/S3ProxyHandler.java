@@ -955,6 +955,7 @@ final class S3ProxyHandler extends AbstractHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
+        String encodingType = request.getParameter("encoding-type");
         if (delimiter != null) {
             options.delimiter(delimiter);
         } else {
@@ -1002,7 +1003,8 @@ final class S3ProxyHandler extends AbstractHandler {
             if (prefix == null) {
                 xml.writeEmptyElement("Prefix");
             } else {
-                writeSimpleElement(xml, "Prefix", prefix);
+                writeSimpleElement(xml, "Prefix", encodeBlob(
+                        request.getParameter("encoding-type"), prefix));
             }
 
             writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
@@ -1010,17 +1012,25 @@ final class S3ProxyHandler extends AbstractHandler {
             if (marker == null) {
                 xml.writeEmptyElement("Marker");
             } else {
-                writeSimpleElement(xml, "Marker", marker);
+                writeSimpleElement(xml, "Marker", encodeBlob(
+                        request.getParameter("encoding-type"), marker));
             }
 
             if (delimiter != null) {
-                writeSimpleElement(xml, "Delimiter", delimiter);
+                writeSimpleElement(xml, "Delimiter", encodeBlob(
+                        request.getParameter("encoding-type"), delimiter));
+            }
+
+            if (encodingType != null && encodingType.equals("url")) {
+                writeSimpleElement(xml, "Encoding-Type", encodeBlob(
+                        request.getParameter("encoding-type"), encodingType));
             }
 
             String nextMarker = set.getNextMarker();
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
-                writeSimpleElement(xml, "NextMarker", nextMarker);
+                writeSimpleElement(xml, "NextMarker", encodeBlob(
+                        request.getParameter("encoding-type"), nextMarker));
                 if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
                     lastKeyToMarker.put(Maps.immutableEntry(containerName,
                             Iterables.getLast(set).getName()), nextMarker);
