@@ -23,8 +23,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PushbackInputStream;
-import java.io.Writer;
 import java.io.UnsupportedEncodingException;
+import java.io.Writer;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -2286,7 +2286,8 @@ final class S3ProxyHandler extends AbstractHandler {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
     }
 
-    // Protects against illegal characters in blob names only if the client requests it
+    // Protects against illegal characters in
+    // blob names only if the client requests it
     private String encodeBlob(String encodingType, String blobName) {
         if (encodingType != null && encodingType.equals("url")) {
             try {
