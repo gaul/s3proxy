@@ -18,7 +18,13 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PushbackInputStream;
+import java.io.Writer;
+import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -1100,7 +1106,8 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
             for (String blobName : blobNames) {
                 xml.writeStartElement("Deleted");
-                writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
+                writeSimpleElement(xml, "Key", encodeBlob(
+                        request.getParameter("encoding-type"), blobName));
                 xml.writeEndElement();
             }
             // TODO: emit error stanza
@@ -1523,7 +1530,8 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
+            writeSimpleElement(xml, "Key", encodeBlob(
+                    request.getParameter("encoding-type"), blobName));
             writeSimpleElement(xml, "UploadId", mpu.id());
 
             xml.writeEndElement();
@@ -1601,7 +1609,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     "http://Example-Bucket.s3.amazonaws.com/" + blobName);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
+            writeSimpleElement(xml, "Key", encodeBlob(
+                    request.getParameter("encoding-type"), blobName));
             
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
@@ -1649,7 +1658,8 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", encodeBlob(request.getParameter("encoding-type"),blobName));
+            writeSimpleElement(xml, "Key", encodeBlob(
+                    request.getParameter("encoding-type"), blobName));
             writeSimpleElement(xml, "UploadId", uploadId);
 
             // TODO: bogus values
