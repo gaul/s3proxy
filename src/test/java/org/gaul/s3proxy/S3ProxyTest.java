@@ -80,6 +80,7 @@ public final class S3ProxyTest {
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
     private BlobStore blobStore;
+    private String blobStoreType;
     private BlobStoreContext s3Context;
     private BlobStore s3BlobStore;
     private String containerName;
@@ -90,6 +91,7 @@ public final class S3ProxyTest {
         s3Proxy = info.getS3Proxy();
         context = info.getBlobStore().getContext();
         blobStore = info.getBlobStore();
+        blobStoreType = context.unwrap().getProviderMetadata().getId();
         s3Endpoint = info.getEndpoint();
 
         containerName = createRandomContainerName();
@@ -129,7 +131,6 @@ public final class S3ProxyTest {
                 .build();
         blobStore.putBlob(containerName, blob);
 
-        String blobStoreType = context.unwrap().getProviderMetadata().getId();
         if (blobStoreType.equals("azureblob")) {
             // Azure does not support public read objects
             blobStore.setContainerAccess(containerName,
@@ -398,8 +399,6 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        String blobStoreType =
-                blobStore.getContext().unwrap().getProviderMetadata().getId();
         if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
@@ -463,8 +462,6 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        String blobStoreType =
-                blobStore.getContext().unwrap().getProviderMetadata().getId();
         if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
@@ -548,8 +545,6 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(contentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        String blobStoreType =
-                blobStore.getContext().unwrap().getProviderMetadata().getId();
         if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
             assertThat(contentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
@@ -611,8 +606,6 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        String blobStoreType =
-                blobStore.getContext().unwrap().getProviderMetadata().getId();
         if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
             assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
