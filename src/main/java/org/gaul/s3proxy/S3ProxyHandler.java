@@ -1022,8 +1022,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             if (encodingType != null && encodingType.equals("url")) {
-                writeSimpleElement(xml, "Encoding-Type", encodeBlob(
-                        request.getParameter("encoding-type"), encodingType));
+                writeSimpleElement(xml, "Encoding-Type", encodingType);
             }
 
             String nextMarker = set.getNextMarker();
