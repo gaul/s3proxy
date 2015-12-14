@@ -18,12 +18,7 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.PushbackInputStream;
-import java.io.Writer;
+import java.io.*;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -141,6 +136,7 @@ final class S3ProxyHandler extends AbstractHandler {
             "AWSAccessKeyId",
             "delete",
             "delimiter",
+            "encoding-type",
             "Expires",
             "location",
             "marker",
@@ -149,8 +145,7 @@ final class S3ProxyHandler extends AbstractHandler {
             "prefix",
             "Signature",
             "uploadId",
-            "uploads",
-            "encoding-type"
+            "uploads"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
@@ -2283,8 +2278,12 @@ final class S3ProxyHandler extends AbstractHandler {
 
     // Protects against illegal characters in blob names only if the client requests it
     private String encodeBlob(String encodingType, String blobName) {
-        if (encodingType.equals("url")) {
-            return URLEncoder.encode(blobName, "UTF-8");
+        if (encodingType != null && encodingType.equals("url")) {
+            try {
+                return URLEncoder.encode(blobName, "UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                return blobName;
+            }
         } else {
             return blobName;
         }
