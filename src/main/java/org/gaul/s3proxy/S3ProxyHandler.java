@@ -1611,7 +1611,7 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", encodeBlob(
                     request.getParameter("encoding-type"), blobName));
-            
+
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
@@ -2293,7 +2293,7 @@ final class S3ProxyHandler extends AbstractHandler {
             try {
                 return URLEncoder.encode(blobName, "UTF-8");
             } catch (UnsupportedEncodingException e) {
-                return blobName;
+                throw Throwables.propagate(e);
             }
         } else {
             return blobName;
