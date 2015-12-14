@@ -475,8 +475,10 @@ public final class S3ProxyTest {
 
     @Test
     public void testMaximumMultipartUpload() throws Exception {
-        // skip with large part sizes to avoid excessive run-times
-        assumeTrue(blobStore.getMinimumMultipartPartSize() == 1);
+        // skip with remote blobstores to avoid excessive run-times
+        String blobStoreType = context.unwrap().getProviderMetadata().getId();
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String blobName = "multipart-upload";
         int numParts = 10_000;
