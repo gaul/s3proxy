@@ -105,6 +105,13 @@ public final class Main {
                     S3ProxyConstants.PROPERTY_IDENTITY);
             localCredential = properties.getProperty(
                     S3ProxyConstants.PROPERTY_CREDENTIAL);
+            if (localIdentity == null || localCredential == null) {
+                System.err.println("Must specify both " +
+                        S3ProxyConstants.PROPERTY_IDENTITY + " and " +
+                        S3ProxyConstants.PROPERTY_CREDENTIAL +
+                        " when using aws-v2 authentication");
+                System.exit(1);
+            }
         } else if (!s3ProxyAuthorization.equalsIgnoreCase("none")) {
             System.err.println(S3ProxyConstants.PROPERTY_AUTHORIZATION +
                     " must be aws-v2 or none, was: " + s3ProxyAuthorization);
