@@ -1659,12 +1659,18 @@ final class S3ProxyHandler extends AbstractHandler {
 
         List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
 
+        String encodingType = request.getParameter("encoding-type");
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
             xml.writeStartElement("ListPartsResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
+
+            if (encodingType != null && encodingType.equals("url")) {
+                writeSimpleElement(xml, "Encoding-Type", encodingType);
+            }
 
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", encodeBlob(
@@ -2297,7 +2303,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     // Protects against illegal characters in
     // blob names only if the client requests it
-    private String encodeBlob(String encodingType, String blobName) {
+    private static String encodeBlob(String encodingType, String blobName) {
         if (encodingType != null && encodingType.equals("url")) {
             try {
                 return URLEncoder.encode(blobName, "UTF-8");
