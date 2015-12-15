@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.Properties;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Module;
 
@@ -84,6 +85,11 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
         String s3ProxyAuthorization = properties.getProperty(
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
+        if (provider.equals("filesystem") || provider.equals("transient")) {
+            // local blobstores do not require credentials
+            identity = Strings.nullToEmpty(identity);
+            credential = Strings.nullToEmpty(credential);
+        }
         if (provider == null || identity == null || credential == null ||
                 (s3ProxyEndpointString == null && secureEndpoint == null) ||
                 s3ProxyAuthorization == null) {
