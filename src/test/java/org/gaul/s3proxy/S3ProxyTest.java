@@ -131,8 +131,9 @@ public final class S3ProxyTest {
                 .build();
         blobStore.putBlob(containerName, blob);
 
-        if (blobStoreType.equals("azureblob")) {
-            // Azure does not support public read objects
+        if (blobStoreType.equals("azureblob") ||
+                SWIFT_BLOBSTORES.contains(blobStoreType)) {
+            // Azure and Swift do not support blob access control
             blobStore.setContainerAccess(containerName,
                     ContainerAccess.PUBLIC_READ);
         } else {
