@@ -98,8 +98,8 @@
         <configuration>
           <compilerId>javac-with-errorprone</compilerId>
           <forceJavacCompilerUse>true</forceJavacCompilerUse>
-          <source>1.7</source>
-          <target>1.7</target>
+          <source>${java.version}</source>
+          <target>${java.version}</target>
           <showDeprecation>true</showDeprecation>
           <showWarnings>true</showWarnings>
           <compilerArguments>
@@ -222,7 +222,7 @@
           </execution>
         </executions>
         <configuration>
-          <javaVersion>1.7</javaVersion>
+          <javaVersion>${java.version}</javaVersion>
         </configuration>
       </plugin>
       <plugin>
@@ -241,6 +241,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <java.version>1.7</java.version>
     <jclouds.version>2.0.0-SNAPSHOT</jclouds.version>
   </properties>
 
