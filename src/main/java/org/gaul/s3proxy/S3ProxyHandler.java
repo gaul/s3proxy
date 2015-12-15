@@ -23,8 +23,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PushbackInputStream;
+import java.io.UnsupportedEncodingException;
 import java.io.Writer;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -140,6 +142,7 @@ final class S3ProxyHandler extends AbstractHandler {
             "AWSAccessKeyId",
             "delete",
             "delimiter",
+            "encoding-type",
             "Expires",
             "location",
             "marker",
@@ -955,6 +958,7 @@ final class S3ProxyHandler extends AbstractHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         ListContainerOptions options = new ListContainerOptions();
         String delimiter = request.getParameter("delimiter");
+        String encodingType = request.getParameter("encoding-type");
         if (delimiter != null) {
             options.delimiter(delimiter);
         } else {
@@ -1002,7 +1006,8 @@ final class S3ProxyHandler extends AbstractHandler {
             if (prefix == null) {
                 xml.writeEmptyElement("Prefix");
             } else {
-                writeSimpleElement(xml, "Prefix", prefix);
+                writeSimpleElement(xml, "Prefix", encodeBlob(
+                        request.getParameter("encoding-type"), prefix));
             }
 
             writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
@@ -1010,17 +1015,24 @@ final class S3ProxyHandler extends AbstractHandler {
             if (marker == null) {
                 xml.writeEmptyElement("Marker");
             } else {
-                writeSimpleElement(xml, "Marker", marker);
+                writeSimpleElement(xml, "Marker", encodeBlob(
+                        request.getParameter("encoding-type"), marker));
             }
 
             if (delimiter != null) {
-                writeSimpleElement(xml, "Delimiter", delimiter);
+                writeSimpleElement(xml, "Delimiter", encodeBlob(
+                        request.getParameter("encoding-type"), delimiter));
+            }
+
+            if (encodingType != null && encodingType.equals("url")) {
+                writeSimpleElement(xml, "Encoding-Type", encodingType);
             }
 
             String nextMarker = set.getNextMarker();
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
-                writeSimpleElement(xml, "NextMarker", nextMarker);
+                writeSimpleElement(xml, "NextMarker", encodeBlob(
+                        request.getParameter("encoding-type"), nextMarker));
                 if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
                     lastKeyToMarker.put(Maps.immutableEntry(containerName,
                             Iterables.getLast(set).getName()), nextMarker);
@@ -1106,9 +1118,8 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
             for (String blobName : blobNames) {
                 xml.writeStartElement("Deleted");
-
-                writeSimpleElement(xml, "Key", blobName);
-
+                writeSimpleElement(xml, "Key", encodeBlob(
+                        request.getParameter("encoding-type"), blobName));
                 xml.writeEndElement();
             }
             // TODO: emit error stanza
@@ -1531,7 +1542,8 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "Key", encodeBlob(
+                    request.getParameter("encoding-type"), blobName));
             writeSimpleElement(xml, "UploadId", mpu.id());
 
             xml.writeEndElement();
@@ -1609,7 +1621,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     "http://Example-Bucket.s3.amazonaws.com/" + blobName);
 
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "Key", encodeBlob(
+                    request.getParameter("encoding-type"), blobName));
 
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
@@ -1649,6 +1662,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
 
+        String encodingType = request.getParameter("encoding-type");
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -1656,8 +1671,13 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeStartElement("ListPartsResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
+            if (encodingType != null && encodingType.equals("url")) {
+                writeSimpleElement(xml, "Encoding-Type", encodingType);
+            }
+
             writeSimpleElement(xml, "Bucket", containerName);
-            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "Key", encodeBlob(
+                    request.getParameter("encoding-type"), blobName));
             writeSimpleElement(xml, "UploadId", uploadId);
 
             // TODO: bogus values
@@ -2282,5 +2302,19 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
+    }
+
+    // Protects against illegal characters in
+    // blob names only if the client requests it
+    private static String encodeBlob(String encodingType, String blobName) {
+        if (encodingType != null && encodingType.equals("url")) {
+            try {
+                return URLEncoder.encode(blobName, "UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                throw Throwables.propagate(e);
+            }
+        } else {
+            return blobName;
+        }
     }
 }
