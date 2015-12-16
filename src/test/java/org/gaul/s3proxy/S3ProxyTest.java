@@ -21,7 +21,6 @@ import static org.junit.Assume.assumeTrue;
 
 import java.io.InputStream;
 import java.net.URI;
-import java.util.Date;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
@@ -516,7 +515,6 @@ public final class S3ProxyTest {
         String contentEncoding = "gzip";
         String contentLanguage = "en";
         String contentType = "audio/ogg";
-        Date expires = new Date(1000);
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
@@ -527,7 +525,7 @@ public final class S3ProxyTest {
                 .contentEncoding(contentEncoding)
                 .contentLanguage(contentLanguage)
                 .contentType(contentType)
-                .expires(expires)
+                // TODO: expires
                 .userMetadata(userMetadata)
                 .build();
         s3BlobStore.putBlob(containerName, fromBlob);
@@ -568,7 +566,7 @@ public final class S3ProxyTest {
                 .contentEncoding("compress")
                 .contentLanguage("en")
                 .contentType("audio/ogg")
-                .expires(new Date(1000))
+                // TODO: expires
                 .userMetadata(ImmutableMap.of(
                         "key1", "value1",
                         "key2", "value2"))
@@ -579,13 +577,12 @@ public final class S3ProxyTest {
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
-        Date expires = new Date(2000);
         ContentMetadata contentMetadata = ContentMetadataBuilder.create()
                 .contentDisposition(contentDisposition)
                 .contentEncoding(contentEncoding)
                 .contentLanguage(contentLanguage)
                 .contentType(contentType)
-                .expires(expires)
+                // TODO: expires
                 .build();
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key3", "value3",
