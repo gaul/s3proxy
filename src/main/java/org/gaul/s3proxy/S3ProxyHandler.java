@@ -792,6 +792,14 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
+        // TODO: how to handle XML ACLs?
+        try (InputStream is = request.getInputStream()) {
+            int ch = is.read();
+            if (ch != -1) {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
+        }
+
         blobStore.setBlobAccess(containerName, blobName, access);
     }
 

@@ -44,6 +44,7 @@ import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.AccessControlList;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
@@ -54,6 +55,7 @@ import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.Owner;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.UploadPartRequest;
@@ -291,6 +293,32 @@ public final class S3AwsSdkTest {
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = byteSource.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testUpdateBlobXmlAcls() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
+        String blobName = "testUpdateBlobXmlAcls-blob";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        AccessControlList acl = new AccessControlList();
+        Owner owner = new Owner();
+        owner.setId("id");
+        owner.setDisplayName("display-name");
+        acl.setOwner(owner);
+
+        try {
+            client.setObjectAcl(containerName, blobName, acl);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
         }
     }
 
