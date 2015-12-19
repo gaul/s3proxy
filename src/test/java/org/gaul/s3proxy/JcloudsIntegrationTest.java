@@ -27,7 +27,9 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobIntegrationLiveTest;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
+import org.testng.annotations.Test;
 
+@Test(testName = "JcloudsIntegrationTest")
 public final class JcloudsIntegrationTest extends S3BlobIntegrationLiveTest {
     protected static final int AWAIT_CONSISTENCY_TIMEOUT_SECONDS =
             Integer.parseInt(
