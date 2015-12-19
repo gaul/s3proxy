@@ -16,9 +16,7 @@
 
 package org.gaul.s3proxy;
 
-import java.io.IOException;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Throwables;
@@ -27,10 +25,8 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobIntegrationLiveTest;
-
-import org.junit.AfterClass;
-
 import org.testng.SkipException;
+import org.testng.annotations.AfterClass;
 
 public final class JcloudsIntegrationTest extends S3BlobIntegrationLiveTest {
     protected static final int AWAIT_CONSISTENCY_TIMEOUT_SECONDS =
@@ -40,12 +36,6 @@ public final class JcloudsIntegrationTest extends S3BlobIntegrationLiveTest {
                             "0"));
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
-
-    @Override
-    public void testPutObjectStream()
-            throws InterruptedException, IOException, ExecutionException {
-        throw new SkipException("not passing yet");
-    }
 
     @Override
     public void testSetBlobAccess() throws Exception {
