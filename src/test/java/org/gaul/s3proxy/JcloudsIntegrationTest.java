@@ -25,7 +25,6 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobIntegrationLiveTest;
-import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
@@ -38,11 +37,6 @@ public final class JcloudsIntegrationTest extends S3BlobIntegrationLiveTest {
                             "0"));
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
-
-    @Override
-    public void testSetBlobAccess() throws Exception {
-        throw new SkipException("not passing yet");
-    }
 
     @AfterClass
     public void tearDown() throws Exception {
