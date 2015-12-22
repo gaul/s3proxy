@@ -1375,6 +1375,19 @@ final class S3ProxyHandler extends AbstractHandler {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
+        BlobAccess access;
+        String cannedAcl = request.getHeader("x-amz-acl");
+        if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
+            access = BlobAccess.PRIVATE;
+        } else if (cannedAcl.equalsIgnoreCase("public-read")) {
+            access = BlobAccess.PUBLIC_READ;
+        } else if (CANNED_ACLS.contains(cannedAcl)) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        } else {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
         try (InputStream is = request.getInputStream()) {
             BlobBuilder.PayloadBlobBuilder builder = blobStore
                     .blobBuilder(blobName)
@@ -1385,7 +1398,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 builder = builder.contentMD5(contentMD5);
             }
 
-            PutOptions options = new PutOptions();
+            PutOptions options = new PutOptions().setBlobAccess(access);
+
             String blobStoreType = getBlobStoreType(blobStore);
             if (blobStoreType.equals("azureblob") &&
                     contentLength > 64 * 1024 * 1024) {
@@ -1421,13 +1435,6 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
-        }
-
-        // TODO: jclouds should include this in PutOptions
-        String cannedAcl = request.getHeader("x-amz-acl");
-        if (cannedAcl != null && !cannedAcl.equalsIgnoreCase("private")) {
-            handleSetBlobAcl(request, response, blobStore, containerName,
-                    blobName);
         }
     }
 
@@ -1537,7 +1544,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName, String blobName) throws IOException {
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         ByteSource payload = ByteSource.empty();
         BlobBuilder.PayloadBlobBuilder builder = blobStore
                 .blobBuilder(blobName)
@@ -1546,13 +1554,27 @@ final class S3ProxyHandler extends AbstractHandler {
         builder.contentLength(payload.size());
         Blob blob = builder.build();
 
+        BlobAccess access;
+        String cannedAcl = request.getHeader("x-amz-acl");
+        if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
+            access = BlobAccess.PRIVATE;
+        } else if (cannedAcl.equalsIgnoreCase("public-read")) {
+            access = BlobAccess.PUBLIC_READ;
+        } else if (CANNED_ACLS.contains(cannedAcl)) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        } else {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+        PutOptions options = new PutOptions().setBlobAccess(access);
+
         // S3 requires blob metadata during the initiate call while Azure and
         // Swift require it in the complete call.  Store a stub blob which
         // allows reproducing this metadata later.
-        blobStore.putBlob(containerName, blob);
+        blobStore.putBlob(containerName, blob, options);
 
         MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
-                blob.getMetadata());
+                blob.getMetadata(), options);
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1577,8 +1599,10 @@ final class S3ProxyHandler extends AbstractHandler {
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
         Blob stubBlob = blobStore.getBlob(containerName, blobName);
+        BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, stubBlob.getMetadata());
+                blobName, uploadId, stubBlob.getMetadata(),
+                new PutOptions().setBlobAccess(access));
 
         // List parts to get part sizes and to map multiple Azure parts
         // into single parts.
@@ -1665,7 +1689,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore));
+                blobName, uploadId, createFakeBlobMetadata(blobStore),
+                new PutOptions());
         blobStore.abortMultipartUpload(mpu);
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
@@ -1676,7 +1701,8 @@ final class S3ProxyHandler extends AbstractHandler {
             throws IOException {
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore));
+                blobName, uploadId, createFakeBlobMetadata(blobStore),
+                new PutOptions());
 
         List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
 
@@ -1809,7 +1835,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore));
+                blobName, uploadId, createFakeBlobMetadata(blobStore),
+                new PutOptions());
 
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 options);
@@ -1940,7 +1967,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore));
+                blobName, uploadId, createFakeBlobMetadata(blobStore),
+                new PutOptions());
 
         try (InputStream is = request.getInputStream()) {
             if (getBlobStoreType(blobStore).equals("azureblob")) {

@@ -52,6 +52,7 @@ import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
@@ -433,7 +434,7 @@ public final class S3ProxyTest {
                 .build()
                 .getMetadata();
         MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
-                containerName, blobMetadata);
+                containerName, blobMetadata, new PutOptions());
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, s3BlobStore.getMinimumMultipartPartSize() + 1);
@@ -489,7 +490,7 @@ public final class S3ProxyTest {
                 .build()
                 .getMetadata();
         MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
-                containerName, blobMetadata);
+                containerName, blobMetadata, new PutOptions());
         ImmutableList.Builder<MultipartPart> parts = ImmutableList.builder();
 
         for (int i = 0; i < numParts; ++i) {
