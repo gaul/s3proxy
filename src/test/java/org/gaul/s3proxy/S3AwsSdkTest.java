@@ -54,10 +54,12 @@ import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
+import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.Owner;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.base.Throwables;
@@ -320,6 +322,28 @@ public final class S3AwsSdkTest {
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
         }
+    }
+
+    @Test
+    public void testUnicodeObject() throws Exception {
+        AmazonS3 client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
+        String blobName = "ŪņЇЌœđЗ/☺ unicode € rocks ™";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        metadata = client.getObjectMetadata(containerName, blobName);
+        assertThat(metadata).isNotNull();
+
+        ObjectListing listing = client.listObjects(containerName);
+        List<S3ObjectSummary> summaries = listing.getObjectSummaries();
+        assertThat(summaries).hasSize(1);
+        S3ObjectSummary summary = summaries.iterator().next();
+        assertThat(summary.getKey()).isEqualTo(blobName);
     }
 
     private static final class NullX509TrustManager

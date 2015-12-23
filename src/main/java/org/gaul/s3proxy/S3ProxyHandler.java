@@ -998,6 +998,8 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         options.maxResults(maxKeys);
 
+        response.setCharacterEncoding("UTF-8");
+
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
