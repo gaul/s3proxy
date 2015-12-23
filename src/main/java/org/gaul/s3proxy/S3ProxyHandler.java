@@ -618,9 +618,18 @@ final class S3ProxyHandler extends AbstractHandler {
                 if (!blobStore.containerExists(containerName)) {
                     throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
                 }
-                return;
+            } else {
+                String containerName = path[1];
+                String blobName = path[2];
+                BlobAccess access = blobStore.getBlobAccess(containerName,
+                        blobName);
+                if (access == BlobAccess.PUBLIC_READ) {
+                    handleBlobMetadata(response, blobStore, path[1], path[2]);
+                } else {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
             }
-            break;
+            return;
         case "POST":
             if (path.length <= 2 || path[2].isEmpty()) {
                 handlePostBlob(request, response, blobStore, path[1]);
