@@ -1594,7 +1594,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 .payload(payload);
         addContentMetdataFromHttpRequest(builder, request);
         builder.contentLength(payload.size());
-        Blob blob = builder.build();
 
         BlobAccess access;
         String cannedAcl = request.getHeader("x-amz-acl");
@@ -1610,13 +1609,14 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         PutOptions options = new PutOptions().setBlobAccess(access);
 
+        MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
+                builder.build().getMetadata(), options);
+
         // S3 requires blob metadata during the initiate call while Azure and
         // Swift require it in the complete call.  Store a stub blob which
         // allows reproducing this metadata later.
-        blobStore.putBlob(containerName, blob, options);
-
-        MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
-                blob.getMetadata(), options);
+        blobStore.putBlob(containerName, builder.name(mpu.id()).build(),
+                options);
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1640,8 +1640,8 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
-        Blob stubBlob = blobStore.getBlob(containerName, blobName);
-        BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
+        Blob stubBlob = blobStore.getBlob(containerName, uploadId);
+        BlobAccess access = blobStore.getBlobAccess(containerName, uploadId);
         MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, stubBlob.getMetadata(),
                 new PutOptions().setBlobAccess(access));
@@ -1721,11 +1721,11 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
-        if (!blobStore.blobExists(containerName, blobName)) {
+        if (!blobStore.blobExists(containerName, uploadId)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
         }
 
-        blobStore.removeBlob(containerName, blobName);
+        blobStore.removeBlob(containerName, uploadId);
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,

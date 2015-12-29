@@ -44,6 +44,7 @@ import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.S3ClientOptions;
+import com.amazonaws.services.s3.model.AbortMultipartUploadRequest;
 import com.amazonaws.services.s3.model.AccessControlList;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
@@ -400,6 +401,33 @@ public final class S3AwsSdkTest {
         assertThat(summaries).hasSize(1);
         S3ObjectSummary summary = summaries.iterator().next();
         assertThat(summary.getKey()).isEqualTo(blobName);
+    }
+
+    @Test
+    public void testAtomicMpuAbort() throws Exception {
+        String key = "testAtomicMpuAbort";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, key, BYTE_SOURCE.openStream(),
+                metadata);
+
+        InitiateMultipartUploadRequest initRequest =
+                new InitiateMultipartUploadRequest(containerName, key);
+        InitiateMultipartUploadResult initResponse =
+                client.initiateMultipartUpload(initRequest);
+        String uploadId = initResponse.getUploadId();
+
+        client.abortMultipartUpload(new AbortMultipartUploadRequest(
+                    containerName, key, uploadId));
+
+        S3Object object = client.getObject(new GetObjectRequest(containerName,
+                key));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
     }
 
     private static final class NullX509TrustManager
