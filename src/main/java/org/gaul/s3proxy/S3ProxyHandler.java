@@ -431,6 +431,9 @@ final class S3ProxyHandler extends AbstractHandler {
             if (headerName.startsWith("x-amz-meta-")) {
                 continue;
             }
+            if (headerName.startsWith("x-amz-content-")) {
+                continue;
+            }
             if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
                 logger.error("Unknown header {} with URI {}",
                         headerName, request.getRequestURI());
@@ -1434,6 +1437,10 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
 
+            if (blobStoreType.equals("azureblob")) {
+                eTag = BaseEncoding.base16().lowerCase()
+                        .encode(BaseEncoding.base64().decode(contentMD5String));
+            }
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
         }
     }
