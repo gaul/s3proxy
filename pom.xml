@@ -193,6 +193,12 @@
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
           <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
           <runOrder>random</runOrder>
+          <properties>
+            <property>
+              <name>junit</name>
+              <value>false</value>
+            </property>
+          </properties>
         </configuration>
       </plugin>
       <plugin>
@@ -255,7 +261,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>1.7</java.version>
     <jclouds.version>2.0.0-SNAPSHOT</jclouds.version>
-    <surefire.version>2.19</surefire.version>
+    <surefire.version>2.19.1</surefire.version>
   </properties>
 
   <prerequisites>
