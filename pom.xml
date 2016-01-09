@@ -323,11 +323,6 @@
     </dependency>
     <dependency>
       <groupId>org.apache.jclouds.labs</groupId>
-      <artifactId>glacier</artifactId>
-      <version>${jclouds.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.jclouds.labs</groupId>
       <artifactId>google-cloud-storage</artifactId>
       <version>${jclouds.version}</version>
     </dependency>
