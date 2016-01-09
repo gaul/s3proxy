@@ -59,6 +59,7 @@ import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
@@ -2356,16 +2357,14 @@ final class S3ProxyHandler extends AbstractHandler {
         List<String> parameters = Collections.list(request.getParameterNames());
         Collections.sort(parameters);
         List<String> queryParameters = new ArrayList<>();
-        String charsetName = request.getQueryEncoding();
+        String charsetName = Objects.firstNonNull(request.getQueryEncoding(),
+                "UTF-8");
         for (String key : parameters) {
+            String value = request.getParameter(key);
             // The parameters are decoded by default, so we need to re-encode
             // them
-            String value = request.getParameter(key);
-            if (charsetName != null) {
-                key = URLEncoder.encode(key, charsetName);
-                value = URLEncoder.encode(value, charsetName);
-            }
-            queryParameters.add(key + "=" + value);
+            queryParameters.add(URLEncoder.encode(key, charsetName) +
+                    "=" + URLEncoder.encode(value, charsetName));
         }
         return Joiner.on("&").join(queryParameters);
     }
