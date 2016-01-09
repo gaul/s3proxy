@@ -103,7 +103,7 @@ final class S3AuthorizationHeader {
             throw new IllegalArgumentException("Invalid signature");
         }
         signatureIndex += SIGNATURE_FIELD.length();
-        int signatureEnd = header.indexOf(signatureIndex, ',');
+        int signatureEnd = header.indexOf(',', signatureIndex);
         if (signatureEnd < 0) {
             return header.substring(signatureIndex);
         } else {
