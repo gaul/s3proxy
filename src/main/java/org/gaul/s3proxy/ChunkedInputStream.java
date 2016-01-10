@@ -56,7 +56,7 @@ final class ChunkedInputStream extends FilterInputStream {
             }
             readLine(in);
         }
-        return chunk[currentIndex++];
+        return chunk[currentIndex++] & 0xFF;
     }
 
     @Override
