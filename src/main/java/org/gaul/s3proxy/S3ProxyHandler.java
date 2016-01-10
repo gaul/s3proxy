@@ -2270,7 +2270,7 @@ final class S3ProxyHandler extends AbstractHandler {
         byte[] signature = signMessage(
                 signatureString.getBytes(StandardCharsets.UTF_8),
                 signingKey, algorithm);
-        return BaseEncoding.base16().encode(signature).toLowerCase();
+        return BaseEncoding.base16().lowerCase().encode(signature);
     }
 
     private static byte[] signMessage(byte[] data, byte[] key, String algorithm)
@@ -2308,7 +2308,7 @@ final class S3ProxyHandler extends AbstractHandler {
             throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance(algorithm);
         byte[] hash = md.digest(payload);
-        return BaseEncoding.base16().encode(hash).toLowerCase();
+        return BaseEncoding.base16().lowerCase().encode(hash);
     }
 
     private static String[] extractSignedHeaders(String authorization) {
