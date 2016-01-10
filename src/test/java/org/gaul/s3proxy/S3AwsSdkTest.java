@@ -98,6 +98,7 @@ public final class S3AwsSdkTest {
     private BlobStoreContext context;
     private String containerName;
     private BasicAWSCredentials awsCreds;
+    private AmazonS3 client;
 
     @Before
     public void setUp() throws Exception {
@@ -107,6 +108,9 @@ public final class S3AwsSdkTest {
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
         s3Endpoint = info.getEndpoint();
+        client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
@@ -133,7 +137,7 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV2Signature() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds,
+        client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
         client.setEndpoint(s3Endpoint.toString());
         ObjectMetadata metadata = new ObjectMetadata();
@@ -153,7 +157,7 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4Signature() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds);
+        client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
 
         ObjectMetadata metadata = new ObjectMetadata();
@@ -173,7 +177,7 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4SignatureNonChunked() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds);
+        client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
         client.setS3ClientOptions(
                 new S3ClientOptions().disableChunkedEncoding());
@@ -195,7 +199,7 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4SignatureBadIdentity() throws Exception {
-        AmazonS3 client = new AmazonS3Client(new BasicAWSCredentials(
+        client = new AmazonS3Client(new BasicAWSCredentials(
                 "bad-identity", awsCreds.getAWSSecretKey()));
         client.setEndpoint(s3Endpoint.toString());
         ObjectMetadata metadata = new ObjectMetadata();
@@ -212,7 +216,7 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4SignatureBadCredential() throws Exception {
-        AmazonS3 client = new AmazonS3Client(new BasicAWSCredentials(
+        client = new AmazonS3Client(new BasicAWSCredentials(
                 awsCreds.getAWSAccessKeyId(), "bad-credential"));
         client.setEndpoint(s3Endpoint.toString());
         ObjectMetadata metadata = new ObjectMetadata();
@@ -232,10 +236,6 @@ public final class S3AwsSdkTest {
     // AWSS3BlobRequestSigner.signForTemporaryAccess.
     @Test
     public void testUrlSigning() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
-
         String blobName = "foo";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -259,10 +259,6 @@ public final class S3AwsSdkTest {
     // TODO: jclouds lacks support for multipart copy
     @Test
     public void testMultipartCopy() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
-
         String sourceBlobName = "testMultipartCopy-source";
         String targetBlobName = "testMultipartCopy-target";
 
@@ -311,10 +307,6 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testBigMultipartUpload() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
-
         String key = "multipart-upload";
         int size = 10_000_000;
         int partSize = 5 * 1024 * 1024;
@@ -370,10 +362,6 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
-
         String blobName = "testUpdateBlobXmlAcls-blob";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -396,10 +384,6 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testUnicodeObject() throws Exception {
-        AmazonS3 client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
-
         String blobName = "ŪņЇЌœđЗ/☺ unicode € rocks ™";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
