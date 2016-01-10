@@ -1314,7 +1314,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_TYPE)) {
                     contentMetadata.contentType(headerValue);
-                } else if (headerName.toLowerCase().startsWith(
+                } else if (startsWithIgnoreCase(headerName,
                         USER_METADATA_PREFIX)) {
                     userMetadata.put(
                             headerName.substring(USER_METADATA_PREFIX.length()),
@@ -2452,7 +2452,7 @@ final class S3ProxyHandler extends AbstractHandler {
         ImmutableMap.Builder<String, String> userMetadata =
                 ImmutableMap.builder();
         for (String headerName : Collections.list(request.getHeaderNames())) {
-            if (headerName.toLowerCase().startsWith(USER_METADATA_PREFIX)) {
+            if (startsWithIgnoreCase(headerName, USER_METADATA_PREFIX)) {
                 userMetadata.put(
                         headerName.substring(USER_METADATA_PREFIX.length()),
                         Strings.nullToEmpty(request.getHeader(headerName)));
