@@ -109,7 +109,7 @@ public final class S3AwsSdkTest {
         s3Proxy = info.getS3Proxy();
         s3Endpoint = info.getEndpoint();
         client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
+                new ClientConfiguration());
         client.setEndpoint(s3Endpoint.toString());
 
         containerName = createRandomContainerName();
@@ -235,7 +235,11 @@ public final class S3AwsSdkTest {
     // implement the same logic as
     // AWSS3BlobRequestSigner.signForTemporaryAccess.
     @Test
-    public void testUrlSigning() throws Exception {
+    public void testAwsV2UrlSigning() throws Exception {
+        client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString());
+
         String blobName = "foo";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -255,6 +259,8 @@ public final class S3AwsSdkTest {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
+
+    // TODO: testAwsV4UrlSigning()
 
     // TODO: jclouds lacks support for multipart copy
     @Test
@@ -324,6 +330,8 @@ public final class S3AwsSdkTest {
                 .withUploadId(uploadId).withPartNumber(1)
                 .withInputStream(byteSource1.openStream())
                 .withPartSize(byteSource1.size());
+        uploadRequest1.getRequestClientOptions().setReadLimit(
+                (int) byteSource1.size());
 
         UploadPartResult uploadPartResult1 = client.uploadPart(uploadRequest1);
         PartETag partETag1 = uploadPartResult1.getPartETag();
@@ -334,6 +342,8 @@ public final class S3AwsSdkTest {
                 .withUploadId(uploadId).withPartNumber(2)
                 .withInputStream(byteSource2.openStream())
                 .withPartSize(byteSource2.size());
+        uploadRequest2.getRequestClientOptions().setReadLimit(
+                (int) byteSource2.size());
 
         UploadPartResult uploadPartResult2 = client.uploadPart(uploadRequest2);
         PartETag partETag2 = uploadPartResult2.getPartETag();
