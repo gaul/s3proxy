@@ -45,7 +45,7 @@ final class ChunkedInputStream extends FilterInputStream {
                 return -1;
             }
             String[] parts = line.split(";", 2);
-            currentLength = Integer.parseInt(parts[0]);
+            currentLength = Integer.parseInt(parts[0], 16);
             currentSignature = parts[1];
             chunk = new byte[currentLength];
             currentIndex = 0;
