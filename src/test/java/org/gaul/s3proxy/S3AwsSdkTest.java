@@ -318,28 +318,29 @@ public final class S3AwsSdkTest {
                 client.initiateMultipartUpload(initRequest);
         String uploadId = initResponse.getUploadId();
 
-        UploadPartRequest uploadRequest = new UploadPartRequest()
+        ByteSource byteSource1 = byteSource.slice(0, partSize);
+        UploadPartRequest uploadRequest1 = new UploadPartRequest()
                 .withBucketName(containerName).withKey(key)
                 .withUploadId(uploadId).withPartNumber(1)
-                .withInputStream(byteSource.openStream())
-                .withPartSize(partSize);
+                .withInputStream(byteSource1.openStream())
+                .withPartSize(byteSource1.size());
 
-        UploadPartResult uploadPartResult = client.uploadPart(uploadRequest);
-        PartETag partETag = uploadPartResult.getPartETag();
+        UploadPartResult uploadPartResult1 = client.uploadPart(uploadRequest1);
+        PartETag partETag1 = uploadPartResult1.getPartETag();
 
+        ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
         UploadPartRequest uploadRequest2 = new UploadPartRequest()
                 .withBucketName(containerName).withKey(key)
                 .withUploadId(uploadId).withPartNumber(2)
-                .withInputStream(byteSource
-                        .slice(partSize, size - partSize).openStream())
-                .withPartSize(size - partSize);
+                .withInputStream(byteSource2.openStream())
+                .withPartSize(byteSource2.size());
 
         UploadPartResult uploadPartResult2 = client.uploadPart(uploadRequest2);
         PartETag partETag2 = uploadPartResult2.getPartETag();
 
         // must be mutable since AWK SDK sorts parts
         List<PartETag> partETagList = new ArrayList<PartETag>();
-        partETagList.add(partETag);
+        partETagList.add(partETag1);
         partETagList.add(partETag2);
 
         CompleteMultipartUploadRequest completeRequest = new
