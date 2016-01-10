@@ -426,8 +426,9 @@ final class S3ProxyHandler extends AbstractHandler {
                     } else {
                         // buffer the entire stream to calculate digest
                         payload = ByteStreams.toByteArray(ByteStreams.limit(
-                                is, V4_MAX_NON_CHUNKED_REQUEST_SIZE));
-                        if (payload.length == V4_MAX_NON_CHUNKED_REQUEST_SIZE) {
+                                is, V4_MAX_NON_CHUNKED_REQUEST_SIZE + 1));
+                        if (payload.length ==
+                                V4_MAX_NON_CHUNKED_REQUEST_SIZE + 1) {
                             throw new S3Exception(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
                         }
