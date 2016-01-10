@@ -88,7 +88,7 @@ final class ChunkedInputStream extends FilterInputStream {
                 if (ch == '\n') {
                     break;
                 } else {
-                    throw new IOException("unexpected \\r");
+                    throw new IOException("unexpected char after \\r: " + ch);
                 }
             } else if (ch == -1) {
                 if (builder.length() > 0) {
