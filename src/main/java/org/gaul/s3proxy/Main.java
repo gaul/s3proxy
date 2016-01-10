@@ -132,6 +132,8 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
         String region = properties.getProperty(
                 LocationConstants.PROPERTY_REGION);
+        String v4MaxNonChunkedRequestSize = properties.getProperty(
+                S3ProxyConstants.PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
@@ -168,6 +170,10 @@ public final class Main {
             }
             if (virtualHost != null) {
                 s3ProxyBuilder.virtualHost(virtualHost);
+            }
+            if (v4MaxNonChunkedRequestSize != null) {
+                s3ProxyBuilder.v4MaxNonChunkedRequestSize(Long.parseLong(
+                            v4MaxNonChunkedRequestSize));
             }
             s3Proxy = s3ProxyBuilder.build();
         } catch (IllegalArgumentException | IllegalStateException e) {

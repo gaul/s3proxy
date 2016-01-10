@@ -182,11 +182,10 @@ final class S3ProxyHandler extends AbstractHandler {
             "azureblob",
             "google-cloud-storage"
     );
-    // TODO: configurable
-    private static final long V4_MAX_NON_CHUNKED_REQUEST_SIZE = 5 * 1024 * 1024;
 
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
+    private final long v4MaxNonChunkedRequestSize;
     private final XMLInputFactory xmlInputFactory =
             XMLInputFactory.newInstance();
     private final XMLOutputFactory xmlOutputFactory =
@@ -207,7 +206,8 @@ final class S3ProxyHandler extends AbstractHandler {
             .build();
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
-                   final String credential, Optional<String> virtualHost) {
+            final String credential, Optional<String> virtualHost,
+            long v4MaxNonChunkedRequestSize) {
         if (identity != null) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -233,6 +233,7 @@ final class S3ProxyHandler extends AbstractHandler {
             };
         }
         this.virtualHost = requireNonNull(virtualHost);
+        this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -426,9 +427,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     } else {
                         // buffer the entire stream to calculate digest
                         payload = ByteStreams.toByteArray(ByteStreams.limit(
-                                is, V4_MAX_NON_CHUNKED_REQUEST_SIZE + 1));
-                        if (payload.length ==
-                                V4_MAX_NON_CHUNKED_REQUEST_SIZE + 1) {
+                                is, v4MaxNonChunkedRequestSize + 1));
+                        if (payload.length == v4MaxNonChunkedRequestSize + 1) {
                             throw new S3Exception(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
                         }

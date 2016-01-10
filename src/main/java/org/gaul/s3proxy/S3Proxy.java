@@ -102,7 +102,8 @@ public final class S3Proxy {
             listenHTTPS = false;
         }
         handler = new S3ProxyHandler(builder.blobStore, builder.identity,
-                builder.credential, Optional.fromNullable(builder.virtualHost));
+                builder.credential, Optional.fromNullable(builder.virtualHost),
+                builder.v4MaxNonChunkedRequestSize);
         server.setHandler(handler);
     }
 
@@ -115,6 +116,7 @@ public final class S3Proxy {
         private String keyStorePath;
         private String keyStorePassword;
         private String virtualHost;
+        private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
 
         Builder() {
         }
@@ -152,6 +154,17 @@ public final class S3Proxy {
 
         public Builder virtualHost(String virtualHost) {
             this.virtualHost = requireNonNull(virtualHost);
+            return this;
+        }
+
+        public Builder v4MaxNonChunkedRequestSize(
+                long v4MaxNonChunkedRequestSize) {
+            if (v4MaxNonChunkedRequestSize <= 0) {
+                throw new IllegalArgumentException(
+                        "must be greater than zero, was: " +
+                        v4MaxNonChunkedRequestSize);
+            }
+            this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
             return this;
         }
     }
