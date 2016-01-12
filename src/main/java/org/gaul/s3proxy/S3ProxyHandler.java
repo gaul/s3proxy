@@ -1009,8 +1009,8 @@ final class S3ProxyHandler extends AbstractHandler {
             String containerName) throws IOException, S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
         ListContainerOptions options = new ListContainerOptions();
-        String delimiter = request.getParameter("delimiter");
         String encodingType = request.getParameter("encoding-type");
+        String delimiter = request.getParameter("delimiter");
         if (delimiter != null) {
             options.delimiter(delimiter);
         } else {
@@ -1061,7 +1061,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeEmptyElement("Prefix");
             } else {
                 writeSimpleElement(xml, "Prefix", encodeBlob(
-                        request.getParameter("encoding-type"), prefix));
+                        encodingType, prefix));
             }
 
             writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
@@ -1070,12 +1070,12 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeEmptyElement("Marker");
             } else {
                 writeSimpleElement(xml, "Marker", encodeBlob(
-                        request.getParameter("encoding-type"), marker));
+                        encodingType, marker));
             }
 
             if (delimiter != null) {
                 writeSimpleElement(xml, "Delimiter", encodeBlob(
-                        request.getParameter("encoding-type"), delimiter));
+                        encodingType, delimiter));
             }
 
             if (encodingType != null && encodingType.equals("url")) {
@@ -1086,7 +1086,7 @@ final class S3ProxyHandler extends AbstractHandler {
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml, "NextMarker", encodeBlob(
-                        request.getParameter("encoding-type"), nextMarker));
+                        encodingType, nextMarker));
                 if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
                     lastKeyToMarker.put(Maps.immutableEntry(containerName,
                             Iterables.getLast(set).getName()), nextMarker);
@@ -1754,7 +1754,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", encodeBlob(
-                    request.getParameter("encoding-type"), blobName));
+                    encodingType, blobName));
             writeSimpleElement(xml, "UploadId", uploadId);
 
             // TODO: bogus values
