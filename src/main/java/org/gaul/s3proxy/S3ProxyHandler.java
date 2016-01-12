@@ -162,6 +162,13 @@ final class S3ProxyHandler extends AbstractHandler {
             "x-amz-acl",
             "x-amz-content-sha256",
             "x-amz-copy-source",
+            // TODO: unsupported
+/*
+            "x-amz-copy-source-if-match",
+            "x-amz-copy-source-if-modified-since",
+            "x-amz-copy-source-if-none-match",
+            "x-amz-copy-source-if-unmodified-since",
+*/
             "x-amz-copy-source-range",
             "x-amz-date",
             "x-amz-decoded-content-length",
