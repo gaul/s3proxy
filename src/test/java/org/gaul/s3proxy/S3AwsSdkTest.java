@@ -24,7 +24,6 @@ import java.net.URL;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Random;
@@ -58,12 +57,12 @@ import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.Owner;
-import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 
@@ -285,19 +284,16 @@ public final class S3AwsSdkTest {
                 .withDestinationKey(targetBlobName)
                 .withSourceBucketName(containerName)
                 .withSourceKey(sourceBlobName)
-                .withUploadId(initResult.getUploadId())
+                .withUploadId(uploadId)
                 .withFirstByte(0L)
                 .withLastByte(BYTE_SOURCE.size() - 1)
                 .withPartNumber(1);
         CopyPartResult copyPartResult = client.copyPart(copyRequest);
 
-        List<PartETag> partETags = new ArrayList<>();
-        partETags.add(copyPartResult.getPartETag());
         CompleteMultipartUploadRequest completeRequest =
                 new CompleteMultipartUploadRequest(
-                        containerName, targetBlobName,
-                        initResult.getUploadId(), partETags);
-
+                        containerName, targetBlobName, uploadId,
+                        ImmutableList.of(copyPartResult.getPartETag()));
         CompleteMultipartUploadResult completeUploadResponse =
                 client.completeMultipartUpload(completeRequest);
 
@@ -326,39 +322,34 @@ public final class S3AwsSdkTest {
 
         ByteSource byteSource1 = byteSource.slice(0, partSize);
         UploadPartRequest uploadRequest1 = new UploadPartRequest()
-                .withBucketName(containerName).withKey(key)
-                .withUploadId(uploadId).withPartNumber(1)
+                .withBucketName(containerName)
+                .withKey(key)
+                .withUploadId(uploadId)
+                .withPartNumber(1)
                 .withInputStream(byteSource1.openStream())
                 .withPartSize(byteSource1.size());
         uploadRequest1.getRequestClientOptions().setReadLimit(
                 (int) byteSource1.size());
-
         UploadPartResult uploadPartResult1 = client.uploadPart(uploadRequest1);
-        PartETag partETag1 = uploadPartResult1.getPartETag();
 
         ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
         UploadPartRequest uploadRequest2 = new UploadPartRequest()
-                .withBucketName(containerName).withKey(key)
-                .withUploadId(uploadId).withPartNumber(2)
+                .withBucketName(containerName)
+                .withKey(key)
+                .withUploadId(uploadId)
+                .withPartNumber(2)
                 .withInputStream(byteSource2.openStream())
                 .withPartSize(byteSource2.size());
         uploadRequest2.getRequestClientOptions().setReadLimit(
                 (int) byteSource2.size());
-
         UploadPartResult uploadPartResult2 = client.uploadPart(uploadRequest2);
-        PartETag partETag2 = uploadPartResult2.getPartETag();
 
-        // must be mutable since AWK SDK sorts parts
-        List<PartETag> partETagList = new ArrayList<PartETag>();
-        partETagList.add(partETag1);
-        partETagList.add(partETag2);
-
-        CompleteMultipartUploadRequest completeRequest = new
-                CompleteMultipartUploadRequest(
-                containerName,
-                key,
-                uploadId,
-                partETagList);
+        CompleteMultipartUploadRequest completeRequest =
+                new CompleteMultipartUploadRequest(
+                        containerName, key, uploadId,
+                        ImmutableList.of(
+                                uploadPartResult1.getPartETag(),
+                                uploadPartResult2.getPartETag()));
         client.completeMultipartUpload(completeRequest);
 
         S3Object object = client.getObject(new GetObjectRequest(containerName,
