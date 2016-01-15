@@ -30,7 +30,6 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.S3ClientLiveTest;
-import org.jclouds.s3.domain.S3Object;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
@@ -126,10 +125,5 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
             throws Exception {
         return new URL(String.format("%s/%s/%s", URI.create(endpoint),
                 containerName, key));
-    }
-
-    @Override
-    protected void assertCacheControl(S3Object newObject, String string) {
-        // Cache-Control not supported
     }
 }

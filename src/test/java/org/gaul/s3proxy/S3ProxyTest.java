@@ -70,6 +70,13 @@ import org.junit.Test;
 
 public final class S3ProxyTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
+    private static final Set<String> BLOBSTORE_NO_CACHE_CONTROL_SUPPORT =
+            ImmutableSet.of(
+                    "atmos",
+                    "rackspace-cloudfiles-uk",
+                    "rackspace-cloudfiles-us",
+                    "openstack-swift"
+            );
     private static final Set<String> SWIFT_BLOBSTORES = ImmutableSet.of(
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
@@ -369,6 +376,7 @@ public final class S3ProxyTest {
     @Test
     public void testSinglepartUpload() throws Exception {
         String blobName = "singlepart-upload";
+        String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
@@ -378,6 +386,7 @@ public final class S3ProxyTest {
                 "key2", "value2");
         Blob blob = s3BlobStore.blobBuilder(blobName)
                 .payload(BYTE_SOURCE)
+                .cacheControl(cacheControl)
                 .contentDisposition(contentDisposition)
                 .contentEncoding(contentEncoding)
                 .contentLanguage(contentLanguage)
@@ -396,6 +405,10 @@ public final class S3ProxyTest {
         }
         ContentMetadata newContentMetadata =
                 newBlob.getMetadata().getContentMetadata();
+        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
         assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
@@ -416,6 +429,7 @@ public final class S3ProxyTest {
     @Test
     public void testMultipartUpload() throws Exception {
         String blobName = "multipart-upload";
+        String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
@@ -425,6 +439,7 @@ public final class S3ProxyTest {
                 "key2", "value2");
         BlobMetadata blobMetadata = s3BlobStore.blobBuilder(blobName)
                 .payload(new byte[0])  // fake payload to add content metadata
+                .cacheControl(cacheControl)
                 .contentDisposition(contentDisposition)
                 .contentEncoding(contentEncoding)
                 .contentLanguage(contentLanguage)
@@ -459,6 +474,10 @@ public final class S3ProxyTest {
         }
         ContentMetadata newContentMetadata =
                 newBlob.getMetadata().getContentMetadata();
+        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
         assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
@@ -513,6 +532,7 @@ public final class S3ProxyTest {
     public void testCopyObjectPreserveMetadata() throws Exception {
         String fromName = "from-name";
         String toName = "to-name";
+        String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=old.jpg";
         String contentEncoding = "gzip";
         String contentLanguage = "en";
@@ -522,6 +542,7 @@ public final class S3ProxyTest {
                 "key2", "value2");
         Blob fromBlob = s3BlobStore.blobBuilder(fromName)
                 .payload(BYTE_SOURCE)
+                .cacheControl(cacheControl)
                 .contentLength(BYTE_SOURCE.size())
                 .contentDisposition(contentDisposition)
                 .contentEncoding(contentEncoding)
@@ -542,6 +563,10 @@ public final class S3ProxyTest {
         }
         ContentMetadata contentMetadata =
                 toBlob.getMetadata().getContentMetadata();
+        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(contentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
         assertThat(contentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
         assertThat(contentMetadata.getContentEncoding()).isEqualTo(
@@ -564,6 +589,7 @@ public final class S3ProxyTest {
         Blob fromBlob = s3BlobStore.blobBuilder(fromName)
                 .payload(BYTE_SOURCE)
                 .contentLength(BYTE_SOURCE.size())
+                .cacheControl("max-age=3600")
                 .contentDisposition("attachment; filename=old.jpg")
                 .contentEncoding("compress")
                 .contentLanguage("en")
@@ -575,11 +601,13 @@ public final class S3ProxyTest {
                 .build();
         s3BlobStore.putBlob(containerName, fromBlob);
 
+        String cacheControl = "max-age=1800";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
         ContentMetadata contentMetadata = ContentMetadataBuilder.create()
+                .cacheControl(cacheControl)
                 .contentDisposition(contentDisposition)
                 .contentEncoding(contentEncoding)
                 .contentLanguage(contentLanguage)
@@ -602,6 +630,10 @@ public final class S3ProxyTest {
         }
         ContentMetadata toContentMetadata =
                 toBlob.getMetadata().getContentMetadata();
+        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(contentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
         assertThat(toContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
         assertThat(toContentMetadata.getContentEncoding()).isEqualTo(

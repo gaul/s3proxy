@@ -1313,6 +1313,9 @@ final class S3ProxyHandler extends AbstractHandler {
                 String headerValue = Strings.nullToEmpty(request.getHeader(
                         headerName));
                 if (headerName.equalsIgnoreCase(
+                        HttpHeaders.CACHE_CONTROL)) {
+                    contentMetadata.cacheControl(headerValue);
+                } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_DISPOSITION)) {
                     contentMetadata.contentDisposition(headerValue);
                 } else if (headerName.equalsIgnoreCase(
@@ -2060,6 +2063,8 @@ final class S3ProxyHandler extends AbstractHandler {
             BlobMetadata metadata) {
         ContentMetadata contentMetadata =
                 metadata.getContentMetadata();
+        response.addHeader(HttpHeaders.CACHE_CONTROL,
+                contentMetadata.getCacheControl());
         response.addHeader(HttpHeaders.CONTENT_DISPOSITION,
                 contentMetadata.getContentDisposition());
         response.addHeader(HttpHeaders.CONTENT_ENCODING,
@@ -2468,7 +2473,9 @@ final class S3ProxyHandler extends AbstractHandler {
                         Strings.nullToEmpty(request.getHeader(headerName)));
             }
         }
-        builder.contentDisposition(request.getHeader(
+        builder.cacheControl(request.getHeader(
+                        HttpHeaders.CACHE_CONTROL))
+                .contentDisposition(request.getHeader(
                         HttpHeaders.CONTENT_DISPOSITION))
                 .contentEncoding(request.getHeader(
                         HttpHeaders.CONTENT_ENCODING))
