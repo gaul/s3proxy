@@ -1260,11 +1260,14 @@ final class S3ProxyHandler extends AbstractHandler {
         response.setStatus(status);
 
         addMetadataToResponse(response, blob.getMetadata());
+        // TODO: handles only a single range due to jclouds limitations
         Collection<String> contentRanges =
                 blob.getAllHeaders().get(HttpHeaders.CONTENT_RANGE);
         if (!contentRanges.isEmpty()) {
             response.addHeader(HttpHeaders.CONTENT_RANGE,
                     contentRanges.iterator().next());
+            response.addHeader(HttpHeaders.ACCEPT_RANGES,
+                    "bytes");
         }
 
         try (InputStream is = blob.getPayload().openStream();
