@@ -76,13 +76,13 @@ S3Proxy does not support:
 * AWS signature V4, see [#24](https://github.com/andrewgaul/s3proxy/issues/24)
 * BitTorrent hosting
 * bucket logging
-* Cache-Control header
+* Cache-Control header, see [#115](https://github.com/andrewgaul/s3proxy/issues/115)
 * conditional copy object, see [#113](https://github.com/andrewgaul/s3proxy/issues/113)
 * POST uploads, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
 * object server-side encryption
 * object versioning, see [#74](https://github.com/andrewgaul/s3proxy/issues/74)
 * requester pays buckets
-* XML ACLs
+* XML ACLs, see [#116](https://github.com/andrewgaul/s3proxy/issues/116)
 
 S3Proxy emulates the following operations:
 
