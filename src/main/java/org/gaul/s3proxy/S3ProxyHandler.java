@@ -58,6 +58,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
@@ -841,13 +842,51 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        // TODO: how to handle XML ACLs?
-        int ch = is.read();
+        PushbackInputStream pis = new PushbackInputStream(is);
+        int ch = pis.read();
         if (ch != -1) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            pis.unread(ch);
+            AccessControlPolicy policy = new XmlMapper().readValue(
+                    pis, AccessControlPolicy.class);
+            access = mapXmlAclsToCannedPolicy(policy);
         }
 
         blobStore.setBlobAccess(containerName, blobName, access);
+    }
+
+    /** Map XML ACLs to a canned policy if an exact tranformation exists. */
+    private static BlobAccess mapXmlAclsToCannedPolicy(
+            AccessControlPolicy policy) throws S3Exception {
+        if (!policy.owner.id.equals(FAKE_OWNER_ID)) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+
+        boolean ownerFullControl = false;
+        boolean allUsersRead = false;
+        for (AccessControlPolicy.AccessControlList.Grant grant :
+                policy.aclList.grants) {
+            if (grant.grantee.type.equals("CanonicalUser") &&
+                    grant.grantee.id.equals(FAKE_OWNER_ID) &&
+                    grant.permission.equals("FULL_CONTROL")) {
+                ownerFullControl = true;
+            } else if (grant.grantee.type.equals("Group") &&
+                    grant.grantee.uri.equals("http://acs.amazonaws.com/" +
+                            "groups/global/AllUsers") &&
+                    grant.permission.equals("READ")) {
+                allUsersRead = true;
+            } else {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
+        }
+
+        if (ownerFullControl) {
+            if (allUsersRead) {
+                return BlobAccess.PUBLIC_READ;
+            }
+            return BlobAccess.PRIVATE;
+        } else {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
     }
 
     private void handleContainerList(HttpServletResponse response,

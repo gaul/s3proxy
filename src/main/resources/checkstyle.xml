@@ -9,6 +9,7 @@
     <metadata name="net.sf.eclipsecs.core.lastEnabledSeverity" value="inherit"/>
   </module>
   <module name="NewlineAtEndOfFile"/>
+  <module name="SuppressionCommentFilter"/>
   <module name="Translation"/>
   <module name="TreeWalker">
     <property name="cacheFile" value="target/cachefile"/>
@@ -37,6 +38,7 @@
     <module name="EqualsHashCode"/>
     <module name="ExplicitInitialization"/>
     <module name="FallThrough"/>
+    <module name="FileContentsHolder"/>
     <module name="FinalClass"/>
     <module name="GenericWhitespace"/>
 <!--

@@ -52,11 +52,12 @@ import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.Owner;
+import com.amazonaws.services.s3.model.Permission;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.UploadPartRequest;
@@ -363,13 +364,23 @@ public final class S3AwsSdkTest {
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
+        AccessControlList acl = client.getObjectAcl(containerName, blobName);
 
-        AccessControlList acl = new AccessControlList();
-        Owner owner = new Owner();
-        owner.setId("id");
-        owner.setDisplayName("display-name");
-        acl.setOwner(owner);
+        acl.grantPermission(GroupGrantee.AllUsers, Permission.Read);
+        client.setObjectAcl(containerName, blobName, acl);
+        // TODO: work around unimplemented AccessControlList.equals:
+        // https://github.com/aws/aws-sdk-java/pull/609
+        AccessControlList acl2 = client.getObjectAcl(containerName, blobName);
+        assertThat(acl2.getOwner()).isEqualTo(acl.getOwner());
+        assertThat(acl2.getGrantsAsList()).isEqualTo(acl.getGrantsAsList());
 
+        acl.revokeAllPermissions(GroupGrantee.AllUsers);
+        client.setObjectAcl(containerName, blobName, acl);
+        acl2 = client.getObjectAcl(containerName, blobName);
+        assertThat(acl2.getOwner()).isEqualTo(acl.getOwner());
+        assertThat(acl2.getGrantsAsList()).isEqualTo(acl.getGrantsAsList());
+
+        acl.grantPermission(GroupGrantee.AllUsers, Permission.Write);
         try {
             client.setObjectAcl(containerName, blobName, acl);
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
