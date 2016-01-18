@@ -184,11 +184,6 @@ final class S3ProxyHandler extends AbstractHandler {
             "bucket-owner-full-control",
             "log-delivery-write"
     );
-    /** Blobstores with opaque markers. */
-    private static final Set<String> BLOBSTORE_OPAQUE_MARKERS = ImmutableSet.of(
-            "azureblob",
-            "google-cloud-storage"
-    );
 
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
@@ -1029,7 +1024,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         String marker = request.getParameter("marker");
         if (marker != null) {
-            if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
+            if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                 String realMarker = lastKeyToMarker.getIfPresent(
                         Maps.immutableEntry(containerName, marker));
                 if (realMarker != null) {
@@ -1094,7 +1089,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml, "NextMarker", encodeBlob(
                         encodingType, nextMarker));
-                if (BLOBSTORE_OPAQUE_MARKERS.contains(blobStoreType)) {
+                if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                     lastKeyToMarker.put(Maps.immutableEntry(containerName,
                             Iterables.getLast(set).getName()), nextMarker);
                 }

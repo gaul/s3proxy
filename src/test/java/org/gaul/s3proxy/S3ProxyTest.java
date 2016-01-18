@@ -24,7 +24,6 @@ import java.net.URI;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
-import java.util.Set;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -70,18 +69,6 @@ import org.junit.Test;
 
 public final class S3ProxyTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
-    private static final Set<String> BLOBSTORE_NO_CACHE_CONTROL_SUPPORT =
-            ImmutableSet.of(
-                    "atmos",
-                    "rackspace-cloudfiles-uk",
-                    "rackspace-cloudfiles-us",
-                    "openstack-swift"
-            );
-    private static final Set<String> SWIFT_BLOBSTORES = ImmutableSet.of(
-            "rackspace-cloudfiles-uk",
-            "rackspace-cloudfiles-us",
-            "openstack-swift"
-    );
 
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
@@ -138,9 +125,7 @@ public final class S3ProxyTest {
                 .build();
         blobStore.putBlob(containerName, blob);
 
-        if (blobStoreType.equals("azureblob") ||
-                SWIFT_BLOBSTORES.contains(blobStoreType)) {
-            // Azure and Swift do not support blob access control
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
             blobStore.setContainerAccess(containerName,
                     ContainerAccess.PUBLIC_READ);
         } else {
@@ -405,7 +390,7 @@ public final class S3ProxyTest {
         }
         ContentMetadata newContentMetadata =
                 newBlob.getMetadata().getContentMetadata();
-        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             assertThat(newContentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
@@ -413,7 +398,7 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
         }
@@ -474,7 +459,7 @@ public final class S3ProxyTest {
         }
         ContentMetadata newContentMetadata =
                 newBlob.getMetadata().getContentMetadata();
-        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             assertThat(newContentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
@@ -482,7 +467,7 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
         }
@@ -563,7 +548,7 @@ public final class S3ProxyTest {
         }
         ContentMetadata contentMetadata =
                 toBlob.getMetadata().getContentMetadata();
-        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             assertThat(contentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
@@ -571,7 +556,7 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(contentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(contentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
         }
@@ -630,7 +615,7 @@ public final class S3ProxyTest {
         }
         ContentMetadata toContentMetadata =
                 toBlob.getMetadata().getContentMetadata();
-        if (!BLOBSTORE_NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             assertThat(contentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
@@ -638,7 +623,7 @@ public final class S3ProxyTest {
                 contentDisposition);
         assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        if (!SWIFT_BLOBSTORES.contains(blobStoreType)) {
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
         }

@@ -27,7 +27,6 @@ import java.security.cert.X509Certificate;
 import java.util.Date;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.HostnameVerifier;
@@ -64,7 +63,6 @@ import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
@@ -86,11 +84,6 @@ public final class S3AwsSdkTest {
         disableSslVerification();
     }
 
-    /** Blobstores with opaque ETags. */
-    private static final Set<String> BLOBSTORE_OPAQUE_ETAG = ImmutableSet.of(
-            "azureblob",
-            "google-cloud-storage"
-    );
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
 
     private URI s3Endpoint;
@@ -116,7 +109,7 @@ public final class S3AwsSdkTest {
         info.getBlobStore().createContainerInLocation(null, containerName);
 
         String blobStoreType = context.unwrap().getProviderMetadata().getId();
-        if (BLOBSTORE_OPAQUE_ETAG.contains(blobStoreType)) {
+        if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
             // AWK SDK checks that ETag matches Content-MD5 during PUT
             System.setProperty(
                     "com.amazonaws.services.s3.disablePutObjectMD5Validation",
