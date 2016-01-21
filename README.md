@@ -71,8 +71,10 @@ Supported storage backends
 
 Limitations
 -----------
-S3Proxy does not support:
 
+S3Proxy has broad support for the S3 API, however, it does not support:
+
+* ACLs other than private and public-read
 * AWS signature V4, see [#24](https://github.com/andrewgaul/s3proxy/issues/24)
 * BitTorrent hosting
 * bucket logging
@@ -89,7 +91,9 @@ S3Proxy emulates the following operations:
 * multi-part uploads, see [#2](https://github.com/andrewgaul/s3proxy/issues/2)
 * copy objects, see [#46](https://github.com/andrewgaul/s3proxy/issues/46)
 
-The wiki collects other [compatability notes](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-compatibility).
+The wiki collects
+[compatability notes](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-compatibility)
+for specific storage backends.
 
 References
 ----------
