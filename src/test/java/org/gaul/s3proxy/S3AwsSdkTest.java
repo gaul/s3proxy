@@ -368,17 +368,11 @@ public final class S3AwsSdkTest {
 
         acl.grantPermission(GroupGrantee.AllUsers, Permission.Read);
         client.setObjectAcl(containerName, blobName, acl);
-        // TODO: work around unimplemented AccessControlList.equals:
-        // https://github.com/aws/aws-sdk-java/pull/609
-        AccessControlList acl2 = client.getObjectAcl(containerName, blobName);
-        assertThat(acl2.getOwner()).isEqualTo(acl.getOwner());
-        assertThat(acl2.getGrantsAsList()).isEqualTo(acl.getGrantsAsList());
+        assertThat(client.getObjectAcl(containerName, blobName)).isEqualTo(acl);
 
         acl.revokeAllPermissions(GroupGrantee.AllUsers);
         client.setObjectAcl(containerName, blobName, acl);
-        acl2 = client.getObjectAcl(containerName, blobName);
-        assertThat(acl2.getOwner()).isEqualTo(acl.getOwner());
-        assertThat(acl2.getGrantsAsList()).isEqualTo(acl.getGrantsAsList());
+        assertThat(client.getObjectAcl(containerName, blobName)).isEqualTo(acl);
 
         acl.grantPermission(GroupGrantee.AllUsers, Permission.Write);
         try {
