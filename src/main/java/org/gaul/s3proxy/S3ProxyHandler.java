@@ -547,7 +547,7 @@ final class S3ProxyHandler extends AbstractHandler {
         case "PUT":
             if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleSetContainerAcl(request, response, blobStore,
+                    handleSetContainerAcl(request, response, is, blobStore,
                             path[1]);
                     return;
                 }
@@ -746,7 +746,7 @@ final class S3ProxyHandler extends AbstractHandler {
     }
 
     private void handleSetContainerAcl(HttpServletRequest request,
-            HttpServletResponse response, BlobStore blobStore,
+            HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         ContainerAccess access;
 
@@ -760,6 +760,22 @@ final class S3ProxyHandler extends AbstractHandler {
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
+        }
+
+        PushbackInputStream pis = new PushbackInputStream(is);
+        int ch = pis.read();
+        if (ch != -1) {
+            pis.unread(ch);
+            AccessControlPolicy policy = new XmlMapper().readValue(
+                    pis, AccessControlPolicy.class);
+            String accessString = mapXmlAclsToCannedPolicy(policy);
+            if (accessString.equals("private")) {
+                access = ContainerAccess.PRIVATE;
+            } else if (accessString.equals("public-read")) {
+                access = ContainerAccess.PUBLIC_READ;
+            } else {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
         }
 
         blobStore.setContainerAccess(containerName, access);
@@ -849,14 +865,21 @@ final class S3ProxyHandler extends AbstractHandler {
             pis.unread(ch);
             AccessControlPolicy policy = new XmlMapper().readValue(
                     pis, AccessControlPolicy.class);
-            access = mapXmlAclsToCannedPolicy(policy);
+            String accessString = mapXmlAclsToCannedPolicy(policy);
+            if (accessString.equals("private")) {
+                access = BlobAccess.PRIVATE;
+            } else if (accessString.equals("public-read")) {
+                access = BlobAccess.PUBLIC_READ;
+            } else {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
         }
 
         blobStore.setBlobAccess(containerName, blobName, access);
     }
 
     /** Map XML ACLs to a canned policy if an exact tranformation exists. */
-    private static BlobAccess mapXmlAclsToCannedPolicy(
+    private static String mapXmlAclsToCannedPolicy(
             AccessControlPolicy policy) throws S3Exception {
         if (!policy.owner.id.equals(FAKE_OWNER_ID)) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
@@ -882,9 +905,9 @@ final class S3ProxyHandler extends AbstractHandler {
 
         if (ownerFullControl) {
             if (allUsersRead) {
-                return BlobAccess.PUBLIC_READ;
+                return "public-read";
             }
-            return BlobAccess.PRIVATE;
+            return "private";
         } else {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         }
