@@ -55,6 +55,8 @@ final class AccessControlPolicy {
                 String id;
                 @JacksonXmlProperty(localName = "DisplayName")
                 String displayName;
+                @JacksonXmlProperty(localName = "EmailAddress")
+                String emailAddress;
                 @JacksonXmlProperty(localName = "URI")
                 String uri;
             }
