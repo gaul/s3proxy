@@ -633,7 +633,8 @@ final class S3ProxyHandler extends AbstractHandler {
                         .signGetBlob(path[1], path[2])
                         .toBuilder()
                         .headers(ImmutableMultimap.<String, String>of())
-                        // TODO: replace parameters?
+                        .replaceQueryParams(
+                                ImmutableMultimap.<String, String>of())
                         .build();
                 logger.debug("issuing anonymous request: {}", anonymousRequest);
                 HttpResponse anonymousResponse = blobStore
