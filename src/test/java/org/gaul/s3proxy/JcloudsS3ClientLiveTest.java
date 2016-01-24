@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
@@ -27,7 +29,9 @@ import java.util.concurrent.TimeoutException;
 import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import org.assertj.core.api.Fail;
 import org.jclouds.Constants;
+import org.jclouds.aws.AWSResponseException;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.S3ClientLiveTest;
 import org.testng.SkipException;
@@ -81,42 +85,78 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     @Test
     public void testPublicWriteOnObject() throws InterruptedException,
            ExecutionException, TimeoutException, IOException {
-        throw new SkipException("public-read-write-acl not supported");
+        try {
+            super.testPublicWriteOnObject();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("public-read-write-acl not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testUpdateObjectACL() throws InterruptedException,
            ExecutionException, TimeoutException, IOException {
-        throw new SkipException("XML ACLs not supported");
+        try {
+            super.testUpdateObjectACL();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("XML ACLs not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testCopyIfModifiedSince() throws InterruptedException,
            ExecutionException, TimeoutException, IOException {
-        throw new SkipException("conditional copies not supported");
+        try {
+            super.testCopyIfModifiedSince();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("conditional copies not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testCopyIfUnmodifiedSince() throws InterruptedException,
            ExecutionException, TimeoutException, IOException {
-        throw new SkipException("conditional copies not supported");
+        try {
+            super.testCopyIfUnmodifiedSince();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("conditional copies not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testCopyIfMatch() throws InterruptedException,
            ExecutionException, TimeoutException, IOException {
-        throw new SkipException("conditional copies not supported");
+        try {
+            super.testCopyIfUnmodifiedSince();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("conditional copies not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testCopyIfNoneMatch() throws IOException,
            InterruptedException, ExecutionException, TimeoutException {
-        throw new SkipException("conditional copies not supported");
+        try {
+            super.testCopyIfUnmodifiedSince();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("conditional copies not supported", are);
+        }
     }
 
     // work around bucket-in-host and port 80 assumptions

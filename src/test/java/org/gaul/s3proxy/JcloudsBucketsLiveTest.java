@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
@@ -25,7 +27,9 @@ import java.util.concurrent.TimeoutException;
 import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import org.assertj.core.api.Fail;
 import org.jclouds.Constants;
+import org.jclouds.aws.AWSResponseException;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.services.BucketsLiveTest;
 import org.testng.SkipException;
@@ -79,18 +83,36 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
     @Test
     public void testUpdateBucketACL() throws InterruptedException,
            ExecutionException, TimeoutException, IOException, Exception {
-        throw new SkipException("XML ACLs not supported");
+        try {
+            super.testUpdateBucketACL();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("XML ACLs not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testBucketPayer() throws Exception {
-        throw new SkipException("bucket payer not supported");
+        try {
+            super.testBucketPayer();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("bucket payer not supported", are);
+        }
     }
 
     @Override
     @Test
     public void testBucketLogging() throws Exception {
-        throw new SkipException("bucket logging not supported");
+        try {
+            super.testBucketLogging();
+            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
+        } catch (AWSResponseException are) {
+            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
+            throw new SkipException("bucket logging not supported", are);
+        }
     }
 }
