@@ -261,6 +261,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>1.7</java.version>
     <jclouds.version>2.0.0-SNAPSHOT</jclouds.version>
+    <slf4j.version>1.7.12</slf4j.version>
     <surefire.version>2.19.1</surefire.version>
   </properties>
 
@@ -284,6 +285,12 @@
       <artifactId>aws-java-sdk-s3</artifactId>
       <version>1.10.45</version>
       <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>args4j</groupId>
@@ -346,7 +353,13 @@
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-      <version>1.7.12</version>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>jcl-over-slf4j</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>test</scope>
     </dependency>
     <!-- tests dependencies -->
     <dependency>
