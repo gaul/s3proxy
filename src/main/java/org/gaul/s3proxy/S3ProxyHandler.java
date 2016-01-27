@@ -618,7 +618,6 @@ final class S3ProxyHandler extends AbstractHandler {
                     // TODO: NO_SUCH_BUCKET
                     throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
                 }
-                // TODO: getBlob should return BlobAccess
                 BlobAccess access = blobStore.getBlobAccess(path[1],
                         path[2]);
                 if (access != BlobAccess.PUBLIC_READ) {
