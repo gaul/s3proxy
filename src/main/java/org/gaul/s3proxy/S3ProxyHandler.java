@@ -51,11 +51,8 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
-import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
@@ -189,8 +186,6 @@ final class S3ProxyHandler extends AbstractHandler {
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
-    private final XMLInputFactory xmlInputFactory =
-            XMLInputFactory.newInstance();
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -1009,22 +1004,22 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         }
 
-        Collection<String> locations;
+        String locationString;
         try (PushbackInputStream pis = new PushbackInputStream(is)) {
             int ch = pis.read();
             if (ch == -1) {
                 // handle empty bodies
-                locations = new ArrayList<>();
+                locationString = null;
             } else {
                 pis.unread(ch);
-                locations = parseSimpleXmlElements(pis,
-                        "LocationConstraint");
+                CreateBucketRequest cbr = new XmlMapper().readValue(
+                        is, CreateBucketRequest.class);
+                locationString = cbr.locationConstraint;
             }
         }
 
         Location location = null;
-        if (locations.size() == 1) {
-            String locationString = locations.iterator().next();
+        if (locationString != null) {
             for (Location loc : blobStore.listAssignableLocations()) {
                 if (loc.getId().equalsIgnoreCase(locationString)) {
                     location = loc;
@@ -1221,7 +1216,13 @@ final class S3ProxyHandler extends AbstractHandler {
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException {
-        Collection<String> blobNames = parseSimpleXmlElements(is, "Key");
+        DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
+                is, DeleteMultipleObjectsRequest.class);
+        Collection<String> blobNames = new ArrayList<>();
+        for (DeleteMultipleObjectsRequest.S3Object s3Object :
+                dmor.objects) {
+            blobNames.add(s3Object.key);
+        }
 
         blobStore.removeBlobs(containerName, blobNames);
 
@@ -1726,9 +1727,17 @@ final class S3ProxyHandler extends AbstractHandler {
                 parts.add(part);
             }
         } else {
+            CompleteMultipartUploadRequest cmu = new XmlMapper().readValue(
+                    is, CompleteMultipartUploadRequest.class);
+            // use TreeMap to allow runt last part
+            SortedMap<Integer, String> requestParts = new TreeMap<>();
+            if (cmu.parts != null) {
+                for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    requestParts.put(part.partNumber, part.eTag);
+                }
+            }
             for (Iterator<Map.Entry<Integer, String>> it =
-                    parseCompleteMultipartUpload(is).entrySet().iterator();
-                    it.hasNext();) {
+                    requestParts.entrySet().iterator(); it.hasNext();) {
                 Map.Entry<Integer, String> entry = it.next();
                 MultipartPart part = partsByListing.get(entry.getKey());
                 if (part == null) {
@@ -2440,82 +2449,6 @@ final class S3ProxyHandler extends AbstractHandler {
                     "=" + URLEncoder.encode(value, charsetName));
         }
         return Joiner.on("&").join(queryParameters);
-    }
-
-    private Collection<String> parseSimpleXmlElements(InputStream is,
-            String tagName) throws IOException {
-        Collection<String> elements = new ArrayList<>();
-        try {
-            XMLStreamReader reader = xmlInputFactory.createXMLStreamReader(is);
-            String startTag = null;
-            StringBuilder characters = new StringBuilder();
-
-            while (reader.hasNext()) {
-                switch (reader.getEventType()) {
-                case XMLStreamConstants.START_ELEMENT:
-                    startTag = reader.getLocalName();
-                    characters.setLength(0);
-                    break;
-                case XMLStreamConstants.CHARACTERS:
-                    characters.append(reader.getTextCharacters(),
-                            reader.getTextStart(), reader.getTextLength());
-                    break;
-                case XMLStreamConstants.END_ELEMENT:
-                    if (startTag != null && startTag.equals(tagName)) {
-                        elements.add(characters.toString());
-                    }
-                    startTag = null;
-                    characters.setLength(0);
-                    break;
-                default:
-                    break;
-                }
-                reader.next();
-            }
-        } catch (XMLStreamException xse) {
-            throw new IOException(xse);
-        }
-        return elements;
-    }
-
-    private SortedMap<Integer, String> parseCompleteMultipartUpload(
-            InputStream is) throws IOException {
-        SortedMap<Integer, String> parts = new TreeMap<>();
-        try {
-            XMLStreamReader reader = xmlInputFactory.createXMLStreamReader(is);
-            int partNumber = -1;
-            String eTag = null;
-            StringBuilder characters = new StringBuilder();
-
-            while (reader.hasNext()) {
-                switch (reader.getEventType()) {
-                case XMLStreamConstants.CHARACTERS:
-                    characters.append(reader.getTextCharacters(),
-                            reader.getTextStart(), reader.getTextLength());
-                    break;
-                case XMLStreamConstants.END_ELEMENT:
-                    String tag = reader.getLocalName();
-                    if (tag.equalsIgnoreCase("PartNumber")) {
-                        partNumber = Integer.parseInt(
-                                characters.toString().trim());
-                    } else if (tag.equalsIgnoreCase("ETag")) {
-                        eTag = characters.toString().trim();
-                    } else if (tag.equalsIgnoreCase("Part")) {
-                        parts.put(partNumber, eTag);
-                        partNumber = -1;
-                        eTag = null;
-                    }
-                    characters.setLength(0);
-                    break;
-                default:
-                    break;
-                }
-                reader.next();
-            }
-        } catch (XMLStreamException xse) {
-            throw new IOException(xse);
-        }
-        return parts;
     }
 
     private static void addContentMetdataFromHttpRequest(
