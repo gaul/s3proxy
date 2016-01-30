@@ -72,6 +72,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public final class S3AwsSdkTest {
@@ -254,7 +255,29 @@ public final class S3AwsSdkTest {
         }
     }
 
-    // TODO: testAwsV4UrlSigning()
+    // TODO: implement V4 URL signing
+    @Ignore
+    @Test
+    public void testAwsV4UrlSigning() throws Exception {
+        String blobName = "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        Date expiration = new Date(System.currentTimeMillis() +
+                TimeUnit.HOURS.toMillis(1));
+        GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(
+                containerName, blobName);
+        request.setMethod(HttpMethod.GET);
+        request.setExpiration(expiration);
+
+        URL url = client.generatePresignedUrl(request);
+        try (InputStream actual = url.openStream();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
 
     // TODO: jclouds lacks support for multipart copy
     @Test
