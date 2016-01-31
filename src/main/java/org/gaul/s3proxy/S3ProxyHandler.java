@@ -1816,7 +1816,25 @@ final class S3ProxyHandler extends AbstractHandler {
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
                 new PutOptions());
 
-        List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
+        List<MultipartPart> parts;
+        if (getBlobStoreType(blobStore).equals("azureblob")) {
+            // map Azure subparts back into S3 parts
+            SortedMap<Integer, Long> map = new TreeMap<>();
+            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
+                int virtualPartNumber = part.partNumber() / 10_000;
+                Long size = map.get(virtualPartNumber);
+                map.put(virtualPartNumber,
+                        (size == null ? 0L : (long) size) + part.partSize());
+            }
+            parts = new ArrayList<>();
+            for (Map.Entry<Integer, Long> entry : map.entrySet()) {
+                String eTag = "";  // TODO: bogus value
+                parts.add(MultipartPart.create(entry.getKey(),
+                        entry.getValue(), eTag));
+            }
+        } else {
+            parts = blobStore.listMultipartUpload(mpu);
+        }
 
         String encodingType = request.getParameter("encoding-type");
 
