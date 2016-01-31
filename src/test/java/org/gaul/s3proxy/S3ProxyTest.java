@@ -410,7 +410,6 @@ public final class S3ProxyTest {
     }
 
     // TODO: fails for GCS (jclouds not implemented)
-    // TODO: fails for Swift (content and user metadata not set)
     @Test
     public void testMultipartUpload() throws Exception {
         String blobName = "multipart-upload";
