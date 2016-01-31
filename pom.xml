@@ -191,7 +191,7 @@
           <threadCount>1</threadCount>
           <argLine>-Xmx256m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
-          <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+          <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
           <runOrder>random</runOrder>
           <trimStackTrace>false</trimStackTrace>
           <properties>
