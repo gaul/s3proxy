@@ -140,7 +140,7 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     public void testCopyIfMatch() throws InterruptedException,
            ExecutionException, TimeoutException, IOException {
         try {
-            super.testCopyIfUnmodifiedSince();
+            super.testCopyIfMatch();
             Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
         } catch (AWSResponseException are) {
             assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
@@ -153,7 +153,7 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     public void testCopyIfNoneMatch() throws IOException,
            InterruptedException, ExecutionException, TimeoutException {
         try {
-            super.testCopyIfUnmodifiedSince();
+            super.testCopyIfNoneMatch();
             Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
         } catch (AWSResponseException are) {
             assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
