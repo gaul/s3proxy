@@ -51,8 +51,6 @@ import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
 import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
-import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
-import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
@@ -142,8 +140,7 @@ public final class S3AwsSdkTest {
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 metadata);
 
-        S3Object object = client.getObject(new GetObjectRequest(containerName,
-                "foo"));
+        S3Object object = client.getObject(containerName, "foo");
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
@@ -162,8 +159,7 @@ public final class S3AwsSdkTest {
         client.putObject(containerName, "foo",
                 BYTE_SOURCE.openStream(), metadata);
 
-        S3Object object = client.getObject(new GetObjectRequest(containerName,
-                "foo"));
+        S3Object object = client.getObject(containerName, "foo");
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
@@ -184,8 +180,7 @@ public final class S3AwsSdkTest {
         client.putObject(containerName, "foo",
                 BYTE_SOURCE.openStream(), metadata);
 
-        S3Object object = client.getObject(new GetObjectRequest(containerName,
-                "foo"));
+        S3Object object = client.getObject(containerName, "foo");
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
@@ -245,12 +240,8 @@ public final class S3AwsSdkTest {
 
         Date expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
-        GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(
-                containerName, blobName);
-        request.setMethod(HttpMethod.GET);
-        request.setExpiration(expiration);
-
-        URL url = client.generatePresignedUrl(request);
+        URL url = client.generatePresignedUrl(containerName, blobName,
+                expiration, HttpMethod.GET);
         try (InputStream actual = url.openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
@@ -269,12 +260,8 @@ public final class S3AwsSdkTest {
 
         Date expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
-        GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(
-                containerName, blobName);
-        request.setMethod(HttpMethod.GET);
-        request.setExpiration(expiration);
-
-        URL url = client.generatePresignedUrl(request);
+        URL url = client.generatePresignedUrl(containerName, blobName,
+                expiration, HttpMethod.GET);
         try (InputStream actual = url.openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
@@ -317,8 +304,7 @@ public final class S3AwsSdkTest {
         CompleteMultipartUploadResult completeUploadResponse =
                 client.completeMultipartUpload(completeRequest);
 
-        S3Object object = client.getObject(new GetObjectRequest(containerName,
-                targetBlobName));
+        S3Object object = client.getObject(containerName, targetBlobName);
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
@@ -372,8 +358,7 @@ public final class S3AwsSdkTest {
                                 uploadPartResult2.getPartETag()));
         client.completeMultipartUpload(completeRequest);
 
-        S3Object object = client.getObject(new GetObjectRequest(containerName,
-                key));
+        S3Object object = client.getObject(containerName, key);
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 size);
         try (InputStream actual = object.getObjectContent();
@@ -444,8 +429,7 @@ public final class S3AwsSdkTest {
         client.abortMultipartUpload(new AbortMultipartUploadRequest(
                     containerName, key, uploadId));
 
-        S3Object object = client.getObject(new GetObjectRequest(containerName,
-                key));
+        S3Object object = client.getObject(containerName, key);
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
