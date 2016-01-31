@@ -45,6 +45,7 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
                             "0"));
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
+    private String blobStoreType;
 
     @AfterClass
     public void tearDown() throws Exception {
@@ -65,6 +66,7 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
             info = TestUtils.startS3Proxy();
             s3Proxy = info.getS3Proxy();
             context = info.getBlobStore().getContext();
+            blobStoreType = context.unwrap().getProviderMetadata().getId();
         } catch (Exception e) {
             throw Throwables.propagate(e);
         }
@@ -114,5 +116,14 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
             assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
             throw new SkipException("bucket logging not supported", are);
         }
+    }
+
+    @Override
+    public void testListBucketMarker()
+            throws InterruptedException, ExecutionException, TimeoutException {
+        if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
+            throw new SkipException("opaque markers not supported");
+        }
+        super.testListBucketMarker();
     }
 }
