@@ -47,6 +47,7 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
                             "0"));
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
+    private String blobStoreType;
 
     @AfterClass
     public void tearDown() throws Exception {
@@ -67,6 +68,7 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
             info = TestUtils.startS3Proxy();
             s3Proxy = info.getS3Proxy();
             context = info.getBlobStore().getContext();
+            blobStoreType = context.unwrap().getProviderMetadata().getId();
         } catch (Exception e) {
             throw Throwables.propagate(e);
         }
@@ -165,5 +167,39 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
             throws Exception {
         return new URL(String.format("%s/%s/%s", URI.create(endpoint),
                 containerName, key));
+    }
+
+    @Override
+    public void testPutCannedAccessPolicyPublic() throws Exception {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testPutCannedAccessPolicyPublic();
+    }
+
+    @Override
+    public void testCopyCannedAccessPolicyPublic() throws Exception {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testCopyCannedAccessPolicyPublic();
+    }
+
+    @Override
+    public void testPublicReadOnObject()
+            throws InterruptedException, ExecutionException, TimeoutException,
+            IOException {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testPublicReadOnObject();
+    }
+
+    @Override
+    public void testUpdateObjectCannedACL() throws Exception {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testUpdateObjectCannedACL();
     }
 }

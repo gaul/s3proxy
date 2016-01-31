@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -91,6 +92,7 @@ public final class S3AwsSdkTest {
     private URI s3Endpoint;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
+    private String blobStoreType;
     private String containerName;
     private BasicAWSCredentials awsCreds;
     private AmazonS3 client;
@@ -110,7 +112,7 @@ public final class S3AwsSdkTest {
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
 
-        String blobStoreType = context.unwrap().getProviderMetadata().getId();
+        blobStoreType = context.unwrap().getProviderMetadata().getId();
         if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
             // AWK SDK checks that ETag matches Content-MD5 during PUT
             System.setProperty(
@@ -382,6 +384,7 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
+        assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
         String blobName = "testUpdateBlobXmlAcls-blob";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());

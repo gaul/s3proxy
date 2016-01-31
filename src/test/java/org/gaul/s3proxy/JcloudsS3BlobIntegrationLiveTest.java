@@ -25,6 +25,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobIntegrationLiveTest;
+import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
@@ -38,6 +39,7 @@ public final class JcloudsS3BlobIntegrationLiveTest
                             "0"));
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
+    private String blobStoreType;
 
     @AfterClass
     public void tearDown() throws Exception {
@@ -58,6 +60,7 @@ public final class JcloudsS3BlobIntegrationLiveTest
             info = TestUtils.startS3Proxy();
             s3Proxy = info.getS3Proxy();
             context = info.getBlobStore().getContext();
+            blobStoreType = context.unwrap().getProviderMetadata().getId();
         } catch (Exception e) {
             throw Throwables.propagate(e);
         }
@@ -69,5 +72,29 @@ public final class JcloudsS3BlobIntegrationLiveTest
                 info.getEndpoint().toString());
         props.setProperty(Constants.PROPERTY_STRIP_EXPECT_HEADER, "true");
         return props;
+    }
+
+    @Override
+    public void testSetBlobAccess() throws Exception {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testSetBlobAccess();
+    }
+
+    @Override
+    public void testPutBlobAccess() throws Exception {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testPutBlobAccess();
+    }
+
+    @Override
+    public void testPutBlobAccessMultipart() throws Exception {
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testPutBlobAccessMultipart();
     }
 }
