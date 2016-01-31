@@ -24,6 +24,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.s3.blobstore.integration.S3BlobIntegrationLiveTest;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
@@ -104,5 +105,35 @@ public final class JcloudsS3BlobIntegrationLiveTest
             throw new SkipException("blob access control not supported");
         }
         super.testCreateBlobWithExpiry();
+    }
+
+    @Override
+    public void testCopyIfNoneMatch() throws Exception {
+        if (Quirks.NO_COPY_IF_NONE_MATCH.contains(blobStoreType)) {
+            throw new SkipException("copy If-None-Match not supported");
+        }
+        super.testCopyIfNoneMatch();
+    }
+
+    @Override
+    public void testCopyIfNoneMatchNegative() throws Exception {
+        if (Quirks.NO_COPY_IF_NONE_MATCH.contains(blobStoreType)) {
+            throw new SkipException("copy If-None-Match not supported");
+        }
+        super.testCopyIfNoneMatchNegative();
+    }
+
+    @Override
+    protected void checkCacheControl(Blob blob, String cacheControl) {
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            super.checkCacheControl(blob, cacheControl);
+        }
+    }
+
+    @Override
+    protected void checkContentLanguage(Blob blob, String contentLanguage) {
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            super.checkContentLanguage(blob, contentLanguage);
+        }
     }
 }

@@ -44,6 +44,13 @@ final class Quirks {
             "openstack-swift"
     );
 
+    /** Blobstores which do not support the If-None-Match header during copy. */
+    static final Set<String> NO_COPY_IF_NONE_MATCH = ImmutableSet.of(
+            "openstack-swift",
+            "rackspace-cloudfiles-uk",
+            "rackspace-cloudfiles-us"
+    );
+
     static final Set<String> NO_EXPIRES = ImmutableSet.of(
             "azureblob"
     );

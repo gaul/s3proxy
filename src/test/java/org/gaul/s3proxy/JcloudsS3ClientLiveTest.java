@@ -34,6 +34,7 @@ import org.jclouds.Constants;
 import org.jclouds.aws.AWSResponseException;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.S3ClientLiveTest;
+import org.jclouds.s3.domain.S3Object;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
@@ -144,10 +145,28 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     }
 
     @Override
+    public void testCopyIfNoneMatch()
+            throws IOException, InterruptedException, ExecutionException,
+            TimeoutException {
+        if (Quirks.NO_COPY_IF_NONE_MATCH.contains(blobStoreType)) {
+            throw new SkipException("copy If-None-Match not supported");
+        }
+        super.testCopyIfNoneMatch();
+    }
+
+    @Override
     public void testUpdateObjectCannedACL() throws Exception {
         if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
             throw new SkipException("blob access control not supported");
         }
         super.testUpdateObjectCannedACL();
+    }
+
+    @Override
+    protected void assertCacheControl(S3Object newObject, String string) {
+        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            throw new SkipException("cache control not supported");
+        }
+        super.assertCacheControl(newObject, string);
     }
 }
