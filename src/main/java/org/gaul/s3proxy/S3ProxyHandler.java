@@ -1501,7 +1501,7 @@ final class S3ProxyHandler extends AbstractHandler {
         BlobBuilder.PayloadBlobBuilder builder = blobStore
                 .blobBuilder(blobName)
                 .payload(is)
-                .contentLength(request.getContentLength());
+                .contentLength(contentLength);
         addContentMetdataFromHttpRequest(builder, request);
         if (contentMD5 != null) {
             builder = builder.contentMD5(contentMD5);
