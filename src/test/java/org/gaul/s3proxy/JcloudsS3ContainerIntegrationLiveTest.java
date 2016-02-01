@@ -81,4 +81,12 @@ public final class JcloudsS3ContainerIntegrationLiveTest
         }
         super.testListMarkerAfterLastKey();
     }
+
+    @Override
+    public void testListContainerWithZeroMaxResults() throws Exception {
+        if (Quirks.NO_LIST_ZERO_KEYS.contains(blobStoreType)) {
+            throw new SkipException("listing zero keys not supported");
+        }
+        super.testListContainerWithZeroMaxResults();
+    }
 }

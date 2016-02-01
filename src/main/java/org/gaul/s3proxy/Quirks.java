@@ -44,6 +44,12 @@ final class Quirks {
             "openstack-swift"
     );
 
+    /** Blobstores which do not allow listing zero keys. */
+    static final Set<String> NO_LIST_ZERO_KEYS = ImmutableSet.of(
+            "atmos",
+            "azureblob"
+    );
+
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = ImmutableSet.of(
             "azureblob",
