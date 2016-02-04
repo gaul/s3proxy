@@ -97,4 +97,12 @@ public final class JcloudsS3BlobIntegrationLiveTest
         }
         super.testPutBlobAccessMultipart();
     }
+
+    @Override
+    public void testCreateBlobWithExpiry() throws InterruptedException {
+        if (Quirks.NO_EXPIRES.contains(blobStoreType)) {
+            throw new SkipException("blob access control not supported");
+        }
+        super.testCreateBlobWithExpiry();
+    }
 }

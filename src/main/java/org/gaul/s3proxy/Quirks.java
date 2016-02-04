@@ -44,6 +44,10 @@ final class Quirks {
             "openstack-swift"
     );
 
+    static final Set<String> NO_EXPIRES = ImmutableSet.of(
+            "azureblob"
+    );
+
     /** Blobstores which do not allow listing zero keys. */
     static final Set<String> NO_LIST_ZERO_KEYS = ImmutableSet.of(
             "atmos",
