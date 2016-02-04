@@ -20,6 +20,7 @@ import static java.util.Objects.requireNonNull;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -1991,8 +1992,8 @@ final class S3ProxyHandler extends AbstractHandler {
                         offset += azureMaximumMultipartPartSize,
                         ++subPartNumber) {
                     Payload payload = Payloads.newInputStreamPayload(
-                            ByteStreams.limit(his,
-                                    azureMaximumMultipartPartSize));
+                            new UncloseableInputStream(ByteStreams.limit(his,
+                                    azureMaximumMultipartPartSize)));
                     payload.getContentMetadata().setContentLength(
                             Math.min(azureMaximumMultipartPartSize,
                                     contentLength - offset));
@@ -2557,6 +2558,17 @@ final class S3ProxyHandler extends AbstractHandler {
             }
         } else {
             return blobName;
+        }
+    }
+
+    private static final class UncloseableInputStream
+            extends FilterInputStream {
+        UncloseableInputStream(InputStream is) {
+            super(is);
+        }
+
+        @Override
+        public void close() throws IOException {
         }
     }
 }
