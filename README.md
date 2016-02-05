@@ -105,6 +105,7 @@ References
 * Another project named [s3proxy](https://github.com/abustany/s3proxy) provides HTTP access to non-S3-aware applications
 * [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs
 * [s3proxydocker](https://github.com/ritazh/s3proxydocker) packages S3Proxy as a Docker container
+* [sbt-s3](https://github.com/localytics/sbt-s3) run S3Proxy via the Scala Build Tool
 * [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
 
 License
