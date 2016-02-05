@@ -102,7 +102,6 @@ References
 * Apache [jclouds](http://jclouds.apache.org/) provides storage backend support for S3Proxy
 * Ceph [s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
 * [fake-s3](https://github.com/jubos/fake-s3) and [S3 ninja](https://github.com/scireum/s3ninja) provide functionality similar to S3Proxy when using the filesystem backend
-* Another project named [s3proxy](https://github.com/abustany/s3proxy) provides HTTP access to non-S3-aware applications
 * [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs
 * [s3proxydocker](https://github.com/ritazh/s3proxydocker) packages S3Proxy as a Docker container
 * [sbt-s3](https://github.com/localytics/sbt-s3) run S3Proxy via the Scala Build Tool
