@@ -72,7 +72,7 @@ Supported storage backends
 Limitations
 -----------
 
-S3Proxy has broad support for the S3 API, however, it does not support:
+S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 * ACLs other than private and public-read
 * AWS signature V4, see [#24](https://github.com/andrewgaul/s3proxy/issues/24)
