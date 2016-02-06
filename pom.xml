@@ -214,7 +214,7 @@
       <plugin>
         <groupId>org.skife.maven</groupId>
         <artifactId>really-executable-jar-maven-plugin</artifactId>
-        <version>1.4.0</version>
+        <version>1.4.1</version>
         <configuration>
           <programFile>s3proxy</programFile>
         </configuration>
