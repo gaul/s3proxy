@@ -419,7 +419,7 @@ public class S3ProxyHandler {
             String expectedSignature = null;
             if (authHeader.hmacAlgorithm == null) {
                 expectedSignature = createAuthorizationSignature(request,
-                        uri, requestIdentity, credential);
+                        uri, credential);
             } else {
                 try {
                     byte[] payload;
@@ -484,8 +484,8 @@ public class S3ProxyHandler {
                 handleContainerDelete(response, blobStore, path[1]);
                 return;
             } else if (uploadId != null) {
-                handleAbortMultipartUpload(request, response, blobStore,
-                        path[1], path[2], uploadId);
+                handleAbortMultipartUpload(response, blobStore, path[1],
+                        path[2], uploadId);
                 return;
             } else {
                 handleBlobRemove(response, blobStore, path[1], path[2]);
@@ -525,7 +525,7 @@ public class S3ProxyHandler {
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerExists(response, blobStore, path[1]);
+                handleContainerExists(blobStore, path[1]);
                 return;
             } else {
                 handleBlobMetadata(request, response, blobStore, path[1],
@@ -534,8 +534,7 @@ public class S3ProxyHandler {
             }
         case "POST":
             if ("".equals(request.getParameter("delete"))) {
-                handleMultiBlobRemove(request, response, is, blobStore,
-                        path[1]);
+                handleMultiBlobRemove(response, is, blobStore, path[1]);
                 return;
             } else if ("".equals(request.getParameter("uploads"))) {
                 handleInitiateMultipartUpload(request, response, blobStore,
@@ -543,8 +542,8 @@ public class S3ProxyHandler {
                 return;
             } else if (uploadId != null &&
                     request.getParameter("partNumber") == null) {
-                handleCompleteMultipartUpload(request, response, is, blobStore,
-                        path[1], path[2], uploadId);
+                handleCompleteMultipartUpload(response, is, blobStore, path[1],
+                        path[2], uploadId);
                 return;
             }
             break;
@@ -1004,9 +1003,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerExists(HttpServletResponse response,
-            BlobStore blobStore, String containerName)
-            throws IOException, S3Exception {
+    private void handleContainerExists(BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
@@ -1267,9 +1265,9 @@ public class S3ProxyHandler {
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
-    private void handleMultiBlobRemove(HttpServletRequest request,
-            HttpServletResponse response, InputStream is, BlobStore blobStore,
-            String containerName) throws IOException {
+    private void handleMultiBlobRemove(HttpServletResponse response,
+            InputStream is, BlobStore blobStore, String containerName)
+            throws IOException {
         DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
                 is, DeleteMultipleObjectsRequest.class);
         Collection<String> blobNames = new ArrayList<>();
@@ -1827,10 +1825,9 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleCompleteMultipartUpload(HttpServletRequest request,
-            HttpServletResponse response, InputStream is, BlobStore blobStore,
-            String containerName, String blobName, String uploadId)
-            throws IOException, S3Exception {
+    private void handleCompleteMultipartUpload(HttpServletResponse response,
+            InputStream is, BlobStore blobStore, String containerName,
+            String blobName, String uploadId) throws IOException, S3Exception {
         Blob stubBlob = blobStore.getBlob(containerName, uploadId);
         BlobAccess access = blobStore.getBlobAccess(containerName, uploadId);
         MultipartUpload mpu = MultipartUpload.create(containerName,
@@ -1919,10 +1916,9 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleAbortMultipartUpload(HttpServletRequest request,
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName, String blobName, String uploadId)
-            throws IOException, S3Exception {
+    private void handleAbortMultipartUpload(HttpServletResponse response,
+            BlobStore blobStore, String containerName, String blobName,
+            String uploadId) throws IOException, S3Exception {
         if (!blobStore.blobExists(containerName, uploadId)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
         }
@@ -2447,8 +2443,7 @@ public class S3ProxyHandler {
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
      */
     private static String createAuthorizationSignature(
-            HttpServletRequest request, String uri, String identity,
-            String credential) {
+            HttpServletRequest request, String uri, String credential) {
         // sort Amazon headers
         SortedSetMultimap<String, String> canonicalizedHeaders =
                 TreeMultimap.create();
