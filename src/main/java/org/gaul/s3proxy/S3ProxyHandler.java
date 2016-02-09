@@ -1014,7 +1014,7 @@ final class S3ProxyHandler extends AbstractHandler {
             } else {
                 pis.unread(ch);
                 CreateBucketRequest cbr = new XmlMapper().readValue(
-                        is, CreateBucketRequest.class);
+                        pis, CreateBucketRequest.class);
                 locationString = cbr.locationConstraint;
             }
         }
