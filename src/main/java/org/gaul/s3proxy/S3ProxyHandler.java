@@ -79,6 +79,7 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
+import com.google.common.net.PercentEscaper;
 
 import org.apache.commons.fileupload.MultipartStream;
 import org.eclipse.jetty.server.Request;
@@ -183,6 +184,8 @@ final class S3ProxyHandler extends AbstractHandler {
             "bucket-owner-full-control",
             "log-delivery-write"
     );
+    private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
+            new PercentEscaper("-_.~", false);
 
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
@@ -2461,11 +2464,12 @@ final class S3ProxyHandler extends AbstractHandler {
         String charsetName = Objects.firstNonNull(request.getQueryEncoding(),
                 "UTF-8");
         for (String key : parameters) {
-            String value = request.getParameter(key);
-            // The parameters are decoded by default, so we need to re-encode
-            // them
-            queryParameters.add(URLEncoder.encode(key, charsetName) +
-                    "=" + URLEncoder.encode(value, charsetName));
+            // re-encode keys and values in AWS normalized form
+            key = URLDecoder.decode(key, charsetName);
+            String value = URLDecoder.decode(request.getParameter(key),
+                    charsetName);
+            queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
+                    "=" + AWS_URL_PARAMETER_ESCAPER.escape(value));
         }
         return Joiner.on("&").join(queryParameters);
     }

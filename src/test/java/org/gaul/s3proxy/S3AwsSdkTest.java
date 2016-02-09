@@ -54,6 +54,7 @@ import com.amazonaws.services.s3.model.CopyPartResult;
 import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
+import com.amazonaws.services.s3.model.ListObjectsRequest;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.Permission;
@@ -406,6 +407,25 @@ public final class S3AwsSdkTest {
         assertThat(metadata).isNotNull();
 
         ObjectListing listing = client.listObjects(containerName);
+        List<S3ObjectSummary> summaries = listing.getObjectSummaries();
+        assertThat(summaries).hasSize(1);
+        S3ObjectSummary summary = summaries.iterator().next();
+        assertThat(summary.getKey()).isEqualTo(blobName);
+    }
+
+    @Test
+    public void testListSpecialCharacters() throws Exception {
+        String prefix = "test_dir/special */";
+        String blobName = prefix + "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        ObjectListing listing = client.listObjects(new ListObjectsRequest()
+                .withBucketName(containerName)
+                .withPrefix(prefix)
+                .withDelimiter("/"));
         List<S3ObjectSummary> summaries = listing.getObjectSummaries();
         assertThat(summaries).hasSize(1);
         S3ObjectSummary summary = summaries.iterator().next();
