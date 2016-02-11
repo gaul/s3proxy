@@ -113,7 +113,7 @@ public final class S3AwsSdkTest {
 
         blobStoreType = context.unwrap().getProviderMetadata().getId();
         if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
-            // AWK SDK checks that ETag matches Content-MD5 during PUT
+            // AWS SDK checks that ETag matches Content-MD5 during PUT
             System.setProperty(
                     "com.amazonaws.services.s3.disablePutObjectMD5Validation",
                     "true");
