@@ -368,6 +368,8 @@ public final class S3AwsSdkTest {
         }
     }
 
+    // TODO: testMultipartUploadConditionalCopy
+
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));

@@ -71,6 +71,8 @@ enum S3ErrorCode {
     NOT_IMPLEMENTED(HttpServletResponse.SC_NOT_IMPLEMENTED,
             "A header you provided implies functionality that is not" +
             " implemented."),
+    PRECONDITION_FAILED(HttpServletResponse.SC_PRECONDITION_FAILED,
+            "At least one of the preconditions you specified did not hold."),
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden");

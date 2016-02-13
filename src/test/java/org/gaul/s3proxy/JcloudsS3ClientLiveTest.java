@@ -109,58 +109,6 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
         }
     }
 
-    @Override
-    @Test
-    public void testCopyIfModifiedSince() throws InterruptedException,
-           ExecutionException, TimeoutException, IOException {
-        try {
-            super.testCopyIfModifiedSince();
-            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
-        } catch (AWSResponseException are) {
-            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
-            throw new SkipException("conditional copies not supported", are);
-        }
-    }
-
-    @Override
-    @Test
-    public void testCopyIfUnmodifiedSince() throws InterruptedException,
-           ExecutionException, TimeoutException, IOException {
-        try {
-            super.testCopyIfUnmodifiedSince();
-            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
-        } catch (AWSResponseException are) {
-            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
-            throw new SkipException("conditional copies not supported", are);
-        }
-    }
-
-    @Override
-    @Test
-    public void testCopyIfMatch() throws InterruptedException,
-           ExecutionException, TimeoutException, IOException {
-        try {
-            super.testCopyIfMatch();
-            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
-        } catch (AWSResponseException are) {
-            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
-            throw new SkipException("conditional copies not supported", are);
-        }
-    }
-
-    @Override
-    @Test
-    public void testCopyIfNoneMatch() throws IOException,
-           InterruptedException, ExecutionException, TimeoutException {
-        try {
-            super.testCopyIfNoneMatch();
-            Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
-        } catch (AWSResponseException are) {
-            assertThat(are.getError().getCode()).isEqualTo("NotImplemented");
-            throw new SkipException("conditional copies not supported", are);
-        }
-    }
-
     // work around bucket-in-host and port 80 assumptions
     @Override
     protected URL getObjectURL(String containerName, String key)

@@ -162,13 +162,10 @@ final class S3ProxyHandler extends AbstractHandler {
             "x-amz-acl",
             "x-amz-content-sha256",
             "x-amz-copy-source",
-            // TODO: unsupported
-/*
             "x-amz-copy-source-if-match",
             "x-amz-copy-source-if-modified-since",
             "x-amz-copy-source-if-none-match",
             "x-amz-copy-source-if-unmodified-since",
-*/
             "x-amz-copy-source-range",
             "x-amz-date",
             "x-amz-decoded-content-length",
@@ -1365,6 +1362,27 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         CopyOptions.Builder options = CopyOptions.builder();
+
+        String ifMatch = request.getHeader("x-amz-copy-source-if-match");
+        if (ifMatch != null) {
+            options.ifMatch(ifMatch);
+        }
+        String ifNoneMatch = request.getHeader(
+                "x-amz-copy-source-if-none-match");
+        if (ifNoneMatch != null) {
+            options.ifNoneMatch(ifNoneMatch);
+        }
+        long ifModifiedSince = request.getDateHeader(
+                "x-amz-copy-source-if-modified-since");
+        if (ifModifiedSince != -1) {
+            options.ifModifiedSince(new Date(ifModifiedSince));
+        }
+        long ifUnmodifiedSince = request.getDateHeader(
+                "x-amz-copy-source-if-unmodified-since");
+        if (ifUnmodifiedSince != -1) {
+            options.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
+        }
+
         if (replaceMetadata) {
             ContentMetadataBuilder contentMetadata =
                     ContentMetadataBuilder.create();
@@ -1979,9 +1997,39 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         BlobMetadata blobMetadata = blob.getMetadata();
+
+        String ifMatch = request.getHeader(
+                "x-amz-copy-source-if-match");
+        String ifNoneMatch = request.getHeader(
+                "x-amz-copy-source-if-modified-since");
+        long ifModifiedSince = request.getDateHeader(
+                "x-amz-copy-source-if-none-match");
+        long ifUnmodifiedSince = request.getDateHeader(
+                "x-amz-copy-source-if-unmodified-since");
+        String eTag = maybeQuoteETag(blobMetadata.getETag());
+        if (eTag != null) {
+            if (ifMatch != null && !ifMatch.equals(eTag)) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+        }
+
+        Date lastModified = blobMetadata.getLastModified();
+        if (lastModified != null) {
+            if (ifModifiedSince != -1 && lastModified.compareTo(
+                    new Date(ifModifiedSince)) <= 0) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            if (ifUnmodifiedSince != -1 && lastModified.compareTo(
+                    new Date(ifUnmodifiedSince)) >= 0) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+        }
+
         long contentLength =
                 blobMetadata.getContentMetadata().getContentLength();
-        String eTag;
 
         try (InputStream is = blob.getPayload().openStream()) {
             if (getBlobStoreType(blobStore).equals("azureblob")) {
