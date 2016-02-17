@@ -357,8 +357,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
             }
         }
-
-        BlobStore blobStore;
+        
         String requestIdentity = null;
         String headerAuthorization = request.getHeader(
                 HttpHeaders.AUTHORIZATION);
@@ -387,6 +386,7 @@ final class S3ProxyHandler extends AbstractHandler {
             path[i] = URLDecoder.decode(path[i], "UTF-8");
         }
 
+        BlobStore blobStore;
         Map.Entry<String, BlobStore> provider =
                 blobStoreLocator.locateBlobStore(
                         requestIdentity, path.length > 1 ? path[1] : null,
@@ -400,7 +400,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
 
-            String credential = provider.getKey();
             blobStore = provider.getValue();
 
             String expiresString = request.getParameter("Expires");
@@ -412,6 +411,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
             }
 
+            String credential = provider.getKey();
             String expectedSignature = null;
             if (authHeader.hmacAlgorithm == null) {
                 expectedSignature = createAuthorizationSignature(request,
@@ -1069,7 +1069,6 @@ final class S3ProxyHandler extends AbstractHandler {
             String containerName) throws IOException, S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
         ListContainerOptions options = new ListContainerOptions();
-        String encodingType = request.getParameter("encoding-type");
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null) {
             options.delimiter(delimiter);
@@ -1117,6 +1116,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
             writeSimpleElement(xml, "Name", containerName);
 
+            String encodingType = request.getParameter("encoding-type");
             if (prefix == null) {
                 xml.writeEmptyElement("Prefix");
             } else {
@@ -1943,8 +1943,6 @@ final class S3ProxyHandler extends AbstractHandler {
         if (path.length != 2) {
             throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
         }
-        String sourceContainerName = path[0];
-        String sourceBlobName = path[1];
 
         GetOptions options = new GetOptions();
         String range = request.getHeader("x-amz-copy-source-range");
@@ -1984,12 +1982,9 @@ final class S3ProxyHandler extends AbstractHandler {
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
-
-        // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore),
-                new PutOptions());
-
+        
+        String sourceContainerName = path[0];
+        String sourceBlobName = path[1];
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 options);
         if (blob == null) {
@@ -2002,10 +1997,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 "x-amz-copy-source-if-match");
         String ifNoneMatch = request.getHeader(
                 "x-amz-copy-source-if-modified-since");
-        long ifModifiedSince = request.getDateHeader(
-                "x-amz-copy-source-if-none-match");
-        long ifUnmodifiedSince = request.getDateHeader(
-                "x-amz-copy-source-if-unmodified-since");
         String eTag = maybeQuoteETag(blobMetadata.getETag());
         if (eTag != null) {
             if (ifMatch != null && !ifMatch.equals(eTag)) {
@@ -2018,10 +2009,14 @@ final class S3ProxyHandler extends AbstractHandler {
 
         Date lastModified = blobMetadata.getLastModified();
         if (lastModified != null) {
+            long ifModifiedSince = request.getDateHeader(
+                    "x-amz-copy-source-if-none-match");
             if (ifModifiedSince != -1 && lastModified.compareTo(
                     new Date(ifModifiedSince)) <= 0) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
+            long ifUnmodifiedSince = request.getDateHeader(
+                    "x-amz-copy-source-if-unmodified-since");
             if (ifUnmodifiedSince != -1 && lastModified.compareTo(
                     new Date(ifUnmodifiedSince)) >= 0) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
@@ -2030,6 +2025,11 @@ final class S3ProxyHandler extends AbstractHandler {
 
         long contentLength =
                 blobMetadata.getContentMetadata().getContentLength();
+
+        // TODO: how to reconstruct original mpu?
+        MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, createFakeBlobMetadata(blobStore),
+                new PutOptions());
 
         try (InputStream is = blob.getPayload().openStream()) {
             if (getBlobStoreType(blobStore).equals("azureblob")) {
