@@ -86,15 +86,15 @@ enum S3ErrorCode {
         this.message = requireNonNull(message);
     }
 
-    public String getErrorCode() {
+    String getErrorCode() {
         return errorCode;
     }
 
-    public int getHttpStatusCode() {
+    int getHttpStatusCode() {
         return httpStatusCode;
     }
 
-    public String getMessage() {
+    String getMessage() {
         return message;
     }
 
