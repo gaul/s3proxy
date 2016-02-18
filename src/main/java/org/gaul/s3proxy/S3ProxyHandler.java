@@ -521,7 +521,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 handleContainerExists(response, blobStore, path[1]);
                 return;
             } else {
-                handleBlobMetadata(response, blobStore, path[1], path[2]);
+                handleBlobMetadata(request, response, blobStore, path[1],
+                        path[2]);
                 return;
             }
         case "POST":
@@ -661,7 +662,8 @@ final class S3ProxyHandler extends AbstractHandler {
                 BlobAccess access = blobStore.getBlobAccess(containerName,
                         blobName);
                 if (access == BlobAccess.PUBLIC_READ) {
-                    handleBlobMetadata(response, blobStore, path[1], path[2]);
+                    handleBlobMetadata(request, response, blobStore, path[1],
+                            path[2]);
                 } else {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
@@ -1248,12 +1250,46 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void handleBlobMetadata(HttpServletResponse response,
+    private void handleBlobMetadata(HttpServletRequest request,
+            HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
         BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
         if (metadata == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+        }
+
+        // BlobStore.blobMetadata does not support GetOptions so we emulate
+        // conditional requests.
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        long ifModifiedSince = request.getDateHeader(
+                HttpHeaders.IF_MODIFIED_SINCE);
+        long ifUnmodifiedSince = request.getDateHeader(
+                HttpHeaders.IF_UNMODIFIED_SINCE);
+
+        String eTag = maybeQuoteETag(metadata.getETag());
+        if (eTag != null) {
+            if (ifMatch != null && !ifMatch.equals(eTag)) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
+                response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+                return;
+            }
+        }
+
+        Date lastModified = metadata.getLastModified();
+        if (lastModified != null) {
+            if (ifModifiedSince != -1 && lastModified.compareTo(
+                    new Date(ifModifiedSince)) <= 0) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            if (ifUnmodifiedSince != -1 && lastModified.compareTo(
+                    new Date(ifUnmodifiedSince)) >= 0) {
+                response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+                return;
+            }
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
