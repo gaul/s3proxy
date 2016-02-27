@@ -20,10 +20,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.Files;
 import com.google.inject.Module;
 
 import org.jclouds.Constants;
@@ -89,7 +91,14 @@ public final class Main {
             // local blobstores do not require credentials
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
+        } else if (provider.equals("google-cloud-storage")) {
+            File credentialFile = new File(credential);
+            if (credentialFile.exists()) {
+                credential = Files.toString(credentialFile,
+                        StandardCharsets.UTF_8);
+            }
         }
+
         if (provider == null || identity == null || credential == null ||
                 (s3ProxyEndpointString == null && secureEndpoint == null) ||
                 s3ProxyAuthorization == null) {
