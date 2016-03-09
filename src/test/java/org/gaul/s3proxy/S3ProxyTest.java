@@ -89,6 +89,10 @@ public final class S3ProxyTest {
         s3Endpoint = info.getEndpoint();
 
         containerName = createRandomContainerName();
+        if (blobStoreType.equals("google-cloud-storage")) {
+            // GCS rate limits create container
+            Thread.sleep(30 * 1000);
+        }
         blobStore.createContainerInLocation(null, containerName);
 
         Properties s3Properties = new Properties();
@@ -364,6 +368,9 @@ public final class S3ProxyTest {
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
         Map<String, String> userMetadata = ImmutableMap.of(
@@ -396,8 +403,10 @@ public final class S3ProxyTest {
         }
         assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
-        assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
-                contentEncoding);
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
         if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
@@ -416,6 +425,9 @@ public final class S3ProxyTest {
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
         Map<String, String> userMetadata = ImmutableMap.of(
@@ -464,8 +476,10 @@ public final class S3ProxyTest {
         }
         assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
-        assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
-                contentEncoding);
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
         if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
@@ -519,6 +533,9 @@ public final class S3ProxyTest {
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=old.jpg";
         String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
         String contentLanguage = "en";
         String contentType = "audio/ogg";
         Map<String, String> userMetadata = ImmutableMap.of(
@@ -553,8 +570,10 @@ public final class S3ProxyTest {
         }
         assertThat(contentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
-        assertThat(contentMetadata.getContentEncoding()).isEqualTo(
-                contentEncoding);
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(contentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
         if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(contentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);
@@ -588,6 +607,9 @@ public final class S3ProxyTest {
         String cacheControl = "max-age=1800";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
         ContentMetadata contentMetadata = ContentMetadataBuilder.create()
@@ -620,8 +642,10 @@ public final class S3ProxyTest {
         }
         assertThat(toContentMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
-        assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
-                contentEncoding);
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
         if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
             assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
                     contentLanguage);

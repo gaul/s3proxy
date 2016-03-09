@@ -32,9 +32,15 @@ final class Quirks {
     /** Blobstores which do not support the Cache-Control header. */
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = ImmutableSet.of(
             "atmos",
+            "google-cloud-storage",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
+    );
+
+    /** Blobstores which do not support the Content-Encoding header. */
+    static final Set<String> NO_CONTENT_ENCODING = ImmutableSet.of(
+            "google-cloud-storage"
     );
 
     /** Blobstores which do not support the Content-Language header. */
