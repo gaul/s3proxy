@@ -16,15 +16,18 @@
 
 package org.gaul.s3proxy;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.Random;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
+import com.google.common.io.Files;
 import com.google.common.io.Resources;
 import com.google.inject.Module;
 
@@ -147,6 +150,14 @@ final class TestUtils {
                 Constants.PROPERTY_IDENTITY);
         String credential = info.getProperties().getProperty(
                 Constants.PROPERTY_CREDENTIAL);
+        if (provider.equals("google-cloud-storage")) {
+            File credentialFile = new File(credential);
+            if (credentialFile.exists()) {
+                credential = Files.toString(credentialFile,
+                        StandardCharsets.UTF_8);
+            }
+            info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
+        }
         String endpoint = info.getProperties().getProperty(
                 Constants.PROPERTY_ENDPOINT);
         info.s3Identity = info.getProperties().getProperty(

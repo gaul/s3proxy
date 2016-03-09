@@ -214,6 +214,7 @@ public final class Main {
                 credential = Files.toString(credentialFile,
                         StandardCharsets.UTF_8);
             }
+            properties.remove(Constants.PROPERTY_CREDENTIAL);
         }
 
         if (provider == null || identity == null || credential == null) {
