@@ -103,7 +103,8 @@ public final class S3Proxy {
         }
         handler = new S3ProxyHandler(builder.blobStore, builder.identity,
                 builder.credential, Optional.fromNullable(builder.virtualHost),
-                builder.v4MaxNonChunkedRequestSize);
+                builder.v4MaxNonChunkedRequestSize,
+                builder.ignoreUnknownHeaders);
         server.setHandler(handler);
     }
 
@@ -117,6 +118,7 @@ public final class S3Proxy {
         private String keyStorePassword;
         private String virtualHost;
         private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
+        private boolean ignoreUnknownHeaders;
 
         Builder() {
         }
@@ -165,6 +167,11 @@ public final class S3Proxy {
                         v4MaxNonChunkedRequestSize);
             }
             this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
+            return this;
+        }
+
+        public Builder ignoreUnknownHeaders(boolean ignoreUnknownHeaders) {
+            this.ignoreUnknownHeaders = ignoreUnknownHeaders;
             return this;
         }
     }

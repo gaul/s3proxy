@@ -124,6 +124,8 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
         String v4MaxNonChunkedRequestSize = properties.getProperty(
                 S3ProxyConstants.PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
+        String ignoreUnknownHeaders = properties.getProperty(
+                S3ProxyConstants.PROPERTY_IGNORE_UNKNOWN_HEADERS);
 
         BlobStore blobStore = createBlobStore(properties);
 
@@ -178,7 +180,11 @@ public final class Main {
             }
             if (v4MaxNonChunkedRequestSize != null) {
                 s3ProxyBuilder.v4MaxNonChunkedRequestSize(Long.parseLong(
-                            v4MaxNonChunkedRequestSize));
+                        v4MaxNonChunkedRequestSize));
+            }
+            if (ignoreUnknownHeaders != null) {
+                s3ProxyBuilder.ignoreUnknownHeaders(Boolean.parseBoolean(
+                        ignoreUnknownHeaders));
             }
             s3Proxy = s3ProxyBuilder.build();
         } catch (IllegalArgumentException | IllegalStateException e) {

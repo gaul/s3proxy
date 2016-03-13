@@ -27,6 +27,8 @@ public final class S3ProxyConstants {
             "s3proxy.identity";
     public static final String PROPERTY_CREDENTIAL =
             "s3proxy.credential";
+    public static final String PROPERTY_IGNORE_UNKNOWN_HEADERS =
+            "s3proxy.ignore-unknown-headers";
     public static final String PROPERTY_KEYSTORE_PATH =
             "s3proxy.keystore-path";
     public static final String PROPERTY_KEYSTORE_PASSWORD =

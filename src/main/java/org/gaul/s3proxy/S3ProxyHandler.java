@@ -187,6 +187,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
+    private final boolean ignoreUnknownHeaders;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -206,7 +207,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
             final String credential, Optional<String> virtualHost,
-            long v4MaxNonChunkedRequestSize) {
+            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders) {
         if (identity != null) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -233,6 +234,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
         this.virtualHost = requireNonNull(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
+        this.ignoreUnknownHeaders = ignoreUnknownHeaders;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -457,6 +459,9 @@ final class S3ProxyHandler extends AbstractHandler {
 
         // emit NotImplemented for unknown x-amz- headers
         for (String headerName : Collections.list(request.getHeaderNames())) {
+            if (ignoreUnknownHeaders) {
+                continue;
+            }
             if (!headerName.startsWith("x-amz-")) {
                 continue;
             }
