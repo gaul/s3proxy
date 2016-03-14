@@ -62,6 +62,9 @@ public final class S3ProxyConstants {
     /** Probability of eventual consistency, between 0.0 and 1.0. */
     public static final String PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY =
             "s3proxy.eventual-consistency.probability";
+    /** Discard object data. */
+    public static final String PROPERTY_NULL_BLOBSTORE =
+            "s3proxy.null-blobstore";
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
