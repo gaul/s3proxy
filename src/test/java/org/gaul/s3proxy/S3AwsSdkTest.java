@@ -174,7 +174,7 @@ public final class S3AwsSdkTest {
         client = new AmazonS3Client(awsCreds);
         client.setEndpoint(s3Endpoint.toString());
         client.setS3ClientOptions(
-                new S3ClientOptions().disableChunkedEncoding());
+                S3ClientOptions.builder().disableChunkedEncoding().build());
 
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
