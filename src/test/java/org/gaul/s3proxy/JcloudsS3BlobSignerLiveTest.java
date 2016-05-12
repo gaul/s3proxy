@@ -16,6 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import static org.testng.Assert.fail;
+
+import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
@@ -25,6 +28,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobSignerLiveTest;
+import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
@@ -69,5 +73,47 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
         props.setProperty(Constants.PROPERTY_STRIP_EXPECT_HEADER, "true");
         endpoint = info.getEndpoint().toString();
         return props;
+    }
+
+    @Test
+    public void testSignGetUrlWithTime()
+            throws InterruptedException, IOException {
+        try {
+            super.testSignGetUrlWithTime();
+            fail();
+        } catch (UnsupportedOperationException uoe) {
+            throw new SkipException("not supported by jclouds S3 signer");
+        }
+    }
+
+    @Test
+    public void testSignGetUrlWithTimeExpired()
+            throws InterruptedException, IOException {
+        try {
+            super.testSignGetUrlWithTimeExpired();
+            fail();
+        } catch (UnsupportedOperationException uoe) {
+            throw new SkipException("not supported by jclouds S3 signer");
+        }
+    }
+
+    @Test
+    public void testSignPutUrlWithTime() throws Exception {
+        try {
+            super.testSignPutUrlWithTime();
+            fail();
+        } catch (UnsupportedOperationException uoe) {
+            throw new SkipException("not supported by jclouds S3 signer");
+        }
+    }
+
+    @Test
+    public void testSignPutUrlWithTimeExpired() throws Exception {
+        try {
+            super.testSignPutUrlWithTimeExpired();
+            fail();
+        } catch (UnsupportedOperationException uoe) {
+            throw new SkipException("not supported by jclouds S3 signer");
+        }
     }
 }
