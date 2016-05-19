@@ -188,6 +188,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
+    private final boolean ignoreUnknownParameters;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -207,7 +208,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
             final String credential, Optional<String> virtualHost,
-            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders) {
+            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
+            boolean ignoreUnknownParameters) {
         if (identity != null) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -235,6 +237,7 @@ final class S3ProxyHandler extends AbstractHandler {
         this.virtualHost = requireNonNull(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
+        this.ignoreUnknownParameters = ignoreUnknownParameters;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -451,6 +454,10 @@ final class S3ProxyHandler extends AbstractHandler {
         for (String parameter : Collections.list(
                 request.getParameterNames())) {
             if (!SUPPORTED_PARAMETERS.contains(parameter)) {
+                if (ignoreUnknownParameters) {
+                    continue;
+                }
+
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
