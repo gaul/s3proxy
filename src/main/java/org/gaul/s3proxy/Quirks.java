@@ -24,6 +24,7 @@ final class Quirks {
     /** Blobstores which do not support blob-level access control. */
     static final Set<String> NO_BLOB_ACCESS_CONTROL = ImmutableSet.of(
             "azureblob",
+            "b2",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
@@ -32,19 +33,27 @@ final class Quirks {
     /** Blobstores which do not support the Cache-Control header. */
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = ImmutableSet.of(
             "atmos",
+            "b2",
             "google-cloud-storage",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
     );
 
+    /** Blobstores which do not support the Cache-Control header. */
+    static final Set<String> NO_CONTENT_DISPOSITION = ImmutableSet.of(
+            "b2"
+    );
+
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = ImmutableSet.of(
+            "b2",
             "google-cloud-storage"
     );
 
     /** Blobstores which do not support the Content-Language header. */
     static final Set<String> NO_CONTENT_LANGUAGE = ImmutableSet.of(
+            "b2",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift"
@@ -80,12 +89,15 @@ final class Quirks {
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = ImmutableSet.of(
             "azureblob",
+            "b2",
             "google-cloud-storage"
     );
 
     /** Blobstores with opaque markers. */
     static final Set<String> OPAQUE_MARKERS = ImmutableSet.of(
             "azureblob",
+            // S3 marker means one past this token while B2 means this token
+            "b2",
             "google-cloud-storage"
     );
 

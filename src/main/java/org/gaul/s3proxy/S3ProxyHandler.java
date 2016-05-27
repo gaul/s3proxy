@@ -77,6 +77,7 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
+import com.google.common.io.FileBackedOutputStream;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
@@ -183,6 +184,8 @@ final class S3ProxyHandler extends AbstractHandler {
     );
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
             new PercentEscaper("-_.~", false);
+    // TODO: configurable fileThreshold
+    private static final int B2_PUT_BLOB_BUFFER_SIZE = 1024 * 1024;
 
     private final boolean anonymousIdentity;
     private final Optional<String> virtualHost;
@@ -1120,9 +1123,21 @@ final class S3ProxyHandler extends AbstractHandler {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
+
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (blobStoreType.equals("b2")) {
+            // S3 allows deleting a container with in-progress MPU while B2 does
+            // not.  Explicitly cancel uploads for B2.
+            for (MultipartUpload mpu : blobStore.listMultipartUploads(
+                    containerName)) {
+                blobStore.abortMultipartUpload(mpu);
+            }
+        }
+
         if (!blobStore.deleteContainerIfEmpty(containerName)) {
             throw new S3Exception(S3ErrorCode.BUCKET_NOT_EMPTY);
         }
+
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
@@ -1618,15 +1633,6 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         }
 
-        BlobBuilder.PayloadBlobBuilder builder = blobStore
-                .blobBuilder(blobName)
-                .payload(is)
-                .contentLength(contentLength);
-        addContentMetdataFromHttpRequest(builder, request);
-        if (contentMD5 != null) {
-            builder = builder.contentMD5(contentMD5);
-        }
-
         PutOptions options = new PutOptions().setBlobAccess(access);
 
         String blobStoreType = getBlobStoreType(blobStore);
@@ -1634,8 +1640,30 @@ final class S3ProxyHandler extends AbstractHandler {
                 contentLength > 64 * 1024 * 1024) {
             options.multipart(true);
         }
+
+        FileBackedOutputStream fbos = null;
         String eTag;
         try {
+            BlobBuilder.PayloadBlobBuilder builder;
+            if (blobStoreType.equals("b2")) {
+                // B2 requires a repeatable payload to calculate the SHA1 hash
+                fbos = new FileBackedOutputStream(B2_PUT_BLOB_BUFFER_SIZE);
+                ByteStreams.copy(is, fbos);
+                fbos.close();
+                builder = blobStore.blobBuilder(blobName)
+                        .payload(fbos.asByteSource());
+            } else {
+                builder = blobStore.blobBuilder(blobName)
+                        .payload(is);
+            }
+
+            builder.contentLength(contentLength);
+
+            addContentMetdataFromHttpRequest(builder, request);
+            if (contentMD5 != null) {
+                builder = builder.contentMD5(contentMD5);
+            }
+
             eTag = blobStore.putBlob(containerName, builder.build(),
                     options);
         } catch (HttpResponseException hre) {
@@ -1660,6 +1688,10 @@ final class S3ProxyHandler extends AbstractHandler {
                 throw new S3Exception(S3ErrorCode.REQUEST_TIMEOUT, re);
             } else {
                 throw re;
+            }
+        } finally {
+            if (fbos != null) {
+                fbos.reset();
             }
         }
 
@@ -2123,8 +2155,10 @@ final class S3ProxyHandler extends AbstractHandler {
         long contentLength =
                 blobMetadata.getContentMetadata().getContentLength();
 
+        String blobStoreType = getBlobStoreType(blobStore);
+        FileBackedOutputStream fbos = null;
         try (InputStream is = blob.getPayload().openStream()) {
-            if (getBlobStoreType(blobStore).equals("azureblob")) {
+            if (blobStoreType.equals("azureblob")) {
                 // Azure has a maximum part size of 4 MB while S3 has a minimum
                 // part size of 5 MB and a maximum of 5 GB.  Split a single S3
                 // part multiple Azure parts.
@@ -2146,12 +2180,28 @@ final class S3ProxyHandler extends AbstractHandler {
                 eTag = BaseEncoding.base16().lowerCase().encode(
                         his.hash().asBytes());
             } else {
-                Payload payload = Payloads.newInputStreamPayload(is);
+                Payload payload;
+                if (blobStoreType.equals("b2")) {
+                    // B2 requires a repeatable payload to calculate the SHA1
+                    // hash
+                    fbos = new FileBackedOutputStream(B2_PUT_BLOB_BUFFER_SIZE);
+                    ByteStreams.copy(is, fbos);
+                    fbos.close();
+                    payload = Payloads.newByteSourcePayload(
+                            fbos.asByteSource());
+                } else {
+                    payload = Payloads.newInputStreamPayload(is);
+                }
+
                 payload.getContentMetadata().setContentLength(contentLength);
 
                 MultipartPart part = blobStore.uploadMultipartPart(mpu,
                         partNumber, payload);
                 eTag = part.partETag();
+            }
+        } finally {
+            if (fbos != null) {
+                fbos.reset();
             }
         }
 
@@ -2276,14 +2326,34 @@ final class S3ProxyHandler extends AbstractHandler {
                     BaseEncoding.base16().lowerCase().encode(
                             his.hash().asBytes())));
         } else {
-            Payload payload = Payloads.newInputStreamPayload(is);
-            payload.getContentMetadata().setContentLength(contentLength);
-            if (contentMD5 != null) {
-                payload.getContentMetadata().setContentMD5(contentMD5);
+            MultipartPart part;
+            Payload payload;
+            FileBackedOutputStream fbos = null;
+            try {
+                String blobStoreType = getBlobStoreType(blobStore);
+                if (blobStoreType.equals("b2")) {
+                    // B2 requires a repeatable payload to calculate the SHA1
+                    // hash
+                    fbos = new FileBackedOutputStream(B2_PUT_BLOB_BUFFER_SIZE);
+                    ByteStreams.copy(is, fbos);
+                    fbos.close();
+                    payload = Payloads.newByteSourcePayload(
+                            fbos.asByteSource());
+                } else {
+                    payload = Payloads.newInputStreamPayload(is);
+                }
+                payload.getContentMetadata().setContentLength(contentLength);
+                if (contentMD5 != null) {
+                    payload.getContentMetadata().setContentMD5(contentMD5);
+                }
+
+                part = blobStore.uploadMultipartPart(mpu, partNumber, payload);
+            } finally {
+                if (fbos != null) {
+                    fbos.reset();
+                }
             }
 
-            MultipartPart part = blobStore.uploadMultipartPart(mpu,
-                    partNumber, payload);
             if (part.partETag() != null) {
                 response.addHeader(HttpHeaders.ETAG,
                         maybeQuoteETag(part.partETag()));

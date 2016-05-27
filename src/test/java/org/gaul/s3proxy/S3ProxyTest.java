@@ -370,6 +370,9 @@ public final class S3ProxyTest {
             cacheControl = null;
         }
         String contentDisposition = "attachment; filename=new.jpg";
+        if (Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            contentDisposition = null;
+        }
         String contentEncoding = "gzip";
         if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             contentEncoding = null;
@@ -407,8 +410,10 @@ public final class S3ProxyTest {
             assertThat(newContentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
-        assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
-                contentDisposition);
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
+                    contentDisposition);
+        }
         if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                     contentEncoding);
@@ -433,6 +438,9 @@ public final class S3ProxyTest {
             cacheControl = null;
         }
         String contentDisposition = "attachment; filename=new.jpg";
+        if (Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            contentDisposition = null;
+        }
         String contentEncoding = "gzip";
         if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             contentEncoding = null;
@@ -487,8 +495,10 @@ public final class S3ProxyTest {
             assertThat(newContentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
-        assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
-                contentDisposition);
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
+                    contentDisposition);
+        }
         if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
                     contentEncoding);
