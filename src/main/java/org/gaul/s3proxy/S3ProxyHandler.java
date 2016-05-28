@@ -1273,8 +1273,9 @@ final class S3ProxyHandler extends AbstractHandler {
         long ifUnmodifiedSince = request.getDateHeader(
                 HttpHeaders.IF_UNMODIFIED_SINCE);
 
-        String eTag = maybeQuoteETag(metadata.getETag());
+        String eTag = metadata.getETag();
         if (eTag != null) {
+            eTag = maybeQuoteETag(eTag);
             if (ifMatch != null && !ifMatch.equals(eTag)) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
@@ -2047,8 +2048,9 @@ final class S3ProxyHandler extends AbstractHandler {
                 "x-amz-copy-source-if-none-match");
         long ifUnmodifiedSince = request.getDateHeader(
                 "x-amz-copy-source-if-unmodified-since");
-        String eTag = maybeQuoteETag(blobMetadata.getETag());
+        String eTag = blobMetadata.getETag();
         if (eTag != null) {
+            eTag = maybeQuoteETag(eTag);
             if (ifMatch != null && !ifMatch.equals(eTag)) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
