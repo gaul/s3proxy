@@ -1813,8 +1813,9 @@ final class S3ProxyHandler extends AbstractHandler {
                         partSize != -1 && it.hasNext()) {
                     throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
-                if (!equalsIgnoringSurroundingQuotes(part.partETag(),
-                        entry.getValue())) {
+                if (part.partETag() != null &&
+                        !equalsIgnoringSurroundingQuotes(part.partETag(),
+                                entry.getValue())) {
                     throw new S3Exception(S3ErrorCode.INVALID_PART);
                 }
                 parts.add(MultipartPart.create(entry.getKey(),
@@ -2117,7 +2118,9 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "LastModified",
                     blobStore.getContext().utils().date()
                             .iso8601DateFormat(blobMetadata.getLastModified()));
-            writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+            if (eTag != null) {
+                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+            }
 
             xml.writeEndElement();
             xml.flush();
@@ -2234,8 +2237,10 @@ final class S3ProxyHandler extends AbstractHandler {
 
             MultipartPart part = blobStore.uploadMultipartPart(mpu,
                     partNumber, payload);
-            response.addHeader(HttpHeaders.ETAG,
-                    maybeQuoteETag(part.partETag()));
+            if (part.partETag() != null) {
+                response.addHeader(HttpHeaders.ETAG,
+                        maybeQuoteETag(part.partETag()));
+            }
         }
     }
 
