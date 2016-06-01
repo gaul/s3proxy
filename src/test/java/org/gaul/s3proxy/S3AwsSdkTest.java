@@ -416,8 +416,8 @@ public final class S3AwsSdkTest {
     }
 
     @Test
-    public void testListSpecialCharacters() throws Exception {
-        String prefix = "test_dir/special */";
+    public void testSpecialCharacters() throws Exception {
+        String prefix = "special ~`!@#$%^&*()-_+=[]{}\\|;:'\"<>,./?";
         String blobName = prefix + "foo";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());

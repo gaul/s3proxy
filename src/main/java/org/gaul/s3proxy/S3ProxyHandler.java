@@ -1176,7 +1176,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
                 xml.writeStartElement("Contents");
 
-                writeSimpleElement(xml, "Key", metadata.getName());
+                writeSimpleElement(xml, "Key", encodeBlob(encodingType,
+                        metadata.getName()));
 
                 Date lastModified = metadata.getLastModified();
                 if (lastModified != null) {
@@ -2556,9 +2557,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 "UTF-8");
         for (String key : parameters) {
             // re-encode keys and values in AWS normalized form
-            key = URLDecoder.decode(key, charsetName);
-            String value = URLDecoder.decode(request.getParameter(key),
-                    charsetName);
+            String value = request.getParameter(key);
             queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
                     "=" + AWS_URL_PARAMETER_ESCAPER.escape(value));
         }
