@@ -529,6 +529,26 @@ public final class S3ProxyTest {
     }
 
     @Test
+    public void testMultipartUploadAbort() throws Exception {
+        String blobName = "multipart-upload-abort";
+        BlobMetadata blobMetadata = s3BlobStore.blobBuilder(blobName)
+                .payload(new byte[0])  // fake payload to add content metadata
+                .build()
+                .getMetadata();
+        MultipartUpload mpu = s3BlobStore.initiateMultipartUpload(
+                containerName, blobMetadata, new PutOptions());
+
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, s3BlobStore.getMinimumMultipartPartSize());
+        Payload payload = Payloads.newByteSourcePayload(byteSource);
+        payload.getContentMetadata().setContentLength(byteSource.size());
+        s3BlobStore.uploadMultipartPart(mpu, 1, payload);
+
+        s3BlobStore.abortMultipartUpload(mpu);
+        assertThat(s3BlobStore.list(containerName)).isEmpty();
+    }
+
+    @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
         String fromName = "from-name";
         String toName = "to-name";
