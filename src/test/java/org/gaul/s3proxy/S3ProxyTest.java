@@ -462,6 +462,7 @@ public final class S3ProxyTest {
 
         s3BlobStore.completeMultipartUpload(mpu, ImmutableList.of(part1,
                 part2));
+        assertThat(s3BlobStore.list(containerName)).hasSize(1);
 
         Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
         try (InputStream actual = newBlob.getPayload().openStream();
@@ -518,6 +519,7 @@ public final class S3ProxyTest {
         }
 
         s3BlobStore.completeMultipartUpload(mpu, parts.build());
+        assertThat(s3BlobStore.list(containerName)).hasSize(1);
 
         Blob newBlob = s3BlobStore.getBlob(containerName, blobName);
         try (InputStream actual = newBlob.getPayload().openStream();

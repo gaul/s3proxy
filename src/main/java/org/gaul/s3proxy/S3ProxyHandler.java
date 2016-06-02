@@ -1830,6 +1830,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
         String eTag = blobStore.completeMultipartUpload(mpu, parts);
 
+        blobStore.removeBlob(containerName, stubBlob.getMetadata().getName());
+
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
