@@ -75,7 +75,7 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
         return props;
     }
 
-    @Test
+    @Override
     public void testSignGetUrlWithTime()
             throws InterruptedException, IOException {
         try {
@@ -86,7 +86,7 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
         }
     }
 
-    @Test
+    @Override
     public void testSignGetUrlWithTimeExpired()
             throws InterruptedException, IOException {
         try {
@@ -97,7 +97,7 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
         }
     }
 
-    @Test
+    @Override
     public void testSignPutUrlWithTime() throws Exception {
         try {
             super.testSignPutUrlWithTime();
@@ -107,7 +107,7 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
         }
     }
 
-    @Test
+    @Override
     public void testSignPutUrlWithTimeExpired() throws Exception {
         try {
             super.testSignPutUrlWithTimeExpired();
