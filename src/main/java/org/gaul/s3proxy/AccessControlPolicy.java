@@ -20,6 +20,7 @@ import java.util.Collection;
 
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.google.common.base.Objects;
 
 /** Represent an Amazon AccessControlPolicy for a container or object. */
 // CHECKSTYLE:OFF
@@ -29,11 +30,27 @@ final class AccessControlPolicy {
     @JacksonXmlProperty(localName = "AccessControlList")
     AccessControlList aclList;
 
+    @Override
+    public String toString() {
+        return Objects.toStringHelper(AccessControlList.class)
+                .add("owner", owner)
+                .add("aclList", aclList)
+                .toString();
+    }
+
     static final class Owner {
         @JacksonXmlProperty(localName = "ID")
         String id;
         @JacksonXmlProperty(localName = "DisplayName")
         String displayName;
+
+        @Override
+        public String toString() {
+            return Objects.toStringHelper(Owner.class)
+                    .add("id", id)
+                    .add("displayName", displayName)
+                    .toString();
+        }
     }
 
     static final class AccessControlList {
@@ -41,11 +58,26 @@ final class AccessControlPolicy {
         @JacksonXmlElementWrapper(useWrapping = false)
         Collection<Grant> grants;
 
+        @Override
+        public String toString() {
+            return Objects.toStringHelper(AccessControlList.class)
+                    .add("grants", grants)
+                    .toString();
+        }
+
         static final class Grant {
             @JacksonXmlProperty(localName = "Grantee")
             Grantee grantee;
             @JacksonXmlProperty(localName = "Permission")
             String permission;
+
+            @Override
+            public String toString() {
+                return Objects.toStringHelper(Grant.class)
+                        .add("grantee", grantee)
+                        .add("permission", permission)
+                        .toString();
+            }
 
             static final class Grantee {
                 @JacksonXmlProperty(namespace = "xsi", localName = "type",
@@ -59,6 +91,17 @@ final class AccessControlPolicy {
                 String emailAddress;
                 @JacksonXmlProperty(localName = "URI")
                 String uri;
+
+                @Override
+                public String toString() {
+                    return Objects.toStringHelper(Grantee.class)
+                            .add("type", type)
+                            .add("id", id)
+                            .add("displayName", displayName)
+                            .add("emailAddress", emailAddress)
+                            .add("uri", uri)
+                            .toString();
+                }
             }
         }
     }

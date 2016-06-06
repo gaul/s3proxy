@@ -889,19 +889,21 @@ final class S3ProxyHandler extends AbstractHandler {
 
         boolean ownerFullControl = false;
         boolean allUsersRead = false;
-        for (AccessControlPolicy.AccessControlList.Grant grant :
-                policy.aclList.grants) {
-            if (grant.grantee.type.equals("CanonicalUser") &&
-                    grant.grantee.id.equals(FAKE_OWNER_ID) &&
-                    grant.permission.equals("FULL_CONTROL")) {
-                ownerFullControl = true;
-            } else if (grant.grantee.type.equals("Group") &&
-                    grant.grantee.uri.equals("http://acs.amazonaws.com/" +
-                            "groups/global/AllUsers") &&
-                    grant.permission.equals("READ")) {
-                allUsersRead = true;
-            } else {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        if (policy.aclList != null) {
+            for (AccessControlPolicy.AccessControlList.Grant grant :
+                    policy.aclList.grants) {
+                if (grant.grantee.type.equals("CanonicalUser") &&
+                        grant.grantee.id.equals(FAKE_OWNER_ID) &&
+                        grant.permission.equals("FULL_CONTROL")) {
+                    ownerFullControl = true;
+                } else if (grant.grantee.type.equals("Group") &&
+                        grant.grantee.uri.equals("http://acs.amazonaws.com/" +
+                                "groups/global/AllUsers") &&
+                        grant.permission.equals("READ")) {
+                    allUsersRead = true;
+                } else {
+                    throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                }
             }
         }
 
