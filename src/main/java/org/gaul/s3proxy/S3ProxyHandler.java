@@ -501,8 +501,8 @@ final class S3ProxyHandler extends AbstractHandler {
                     handleContainerLocation(response, blobStore, path[1]);
                     return;
                 } else if ("".equals(request.getParameter("uploads"))) {
-                    handleListMultipartUploads(response, blobStore,
-                            uploadId);
+                    handleListMultipartUploads(request, response, blobStore,
+                            path[1]);
                     return;
                 }
                 handleBlobList(request, response, blobStore, path[1]);
@@ -974,11 +974,64 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void handleListMultipartUploads(HttpServletResponse response,
-            BlobStore blobStore, String uploadId)
-            throws IOException, S3Exception {
-        // TODO: list all blobs starting with uploadId
-        throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+    private void handleListMultipartUploads(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String container) throws IOException, S3Exception {
+        if (request.getParameter("delimiter") != null ||
+                request.getParameter("prefix") != null ||
+                request.getParameter("max-uploads") != null ||
+                request.getParameter("key-marker") != null ||
+                request.getParameter("upload-id-marker") != null) {
+            throw new UnsupportedOperationException();
+        }
+
+        List<MultipartUpload> uploads = blobStore.listMultipartUploads(
+                container);
+
+        try (Writer writer = response.getWriter()) {
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("ListMultipartUploadsResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+
+            writeSimpleElement(xml, "Bucket", container);
+
+            // TODO: bogus values
+            xml.writeEmptyElement("KeyMarker");
+            xml.writeEmptyElement("UploadIdMarker");
+            xml.writeEmptyElement("NextKeyMarker");
+            xml.writeEmptyElement("NextUploadIdMarker");
+            xml.writeEmptyElement("Delimiter");
+            xml.writeEmptyElement("Prefix");
+            writeSimpleElement(xml, "MaxUploads", "1000");
+            writeSimpleElement(xml, "IsTruncated", "false");
+
+            for (MultipartUpload upload : uploads) {
+                xml.writeStartElement("Upload");
+
+                writeSimpleElement(xml, "Key", upload.blobName());
+                writeSimpleElement(xml, "UploadId", upload.id());
+                writeInitiatorStanza(xml);
+                writeOwnerStanza(xml);
+                writeSimpleElement(xml, "StorageClass", "STANDARD");
+
+                // TODO: bogus value
+                writeSimpleElement(xml, "Initiated",
+                        blobStore.getContext().utils().date()
+                                .iso8601DateFormat(new Date()));
+
+                xml.writeEndElement();
+            }
+
+            xml.writeEmptyElement("CommonPrefixes");
+
+            xml.writeEndElement();
+
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
     }
 
     private void handleContainerExists(HttpServletResponse response,
@@ -1923,18 +1976,8 @@ final class S3ProxyHandler extends AbstractHandler {
             writeSimpleElement(xml, "Key", encodeBlob(
                     encodingType, blobName));
             writeSimpleElement(xml, "UploadId", uploadId);
-
-            // TODO: bogus values
-            xml.writeStartElement("Initiator");
-
-            writeSimpleElement(xml, "ID", FAKE_INITIATOR_ID);
-            writeSimpleElement(xml, "DisplayName",
-                    FAKE_INITIATOR_DISPLAY_NAME);
-
-            xml.writeEndElement();
-
+            writeInitiatorStanza(xml);
             writeOwnerStanza(xml);
-
             writeSimpleElement(xml, "StorageClass", "STANDARD");
 
             // TODO: pagination
@@ -2602,6 +2645,18 @@ final class S3ProxyHandler extends AbstractHandler {
         if (expires != -1) {
             builder.expires(new Date(expires));
         }
+    }
+
+    // TODO: bogus values
+    private static void writeInitiatorStanza(XMLStreamWriter xml)
+            throws XMLStreamException {
+        xml.writeStartElement("Initiator");
+
+        writeSimpleElement(xml, "ID", FAKE_INITIATOR_ID);
+        writeSimpleElement(xml, "DisplayName",
+                FAKE_INITIATOR_DISPLAY_NAME);
+
+        xml.writeEndElement();
     }
 
     // TODO: bogus values

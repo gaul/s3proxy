@@ -163,6 +163,14 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     }
 
     @Override
+    public void testListMultipartUploads() throws Exception {
+        if (Quirks.NO_LIST_MULTIPART_UPLOADS.contains(blobStoreType)) {
+            throw new SkipException("list multipart uploads not supported");
+        }
+        super.testListMultipartUploads();
+    }
+
+    @Override
     protected void assertCacheControl(S3Object newObject, String string) {
         if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             throw new SkipException("cache control not supported");

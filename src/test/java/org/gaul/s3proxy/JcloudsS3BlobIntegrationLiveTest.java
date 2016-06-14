@@ -124,6 +124,14 @@ public final class JcloudsS3BlobIntegrationLiveTest
     }
 
     @Override
+    public void testListMultipartUploads() throws Exception {
+        if (Quirks.NO_LIST_MULTIPART_UPLOADS.contains(blobStoreType)) {
+            throw new SkipException("list multipart uploads not supported");
+        }
+        super.testListMultipartUploads();
+    }
+
+    @Override
     protected void checkCacheControl(Blob blob, String cacheControl) {
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             super.checkCacheControl(blob, cacheControl);

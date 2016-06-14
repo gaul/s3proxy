@@ -61,6 +61,16 @@ final class Quirks {
             "azureblob"
     );
 
+    static final Set<String> NO_LIST_MULTIPART_UPLOADS = ImmutableSet.of(
+            "atmos",
+            "filesystem",
+            "google-cloud-storage",
+            "openstack-swift",
+            "rackspace-cloudfiles-uk",
+            "rackspace-cloudfiles-us",
+            "transient"
+    );
+
     /** Blobstores which do not allow listing zero keys. */
     static final Set<String> NO_LIST_ZERO_KEYS = ImmutableSet.of(
             "atmos",
