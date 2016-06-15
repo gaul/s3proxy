@@ -154,6 +154,12 @@ final class S3ProxyHandler extends AbstractHandler {
             "max-keys",
             "partNumber",
             "prefix",
+            "response-cache-control",
+            "response-content-disposition",
+            "response-content-encoding",
+            "response-content-language",
+            "response-content-type",
+            "response-expires",
             "Signature",
             "uploadId",
             "uploads"
@@ -1381,7 +1387,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
-        addMetadataToResponse(response, metadata);
+        addMetadataToResponse(request, response, metadata);
     }
 
     private void handleGetBlob(HttpServletRequest request,
@@ -1442,7 +1448,7 @@ final class S3ProxyHandler extends AbstractHandler {
 
         response.setStatus(status);
 
-        addMetadataToResponse(response, blob.getMetadata());
+        addMetadataToResponse(request, response, blob.getMetadata());
         // TODO: handles only a single range due to jclouds limitations
         Collection<String> contentRanges =
                 blob.getAllHeaders().get(HttpHeaders.CONTENT_RANGE);
@@ -2365,21 +2371,36 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private static void addMetadataToResponse(HttpServletResponse response,
+    private static void addResponseHeaderWithOverride(
+            HttpServletRequest request, HttpServletResponse response,
+            String headerName, String overrideHeaderName, String value) {
+        String override = request.getParameter(overrideHeaderName);
+        response.addHeader(headerName, override != null ? override : value);
+    }
+
+    private static void addMetadataToResponse(HttpServletRequest request,
+            HttpServletResponse response,
             BlobMetadata metadata) {
         ContentMetadata contentMetadata =
                 metadata.getContentMetadata();
-        response.addHeader(HttpHeaders.CACHE_CONTROL,
+        addResponseHeaderWithOverride(request, response,
+                HttpHeaders.CACHE_CONTROL, "response-cache-control",
                 contentMetadata.getCacheControl());
-        response.addHeader(HttpHeaders.CONTENT_DISPOSITION,
-                contentMetadata.getContentDisposition());
-        response.addHeader(HttpHeaders.CONTENT_ENCODING,
+        addResponseHeaderWithOverride(request, response,
+                HttpHeaders.CONTENT_ENCODING, "response-content-encoding",
                 contentMetadata.getContentEncoding());
-        response.addHeader(HttpHeaders.CONTENT_LANGUAGE,
+        addResponseHeaderWithOverride(request, response,
+                HttpHeaders.CONTENT_LANGUAGE, "response-content-language",
                 contentMetadata.getContentLanguage());
+        addResponseHeaderWithOverride(request, response,
+                HttpHeaders.CONTENT_DISPOSITION, "response-content-disposition",
+                contentMetadata.getContentDisposition());
         response.addHeader(HttpHeaders.CONTENT_LENGTH,
                 contentMetadata.getContentLength().toString());
-        response.setContentType(contentMetadata.getContentType());
+        String overrideContentType = request.getParameter(
+                "response-content-type");
+        response.setContentType(overrideContentType != null ?
+                overrideContentType : contentMetadata.getContentType());
         HashCode contentMd5 = contentMetadata.getContentMD5AsHashCode();
         if (contentMd5 != null) {
             byte[] contentMd5Bytes = contentMd5.asBytes();
@@ -2388,9 +2409,14 @@ final class S3ProxyHandler extends AbstractHandler {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(
                     BaseEncoding.base16().lowerCase().encode(contentMd5Bytes)));
         }
-        Date expires = contentMetadata.getExpires();
-        if (expires != null) {
-            response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
+        String overrideExpires = request.getParameter("response-expires");
+        if (overrideExpires != null) {
+            response.addHeader(HttpHeaders.EXPIRES, overrideExpires);
+        } else {
+            Date expires = contentMetadata.getExpires();
+            if (expires != null) {
+                response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
+            }
         }
         response.addDateHeader(HttpHeaders.LAST_MODIFIED,
                 metadata.getLastModified().getTime());
