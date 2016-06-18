@@ -366,12 +366,18 @@ public final class S3ProxyTest {
     public void testSinglepartUpload() throws Exception {
         String blobName = "singlepart-upload";
         String cacheControl = "max-age=3600";
+        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            cacheControl = null;
+        }
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
         if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             contentEncoding = null;
         }
         String contentLanguage = "fr";
+        if (Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            contentLanguage = null;
+        }
         String contentType = "audio/mp4";
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key1", "value1",
@@ -423,12 +429,18 @@ public final class S3ProxyTest {
     public void testMultipartUpload() throws Exception {
         String blobName = "multipart-upload";
         String cacheControl = "max-age=3600";
+        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            cacheControl = null;
+        }
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
         if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             contentEncoding = null;
         }
         String contentLanguage = "fr";
+        if (Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            contentLanguage = null;
+        }
         String contentType = "audio/mp4";
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key1", "value1",
