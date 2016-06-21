@@ -1024,7 +1024,7 @@ final class S3ProxyHandler extends AbstractHandler {
                 xml.writeEndElement();
             }
 
-            xml.writeEmptyElement("CommonPrefixes");
+            // TODO: CommonPrefixes
 
             xml.writeEndElement();
 
