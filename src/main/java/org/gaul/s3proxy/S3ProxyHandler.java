@@ -267,6 +267,17 @@ final class S3ProxyHandler extends AbstractHandler {
                     httpResponse.getStatusCode());
             baseRequest.setHandled(true);
             return;
+        } catch (IOException ioe) {
+            if (Throwables2.getFirstThrowableOfType(ioe,
+                    TimeoutException.class) != null) {
+                S3ErrorCode code = S3ErrorCode.REQUEST_TIMEOUT;
+                sendSimpleErrorResponse(request, response, code,
+                        code.getMessage(), ImmutableMap.<String, String>of());
+                baseRequest.setHandled(true);
+                return;
+            } else {
+                throw ioe;
+            }
         } catch (IllegalArgumentException iae) {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             baseRequest.setHandled(true);
@@ -1682,13 +1693,6 @@ final class S3ProxyHandler extends AbstractHandler {
                 break;
             }
             return;
-        } catch (RuntimeException re) {
-            if (Throwables2.getFirstThrowableOfType(re,
-                    TimeoutException.class) != null) {
-                throw new S3Exception(S3ErrorCode.REQUEST_TIMEOUT, re);
-            } else {
-                throw re;
-            }
         } finally {
             if (fbos != null) {
                 fbos.reset();
