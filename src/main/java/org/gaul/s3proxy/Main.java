@@ -126,6 +126,8 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
         String ignoreUnknownHeaders = properties.getProperty(
                 S3ProxyConstants.PROPERTY_IGNORE_UNKNOWN_HEADERS);
+        String corsAllowAll = properties.getProperty(
+                S3ProxyConstants.PROPERTY_CORS_ALLOW_ALL);
 
         BlobStore blobStore = createBlobStore(properties);
 
@@ -185,6 +187,10 @@ public final class Main {
             if (ignoreUnknownHeaders != null) {
                 s3ProxyBuilder.ignoreUnknownHeaders(Boolean.parseBoolean(
                         ignoreUnknownHeaders));
+            }
+            if (corsAllowAll != null) {
+                s3ProxyBuilder.corsAllowAll(Boolean.parseBoolean(
+                        corsAllowAll));
             }
             s3Proxy = s3ProxyBuilder.build();
         } catch (IllegalArgumentException | IllegalStateException e) {

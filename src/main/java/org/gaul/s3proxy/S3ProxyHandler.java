@@ -197,6 +197,7 @@ final class S3ProxyHandler extends AbstractHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
+    private final boolean corsAllowAll;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -216,7 +217,8 @@ final class S3ProxyHandler extends AbstractHandler {
 
     S3ProxyHandler(final BlobStore blobStore, final String identity,
             final String credential, Optional<String> virtualHost,
-            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders) {
+            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
+            boolean corsAllowAll) {
         if (identity != null) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -244,6 +246,7 @@ final class S3ProxyHandler extends AbstractHandler {
         this.virtualHost = requireNonNull(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
+        this.corsAllowAll = corsAllowAll;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -1447,6 +1450,10 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         response.setStatus(status);
+
+        if (corsAllowAll) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        }
 
         addMetadataToResponse(request, response, blob.getMetadata());
         // TODO: handles only a single range due to jclouds limitations
