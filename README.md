@@ -5,14 +5,17 @@ S3Proxy allows applications using the
 to access other storage backends,
 e.g., local file system, Google Cloud Storage, Microsoft Azure, OpenStack Swift.
 
-Installation
-------------
+Usage with Docker
+-----------------
+[Docker Hub](https://hub.docker.com/r/andrewgaul/s3proxy/) hosts a Docker image
+and has instructions on how to run it.
+
+Usage without Docker
+--------------------
 Users can [download releases](https://github.com/andrewgaul/s3proxy/releases)
 from GitHub.  Developers can build the project by running `mvn package` which
 produces a binary at `target/s3proxy`.  S3Proxy requires Java 7 to run.
 
-Usage
------
 Configure S3Proxy via a properties file.  An example using the local
 file system as the storage backend with anonymous access:
 
@@ -95,7 +98,6 @@ References
 * Ceph [s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
 * [fake-s3](https://github.com/jubos/fake-s3), [gofakes3](https://github.com/johannesboyne/gofakes3), [S3 ninja](https://github.com/scireum/s3ninja), and [s3rver](https://github.com/jamhall/s3rver) provide functionality similar to S3Proxy when using the filesystem backend
 * [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs
-* [s3proxydocker](https://github.com/ritazh/s3proxydocker) packages S3Proxy as a Docker container
 * [sbt-s3](https://github.com/localytics/sbt-s3) run S3Proxy via the Scala Build Tool
 * [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
 
