@@ -54,8 +54,6 @@ $ curl http://localhost:8080/
 <?xml version="1.0" ?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID><DisplayName>CustomersName@amazon.com</DisplayName></Owner><Buckets><Bucket><Name>testbucket</Name><CreationDate>2015-08-05T22:16:24.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>
 ```
 
-See the wiki for [examples of other storage backends](https://github.com/andrewgaul/s3proxy/wiki).
-
 Supported storage backends
 --------------------------
 * atmos
@@ -68,6 +66,8 @@ Supported storage backends
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3
 * transient (in-memory storage)
+
+See the wiki for [examples of configurations](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-examples).
 
 Limitations
 -----------
