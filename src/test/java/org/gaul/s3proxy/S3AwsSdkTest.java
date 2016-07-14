@@ -80,9 +80,6 @@ public final class S3AwsSdkTest {
         System.setProperty(
                 SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
                 "true");
-        System.setProperty(
-                SDKGlobalConfiguration.ENFORCE_S3_SIGV4_SYSTEM_PROPERTY,
-                "true");
         disableSslVerification();
     }
 
