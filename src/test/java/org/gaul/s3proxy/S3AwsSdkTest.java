@@ -51,6 +51,7 @@ import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
 import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
+import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
@@ -58,6 +59,7 @@ import com.amazonaws.services.s3.model.ListObjectsRequest;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.Permission;
+import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.UploadPartRequest;
@@ -455,6 +457,47 @@ public final class S3AwsSdkTest {
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
+    }
+
+    @Test
+    public void testOverrideResponseHeader() throws Exception {
+        String blobName = "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        String cacheControl = "no-cache";
+        String contentDisposition = "attachment; filename=foo.html";
+        String contentEncoding = "gzip";
+        String contentLanguage = "en";
+        String contentType = "text/html; charset=UTF-8";
+        String expires = "Wed, 13 Jul 2016 21:23:51 GMT";
+        long expiresTime = 1468445031000L;
+        GetObjectRequest getObjectRequest = new GetObjectRequest(containerName,
+                blobName);
+        getObjectRequest.setResponseHeaders(
+                new ResponseHeaderOverrides()
+                    .withCacheControl(cacheControl)
+                    .withContentDisposition(contentDisposition)
+                    .withContentEncoding(contentEncoding)
+                    .withContentLanguage(contentLanguage)
+                    .withContentType(contentType)
+                    .withExpires(expires));
+        S3Object object = client.getObject(getObjectRequest);
+        ObjectMetadata reponseMetadata = object.getObjectMetadata();
+        assertThat(reponseMetadata.getCacheControl()).isEqualTo(
+                cacheControl);
+        assertThat(reponseMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        assertThat(reponseMetadata.getContentEncoding()).isEqualTo(
+                contentEncoding);
+        assertThat(reponseMetadata.getContentLanguage()).isEqualTo(
+                contentLanguage);
+        assertThat(reponseMetadata.getContentType()).isEqualTo(
+                contentType);
+        assertThat(reponseMetadata.getHttpExpiresDate().getTime())
+            .isEqualTo(expiresTime);
     }
 
     private static final class NullX509TrustManager
