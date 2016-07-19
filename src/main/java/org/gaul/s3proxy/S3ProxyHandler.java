@@ -65,7 +65,6 @@ import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
@@ -85,11 +84,9 @@ import com.google.common.net.PercentEscaper;
 import org.apache.commons.fileupload.MultipartStream;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.jclouds.blobstore.BlobRequestSigner;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.blobstore.LocalBlobRequestSigner;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobBuilder;
@@ -105,7 +102,6 @@ import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
-import org.jclouds.http.HttpRequest;
 import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
@@ -630,49 +626,18 @@ final class S3ProxyHandler extends AbstractHandler {
                 }
                 handleBlobList(request, response, blobStore, containerName);
                 return;
-            }
-
-            BlobRequestSigner signer = blobStore
-                    .getContext()
-                    .getSigner();
-            if (signer instanceof LocalBlobRequestSigner) {
-                // Local blobstores do not have an HTTP server --
-                // must handle these calls directly.
-                Blob blob = blobStore.getBlob(path[1], path[2]);
-                if (blob == null) {
-                    // TODO: NO_SUCH_BUCKET
-                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
-                }
-                BlobAccess access = blobStore.getBlobAccess(path[1],
-                        path[2]);
+            } else {
+                String containerName = path[1];
+                String blobName = path[2];
+                BlobAccess access = blobStore.getBlobAccess(containerName,
+                        blobName);
                 if (access != BlobAccess.PUBLIC_READ) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
-                try (InputStream payload = blob.getPayload().openStream();
-                        OutputStream os = response.getOutputStream()) {
-                    ByteStreams.copy(payload, os);
-                }
-            } else {
-                HttpRequest anonymousRequest = signer
-                        .signGetBlob(path[1], path[2])
-                        .toBuilder()
-                        .headers(ImmutableMultimap.<String, String>of())
-                        .replaceQueryParams(
-                                ImmutableMultimap.<String, String>of())
-                        .build();
-                logger.debug("issuing anonymous request: {}", anonymousRequest);
-                HttpResponse anonymousResponse = blobStore
-                        .getContext()
-                        .utils()
-                        .http()
-                        .invoke(anonymousRequest);
-                try (InputStream payload =
-                        anonymousResponse.getPayload().openStream();
-                        OutputStream os = response.getOutputStream()) {
-                    ByteStreams.copy(payload, os);
-                }
+                handleGetBlob(request, response, blobStore, containerName,
+                        blobName);
+                return;
             }
-            return;
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
@@ -689,12 +654,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 String blobName = path[2];
                 BlobAccess access = blobStore.getBlobAccess(containerName,
                         blobName);
-                if (access == BlobAccess.PUBLIC_READ) {
-                    handleBlobMetadata(request, response, blobStore, path[1],
-                            path[2]);
-                } else {
+                if (access != BlobAccess.PUBLIC_READ) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+                handleBlobMetadata(request, response, blobStore, containerName,
+                        blobName);
             }
             return;
         case "POST":
