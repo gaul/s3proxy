@@ -87,10 +87,13 @@ import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
 
+import org.jclouds.ContextBuilder;
+import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.rest.HttpClient;
 
@@ -1376,6 +1379,75 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        }
+    }
+
+    @Test
+    public void testBlobStoreLocator() throws Exception {
+        final BlobStore blobStore1 = ContextBuilder
+                .newBuilder("transient")
+                .credentials("identity1", "credential1")
+                .build(BlobStoreContext.class)
+                .getBlobStore();
+        blobStore1.createContainerInLocation(null, containerName);
+
+        final BlobStore blobStore2 = ContextBuilder
+                .newBuilder("transient")
+                .credentials("identity2", "credential2")
+                .build(BlobStoreContext.class)
+                .getBlobStore();
+        blobStore2.createContainerInLocation(null, containerName);
+
+        s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
+            @Override
+            public Map.Entry<String, BlobStore> locateBlobStore(
+                    String identity, String container, String blob) {
+                if (identity.equals("identity1")) {
+                    return Maps.immutableEntry("credential1", blobStore1);
+                } else if (identity.equals("identity2")) {
+                    return Maps.immutableEntry("credential2", blobStore2);
+                } else {
+                    return null;
+                }
+            }
+        });
+
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials("identity1", "credential1")))
+                .withEndpointConfiguration(s3EndpointConfig).build();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo",
+                BYTE_SOURCE.openStream(), metadata);
+
+        S3Object object = client.getObject(containerName, "foo");
+        assertThat(object).isNotNull();
+
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials("identity2", "credential2")))
+                .withEndpointConfiguration(s3EndpointConfig).build();
+
+        try {
+            client.getObject(containerName, "foo");
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NoSuchKey");
+        }
+
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials("identity3", "credential3")))
+                .withEndpointConfiguration(s3EndpointConfig).build();
+
+        try {
+            client.getObject(containerName, "foo");
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("InvalidAccessKeyId");
         }
     }
 

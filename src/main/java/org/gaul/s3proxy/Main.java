@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import java.io.Console;
 import java.io.File;
 import java.io.FileInputStream;
@@ -24,6 +26,7 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executors;
@@ -31,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import com.google.inject.Module;
 
@@ -58,6 +62,10 @@ public final class Main {
         @Option(name = "--properties",
                 usage = "S3Proxy configuration (required)")
         private File propertiesFile;
+
+        @Option(name = "--credentials-properties",
+                usage = "Mapping for multiple credentials")
+        private File credentialsPropertyFile;
 
         @Option(name = "--version", usage = "display version")
         private boolean version;
@@ -90,6 +98,14 @@ public final class Main {
             properties.load(is);
         }
         properties.putAll(System.getProperties());
+
+        Properties credentialsProperties = new Properties();
+        if (options.credentialsPropertyFile != null) {
+            try (InputStream is = new FileInputStream(
+                    options.credentialsPropertyFile)) {
+                credentialsProperties.load(is);
+            }
+        }
 
         String s3ProxyEndpointString = properties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT);
@@ -238,6 +254,33 @@ public final class Main {
             System.exit(1);
             throw e;
         }
+
+        final Map<String, Map.Entry<String, BlobStore>> credentialsMap =
+                new HashMap<>();
+        for (Map.Entry<Object, Object> entry :
+                credentialsProperties.entrySet()) {
+            String key = (String) entry.getKey();
+            String[] values = ((String) entry.getValue()).split(":");
+            checkArgument(values.length == 3, "values must have the form: " +
+                    "frontend_credential:remote_identity:remote_credential");
+
+            Properties newProperties = new Properties(properties);
+            newProperties.setProperty(Constants.PROPERTY_IDENTITY, values[1]);
+            newProperties.setProperty(Constants.PROPERTY_CREDENTIAL, values[2]);
+
+            credentialsMap.put(key, Maps.immutableEntry(values[0],
+                    createBlobStore(newProperties)));
+        }
+        if (!credentialsMap.isEmpty()) {
+            s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
+                @Override
+                public Map.Entry<String, BlobStore> locateBlobStore(
+                        String identity, String container, String blob) {
+                    return credentialsMap.get(identity);
+                }
+            });
+        }
+
         try {
             s3Proxy.start();
         } catch (Exception e) {
