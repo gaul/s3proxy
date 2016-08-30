@@ -293,6 +293,13 @@ final class S3ProxyHandler extends AbstractHandler {
             return;
         } catch (Throwable throwable) {
             if (Throwables2.getFirstThrowableOfType(throwable,
+                    AuthorizationException.class) != null) {
+                S3ErrorCode code = S3ErrorCode.ACCESS_DENIED;
+                sendSimpleErrorResponse(request, response, code,
+                        code.getMessage(), ImmutableMap.<String, String>of());
+                baseRequest.setHandled(true);
+                return;
+            } else if (Throwables2.getFirstThrowableOfType(throwable,
                     TimeoutException.class) != null) {
                 S3ErrorCode code = S3ErrorCode.REQUEST_TIMEOUT;
                 sendSimpleErrorResponse(request, response, code,
