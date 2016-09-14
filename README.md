@@ -3,7 +3,8 @@ S3Proxy
 S3Proxy allows applications using the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
 to access other storage backends,
-e.g., local file system, Google Cloud Storage, Microsoft Azure, OpenStack Swift.
+e.g., local file system, Backblaze B2, Google Cloud Storage, Microsoft Azure,
+OpenStack Swift.
 
 Usage with Docker
 -----------------
