@@ -2405,7 +2405,7 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletRequest request, HttpServletResponse response,
             S3ErrorCode code, String message,
             Map<String, String> elements) throws IOException {
-        logger.debug("{} {}", code, elements);
+        logger.error("{} {}", code, elements);
 
         response.setStatus(code.getHttpStatusCode());
 
