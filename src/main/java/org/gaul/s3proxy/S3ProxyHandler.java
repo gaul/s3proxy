@@ -1207,7 +1207,7 @@ final class S3ProxyHandler extends AbstractHandler {
             }
 
             if (encodingType != null && encodingType.equals("url")) {
-                writeSimpleElement(xml, "Encoding-Type", encodingType);
+                writeSimpleElement(xml, "EncodingType", encodingType);
             }
 
             String nextMarker = set.getNextMarker();
@@ -1989,7 +1989,7 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             if (encodingType != null && encodingType.equals("url")) {
-                writeSimpleElement(xml, "Encoding-Type", encodingType);
+                writeSimpleElement(xml, "EncodingType", encodingType);
             }
 
             writeSimpleElement(xml, "Bucket", containerName);
