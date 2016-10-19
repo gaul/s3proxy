@@ -158,7 +158,8 @@ final class S3ProxyHandler extends AbstractHandler {
             "response-expires",
             "Signature",
             "uploadId",
-            "uploads"
+            "uploads",
+            "X-Amz-Expires"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
@@ -362,7 +363,8 @@ final class S3ProxyHandler extends AbstractHandler {
         }
 
         if (!anonymousIdentity && !hasDateHeader && !hasXAmzDateHeader &&
-                request.getParameter("Expires") == null) {
+                request.getParameter("Expires") == null &&
+                request.getParameter("X-Amz-Expires") == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
                     "AWS authentication requires a valid Date or" +
                     " x-amz-date header");
@@ -431,7 +433,11 @@ final class S3ProxyHandler extends AbstractHandler {
             String credential = provider.getKey();
             blobStore = provider.getValue();
 
-            String expiresString = request.getParameter("Expires");
+            String expiresString =
+                    Optional.fromNullable(request.getParameter("Expires"))
+                    .or(Optional.fromNullable(
+                            request.getParameter("X-Amz-Expires")))
+                    .orNull();
             if (expiresString != null) {
                 long expires = Long.parseLong(expiresString);
                 long nowSeconds = System.currentTimeMillis() / 1000;
@@ -2513,7 +2519,11 @@ final class S3ProxyHandler extends AbstractHandler {
                 .append(Strings.nullToEmpty(request.getHeader(
                         HttpHeaders.CONTENT_TYPE)))
                 .append('\n');
-        String expires = request.getParameter("Expires");
+        String expires =
+                Optional.fromNullable(request.getParameter("Expires"))
+                .or(Optional.fromNullable(
+                        request.getParameter("X-Amz-Expires")))
+                .orNull();
         if (expires != null) {
             builder.append(expires);
         } else if (!canonicalizedHeaders.containsKey("x-amz-date")) {
