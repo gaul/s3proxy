@@ -56,6 +56,7 @@ import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ListObjectsRequest;
+import com.amazonaws.services.s3.model.ListPartsRequest;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.Permission;
@@ -498,6 +499,24 @@ public final class S3AwsSdkTest {
                 contentType);
         assertThat(reponseMetadata.getHttpExpiresDate().getTime())
             .isEqualTo(expiresTime);
+    }
+
+    @Test
+    public void testPartNumberMarker() throws Exception {
+        String blobName = "foo";
+        InitiateMultipartUploadResult result = client.initiateMultipartUpload(
+                new InitiateMultipartUploadRequest(containerName, blobName));
+        ListPartsRequest request = new ListPartsRequest(containerName,
+                blobName, result.getUploadId());
+
+        client.listParts(request.withPartNumberMarker(0));
+
+        try {
+            client.listParts(request.withPartNumberMarker(1));
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        }
     }
 
     private static final class NullX509TrustManager

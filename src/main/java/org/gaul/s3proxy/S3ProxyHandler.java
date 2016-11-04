@@ -143,6 +143,7 @@ public class S3ProxyHandler {
             "location",
             "marker",
             "max-keys",
+            "part-number-marker",
             "partNumber",
             "prefix",
             "response-cache-control",
@@ -1888,7 +1889,13 @@ public class S3ProxyHandler {
     private void handleListParts(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
-            throws IOException {
+            throws IOException, S3Exception {
+        // support only the no-op zero case
+        String partNumberMarker = request.getParameter("part-number-marker");
+        if (partNumberMarker != null && !partNumberMarker.equals("0")) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
