@@ -45,7 +45,6 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
@@ -58,7 +57,6 @@ import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
@@ -82,10 +80,7 @@ import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
 import org.apache.commons.fileupload.MultipartStream;
-import org.eclipse.jetty.server.Request;
-import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -109,11 +104,11 @@ import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.jclouds.rest.AuthorizationException;
-import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-final class S3ProxyHandler extends AbstractHandler {
+/** HTTP server-independent handler for S3 requests. */
+public class S3ProxyHandler {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
     private static final String AWS_XMLNS =
@@ -211,7 +206,7 @@ final class S3ProxyHandler extends AbstractHandler {
             .expireAfterWrite(10, TimeUnit.MINUTES)
             .build();
 
-    S3ProxyHandler(final BlobStore blobStore, final String identity,
+    public S3ProxyHandler(final BlobStore blobStore, final String identity,
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean corsAllowAll) {
@@ -252,69 +247,9 @@ final class S3ProxyHandler extends AbstractHandler {
         return blobStore.getContext().unwrap().getProviderMetadata().getId();
     }
 
-    @Override
-    public void handle(String target, Request baseRequest,
-            HttpServletRequest request, HttpServletResponse response)
-            throws IOException {
-        try (InputStream is = request.getInputStream()) {
-            doHandle(baseRequest, request, response, is);
-            baseRequest.setHandled(true);
-        } catch (ContainerNotFoundException cnfe) {
-            S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
-            sendSimpleErrorResponse(request, response, code, code.getMessage(),
-                    ImmutableMap.<String, String>of());
-            baseRequest.setHandled(true);
-            return;
-        } catch (HttpResponseException hre) {
-            HttpResponse httpResponse = hre.getResponse();
-            response.sendError(httpResponse == null ?
-                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR :
-                    httpResponse.getStatusCode());
-            baseRequest.setHandled(true);
-            return;
-        } catch (IllegalArgumentException iae) {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-            baseRequest.setHandled(true);
-            return;
-        } catch (KeyNotFoundException knfe) {
-            S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
-            sendSimpleErrorResponse(request, response, code, code.getMessage(),
-                    ImmutableMap.<String, String>of());
-            baseRequest.setHandled(true);
-            return;
-        } catch (S3Exception se) {
-            sendSimpleErrorResponse(request, response, se.getError(),
-                    se.getMessage(), se.getElements());
-            baseRequest.setHandled(true);
-            return;
-        } catch (UnsupportedOperationException uoe) {
-            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
-            baseRequest.setHandled(true);
-            return;
-        } catch (Throwable throwable) {
-            if (Throwables2.getFirstThrowableOfType(throwable,
-                    AuthorizationException.class) != null) {
-                S3ErrorCode code = S3ErrorCode.ACCESS_DENIED;
-                sendSimpleErrorResponse(request, response, code,
-                        code.getMessage(), ImmutableMap.<String, String>of());
-                baseRequest.setHandled(true);
-                return;
-            } else if (Throwables2.getFirstThrowableOfType(throwable,
-                    TimeoutException.class) != null) {
-                S3ErrorCode code = S3ErrorCode.REQUEST_TIMEOUT;
-                sendSimpleErrorResponse(request, response, code,
-                        code.getMessage(), ImmutableMap.<String, String>of());
-                baseRequest.setHandled(true);
-                return;
-            } else {
-                throw throwable;
-            }
-        }
-    }
-
-    private void doHandle(Request baseRequest, HttpServletRequest request,
-            HttpServletResponse response, InputStream is)
-            throws IOException, S3Exception {
+    public final void doHandle(HttpServletRequest baseRequest,
+            HttpServletRequest request, HttpServletResponse response,
+            InputStream is) throws IOException, S3Exception {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         logger.debug("request: {}", request);
@@ -2353,7 +2288,13 @@ final class S3ProxyHandler extends AbstractHandler {
             HttpServletRequest request, HttpServletResponse response,
             String headerName, String overrideHeaderName, String value) {
         String override = request.getParameter(overrideHeaderName);
-        response.addHeader(headerName, override != null ? override : value);
+
+        // NPE in if value is null
+        override = (override != null) ? override : value;
+
+        if (override != null) {
+            response.addHeader(headerName, override);
+        }
     }
 
     private static void addMetadataToResponse(HttpServletRequest request,
@@ -2401,7 +2342,7 @@ final class S3ProxyHandler extends AbstractHandler {
         }
     }
 
-    private void sendSimpleErrorResponse(
+    protected final void sendSimpleErrorResponse(
             HttpServletRequest request, HttpServletResponse response,
             S3ErrorCode code, String message,
             Map<String, String> elements) throws IOException {
@@ -2434,46 +2375,6 @@ final class S3ProxyHandler extends AbstractHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
-        }
-    }
-
-    public void setBlobStoreLocator(BlobStoreLocator locator) {
-        this.blobStoreLocator = locator;
-    }
-
-    @SuppressWarnings("serial")
-    static final class S3Exception extends Exception {
-        private final S3ErrorCode error;
-        private final Map<String, String> elements;
-
-        S3Exception(S3ErrorCode error) {
-            this(error, error.getMessage(), (Throwable) null,
-                    ImmutableMap.<String, String>of());
-        }
-
-        S3Exception(S3ErrorCode error, String message) {
-            this(error, message, (Throwable) null,
-                    ImmutableMap.<String, String>of());
-        }
-
-        S3Exception(S3ErrorCode error, Throwable cause) {
-            this(error, error.getMessage(), cause,
-                    ImmutableMap.<String, String>of());
-        }
-
-        S3Exception(S3ErrorCode error, String message, Throwable cause,
-                Map<String, String> elements) {
-            super(message, cause);
-            this.error = requireNonNull(error);
-            this.elements = ImmutableMap.copyOf(elements);
-        }
-
-        S3ErrorCode getError() {
-            return error;
-        }
-
-        Map<String, String> getElements() {
-            return elements;
         }
     }
 
@@ -2562,7 +2463,8 @@ final class S3ProxyHandler extends AbstractHandler {
      * Create v4 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
      */
-    private static String createAuthorizationSignatureV4(Request request,
+    private static String createAuthorizationSignatureV4(
+            HttpServletRequest request,
             byte[] payload, String uri, String credential)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
             S3Exception {
@@ -2602,9 +2504,9 @@ final class S3ProxyHandler extends AbstractHandler {
         return mac.doFinal(data);
     }
 
-    private static String createCanonicalRequest(Request request, String uri,
-            byte[] payload, String hashAlgorithm) throws IOException,
-            NoSuchAlgorithmException {
+    private static String createCanonicalRequest(HttpServletRequest request,
+            String uri, byte[] payload, String hashAlgorithm)
+            throws IOException, NoSuchAlgorithmException {
         String authorizationHeader = request.getHeader("Authorization");
         String xAmzContentSha256 = request.getHeader("x-amz-content-sha256");
         String digest;
@@ -2646,7 +2548,7 @@ final class S3ProxyHandler extends AbstractHandler {
         return authorization.substring(startHeaders + 1, endSigned).split(";");
     }
 
-    private static String buildCanonicalHeaders(Request request,
+    private static String buildCanonicalHeaders(HttpServletRequest request,
             String[] signedHeaders) {
         List<String> headers = new ArrayList<>();
         for (String header : signedHeaders) {
@@ -2673,14 +2575,13 @@ final class S3ProxyHandler extends AbstractHandler {
         return Joiner.on("\n").join(headersWithValues);
     }
 
-    private static String buildCanonicalQueryString(Request request)
+    private static String buildCanonicalQueryString(HttpServletRequest request)
             throws UnsupportedEncodingException {
         // The parameters are required to be sorted
         List<String> parameters = Collections.list(request.getParameterNames());
         Collections.sort(parameters);
         List<String> queryParameters = new ArrayList<>();
-        String charsetName = Objects.firstNonNull(request.getQueryEncoding(),
-                "UTF-8");
+
         for (String key : parameters) {
             // re-encode keys and values in AWS normalized form
             String value = request.getParameter(key);
@@ -2802,5 +2703,13 @@ final class S3ProxyHandler extends AbstractHandler {
         @Override
         public void close() throws IOException {
         }
+    }
+
+    public final BlobStoreLocator getBlobStoreLocator() {
+        return blobStoreLocator;
+    }
+
+    public final void setBlobStoreLocator(BlobStoreLocator locator) {
+        this.blobStoreLocator = locator;
     }
 }

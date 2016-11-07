@@ -40,7 +40,7 @@ import org.jclouds.blobstore.BlobStore;
  */
 public final class S3Proxy {
     private final Server server;
-    private final S3ProxyHandler handler;
+    private final S3ProxyHandlerJetty handler;
     private final boolean listenHTTP;
     private final boolean listenHTTPS;
 
@@ -101,7 +101,7 @@ public final class S3Proxy {
         } else {
             listenHTTPS = false;
         }
-        handler = new S3ProxyHandler(builder.blobStore, builder.identity,
+        handler = new S3ProxyHandlerJetty(builder.blobStore, builder.identity,
                 builder.credential, Optional.fromNullable(builder.virtualHost),
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsAllowAll);
@@ -221,7 +221,7 @@ public final class S3Proxy {
     }
 
     public void setBlobStoreLocator(BlobStoreLocator lookup) {
-        handler.setBlobStoreLocator(lookup);
+        handler.getHandler().setBlobStoreLocator(lookup);
     }
 
 }
