@@ -18,27 +18,14 @@ package org.gaul.s3proxy;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
-import com.google.common.io.Files;
-import com.google.inject.Module;
-
-import org.jclouds.Constants;
-import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.location.reference.LocationConstants;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -129,7 +116,7 @@ public final class Main {
         String corsAllowAll = properties.getProperty(
                 S3ProxyConstants.PROPERTY_CORS_ALLOW_ALL);
 
-        BlobStore blobStore = createBlobStore(properties);
+        BlobStore blobStore = S3ProxyHandler.createBlobStore(properties);
 
         Properties altProperties = new Properties();
         for (Map.Entry<Object, Object> entry : properties.entrySet()) {
@@ -144,7 +131,8 @@ public final class Main {
         String eventualConsistency = properties.getProperty(
                 S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY);
         if ("true".equalsIgnoreCase(eventualConsistency)) {
-            BlobStore altBlobStore = createBlobStore(altProperties);
+            BlobStore altBlobStore = S3ProxyHandler
+                    .createBlobStore(altProperties);
             int delay = Integer.parseInt(properties.getProperty(
                     S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_DELAY,
                     "5"));
@@ -206,54 +194,7 @@ public final class Main {
         }
     }
 
-    private static BlobStore createBlobStore(Properties properties)
-            throws IOException {
-        String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
-        String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
-        String credential = properties.getProperty(
-                Constants.PROPERTY_CREDENTIAL);
-        String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
-        String region = properties.getProperty(
-                LocationConstants.PROPERTY_REGION);
 
-        if (provider.equals("filesystem") || provider.equals("transient")) {
-            // local blobstores do not require credentials
-            identity = Strings.nullToEmpty(identity);
-            credential = Strings.nullToEmpty(credential);
-        } else if (provider.equals("google-cloud-storage")) {
-            File credentialFile = new File(credential);
-            if (credentialFile.exists()) {
-                credential = Files.toString(credentialFile,
-                        StandardCharsets.UTF_8);
-            }
-            properties.remove(Constants.PROPERTY_CREDENTIAL);
-        }
-
-        if (provider == null || identity == null || credential == null) {
-            System.err.println("Properties file must contain:\n" +
-                    Constants.PROPERTY_PROVIDER + "\n" +
-                    Constants.PROPERTY_IDENTITY + "\n" +
-                    Constants.PROPERTY_CREDENTIAL + "\n");
-        }
-
-        ContextBuilder builder = ContextBuilder
-                .newBuilder(provider)
-                .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
-                .overrides(properties);
-        if (endpoint != null) {
-            builder = builder.endpoint(endpoint);
-        }
-
-        BlobStoreContext context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
-        if (context instanceof RegionScopedBlobStoreContext &&
-                region != null) {
-            blobStore = ((RegionScopedBlobStoreContext) context)
-                    .getBlobStore(region);
-        }
-        return blobStore;
-    }
 
     private static void usage(CmdLineParser parser) {
         System.err.println("Usage: s3proxy [options...]");

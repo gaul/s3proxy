@@ -36,6 +36,10 @@ public final class S3ProxyConstants {
             "s3proxy.keystore-path";
     public static final String PROPERTY_KEYSTORE_PASSWORD =
             "s3proxy.keystore-password";
+
+    /** Request attributes. */
+    public static final String ATTRIBUTE_QUERY_ENCODING = "queryEncoding";
+
     /**
      * Configure servicing of virtual host buckets.  Setting to localhost:8080
      * allows bucket-in-hostname requests, e.g., bucketname.localhost:8080.
