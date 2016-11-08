@@ -59,7 +59,6 @@ import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
@@ -202,6 +201,7 @@ public class S3ProxyHandler {
     private final boolean corsAllowAll;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
+    private BlobStoreLocator blobStoreLocator;
     // TODO: hack to allow per-request anonymous access
     private final BlobStore defaultBlobStore;
     /**
@@ -215,8 +215,6 @@ public class S3ProxyHandler {
             .maximumSize(10000)
             .expireAfterWrite(10, TimeUnit.MINUTES)
             .build();
-
-    private BlobStoreLocator blobStoreLocator;
 
     public S3ProxyHandler(final BlobStore blobStore, final String identity,
             final String credential, Optional<String> virtualHost,
@@ -2350,11 +2348,9 @@ public class S3ProxyHandler {
             HttpServletRequest request, HttpServletResponse response,
             String headerName, String overrideHeaderName, String value) {
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("entry > addResponseHeaderWithOverride(). " +
+        logger.debug("entry > addResponseHeaderWithOverride(). " +
                     "headerName: {}, overideHeaderName: {}, value: {}",
                     headerName, overrideHeaderName, value);
-        }
 
         String override = request.getParameter(overrideHeaderName);
 
@@ -2365,10 +2361,7 @@ public class S3ProxyHandler {
             response.addHeader(headerName, override);
         }
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("exit < addResponseHeaderWithOverride()");
-        }
-
+        logger.debug("exit < addResponseHeaderWithOverride()");
     }
 
     private static void addMetadataToResponse(HttpServletRequest request,
@@ -2449,42 +2442,6 @@ public class S3ProxyHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
-        }
-    }
-
-    @SuppressWarnings("serial")
-    public static final class S3Exception extends Exception {
-        private final S3ErrorCode error;
-        private final Map<String, String> elements;
-
-        S3Exception(S3ErrorCode error) {
-            this(error, error.getMessage(), (Throwable) null,
-                    ImmutableMap.<String, String>of());
-        }
-
-        S3Exception(S3ErrorCode error, String message) {
-            this(error, message, (Throwable) null,
-                    ImmutableMap.<String, String>of());
-        }
-
-        S3Exception(S3ErrorCode error, Throwable cause) {
-            this(error, error.getMessage(), cause,
-                    ImmutableMap.<String, String>of());
-        }
-
-        S3Exception(S3ErrorCode error, String message, Throwable cause,
-                Map<String, String> elements) {
-            super(message, cause);
-            this.error = requireNonNull(error);
-            this.elements = ImmutableMap.copyOf(elements);
-        }
-
-        S3ErrorCode getError() {
-            return error;
-        }
-
-        Map<String, String> getElements() {
-            return elements;
         }
     }
 
@@ -2691,11 +2648,6 @@ public class S3ProxyHandler {
         List<String> parameters = Collections.list(request.getParameterNames());
         Collections.sort(parameters);
         List<String> queryParameters = new ArrayList<>();
-
-        // TODO  Remove this as it is not used?
-        String charsetName = (String) Objects.firstNonNull(request.getAttribute(
-                S3ProxyConstants.ATTRIBUTE_QUERY_ENCODING),
-                "UTF-8");
 
         for (String key : parameters) {
             // re-encode keys and values in AWS normalized form

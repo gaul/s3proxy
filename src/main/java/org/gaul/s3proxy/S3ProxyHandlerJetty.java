@@ -90,7 +90,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     code.getMessage(), ImmutableMap.<String, String>of());
             baseRequest.setHandled(true);
             return;
-        } catch (S3ProxyHandler.S3Exception se) {
+        } catch (S3Exception se) {
             handler.sendSimpleErrorResponse(request, response,
                     se.getError(), se.getMessage(), se.getElements());
             baseRequest.setHandled(true);
