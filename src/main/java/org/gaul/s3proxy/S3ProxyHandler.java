@@ -1042,6 +1042,8 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     null, null, ImmutableMap.of("BucketName", containerName));
         }
+
+        response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
     }
 
     private void handleContainerDelete(HttpServletResponse response,
