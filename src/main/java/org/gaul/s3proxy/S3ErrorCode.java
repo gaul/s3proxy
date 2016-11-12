@@ -36,14 +36,16 @@ enum S3ErrorCode {
     BUCKET_ALREADY_OWNED_BY_YOU(HttpServletResponse.SC_CONFLICT,
             "Your previous request to create the named bucket" +
             " succeeded and you already own it."),
-    BUCKET_NOT_EMPTY(HttpServletResponse.SC_CONFLICT, "Conflict"),
+    BUCKET_NOT_EMPTY(HttpServletResponse.SC_CONFLICT,
+            "The bucket you tried to delete is not empty"),
     ENTITY_TOO_SMALL(HttpServletResponse.SC_BAD_REQUEST,
             "Your proposed upload is smaller than the minimum allowed object" +
             " size. Each part must be at least 5 MB in size, except the last" +
             " part."),
     INVALID_ACCESS_KEY_ID(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     INVALID_ARGUMENT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
-    INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
+    INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST,
+            "The specified bucket is not valid."),
     INVALID_DIGEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_LOCATION_CONSTRAINT(HttpServletResponse.SC_BAD_REQUEST,
             "The specified location constraint is not valid. For" +
@@ -65,8 +67,10 @@ enum S3ErrorCode {
             "Method Not Allowed"),
     MISSING_CONTENT_LENGTH(HttpServletResponse.SC_LENGTH_REQUIRED,
             "Length Required"),
-    NO_SUCH_BUCKET(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
-    NO_SUCH_KEY(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
+    NO_SUCH_BUCKET(HttpServletResponse.SC_NOT_FOUND,
+            "The specified bucket does not exist"),
+    NO_SUCH_KEY(HttpServletResponse.SC_NOT_FOUND,
+            "The specified key does not exist."),
     NO_SUCH_UPLOAD(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     NOT_IMPLEMENTED(HttpServletResponse.SC_NOT_IMPLEMENTED,
             "A header you provided implies functionality that is not" +
