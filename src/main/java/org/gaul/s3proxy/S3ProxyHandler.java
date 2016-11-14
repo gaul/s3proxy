@@ -45,7 +45,6 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -56,6 +55,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -126,8 +126,15 @@ public class S3ProxyHandler {
     private static final String FAKE_INITIATOR_DISPLAY_NAME =
             "umat-user-11116a31-17b5-4fb7-9df5-b288870f11xx";
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
-    private static final Pattern VALID_BUCKET_PATTERN =
-            Pattern.compile("[a-zA-Z0-9._-]+");
+    private static final CharMatcher VALID_BUCKET_FIRST_CHAR =
+            CharMatcher.inRange('a', 'z')
+                    .or(CharMatcher.inRange('0', '9'));
+    private static final CharMatcher VALID_BUCKET =
+            VALID_BUCKET_FIRST_CHAR
+                    .or(CharMatcher.inRange('A', 'Z'))
+                    .or(CharMatcher.is('.'))
+                    .or(CharMatcher.is('_'))
+                    .or(CharMatcher.is('-'));
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
             "acl", "delete", "lifecycle", "location", "logging", "notification",
             "partNumber", "policy", "requestPayment", "torrent", "uploadId",
@@ -979,7 +986,10 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED);
         }
         if (containerName.length() < 3 || containerName.length() > 255 ||
-                !VALID_BUCKET_PATTERN.matcher(containerName).matches()) {
+                containerName.startsWith(".") || containerName.endsWith(".") ||
+                validateIpAddress(containerName) ||
+                !VALID_BUCKET_FIRST_CHAR.matches(containerName.charAt(0)) ||
+                !VALID_BUCKET.matchesAllOf(containerName)) {
             throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
         }
 
@@ -2723,5 +2733,23 @@ public class S3ProxyHandler {
 
     public final void setBlobStoreLocator(BlobStoreLocator locator) {
         this.blobStoreLocator = locator;
+    }
+
+    private static boolean validateIpAddress(String string) {
+        String[] parts = string.split("\\.");
+        if (parts.length != 4) {
+            return false;
+        }
+        for (String part : parts) {
+            try {
+                int num = Integer.parseInt(part);
+                if (num > 255) {
+                    return false;
+                }
+            } catch (NumberFormatException nfe) {
+                return false;
+            }
+        }
+        return true;
     }
 }
