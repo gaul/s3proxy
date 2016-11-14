@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
@@ -1194,8 +1196,7 @@ public class S3ProxyHandler {
                 Date lastModified = metadata.getLastModified();
                 if (lastModified != null) {
                     writeSimpleElement(xml, "LastModified",
-                            blobStore.getContext().utils().date()
-                                    .iso8601DateFormat(lastModified));
+                            formatDate(lastModified));
                 }
 
                 String eTag = metadata.getETag();
@@ -1504,8 +1505,7 @@ public class S3ProxyHandler {
             xml.writeDefaultNamespace(AWS_XMLNS);
 
             writeSimpleElement(xml, "LastModified",
-                    blobStore.getContext().utils().date()
-                            .iso8601DateFormat(blobMetadata.getLastModified()));
+                    formatDate(blobMetadata.getLastModified()));
             writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
 
             xml.writeEndElement();
@@ -1974,8 +1974,7 @@ public class S3ProxyHandler {
                 Date lastModified = null;  // TODO: not part of MultipartPart
                 if (lastModified != null) {
                     writeSimpleElement(xml, "LastModified",
-                            blobStore.getContext().utils().date()
-                                    .iso8601DateFormat(lastModified));
+                            formatDate(lastModified));
                 }
 
                 String eTag = part.partETag();
@@ -2157,9 +2156,7 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            writeSimpleElement(xml, "LastModified",
-                    blobStore.getContext().utils().date()
-                            .iso8601DateFormat(blobMetadata.getLastModified()));
+            writeSimpleElement(xml, "LastModified", formatDate(lastModified));
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
@@ -2362,6 +2359,15 @@ public class S3ProxyHandler {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
                     entry.getValue());
         }
+    }
+
+    // cannot call BlobStore.getContext().utils().date().iso8601DateFormatsince
+    // it has unwanted millisecond precision
+    private static String formatDate(Date date) {
+        SimpleDateFormat formatter = new SimpleDateFormat(
+                "yyyy-MM-dd'T'HH:mm:ss'Z'");
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        return formatter.format(date);
     }
 
     protected final void sendSimpleErrorResponse(
