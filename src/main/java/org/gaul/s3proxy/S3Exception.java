@@ -44,7 +44,7 @@ public final class S3Exception extends Exception {
 
     S3Exception(S3ErrorCode error, String message, Throwable cause,
                 Map<String, String> elements) {
-        super(message, cause);
+        super(requireNonNull(message), cause);
         this.error = requireNonNull(error);
         this.elements = ImmutableMap.copyOf(elements);
     }
@@ -55,5 +55,10 @@ public final class S3Exception extends Exception {
 
     Map<String, String> getElements() {
         return elements;
+    }
+
+    @Override
+    public String toString() {
+        return error + " " + elements;
     }
 }

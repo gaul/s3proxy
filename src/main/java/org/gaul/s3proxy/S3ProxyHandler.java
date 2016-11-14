@@ -1079,7 +1079,8 @@ public class S3ProxyHandler {
         }
         if (!created) {
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
-                    null, null, ImmutableMap.of("BucketName", containerName));
+                    S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU.getMessage(),
+                    null, ImmutableMap.of("BucketName", containerName));
         }
 
         response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
