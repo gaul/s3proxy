@@ -1105,6 +1105,9 @@ public class S3ProxyHandler {
             } catch (NumberFormatException nfe) {
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
+            if (maxKeys > 1000) {
+                maxKeys = 1000;
+            }
         }
         options.maxResults(maxKeys);
 
