@@ -84,7 +84,7 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
     @Override
     @Test
     public void testUpdateBucketACL() throws InterruptedException,
-           ExecutionException, TimeoutException, IOException, Exception {
+            ExecutionException, TimeoutException, IOException, Exception {
         try {
             super.testUpdateBucketACL();
             Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);

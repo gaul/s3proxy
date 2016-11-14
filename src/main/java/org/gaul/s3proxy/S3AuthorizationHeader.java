@@ -28,6 +28,8 @@ final class S3AuthorizationHeader {
     private static final String SIGNATURE_FIELD = "Signature=";
     private static final String CREDENTIAL_FIELD = "Credential=";
 
+    // TODO: these fields should have accessors
+    // CHECKSTYLE:OFF
     final String hmacAlgorithm;
     final String hashAlgorithm;
     final String region;
@@ -35,6 +37,7 @@ final class S3AuthorizationHeader {
     final String service;
     final String identity;
     final String signature;
+    // CHECKSTYLE:ON
 
     S3AuthorizationHeader(String header) {
         if (header.startsWith("AWS ")) {
