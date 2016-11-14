@@ -195,6 +195,7 @@ public class S3ProxyHandler {
     private static final int B2_PUT_BLOB_BUFFER_SIZE = 1024 * 1024;
 
     private final boolean anonymousIdentity;
+    private final AuthenticationType authenticationType;
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
@@ -216,7 +217,8 @@ public class S3ProxyHandler {
             .expireAfterWrite(10, TimeUnit.MINUTES)
             .build();
 
-    public S3ProxyHandler(final BlobStore blobStore, final String identity,
+    public S3ProxyHandler(final BlobStore blobStore,
+            AuthenticationType authenticationType, final String identity,
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean corsAllowAll) {
@@ -244,6 +246,7 @@ public class S3ProxyHandler {
                 }
             };
         }
+        this.authenticationType = authenticationType;
         this.virtualHost = requireNonNull(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
@@ -383,6 +386,30 @@ public class S3ProxyHandler {
                 if (nowSeconds > expires) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+            }
+
+            switch (authHeader.authenticationType) {
+            case AWS_V2:
+                switch (authenticationType) {
+                case AWS_V2:
+                case AWS_V2_OR_V4:
+                    break;
+                default:
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                }
+                break;
+            case AWS_V4:
+                switch (authenticationType) {
+                case AWS_V4:
+                case AWS_V2_OR_V4:
+                    break;
+                default:
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                }
+                break;
+            default:
+                throw new IllegalArgumentException("Unhandled type: " +
+                        authHeader.authenticationType);
             }
 
             String expectedSignature = null;

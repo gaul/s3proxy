@@ -101,7 +101,8 @@ public final class S3Proxy {
         } else {
             listenHTTPS = false;
         }
-        handler = new S3ProxyHandlerJetty(builder.blobStore, builder.identity,
+        handler = new S3ProxyHandlerJetty(builder.blobStore,
+                builder.authenticationType, builder.identity,
                 builder.credential, Optional.fromNullable(builder.virtualHost),
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsAllowAll);
@@ -112,6 +113,8 @@ public final class S3Proxy {
         private BlobStore blobStore;
         private URI endpoint;
         private URI secureEndpoint;
+        private AuthenticationType authenticationType =
+                AuthenticationType.NONE;
         private String identity;
         private String credential;
         private String keyStorePath;
@@ -143,7 +146,9 @@ public final class S3Proxy {
             return this;
         }
 
-        public Builder awsAuthentication(String identity, String credential) {
+        public Builder awsAuthentication(AuthenticationType authenticationType,
+                String identity, String credential) {
+            this.authenticationType = authenticationType;
             this.identity = requireNonNull(identity);
             this.credential = requireNonNull(credential);
             return this;
@@ -223,5 +228,4 @@ public final class S3Proxy {
     public void setBlobStoreLocator(BlobStoreLocator lookup) {
         handler.getHandler().setBlobStoreLocator(lookup);
     }
-
 }

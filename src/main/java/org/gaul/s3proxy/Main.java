@@ -84,10 +84,10 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_ENDPOINT);
         String secureEndpoint = properties.getProperty(
                 S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
-        String s3ProxyAuthorization = properties.getProperty(
+        String s3ProxyAuthorizationString = properties.getProperty(
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
         if ((s3ProxyEndpointString == null && secureEndpoint == null) ||
-                s3ProxyAuthorization == null) {
+                s3ProxyAuthorizationString == null) {
             System.err.println("Properties file must contain:\n" +
                     S3ProxyConstants.PROPERTY_AUTHORIZATION + "\n" +
                     "and one of\n" +
@@ -96,9 +96,14 @@ public final class Main {
             System.exit(1);
         }
 
+        AuthenticationType s3ProxyAuthorization =
+                AuthenticationType.fromString(s3ProxyAuthorizationString);
         String localIdentity = null;
         String localCredential = null;
-        if (s3ProxyAuthorization.equalsIgnoreCase("aws-v2")) {
+        switch (s3ProxyAuthorization) {
+        case AWS_V2:
+        case AWS_V4:
+        case AWS_V2_OR_V4:
             localIdentity = properties.getProperty(
                     S3ProxyConstants.PROPERTY_IDENTITY);
             localCredential = properties.getProperty(
@@ -107,12 +112,15 @@ public final class Main {
                 System.err.println("Must specify both " +
                         S3ProxyConstants.PROPERTY_IDENTITY + " and " +
                         S3ProxyConstants.PROPERTY_CREDENTIAL +
-                        " when using aws-v2 authentication");
+                        " when using authentication");
                 System.exit(1);
             }
-        } else if (!s3ProxyAuthorization.equalsIgnoreCase("none")) {
+            break;
+        case NONE:
+            break;
+        default:
             System.err.println(S3ProxyConstants.PROPERTY_AUTHORIZATION +
-                    " must be aws-v2 or none, was: " + s3ProxyAuthorization);
+                    " invalid value, was: " + s3ProxyAuthorization);
             System.exit(1);
         }
 
@@ -171,7 +179,8 @@ public final class Main {
                 s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
             }
             if (localIdentity != null || localCredential != null) {
-                s3ProxyBuilder.awsAuthentication(localIdentity,
+                s3ProxyBuilder.awsAuthentication(
+                        s3ProxyAuthorization, localIdentity,
                         localCredential);
             }
             if (keyStorePath != null || keyStorePassword != null) {

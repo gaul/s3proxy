@@ -30,6 +30,7 @@ final class S3AuthorizationHeader {
 
     // TODO: these fields should have accessors
     // CHECKSTYLE:OFF
+    final AuthenticationType authenticationType;
     final String hmacAlgorithm;
     final String hashAlgorithm;
     final String region;
@@ -41,7 +42,7 @@ final class S3AuthorizationHeader {
 
     S3AuthorizationHeader(String header) {
         if (header.startsWith("AWS ")) {
-            // AWS v2 header
+            authenticationType = AuthenticationType.AWS_V2;
             hmacAlgorithm = null;
             hashAlgorithm = null;
             region = null;
@@ -58,7 +59,7 @@ final class S3AuthorizationHeader {
             identity = identityTuple[0];
             signature = identityTuple[1];
         } else if (header.startsWith("AWS4-HMAC")) {
-            // AWS v4 header
+            authenticationType = AuthenticationType.AWS_V4;
             signature = extractSignature(header);
 
             int credentialIndex = header.indexOf(CREDENTIAL_FIELD);

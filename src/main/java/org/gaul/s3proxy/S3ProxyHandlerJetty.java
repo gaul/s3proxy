@@ -40,13 +40,14 @@ import org.jclouds.util.Throwables2;
 final class S3ProxyHandlerJetty extends AbstractHandler {
     private final S3ProxyHandler handler;
 
-    S3ProxyHandlerJetty(final BlobStore blobStore, final String identity,
+    S3ProxyHandlerJetty(final BlobStore blobStore,
+            AuthenticationType authenticationType, final String identity,
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean corsAllowAll) {
-        handler = new S3ProxyHandler(blobStore, identity, credential,
-                virtualHost, v4MaxNonChunkedRequestSize, ignoreUnknownHeaders,
-                corsAllowAll);
+        handler = new S3ProxyHandler(blobStore, authenticationType, identity,
+                credential, virtualHost, v4MaxNonChunkedRequestSize,
+                ignoreUnknownHeaders, corsAllowAll);
     }
 
     @Override
