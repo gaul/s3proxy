@@ -393,19 +393,23 @@ public class S3ProxyHandler {
                 switch (authenticationType) {
                 case AWS_V2:
                 case AWS_V2_OR_V4:
+                case NONE:
                     break;
                 default:
-                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
                 break;
             case AWS_V4:
                 switch (authenticationType) {
                 case AWS_V4:
                 case AWS_V2_OR_V4:
+                case NONE:
                     break;
                 default:
-                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+                break;
+            case NONE:
                 break;
             default:
                 throw new IllegalArgumentException("Unhandled type: " +
