@@ -102,7 +102,7 @@ public final class JcloudsS3BlobIntegrationLiveTest
     @Override
     public void testCreateBlobWithExpiry() throws InterruptedException {
         if (Quirks.NO_EXPIRES.contains(blobStoreType)) {
-            throw new SkipException("blob access control not supported");
+            throw new SkipException("expiry not supported");
         }
         super.testCreateBlobWithExpiry();
     }
