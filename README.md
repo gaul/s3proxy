@@ -80,6 +80,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * bucket logging
 * cross-origin resource sharing, see [#142](https://github.com/andrewgaul/s3proxy/issues/142)
 * POST upload policies, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
+* list objects v2, see [#168](https://github.com/andrewgaul/s3proxy/issues/168)
 * object server-side encryption
 * object versioning, see [#74](https://github.com/andrewgaul/s3proxy/issues/74)
 * requester pays buckets
