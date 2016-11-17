@@ -1,5 +1,11 @@
 S3Proxy
 =======
+
+[![Github All Releases](https://img.shields.io/github/downloads/andrewgaul/s3proxy/total.svg)](https://github.com/andrewgaul/s3proxy/releases/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/andrewgaul/s3proxy.svg)](https://hub.docker.com/r/andrewgaul/s3proxy/)
+[![Maven Central](https://img.shields.io/maven-central/v/org.gaul/s3proxy.svg)](https://search.maven.org/#search%7Cga%7C1%7Ca%3A%22s3proxy%22)
+[![Twitter Follow](https://img.shields.io/twitter/follow/S3Proxy.svg?style=social&label=Follow)](https://twitter.com/S3Proxy)
+
 S3Proxy allows applications using the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
 to access other storage backends,
