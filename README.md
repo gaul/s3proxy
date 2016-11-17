@@ -6,11 +6,14 @@ S3Proxy
 [![Maven Central](https://img.shields.io/maven-central/v/org.gaul/s3proxy.svg)](https://search.maven.org/#search%7Cga%7C1%7Ca%3A%22s3proxy%22)
 [![Twitter Follow](https://img.shields.io/twitter/follow/S3Proxy.svg?style=social&label=Follow)](https://twitter.com/S3Proxy)
 
-S3Proxy allows applications using the
+S3Proxy implements the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
-to access other storage backends,
-e.g., local file system, Backblaze B2, Google Cloud Storage, Microsoft Azure,
-OpenStack Swift.
+and *proxies* requests, enabling several use cases:
+
+* translation from S3 to Backblaze B2, Google Cloud, Microsoft Azure, or OpenStack Swift
+* testing without Amazon by using the local filesystem
+* extension via middlewares, e.g., eventual consistency simulation
+* embedding into Java applications
 
 Usage with Docker
 -----------------
