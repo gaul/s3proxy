@@ -1286,13 +1286,17 @@ public class S3ProxyHandler {
             xml.writeStartDocument();
             xml.writeStartElement("DeleteResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
-            for (String blobName : blobNames) {
-                xml.writeStartElement("Deleted");
 
-                writeSimpleElement(xml, "Key", blobName);
+            if (!dmor.quiet) {
+                for (String blobName : blobNames) {
+                    xml.writeStartElement("Deleted");
 
-                xml.writeEndElement();
+                    writeSimpleElement(xml, "Key", blobName);
+
+                    xml.writeEndElement();
+                }
             }
+
             // TODO: emit error stanza
             xml.writeEndElement();
             xml.flush();

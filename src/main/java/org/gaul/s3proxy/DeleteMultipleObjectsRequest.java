@@ -23,6 +23,9 @@ import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 // CHECKSTYLE:OFF
 final class DeleteMultipleObjectsRequest {
+    @JacksonXmlProperty(localName = "Quiet")
+    boolean quiet;
+
     @JacksonXmlProperty(localName = "Object")
     @JacksonXmlElementWrapper(useWrapping = false)
     Collection<S3Object> objects;

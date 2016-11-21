@@ -51,6 +51,8 @@ import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
 import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
+import com.amazonaws.services.s3.model.DeleteObjectsRequest;
+import com.amazonaws.services.s3.model.DeleteObjectsResult;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
@@ -499,6 +501,32 @@ public final class S3AwsSdkTest {
                 contentType);
         assertThat(reponseMetadata.getHttpExpiresDate().getTime())
             .isEqualTo(expiresTime);
+    }
+
+    @Test
+    public void testDeleteMultipleObjects() throws Exception {
+        String blobName = "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+
+        DeleteObjectsRequest request = new DeleteObjectsRequest(containerName)
+                .withKeys(blobName);
+
+        // without quiet
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        DeleteObjectsResult result = client.deleteObjects(request);
+        assertThat(result.getDeletedObjects()).hasSize(1);
+        assertThat(result.getDeletedObjects().iterator().next().getKey())
+                .isEqualTo(blobName);
+
+        // with quiet
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        result = client.deleteObjects(request.withQuiet(true));
+        assertThat(result.getDeletedObjects()).isEmpty();
     }
 
     @Test
