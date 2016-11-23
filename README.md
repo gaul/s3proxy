@@ -64,6 +64,12 @@ $ curl http://localhost:8080/
 <?xml version="1.0" ?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID><DisplayName>CustomersName@amazon.com</DisplayName></Owner><Buckets><Bucket><Name>testbucket</Name><CreationDate>2015-08-05T22:16:24.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>
 ```
 
+Usage with Java
+---------------
+
+Maven Central hosts S3Proxy artifacts and the wiki has
+[instructions on Java use](https://github.com/andrewgaul/s3proxy/wiki/Using-S3Proxy-in-Java-projects).
+
 Supported storage backends
 --------------------------
 * atmos
