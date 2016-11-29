@@ -114,6 +114,7 @@ public final class AwsSdkTest {
     private String containerName;
     private BasicAWSCredentials awsCreds;
     private AmazonS3 client;
+    private String servicePath;
 
     @Before
     public void setUp() throws Exception {
@@ -123,8 +124,9 @@ public final class AwsSdkTest {
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
         s3Endpoint = info.getSecureEndpoint();
+        servicePath = info.getServicePath();
         s3EndpointConfig = new EndpointConfiguration(
-                s3Endpoint.toString(), "us-east-1");
+                s3Endpoint.toString() + servicePath, "us-east-1");
         client = AmazonS3ClientBuilder.standard()
                 .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
                 .withEndpointConfiguration(s3EndpointConfig)
@@ -702,7 +704,7 @@ public final class AwsSdkTest {
         HttpClient httpClient = context.utils().http();
         URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
                 s3Endpoint.getHost(), s3Proxy.getSecurePort(),
-                "/" + containerName + "/" + blobName,
+                servicePath + "/" + containerName + "/" + blobName,
                 /*query=*/ null, /*fragment=*/ null);
         try (InputStream actual = httpClient.get(uri);
              InputStream expected = BYTE_SOURCE.openStream()) {

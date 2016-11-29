@@ -28,6 +28,7 @@ import com.google.common.base.Strings;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.jclouds.blobstore.BlobStore;
@@ -74,6 +75,12 @@ public final class S3Proxy {
                 "Must provide both identity and credential");
 
         server = new Server();
+
+        if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
+            ContextHandler context = new ContextHandler();
+            context.setContextPath(builder.servicePath);
+        }
+
         ((QueuedThreadPool) server.getThreadPool()).setName("S3Proxy");
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
@@ -106,7 +113,7 @@ public final class S3Proxy {
                 builder.credential, Optional.fromNullable(builder.virtualHost),
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.ignoreUnknownParameters,
-                builder.corsAllowAll);
+                builder.corsAllowAll, builder.servicePath);
         server.setHandler(handler);
     }
 
@@ -121,6 +128,7 @@ public final class S3Proxy {
         private String keyStorePath;
         private String keyStorePassword;
         private String virtualHost;
+        private String servicePath;
         private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
         private boolean ignoreUnknownParameters;
@@ -192,6 +200,18 @@ public final class S3Proxy {
         public Builder corsAllowAll(boolean corsAllowAll) {
             this.corsAllowAll = corsAllowAll;
             return this;
+        }
+
+        public void servicePath(String s3ProxyServicePath) {
+            String path = Strings.nullToEmpty(s3ProxyServicePath);
+
+            if (!path.isEmpty()) {
+                if (!path.startsWith("/")) {
+                    path = "/" + path;
+                }
+            }
+
+            this.servicePath = path;
         }
     }
 
