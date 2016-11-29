@@ -76,7 +76,7 @@ public final class S3Proxy {
 
         server = new Server();
 
-        if (!builder.servicePath.isEmpty()) {
+        if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
             // Add a single handler on context "/hello"
             ContextHandler context = new ContextHandler();
             context.setContextPath(builder.servicePath);
