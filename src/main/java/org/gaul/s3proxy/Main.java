@@ -96,6 +96,9 @@ public final class Main {
             System.exit(1);
         }
 
+        String s3ProxyServicePath = properties.getProperty(
+                S3ProxyConstants.PROPERTY_SERVICE_PATH);
+
         AuthenticationType s3ProxyAuthorization =
                 AuthenticationType.fromString(s3ProxyAuthorizationString);
         String localIdentity = null;
@@ -200,6 +203,9 @@ public final class Main {
             if (corsAllowAll != null) {
                 s3ProxyBuilder.corsAllowAll(Boolean.parseBoolean(
                         corsAllowAll));
+            }
+            if (s3ProxyServicePath != null) {
+                s3ProxyBuilder.servicePath(s3ProxyServicePath);
             }
             s3Proxy = s3ProxyBuilder.build();
         } catch (IllegalArgumentException | IllegalStateException e) {

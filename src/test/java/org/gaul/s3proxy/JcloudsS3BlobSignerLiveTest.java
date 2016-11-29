@@ -28,6 +28,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobSignerLiveTest;
+import org.jclouds.s3.reference.S3Constants;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
@@ -69,7 +70,9 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
         props.setProperty(Constants.PROPERTY_CREDENTIAL,
                 info.getS3Credential());
         props.setProperty(Constants.PROPERTY_ENDPOINT,
-                info.getEndpoint().toString());
+                info.getEndpoint().toString() + info.getServicePath());
+        props.setProperty(S3Constants.PROPERTY_S3_SERVICE_PATH,
+                info.getServicePath());
         props.setProperty(Constants.PROPERTY_STRIP_EXPECT_HEADER, "true");
         endpoint = info.getEndpoint().toString();
         return props;
