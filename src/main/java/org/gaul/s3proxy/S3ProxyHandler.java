@@ -496,26 +496,29 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
         switch (method) {
         case "DELETE":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerDelete(response, blobStore, path[1]);
+                handleContainerDelete(request, response, blobStore, path[1]);
                 return;
             } else if (uploadId != null) {
-                handleAbortMultipartUpload(response, blobStore, path[1],
-                        path[2], uploadId);
+                handleAbortMultipartUpload(request, response, blobStore,
+                        path[1], path[2], uploadId);
                 return;
             } else {
-                handleBlobRemove(response, blobStore, path[1], path[2]);
+                handleBlobRemove(request, response, blobStore,
+                        path[1], path[2]);
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response, blobStore);
+                handleContainerList(request, response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleGetContainerAcl(response, blobStore, path[1]);
+                    handleGetContainerAcl(request,
+                            response, blobStore, path[1]);
                     return;
                 } else if ("".equals(request.getParameter("location"))) {
-                    handleContainerLocation(response, blobStore, path[1]);
+                    handleContainerLocation(request,
+                            response, blobStore, path[1]);
                     return;
                 } else if ("".equals(request.getParameter("uploads"))) {
                     handleListMultipartUploads(request, response, blobStore,
@@ -526,7 +529,7 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
                 return;
             } else {
                 if ("".equals(request.getParameter("acl"))) {
-                    handleGetBlobAcl(response, blobStore, path[1],
+                    handleGetBlobAcl(request, response, blobStore, path[1],
                             path[2]);
                     return;
                 } else if (uploadId != null) {
@@ -540,7 +543,7 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerExists(blobStore, path[1]);
+                handleContainerExists(request, response, blobStore, path[1]);
                 return;
             } else {
                 handleBlobMetadata(request, response, blobStore, path[1],
@@ -549,7 +552,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
             }
         case "POST":
             if ("".equals(request.getParameter("delete"))) {
-                handleMultiBlobRemove(response, is, blobStore, path[1]);
+                handleMultiBlobRemove(request, response,
+                        is, blobStore, path[1]);
                 return;
             } else if ("".equals(request.getParameter("uploads"))) {
                 handleInitiateMultipartUpload(request, response, blobStore,
@@ -557,8 +561,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
                 return;
             } else if (uploadId != null &&
                     request.getParameter("partNumber") == null) {
-                handleCompleteMultipartUpload(response, is, blobStore, path[1],
-                        path[2], uploadId);
+                handleCompleteMultipartUpload(request, response,
+                        is, blobStore, path[1], path[2], uploadId);
                 return;
             }
             break;
@@ -612,7 +616,7 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
         switch (method) {
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response, blobStore);
+                handleContainerList(request, response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
@@ -673,7 +677,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleGetContainerAcl(HttpServletResponse response,
+    protected void handleGetContainerAcl(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName) throws IOException {
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
@@ -770,7 +775,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleGetBlobAcl(HttpServletResponse response,
+    protected void handleGetBlobAcl(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException {
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
@@ -906,7 +912,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleContainerList(HttpServletResponse response,
+    protected void handleContainerList(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore) throws IOException {
         PageSet<? extends StorageMetadata> buckets = blobStore.list();
 
@@ -948,7 +955,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleContainerLocation(HttpServletResponse response,
+    protected void handleContainerLocation(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1026,7 +1034,9 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleContainerExists(BlobStore blobStore,
+    protected void handleContainerExists(
+            HttpServletRequest request, HttpServletResponse response,
+            BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
@@ -1113,7 +1123,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleContainerDelete(HttpServletResponse response,
+    protected void handleContainerDelete(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
@@ -1285,7 +1296,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleBlobRemove(HttpServletResponse response,
+    protected void handleBlobRemove(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
         blobStore.removeBlob(containerName, blobName);
@@ -1293,7 +1305,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleMultiBlobRemove(HttpServletResponse response,
+    protected void handleMultiBlobRemove(
+            HttpServletRequest request, HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName)
             throws IOException {
         DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
@@ -1864,7 +1877,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleCompleteMultipartUpload(HttpServletResponse response,
+    protected void handleCompleteMultipartUpload(
+            HttpServletRequest request, HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName,
             String blobName, String uploadId) throws IOException, S3Exception {
         Blob stubBlob = blobStore.getBlob(containerName, uploadId);
@@ -1956,7 +1970,8 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     }
 
     @Override
-    protected void handleAbortMultipartUpload(HttpServletResponse response,
+    protected void handleAbortMultipartUpload(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
         if (!blobStore.blobExists(containerName, uploadId)) {

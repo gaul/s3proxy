@@ -28,8 +28,8 @@ import org.jclouds.blobstore.BlobStore;
 
 public abstract class AbstractS3ProxyHandler {
     protected abstract void handleGetContainerAcl(
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException;
+            HttpServletRequest request, HttpServletResponse response,
+            BlobStore blobStore, String containerName) throws IOException;
 
     protected abstract void handleSetContainerAcl(
             HttpServletRequest request, HttpServletResponse response,
@@ -37,8 +37,8 @@ public abstract class AbstractS3ProxyHandler {
             String containerName) throws IOException, S3Exception;
 
     protected abstract void handleGetBlobAcl(
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName,
+            HttpServletRequest request, HttpServletResponse response,
+            BlobStore blobStore, String containerName,
             String blobName) throws IOException;
 
     protected abstract void handleSetBlobAcl(
@@ -48,12 +48,12 @@ public abstract class AbstractS3ProxyHandler {
             throws IOException, S3Exception;
 
     protected abstract void handleContainerList(
-            HttpServletResponse response,
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore) throws IOException;
 
     protected abstract void handleContainerLocation(
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException;
+            HttpServletRequest request, HttpServletResponse response,
+            BlobStore blobStore, String containerName) throws IOException;
 
     protected abstract void handleListMultipartUploads(
             HttpServletRequest request, HttpServletResponse response,
@@ -61,6 +61,7 @@ public abstract class AbstractS3ProxyHandler {
             String container) throws IOException, S3Exception;
 
     protected abstract void handleContainerExists(
+            HttpServletRequest request, HttpServletResponse response,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception;
 
@@ -70,8 +71,9 @@ public abstract class AbstractS3ProxyHandler {
             String containerName) throws IOException, S3Exception;
 
     protected abstract void handleContainerDelete(
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception;
+            HttpServletRequest request, HttpServletResponse response,
+            BlobStore blobStore, String containerName)
+            throws IOException, S3Exception;
 
     protected abstract void handleBlobList(
             HttpServletRequest request, HttpServletResponse response,
@@ -79,13 +81,14 @@ public abstract class AbstractS3ProxyHandler {
             throws IOException, S3Exception;
 
     protected abstract void handleBlobRemove(
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName,
+            HttpServletRequest request, HttpServletResponse response,
+            BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception;
 
     protected abstract void handleMultiBlobRemove(
-            HttpServletResponse response, InputStream is,
-            BlobStore blobStore, String containerName) throws IOException;
+            HttpServletRequest request, HttpServletResponse response,
+            InputStream is, BlobStore blobStore,
+            String containerName) throws IOException;
 
     protected abstract void handleBlobMetadata(
             HttpServletRequest request, HttpServletResponse response,
@@ -120,13 +123,13 @@ public abstract class AbstractS3ProxyHandler {
             throws IOException, S3Exception;
 
     protected abstract void handleCompleteMultipartUpload(
-            HttpServletResponse response, InputStream is,
-            BlobStore blobStore, String containerName,
+            HttpServletRequest request, HttpServletResponse response,
+            InputStream is, BlobStore blobStore, String containerName,
             String blobName, String uploadId) throws IOException, S3Exception;
 
     protected abstract void handleAbortMultipartUpload(
-            HttpServletResponse response, BlobStore blobStore,
-            String containerName, String blobName,
+            HttpServletRequest request,  HttpServletResponse response,
+            BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception;
 
     protected abstract void handleListParts(
