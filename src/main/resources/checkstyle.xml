@@ -28,7 +28,9 @@
     <module name="CovariantEquals"/>
     <module name="DeclarationOrder"/>
     <module name="DefaultComesLast"/>
-    <module name="DesignForExtension"/>
+    <module name="DesignForExtension">
+      <property name="ignoredAnnotations" value="Override"/>
+    </module>
     <module name="EmptyBlock">
       <property name="option" value="text"/>
     </module>

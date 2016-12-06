@@ -110,7 +110,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** HTTP server-independent handler for S3 requests. */
-public class S3ProxyHandler {
+public class S3ProxyHandler extends AbstractS3ProxyHandler {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
     private static final String AWS_XMLNS =
@@ -672,7 +672,8 @@ public class S3ProxyHandler {
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
-    private void handleGetContainerAcl(HttpServletResponse response,
+    @Override
+    protected void handleGetContainerAcl(HttpServletResponse response,
             BlobStore blobStore, String containerName) throws IOException {
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
@@ -731,7 +732,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleSetContainerAcl(HttpServletRequest request,
+    @Override
+    protected void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         ContainerAccess access;
@@ -767,7 +769,8 @@ public class S3ProxyHandler {
         blobStore.setContainerAccess(containerName, access);
     }
 
-    private void handleGetBlobAcl(HttpServletResponse response,
+    @Override
+    protected void handleGetBlobAcl(HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException {
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
@@ -827,7 +830,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleSetBlobAcl(HttpServletRequest request,
+    @Override
+    protected void handleSetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -901,7 +905,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerList(HttpServletResponse response,
+    @Override
+    protected void handleContainerList(HttpServletResponse response,
             BlobStore blobStore) throws IOException {
         PageSet<? extends StorageMetadata> buckets = blobStore.list();
 
@@ -942,7 +947,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerLocation(HttpServletResponse response,
+    @Override
+    protected void handleContainerLocation(HttpServletResponse response,
             BlobStore blobStore, String containerName) throws IOException {
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -958,7 +964,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleListMultipartUploads(HttpServletRequest request,
+    @Override
+    protected void handleListMultipartUploads(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String container) throws IOException, S3Exception {
         if (request.getParameter("delimiter") != null ||
@@ -1018,14 +1025,16 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerExists(BlobStore blobStore,
+    @Override
+    protected void handleContainerExists(BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
     }
 
-    private void handleContainerCreate(HttpServletRequest request,
+    @Override
+    protected void handleContainerCreate(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
@@ -1103,7 +1112,8 @@ public class S3ProxyHandler {
         response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
     }
 
-    private void handleContainerDelete(HttpServletResponse response,
+    @Override
+    protected void handleContainerDelete(HttpServletResponse response,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
@@ -1127,7 +1137,8 @@ public class S3ProxyHandler {
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
-    private void handleBlobList(HttpServletRequest request,
+    @Override
+    protected void handleBlobList(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
@@ -1273,14 +1284,16 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleBlobRemove(HttpServletResponse response,
+    @Override
+    protected void handleBlobRemove(HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
         blobStore.removeBlob(containerName, blobName);
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
-    private void handleMultiBlobRemove(HttpServletResponse response,
+    @Override
+    protected void handleMultiBlobRemove(HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName)
             throws IOException {
         DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
@@ -1318,7 +1331,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleBlobMetadata(HttpServletRequest request,
+    @Override
+    protected void handleBlobMetadata(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
@@ -1365,7 +1379,8 @@ public class S3ProxyHandler {
         addMetadataToResponse(request, response, metadata);
     }
 
-    private void handleGetBlob(HttpServletRequest request,
+    @Override
+    protected void handleGetBlob(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1445,7 +1460,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleCopyBlob(HttpServletRequest request,
+    @Override
+    protected void handleCopyBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
@@ -1564,7 +1580,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handlePutBlob(HttpServletRequest request,
+    @Override
+    protected void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1690,7 +1707,8 @@ public class S3ProxyHandler {
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
 
-    private void handlePostBlob(HttpServletRequest request,
+    @Override
+    protected void handlePostBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName)
             throws IOException, S3Exception {
@@ -1792,7 +1810,8 @@ public class S3ProxyHandler {
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
-    private void handleInitiateMultipartUpload(HttpServletRequest request,
+    @Override
+    protected void handleInitiateMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1844,7 +1863,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleCompleteMultipartUpload(HttpServletResponse response,
+    @Override
+    protected void handleCompleteMultipartUpload(HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName,
             String blobName, String uploadId) throws IOException, S3Exception {
         Blob stubBlob = blobStore.getBlob(containerName, uploadId);
@@ -1935,7 +1955,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleAbortMultipartUpload(HttpServletResponse response,
+    @Override
+    protected void handleAbortMultipartUpload(HttpServletResponse response,
             BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
         if (!blobStore.blobExists(containerName, uploadId)) {
@@ -1952,7 +1973,8 @@ public class S3ProxyHandler {
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
-    private void handleListParts(HttpServletRequest request,
+    @Override
+    protected void handleListParts(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
@@ -2046,7 +2068,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleCopyPart(HttpServletRequest request,
+    @Override
+    protected void handleCopyPart(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
@@ -2219,7 +2242,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleUploadPart(HttpServletRequest request,
+    @Override
+    protected void handleUploadPart(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
