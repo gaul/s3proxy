@@ -97,6 +97,7 @@ public final class S3AwsSdkTest {
     private String containerName;
     private BasicAWSCredentials awsCreds;
     private AmazonS3 client;
+    private String servicePath;
 
     @Before
     public void setUp() throws Exception {
@@ -108,7 +109,8 @@ public final class S3AwsSdkTest {
         s3Endpoint = info.getEndpoint();
         client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration());
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + info.getServicePath());
+        servicePath = info.getServicePath();
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
@@ -137,7 +139,7 @@ public final class S3AwsSdkTest {
     public void testAwsV2Signature() throws Exception {
         client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
@@ -155,7 +157,7 @@ public final class S3AwsSdkTest {
     @Test
     public void testAwsV4Signature() throws Exception {
         client = new AmazonS3Client(awsCreds);
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
 
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -174,7 +176,7 @@ public final class S3AwsSdkTest {
     @Test
     public void testAwsV4SignatureNonChunked() throws Exception {
         client = new AmazonS3Client(awsCreds);
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         client.setS3ClientOptions(
                 S3ClientOptions.builder().disableChunkedEncoding().build());
 
@@ -196,7 +198,7 @@ public final class S3AwsSdkTest {
     public void testAwsV4SignatureBadIdentity() throws Exception {
         client = new AmazonS3Client(new BasicAWSCredentials(
                 "bad-identity", awsCreds.getAWSSecretKey()));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
@@ -213,7 +215,7 @@ public final class S3AwsSdkTest {
     public void testAwsV4SignatureBadCredential() throws Exception {
         client = new AmazonS3Client(new BasicAWSCredentials(
                 awsCreds.getAWSAccessKeyId(), "bad-credential"));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
@@ -233,7 +235,7 @@ public final class S3AwsSdkTest {
     public void testAwsV2UrlSigning() throws Exception {
         client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
 
         String blobName = "foo";
         ObjectMetadata metadata = new ObjectMetadata();

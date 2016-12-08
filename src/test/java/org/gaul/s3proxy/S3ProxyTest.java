@@ -62,6 +62,7 @@ import org.jclouds.io.Payloads;
 import org.jclouds.rest.HttpClient;
 import org.jclouds.s3.S3Client;
 
+import org.jclouds.s3.reference.S3Constants;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -78,6 +79,7 @@ public final class S3ProxyTest {
     private BlobStoreContext s3Context;
     private BlobStore s3BlobStore;
     private String containerName;
+    private String servicePath;
 
     @Before
     public void setUp() throws Exception {
@@ -87,6 +89,7 @@ public final class S3ProxyTest {
         blobStore = info.getBlobStore();
         blobStoreType = context.unwrap().getProviderMetadata().getId();
         s3Endpoint = info.getEndpoint();
+        servicePath = info.getServicePath();
 
         containerName = createRandomContainerName();
         if (blobStoreType.equals("google-cloud-storage")) {
@@ -97,10 +100,13 @@ public final class S3ProxyTest {
 
         Properties s3Properties = new Properties();
         s3Properties.setProperty(Constants.PROPERTY_TRUST_ALL_CERTS, "true");
+        s3Properties.setProperty(S3Constants.PROPERTY_S3_SERVICE_PATH,
+                servicePath);
+
         s3Context = ContextBuilder
                 .newBuilder("s3")
                 .credentials(info.getS3Identity(), info.getS3Credential())
-                .endpoint(s3Endpoint.toString())
+                .endpoint(s3Endpoint.toString() + servicePath)
                 .overrides(s3Properties)
                 .build(BlobStoreContext.class);
         s3BlobStore = s3Context.getBlobStore();
@@ -140,7 +146,10 @@ public final class S3ProxyTest {
         HttpClient httpClient = s3Context.utils().http();
         URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
                 s3Endpoint.getHost(), s3Proxy.getPort(),
-                "/" + containerName + "/" + blobName,
+                servicePath +
+                "/" + containerName +
+                        "/" + blobName,
+
                 /*query=*/ null, /*fragment=*/ null);
         try (InputStream actual = httpClient.get(uri);
              InputStream expected = BYTE_SOURCE.openStream()) {

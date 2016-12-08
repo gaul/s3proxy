@@ -110,6 +110,7 @@ final class TestUtils {
         private String s3Credential;
         private BlobStore blobStore;
         private URI endpoint;
+        private String servicePath;
 
         S3Proxy getS3Proxy() {
             return s3Proxy;
@@ -125,6 +126,10 @@ final class TestUtils {
 
         String getS3Credential() {
             return s3Credential;
+        }
+
+        String getServicePath() {
+            return servicePath;
         }
 
         BlobStore getBlobStore() {
@@ -178,6 +183,11 @@ final class TestUtils {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String virtualHost = info.getProperties().getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
+        String servicePath = Strings.nullToEmpty(info.getProperties()
+                .getProperty(S3ProxyConstants.PROPERTY_SERVICE_PATH));
+        info.servicePath = servicePath.equals("/") ? "" :
+                (servicePath.startsWith("/") ? servicePath :
+                        servicePath.isEmpty() ? "" : "/" + servicePath);
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
@@ -207,6 +217,9 @@ final class TestUtils {
         }
         if (virtualHost != null) {
             s3ProxyBuilder.virtualHost(virtualHost);
+        }
+        if (servicePath != null) {
+            s3ProxyBuilder.servicePath(servicePath);
         }
         info.s3Proxy = s3ProxyBuilder.build();
         info.s3Proxy.start();
