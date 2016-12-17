@@ -31,6 +31,7 @@ import org.assertj.core.api.Fail;
 import org.jclouds.Constants;
 import org.jclouds.aws.AWSResponseException;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.s3.reference.S3Constants;
 import org.jclouds.s3.services.BucketsLiveTest;
 import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
@@ -75,9 +76,11 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
         props.setProperty(Constants.PROPERTY_CREDENTIAL,
                 info.getS3Credential());
         props.setProperty(Constants.PROPERTY_ENDPOINT,
-                info.getEndpoint().toString());
+                info.getEndpoint().toString() + info.getServicePath());
         props.setProperty(Constants.PROPERTY_STRIP_EXPECT_HEADER, "true");
-        endpoint = info.getEndpoint().toString();
+        props.setProperty(S3Constants.PROPERTY_S3_SERVICE_PATH,
+                info.getServicePath());
+        endpoint = info.getEndpoint().toString() + info.getServicePath();
         return props;
     }
 

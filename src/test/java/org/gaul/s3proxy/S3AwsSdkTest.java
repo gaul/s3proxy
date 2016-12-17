@@ -53,6 +53,7 @@ import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
 import com.amazonaws.services.s3.model.DeleteObjectsRequest;
 import com.amazonaws.services.s3.model.DeleteObjectsResult;
+import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
@@ -97,6 +98,7 @@ public final class S3AwsSdkTest {
     private String containerName;
     private BasicAWSCredentials awsCreds;
     private AmazonS3 client;
+    private String servicePath;
 
     @Before
     public void setUp() throws Exception {
@@ -108,7 +110,8 @@ public final class S3AwsSdkTest {
         s3Endpoint = info.getEndpoint();
         client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration());
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + info.getServicePath());
+        servicePath = info.getServicePath();
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
@@ -133,29 +136,49 @@ public final class S3AwsSdkTest {
         }
     }
 
+
     @Test
-    public void testAwsV2Signature() throws Exception {
+    public void testAwsV2SignatureWithOverrideParameters() throws Exception {
         client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 metadata);
 
-        S3Object object = client.getObject(containerName, "foo");
+        String blobName = "foo";
+
+        ResponseHeaderOverrides headerOverride = new ResponseHeaderOverrides();
+
+        String expectedContentDisposition = "attachment; " + blobName;
+        headerOverride.setContentDisposition(expectedContentDisposition);
+
+        String expectedContentType = "text/plain";
+        headerOverride.setContentType(expectedContentType);
+
+        GetObjectRequest request = new GetObjectRequest(containerName,
+                blobName);
+        request.setResponseHeaders(headerOverride);
+
+        S3Object object = client.getObject(request);
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
                 BYTE_SOURCE.size());
+        assertThat(object.getObjectMetadata().getContentDisposition())
+                .isEqualTo(expectedContentDisposition);
+        assertThat(object.getObjectMetadata().getContentType()).isEqualTo(
+                expectedContentType);
         try (InputStream actual = object.getObjectContent();
-                InputStream expected = BYTE_SOURCE.openStream()) {
+             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
 
+
     @Test
     public void testAwsV4Signature() throws Exception {
         client = new AmazonS3Client(awsCreds);
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
 
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -174,7 +197,7 @@ public final class S3AwsSdkTest {
     @Test
     public void testAwsV4SignatureNonChunked() throws Exception {
         client = new AmazonS3Client(awsCreds);
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         client.setS3ClientOptions(
                 S3ClientOptions.builder().disableChunkedEncoding().build());
 
@@ -196,7 +219,7 @@ public final class S3AwsSdkTest {
     public void testAwsV4SignatureBadIdentity() throws Exception {
         client = new AmazonS3Client(new BasicAWSCredentials(
                 "bad-identity", awsCreds.getAWSSecretKey()));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
@@ -213,7 +236,7 @@ public final class S3AwsSdkTest {
     public void testAwsV4SignatureBadCredential() throws Exception {
         client = new AmazonS3Client(new BasicAWSCredentials(
                 awsCreds.getAWSAccessKeyId(), "bad-credential"));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
@@ -233,7 +256,7 @@ public final class S3AwsSdkTest {
     public void testAwsV2UrlSigning() throws Exception {
         client = new AmazonS3Client(awsCreds,
                 new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
 
         String blobName = "foo";
         ObjectMetadata metadata = new ObjectMetadata();
@@ -247,6 +270,39 @@ public final class S3AwsSdkTest {
                 expiration, HttpMethod.GET);
         try (InputStream actual = url.openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testAwsV2UrlSigningWithOverrideParameters() throws Exception {
+        client = new AmazonS3Client(awsCreds,
+                new ClientConfiguration().withSignerOverride("S3SignerType"));
+        client.setEndpoint(s3Endpoint.toString() + servicePath);
+
+        String blobName = "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        GeneratePresignedUrlRequest generatePresignedUrlRequest =
+                new GeneratePresignedUrlRequest(containerName, blobName);
+        generatePresignedUrlRequest.setMethod(HttpMethod.GET);
+
+        ResponseHeaderOverrides headerOverride = new ResponseHeaderOverrides();
+
+        headerOverride.setContentDisposition("attachment; " + blobName);
+        headerOverride.setContentType("text/plain");
+        generatePresignedUrlRequest.setResponseHeaders(headerOverride);
+
+        Date expiration = new Date(System.currentTimeMillis() +
+                TimeUnit.HOURS.toMillis(1));
+        generatePresignedUrlRequest.setExpiration(expiration);
+
+        URL url = client.generatePresignedUrl(generatePresignedUrlRequest);
+        try (InputStream actual = url.openStream();
+             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
