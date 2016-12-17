@@ -59,6 +59,7 @@ import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
 import com.amazonaws.services.s3.model.DeleteObjectsRequest;
 import com.amazonaws.services.s3.model.DeleteObjectsResult;
+import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.HeadBucketRequest;
@@ -168,6 +169,45 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testAwsV2SignatureWithOverrideParameters() throws Exception {
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig).build();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
+                metadata);
+
+        String blobName = "foo";
+
+        ResponseHeaderOverrides headerOverride = new ResponseHeaderOverrides();
+
+        String expectedContentDisposition = "attachment; " + blobName;
+        headerOverride.setContentDisposition(expectedContentDisposition);
+
+        String expectedContentType = "text/plain";
+        headerOverride.setContentType(expectedContentType);
+
+        GetObjectRequest request = new GetObjectRequest(containerName,
+                blobName);
+        request.setResponseHeaders(headerOverride);
+
+        S3Object object = client.getObject(request);
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        assertThat(object.getObjectMetadata().getContentDisposition())
+                .isEqualTo(expectedContentDisposition);
+        assertThat(object.getObjectMetadata().getContentType()).isEqualTo(
+                expectedContentType);
+        try (InputStream actual = object.getObjectContent();
+             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
@@ -296,6 +336,40 @@ public final class AwsSdkTest {
                 expiration, HttpMethod.GET);
         try (InputStream actual = url.openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testAwsV2UrlSigningWithOverrideParameters() throws Exception {
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig).build();
+
+        String blobName = "foo";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        GeneratePresignedUrlRequest generatePresignedUrlRequest =
+                new GeneratePresignedUrlRequest(containerName, blobName);
+        generatePresignedUrlRequest.setMethod(HttpMethod.GET);
+
+        ResponseHeaderOverrides headerOverride = new ResponseHeaderOverrides();
+
+        headerOverride.setContentDisposition("attachment; " + blobName);
+        headerOverride.setContentType("text/plain");
+        generatePresignedUrlRequest.setResponseHeaders(headerOverride);
+
+        Date expiration = new Date(System.currentTimeMillis() +
+                TimeUnit.HOURS.toMillis(1));
+        generatePresignedUrlRequest.setExpiration(expiration);
+
+        URL url = client.generatePresignedUrl(generatePresignedUrlRequest);
+        try (InputStream actual = url.openStream();
+             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
