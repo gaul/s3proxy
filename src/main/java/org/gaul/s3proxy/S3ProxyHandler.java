@@ -140,7 +140,14 @@ public class S3ProxyHandler extends AbstractS3ProxyHandler {
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
             "acl", "delete", "lifecycle", "location", "logging", "notification",
             "partNumber", "policy", "requestPayment", "torrent", "uploadId",
-            "uploads", "versionId", "versioning", "versions", "website"
+            "uploads", "versionId", "versioning", "versions", "website",
+            // Added from com.amazonaws.services.s3.internal.RestUtils
+            "tagging", "cors", "restore", "replication", "accelerate",
+            "inventory", "analytics", "metrics",
+            // Override-response-header parameters aslo need be signed
+            "response-content-type", "response-content-language",
+            "response-expires", "response-cache-control",
+            "response-content-disposition", "response-content-encoding"
     );
     private static final Set<String> SUPPORTED_PARAMETERS = ImmutableSet.of(
             "acl",
