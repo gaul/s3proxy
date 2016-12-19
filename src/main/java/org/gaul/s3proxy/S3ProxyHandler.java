@@ -716,7 +716,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleSetContainerAcl(HttpServletRequest request,
+    private static void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         ContainerAccess access;
@@ -812,7 +812,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleSetBlobAcl(HttpServletRequest request,
+    private static void handleSetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1003,14 +1003,14 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerExists(BlobStore blobStore,
+    private static void handleContainerExists(BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
     }
 
-    private void handleContainerCreate(HttpServletRequest request,
+    private static void handleContainerCreate(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
@@ -1088,7 +1088,7 @@ public class S3ProxyHandler {
         response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
     }
 
-    private void handleContainerDelete(HttpServletResponse response,
+    private static void handleContainerDelete(HttpServletResponse response,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
@@ -1258,7 +1258,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleBlobRemove(HttpServletResponse response,
+    private static void handleBlobRemove(HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
         blobStore.removeBlob(containerName, blobName);
@@ -1303,7 +1303,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleBlobMetadata(HttpServletRequest request,
+    private static void handleBlobMetadata(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
@@ -1549,7 +1549,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handlePutBlob(HttpServletRequest request,
+    private static void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1916,7 +1916,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleAbortMultipartUpload(HttpServletResponse response,
+    private static void handleAbortMultipartUpload(HttpServletResponse response,
             BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
         if (!blobStore.blobExists(containerName, uploadId)) {
@@ -2200,7 +2200,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleUploadPart(HttpServletRequest request,
+    private static void handleUploadPart(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
