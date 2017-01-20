@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.jclouds.Constants;
@@ -62,7 +61,7 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
             s3Proxy = info.getS3Proxy();
             context = info.getBlobStore().getContext();
         } catch (Exception e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         }
         Properties props = super.setupProperties();
         props.setProperty(Constants.PROPERTY_IDENTITY, info.getS3Identity());

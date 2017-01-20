@@ -61,7 +61,6 @@ import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
-import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
@@ -1752,7 +1751,7 @@ public class S3ProxyHandler {
             mac.init(new SecretKeySpec(credential.getBytes(
                     StandardCharsets.UTF_8), "HmacSHA1"));
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         }
         String expectedSignature = BaseEncoding.base64().encode(
                 mac.doFinal(policy));
@@ -2512,7 +2511,7 @@ public class S3ProxyHandler {
             mac.init(new SecretKeySpec(credential.getBytes(
                     StandardCharsets.UTF_8), "HmacSHA1"));
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         }
         return BaseEncoding.base64().encode(mac.doFinal(
                 stringToSign.getBytes(StandardCharsets.UTF_8)));
@@ -2746,7 +2745,7 @@ public class S3ProxyHandler {
             try {
                 return URLEncoder.encode(blobName, "UTF-8");
             } catch (UnsupportedEncodingException e) {
-                throw Throwables.propagate(e);
+                throw new RuntimeException(e);
             }
         } else {
             return blobName;

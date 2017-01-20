@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.jclouds.Constants;
@@ -63,7 +62,7 @@ public final class JcloudsS3BlobIntegrationLiveTest
             context = info.getBlobStore().getContext();
             blobStoreType = context.unwrap().getProviderMetadata().getId();
         } catch (Exception e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         }
         Properties props = super.setupProperties();
         props.setProperty(Constants.PROPERTY_IDENTITY, info.getS3Identity());

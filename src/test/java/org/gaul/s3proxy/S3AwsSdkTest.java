@@ -67,7 +67,6 @@ import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
 
@@ -588,7 +587,7 @@ public final class S3AwsSdkTest {
             // Install the all-trusting host verifier
             HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
         } catch (KeyManagementException | NoSuchAlgorithmException e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         }
     }
 
