@@ -40,10 +40,11 @@ import javax.net.ssl.X509TrustManager;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3Client;
-import com.amazonaws.services.s3.S3ClientOptions;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.AbortMultipartUploadRequest;
 import com.amazonaws.services.s3.model.AccessControlList;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
@@ -88,8 +89,11 @@ public final class S3AwsSdkTest {
     }
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
+    private static final ClientConfiguration V2_SIGNER_CONFIG =
+            new ClientConfiguration().withSignerOverride("S3SignerType");
 
     private URI s3Endpoint;
+    private EndpointConfiguration s3EndpointConfig;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
     private String blobStoreType;
@@ -105,9 +109,12 @@ public final class S3AwsSdkTest {
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
         s3Endpoint = info.getEndpoint();
-        client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration());
-        client.setEndpoint(s3Endpoint.toString());
+        s3EndpointConfig = new EndpointConfiguration(
+                s3Endpoint.toString(), "us-east-1");
+        client = AmazonS3ClientBuilder.standard()
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
@@ -134,9 +141,12 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV2Signature() throws Exception {
-        client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
@@ -153,9 +163,6 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4Signature() throws Exception {
-        client = new AmazonS3Client(awsCreds);
-        client.setEndpoint(s3Endpoint.toString());
-
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo",
@@ -172,10 +179,11 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4SignatureNonChunked() throws Exception {
-        client = new AmazonS3Client(awsCreds);
-        client.setEndpoint(s3Endpoint.toString());
-        client.setS3ClientOptions(
-                S3ClientOptions.builder().disableChunkedEncoding().build());
+        client = AmazonS3ClientBuilder.standard()
+                .withChunkedEncodingDisabled(true)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
 
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -193,9 +201,13 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4SignatureBadIdentity() throws Exception {
-        client = new AmazonS3Client(new BasicAWSCredentials(
-                "bad-identity", awsCreds.getAWSSecretKey()));
-        client.setEndpoint(s3Endpoint.toString());
+        client = AmazonS3ClientBuilder.standard()
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials(
+                                "bad-access-key", awsCreds.getAWSSecretKey())))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
@@ -210,9 +222,14 @@ public final class S3AwsSdkTest {
 
     @Test
     public void testAwsV4SignatureBadCredential() throws Exception {
-        client = new AmazonS3Client(new BasicAWSCredentials(
-                awsCreds.getAWSAccessKeyId(), "bad-credential"));
-        client.setEndpoint(s3Endpoint.toString());
+        client = AmazonS3ClientBuilder.standard()
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials(
+                                awsCreds.getAWSAccessKeyId(),
+                                "bad-secret-key")))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
@@ -230,9 +247,11 @@ public final class S3AwsSdkTest {
     // AWSS3BlobRequestSigner.signForTemporaryAccess.
     @Test
     public void testAwsV2UrlSigning() throws Exception {
-        client = new AmazonS3Client(awsCreds,
-                new ClientConfiguration().withSignerOverride("S3SignerType"));
-        client.setEndpoint(s3Endpoint.toString());
+        client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(V2_SIGNER_CONFIG)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
 
         String blobName = "foo";
         ObjectMetadata metadata = new ObjectMetadata();
