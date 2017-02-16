@@ -27,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -48,32 +49,42 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.AbortMultipartUploadRequest;
 import com.amazonaws.services.s3.model.AccessControlList;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.Bucket;
+import com.amazonaws.services.s3.model.BucketLoggingConfiguration;
+import com.amazonaws.services.s3.model.CannedAccessControlList;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
+import com.amazonaws.services.s3.model.CopyObjectRequest;
 import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
 import com.amazonaws.services.s3.model.DeleteObjectsRequest;
 import com.amazonaws.services.s3.model.DeleteObjectsResult;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.GroupGrantee;
+import com.amazonaws.services.s3.model.HeadBucketRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ListObjectsRequest;
 import com.amazonaws.services.s3.model.ListPartsRequest;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.Permission;
+import com.amazonaws.services.s3.model.PutObjectResult;
 import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.amazonaws.services.s3.model.SetBucketLoggingConfigurationRequest;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
 
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.rest.HttpClient;
 
 import org.junit.After;
 import org.junit.Before;
@@ -582,6 +593,617 @@ public final class S3AwsSdkTest {
 
         try {
             client.listParts(request.withPartNumberMarker(1));
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        }
+    }
+
+    @Test
+    public void testHttpClient() throws Exception {
+        String blobName = "blob-name";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            client.setBucketAcl(containerName,
+                    CannedAccessControlList.PublicRead);
+        } else {
+            client.setObjectAcl(containerName, blobName,
+                    CannedAccessControlList.PublicRead);
+        }
+
+        HttpClient httpClient = context.utils().http();
+        URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
+                s3Endpoint.getHost(), s3Proxy.getSecurePort(),
+                "/" + containerName + "/" + blobName,
+                /*query=*/ null, /*fragment=*/ null);
+        try (InputStream actual = httpClient.get(uri);
+             InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testListBuckets() throws Exception {
+        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        for (Bucket bucket : client.listBuckets()) {
+            builder.add(bucket.getName());
+        }
+        assertThat(builder.build()).contains(containerName);
+    }
+
+    @Test
+    public void testContainerExists() throws Exception {
+        client.headBucket(new HeadBucketRequest(containerName));
+        try {
+            client.headBucket(new HeadBucketRequest(
+                    createRandomContainerName()));
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("404 Not Found");
+        }
+    }
+
+    @Test
+    public void testContainerCreateDelete() throws Exception {
+        String containerName2 = createRandomContainerName();
+        client.createBucket(containerName2);
+        try {
+            client.createBucket(containerName2);
+            client.deleteBucket(containerName2);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("BucketAlreadyOwnedByYou");
+        }
+    }
+
+    @Test
+    public void testContainerDelete() throws Exception {
+        client.headBucket(new HeadBucketRequest(containerName));
+        client.deleteBucket(containerName);
+        try {
+            client.headBucket(new HeadBucketRequest(containerName));
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("404 Not Found");
+        }
+    }
+
+    private void putBlobAndCheckIt(String blobName) throws Exception {
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        S3Object object = client.getObject(containerName, blobName);
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testBlobPutGet() throws Exception {
+        putBlobAndCheckIt("blob");
+        putBlobAndCheckIt("blob%");
+        putBlobAndCheckIt("blob%%");
+    }
+
+    @Test
+    public void testBlobEscape() throws Exception {
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).isEmpty();
+
+        putBlobAndCheckIt("blob%");
+
+        listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).hasSize(1);
+        assertThat(listing.getObjectSummaries().iterator().next().getKey())
+                .isEqualTo("blob%");
+    }
+
+    @Test
+    public void testBlobList() throws Exception {
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).isEmpty();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+
+        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        client.putObject(containerName, "blob1", BYTE_SOURCE.openStream(),
+                metadata);
+        listing = client.listObjects(containerName);
+        for (S3ObjectSummary summary : listing.getObjectSummaries()) {
+            builder.add(summary.getKey());
+        }
+        assertThat(builder.build()).containsOnly("blob1");
+
+        builder = ImmutableList.builder();
+        client.putObject(containerName, "blob2", BYTE_SOURCE.openStream(),
+                metadata);
+        listing = client.listObjects(containerName);
+        for (S3ObjectSummary summary : listing.getObjectSummaries()) {
+            builder.add(summary.getKey());
+        }
+        assertThat(builder.build()).containsOnly("blob1", "blob2");
+    }
+
+    @Test
+    public void testBlobListRecursive() throws Exception {
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).isEmpty();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "prefix/blob1",
+                BYTE_SOURCE.openStream(), metadata);
+        client.putObject(containerName, "prefix/blob2",
+                BYTE_SOURCE.openStream(), metadata);
+
+        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        listing = client.listObjects(new ListObjectsRequest()
+                .withBucketName(containerName)
+                .withDelimiter("/"));
+        assertThat(listing.getObjectSummaries()).isEmpty();
+        for (String prefix : listing.getCommonPrefixes()) {
+            builder.add(prefix);
+        }
+        assertThat(builder.build()).containsOnly("prefix/");
+
+        builder = ImmutableList.builder();
+        listing = client.listObjects(containerName);
+        for (S3ObjectSummary summary : listing.getObjectSummaries()) {
+            builder.add(summary.getKey());
+        }
+        assertThat(builder.build()).containsOnly("prefix/blob1",
+                "prefix/blob2");
+        assertThat(listing.getCommonPrefixes()).isEmpty();
+    }
+
+    @Test
+    public void testBlobListRecursiveImplicitMarker() throws Exception {
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).isEmpty();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "blob1", BYTE_SOURCE.openStream(),
+                metadata);
+        client.putObject(containerName, "blob2", BYTE_SOURCE.openStream(),
+                metadata);
+
+        listing = client.listObjects(new ListObjectsRequest()
+                .withBucketName(containerName)
+                .withMaxKeys(1));
+        assertThat(listing.getObjectSummaries()).hasSize(1);
+        assertThat(listing.getObjectSummaries().iterator().next().getKey())
+                .isEqualTo("blob1");
+
+        listing = client.listObjects(new ListObjectsRequest()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withMarker("blob1"));
+        assertThat(listing.getObjectSummaries()).hasSize(1);
+        assertThat(listing.getObjectSummaries().iterator().next().getKey())
+                .isEqualTo("blob2");
+    }
+
+    @Test
+    public void testBlobMetadata() throws Exception {
+        String blobName = "blob";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        ObjectMetadata newMetadata = client.getObjectMetadata(containerName,
+                blobName);
+        assertThat(newMetadata.getContentLength())
+                .isEqualTo(BYTE_SOURCE.size());
+    }
+
+    @Test
+    public void testBlobRemove() throws Exception {
+        String blobName = "blob";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+        assertThat(client.getObjectMetadata(containerName, blobName))
+                .isNotNull();
+
+        client.deleteObject(containerName, blobName);
+        try {
+            client.getObjectMetadata(containerName, blobName);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("404 Not Found");
+        }
+
+        client.deleteObject(containerName, blobName);
+    }
+
+    @Test
+    public void testSinglepartUpload() throws Exception {
+        String blobName = "singlepart-upload";
+        String cacheControl = "max-age=3600";
+        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            cacheControl = null;
+        }
+        String contentDisposition = "attachment; filename=new.jpg";
+        if (Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            contentDisposition = null;
+        }
+        String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
+        String contentLanguage = "fr";
+        if (Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            contentLanguage = null;
+        }
+        String contentType = "audio/mp4";
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key1", "value1",
+                "key2", "value2");
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setCacheControl(cacheControl);
+        metadata.setContentDisposition(contentDisposition);
+        metadata.setContentEncoding(contentEncoding);
+        metadata.setContentLanguage(contentLanguage);
+        metadata.setContentLength(BYTE_SOURCE.size());
+        metadata.setContentType(contentType);
+        // TODO: expires
+        metadata.setUserMetadata(userMetadata);
+
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        S3Object object = client.getObject(containerName, blobName);
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ObjectMetadata newContentMetadata = object.getObjectMetadata();
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
+                    contentDisposition);
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
+        assertThat(newContentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(newContentMetadata.getUserMetadata()).isEqualTo(
+                userMetadata);
+    }
+
+    // TODO: fails for GCS (jclouds not implemented)
+    @Test
+    public void testMultipartUpload() throws Exception {
+        String blobName = "multipart-upload";
+        String cacheControl = "max-age=3600";
+        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            cacheControl = null;
+        }
+        String contentDisposition = "attachment; filename=new.jpg";
+        if (Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            contentDisposition = null;
+        }
+        String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
+        String contentLanguage = "fr";
+        if (Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            contentLanguage = null;
+        }
+        String contentType = "audio/mp4";
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key1", "value1",
+                "key2", "value2");
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setCacheControl(cacheControl);
+        metadata.setContentDisposition(contentDisposition);
+        metadata.setContentEncoding(contentEncoding);
+        metadata.setContentLanguage(contentLanguage);
+        metadata.setContentType(contentType);
+        // TODO: expires
+        metadata.setUserMetadata(userMetadata);
+        InitiateMultipartUploadResult result = client.initiateMultipartUpload(
+                new InitiateMultipartUploadRequest(containerName, blobName,
+                        metadata));
+
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, context.getBlobStore().getMinimumMultipartPartSize() + 1);
+        ByteSource byteSource1 = byteSource.slice(
+                0, context.getBlobStore().getMinimumMultipartPartSize());
+        ByteSource byteSource2 = byteSource.slice(
+                context.getBlobStore().getMinimumMultipartPartSize(), 1);
+        UploadPartResult part1 = client.uploadPart(new UploadPartRequest()
+                .withBucketName(containerName)
+                .withKey(blobName)
+                .withUploadId(result.getUploadId())
+                .withPartNumber(1)
+                .withPartSize(byteSource1.size())
+                .withInputStream(byteSource1.openStream()));
+        UploadPartResult part2 = client.uploadPart(new UploadPartRequest()
+                .withBucketName(containerName)
+                .withKey(blobName)
+                .withUploadId(result.getUploadId())
+                .withPartNumber(2)
+                .withPartSize(byteSource2.size())
+                .withInputStream(byteSource2.openStream()));
+
+        client.completeMultipartUpload(new CompleteMultipartUploadRequest(
+                containerName, blobName, result.getUploadId(),
+                ImmutableList.of(part1.getPartETag(), part2.getPartETag())));
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).hasSize(1);
+
+        S3Object object = client.getObject(containerName, blobName);
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ObjectMetadata newContentMetadata = object.getObjectMetadata();
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentDisposition()).isEqualTo(
+                    contentDisposition);
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            assertThat(newContentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
+        assertThat(newContentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(newContentMetadata.getUserMetadata()).isEqualTo(
+                userMetadata);
+    }
+
+    // this test runs for several minutes
+    @Ignore
+    @Test
+    public void testMaximumMultipartUpload() throws Exception {
+        // skip with remote blobstores to avoid excessive run-times
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
+
+        String blobName = "multipart-upload";
+        int numParts = 10_000;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, numParts);
+
+        InitiateMultipartUploadResult result = client.initiateMultipartUpload(
+                new InitiateMultipartUploadRequest(containerName, blobName));
+        ImmutableList.Builder<PartETag> parts = ImmutableList.builder();
+
+        for (int i = 0; i < numParts; ++i) {
+            ByteSource partByteSource = byteSource.slice(i, 1);
+            UploadPartResult partResult = client.uploadPart(
+                    new UploadPartRequest()
+                    .withBucketName(containerName)
+                    .withKey(blobName)
+                    .withUploadId(result.getUploadId())
+                    .withPartNumber(i + 1)
+                    .withPartSize(partByteSource.size())
+                    .withInputStream(partByteSource.openStream()));
+            parts.add(partResult.getPartETag());
+        }
+
+        client.completeMultipartUpload(new CompleteMultipartUploadRequest(
+                containerName, blobName, result.getUploadId(), parts.build()));
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).hasSize(1);
+
+        S3Object object = client.getObject(containerName, blobName);
+
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
+    public void testMultipartUploadAbort() throws Exception {
+        String blobName = "multipart-upload-abort";
+        InitiateMultipartUploadResult result = client.initiateMultipartUpload(
+                new InitiateMultipartUploadRequest(containerName, blobName));
+
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, context.getBlobStore().getMinimumMultipartPartSize());
+        client.uploadPart(new UploadPartRequest()
+                .withBucketName(containerName)
+                .withKey(blobName)
+                .withUploadId(result.getUploadId())
+                .withPartNumber(1)
+                .withPartSize(byteSource.size())
+                .withInputStream(byteSource.openStream()));
+
+        client.abortMultipartUpload(new AbortMultipartUploadRequest(
+                containerName, blobName, result.getUploadId()));
+        ObjectListing listing = client.listObjects(containerName);
+        assertThat(listing.getObjectSummaries()).isEmpty();
+    }
+
+    @Test
+    public void testCopyObjectPreserveMetadata() throws Exception {
+        String fromName = "from-name";
+        String toName = "to-name";
+        String cacheControl = "max-age=3600";
+        String contentDisposition = "attachment; filename=old.jpg";
+        String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
+        String contentLanguage = "en";
+        String contentType = "audio/ogg";
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key1", "value1",
+                "key2", "value2");
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setCacheControl(cacheControl);
+        metadata.setContentLength(BYTE_SOURCE.size());
+        metadata.setContentDisposition(contentDisposition);
+        metadata.setContentEncoding(contentEncoding);
+        metadata.setContentLanguage(contentLanguage);
+        metadata.setContentType(contentType);
+        // TODO: expires
+        metadata.setUserMetadata(userMetadata);
+        client.putObject(containerName, fromName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        client.copyObject(containerName, fromName, containerName, toName);
+
+        S3Object object = client.getObject(containerName, toName);
+
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+
+        ObjectMetadata contentMetadata = object.getObjectMetadata();
+        assertThat(contentMetadata.getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(contentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
+        assertThat(contentMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(contentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            assertThat(contentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
+        assertThat(contentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(contentMetadata.getUserMetadata()).isEqualTo(
+                userMetadata);
+    }
+
+    @Test
+    public void testCopyObjectReplaceMetadata() throws Exception {
+        String fromName = "from-name";
+        String toName = "to-name";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        metadata.setCacheControl("max-age=3600");
+        metadata.setContentDisposition("attachment; filename=old.jpg");
+        metadata.setContentEncoding("compress");
+        metadata.setContentLanguage("en");
+        metadata.setContentType("audio/ogg");
+        // TODO: expires
+        metadata.setUserMetadata(ImmutableMap.of(
+                        "key1", "value1",
+                        "key2", "value2"));
+        client.putObject(containerName, fromName, BYTE_SOURCE.openStream(),
+                metadata);
+
+        String cacheControl = "max-age=1800";
+        String contentDisposition = "attachment; filename=new.jpg";
+        String contentEncoding = "gzip";
+        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentEncoding = null;
+        }
+        String contentLanguage = "fr";
+        String contentType = "audio/mp4";
+        ObjectMetadata contentMetadata = new ObjectMetadata();
+        contentMetadata.setCacheControl(cacheControl);
+        contentMetadata.setContentDisposition(contentDisposition);
+        contentMetadata.setContentEncoding(contentEncoding);
+        contentMetadata.setContentLanguage(contentLanguage);
+        contentMetadata.setContentType(contentType);
+        // TODO: expires
+        Map<String, String> userMetadata = ImmutableMap.of(
+                "key3", "value3",
+                "key4", "value4");
+        contentMetadata.setUserMetadata(userMetadata);
+        client.copyObject(new CopyObjectRequest(
+                    containerName, fromName, containerName, toName)
+                            .withNewObjectMetadata(contentMetadata));
+
+        S3Object object = client.getObject(containerName, toName);
+
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+
+        ObjectMetadata toContentMetadata = object.getObjectMetadata();
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            assertThat(contentMetadata.getCacheControl()).isEqualTo(
+                    cacheControl);
+        }
+        assertThat(toContentMetadata.getContentDisposition()).isEqualTo(
+                contentDisposition);
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
+                    contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            assertThat(toContentMetadata.getContentLanguage()).isEqualTo(
+                    contentLanguage);
+        }
+        assertThat(toContentMetadata.getContentType()).isEqualTo(
+                contentType);
+        // TODO: expires
+        assertThat(toContentMetadata.getUserMetadata()).isEqualTo(
+                userMetadata);
+    }
+
+    @Test
+    public void testConditionalGet() throws Exception {
+        String blobName = "blob-name";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        PutObjectResult result = client.putObject(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+
+        S3Object object = client.getObject(
+                new GetObjectRequest(containerName, blobName)
+                        .withMatchingETagConstraint(result.getETag()));
+        assertThat(object.getObjectContent()).isNotNull();
+
+        object = client.getObject(
+                new GetObjectRequest(containerName, blobName)
+                        .withNonmatchingETagConstraint(result.getETag()));
+        assertThat(object).isNull();
+    }
+
+    @Test
+    public void testUnknownParameter() throws Exception {
+        try {
+            client.setBucketLoggingConfiguration(
+                    new SetBucketLoggingConfigurationRequest(
+                            containerName, new BucketLoggingConfiguration()));
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
