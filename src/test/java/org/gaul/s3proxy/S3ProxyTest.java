@@ -86,7 +86,7 @@ public final class S3ProxyTest {
         context = info.getBlobStore().getContext();
         blobStore = info.getBlobStore();
         blobStoreType = context.unwrap().getProviderMetadata().getId();
-        s3Endpoint = info.getEndpoint();
+        s3Endpoint = info.getSecureEndpoint();
 
         containerName = createRandomContainerName();
         if (blobStoreType.equals("google-cloud-storage")) {
@@ -139,7 +139,7 @@ public final class S3ProxyTest {
 
         HttpClient httpClient = s3Context.utils().http();
         URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
-                s3Endpoint.getHost(), s3Proxy.getPort(),
+                s3Endpoint.getHost(), s3Proxy.getSecurePort(),
                 "/" + containerName + "/" + blobName,
                 /*query=*/ null, /*fragment=*/ null);
         try (InputStream actual = httpClient.get(uri);

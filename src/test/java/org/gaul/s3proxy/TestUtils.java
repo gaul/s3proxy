@@ -110,6 +110,7 @@ final class TestUtils {
         private String s3Credential;
         private BlobStore blobStore;
         private URI endpoint;
+        private URI secureEndpoint;
 
         S3Proxy getS3Proxy() {
             return s3Proxy;
@@ -133,6 +134,10 @@ final class TestUtils {
 
         URI getEndpoint() {
             return endpoint;
+        }
+
+        URI getSecureEndpoint() {
+            return secureEndpoint;
         }
     }
 
@@ -195,6 +200,7 @@ final class TestUtils {
                 .endpoint(info.getEndpoint());
         if (secureEndpoint != null) {
             s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
+            info.secureEndpoint = new URI(secureEndpoint);
         }
         if (info.getS3Identity() != null || info.getS3Credential() != null) {
             s3ProxyBuilder.awsAuthentication(s3ProxyAuthorization,
@@ -219,6 +225,15 @@ final class TestUtils {
                 info.endpoint.getUserInfo(), info.endpoint.getHost(),
                 info.s3Proxy.getPort(), info.endpoint.getPath(),
                 info.endpoint.getQuery(), info.endpoint.getFragment());
+        if (info.secureEndpoint != null) {
+            info.secureEndpoint = new URI(info.secureEndpoint.getScheme(),
+                    info.secureEndpoint.getUserInfo(),
+                    info.secureEndpoint.getHost(),
+                    info.s3Proxy.getSecurePort(),
+                    info.secureEndpoint.getPath(),
+                    info.secureEndpoint.getQuery(),
+                    info.secureEndpoint.getFragment());
+        }
 
         return info;
     }

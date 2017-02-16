@@ -108,7 +108,7 @@ public final class S3AwsSdkTest {
                 info.getS3Credential());
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
-        s3Endpoint = info.getEndpoint();
+        s3Endpoint = info.getSecureEndpoint();
         s3EndpointConfig = new EndpointConfiguration(
                 s3Endpoint.toString(), "us-east-1");
         client = AmazonS3ClientBuilder.standard()
