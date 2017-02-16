@@ -91,7 +91,7 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 
-public final class S3AwsSdkTest {
+public final class AwsSdkTest {
     static {
         System.setProperty(
                 SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
