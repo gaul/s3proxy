@@ -12,6 +12,7 @@ ENV \
     S3PROXY_AUTHORIZATION="aws-v2" \
     S3PROXY_IDENTITY="local-identity" \
     S3PROXY_CREDENTIAL="local-credential" \
+    S3PROXY_CORS_ALLOW_ALL="false" \
     JCLOUDS_PROVIDER="filesystem" \
     JCLOUDS_ENDPOINT="" \
     JCLOUDS_IDENTITY="remote-identity" \
