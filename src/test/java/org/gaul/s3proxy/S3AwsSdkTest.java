@@ -200,6 +200,29 @@ public final class S3AwsSdkTest {
     }
 
     @Test
+    public void testAwsV4SignaturePayloadUnsigned() throws Exception {
+        client = AmazonS3ClientBuilder.standard()
+                .withChunkedEncodingDisabled(true)
+                .withPayloadSigningEnabled(false)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo",
+                BYTE_SOURCE.openStream(), metadata);
+
+        S3Object object = client.getObject(containerName, "foo");
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+
+    @Test
     public void testAwsV4SignatureBadIdentity() throws Exception {
         client = AmazonS3ClientBuilder.standard()
                 .withCredentials(new AWSStaticCredentialsProvider(

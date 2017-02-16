@@ -420,12 +420,16 @@ public class S3ProxyHandler {
                 expectedSignature = createAuthorizationSignature(request,
                         uri, credential);
             } else {
+                String contentSha256 = request.getHeader(
+                        "x-amz-content-sha256");
                 try {
                     byte[] payload;
                     if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
-                            request.getHeader("x-amz-content-sha256"))) {
+                            contentSha256)) {
                         payload = new byte[0];
                         is = new ChunkedInputStream(is);
+                    } else if ("UNSIGNED-PAYLOAD".equals(contentSha256)) {
+                        payload = new byte[0];
                     } else {
                         // buffer the entire stream to calculate digest
                         payload = ByteStreams.toByteArray(ByteStreams.limit(
@@ -2570,6 +2574,8 @@ public class S3ProxyHandler {
         String digest;
         if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(xAmzContentSha256)) {
             digest = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
+        } else if ("UNSIGNED-PAYLOAD".equals(xAmzContentSha256)) {
+            digest = "UNSIGNED-PAYLOAD";
         } else {
             digest = getMessageDigest(payload, hashAlgorithm);
         }
