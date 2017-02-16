@@ -6,6 +6,7 @@ exec java \
     -Ds3proxy.authorization=${S3PROXY_AUTHORIZATION} \
     -Ds3proxy.identity=${S3PROXY_IDENTITY} \
     -Ds3proxy.credential=${S3PROXY_CREDENTIAL} \
+    -Ds3proxy.cors-allow-all=${S3PROXY_CORS_ALLOW_ALL} \
     -Djclouds.provider=${JCLOUDS_PROVIDER} \
     -Djclouds.identity=${JCLOUDS_IDENTITY} \
     -Djclouds.credential=${JCLOUDS_CREDENTIAL} \
