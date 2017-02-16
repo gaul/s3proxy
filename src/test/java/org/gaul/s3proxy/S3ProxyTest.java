@@ -514,6 +514,8 @@ public final class S3ProxyTest {
                 userMetadata);
     }
 
+    // this test runs for several minutes
+    @Ignore
     @Test
     public void testMaximumMultipartUpload() throws Exception {
         // skip with remote blobstores to avoid excessive run-times
