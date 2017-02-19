@@ -35,6 +35,7 @@ import org.eclipse.jetty.util.component.AbstractLifeCycle;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
+import org.jclouds.JcloudsVersion;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
@@ -183,6 +184,12 @@ final class TestUtils {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String virtualHost = info.getProperties().getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
+
+        info.getProperties().setProperty(Constants.PROPERTY_USER_AGENT,
+                String.format("s3proxy/%s jclouds/%s java/%s",
+                        TestUtils.class.getPackage().getImplementationVersion(),
+                        JcloudsVersion.get(),
+                        System.getProperty("java.version")));
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)

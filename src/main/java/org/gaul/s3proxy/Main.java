@@ -34,6 +34,7 @@ import com.google.inject.Module;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
+import org.jclouds.JcloudsVersion;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.location.reference.LocationConstants;
@@ -250,6 +251,12 @@ public final class Main {
                     Constants.PROPERTY_IDENTITY + "\n" +
                     Constants.PROPERTY_CREDENTIAL + "\n");
         }
+
+        properties.setProperty(Constants.PROPERTY_USER_AGENT,
+                String.format("s3proxy/%s jclouds/%s java/%s",
+                        Main.class.getPackage().getImplementationVersion(),
+                        JcloudsVersion.get(),
+                        System.getProperty("java.version")));
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
