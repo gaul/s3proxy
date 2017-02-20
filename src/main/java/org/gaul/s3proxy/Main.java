@@ -134,6 +134,8 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
         String ignoreUnknownHeaders = properties.getProperty(
                 S3ProxyConstants.PROPERTY_IGNORE_UNKNOWN_HEADERS);
+        String ignoreUnknownParameters = properties.getProperty(
+                S3ProxyConstants.PROPERTY_IGNORE_UNKNOWN_PARAMETERS);
         String corsAllowAll = properties.getProperty(
                 S3ProxyConstants.PROPERTY_CORS_ALLOW_ALL);
 
@@ -196,6 +198,10 @@ public final class Main {
             if (ignoreUnknownHeaders != null) {
                 s3ProxyBuilder.ignoreUnknownHeaders(Boolean.parseBoolean(
                         ignoreUnknownHeaders));
+            }
+            if (ignoreUnknownParameters != null) {
+                s3ProxyBuilder.ignoreUnknownParameters(Boolean.parseBoolean(
+                        ignoreUnknownParameters));
             }
             if (corsAllowAll != null) {
                 s3ProxyBuilder.corsAllowAll(Boolean.parseBoolean(
