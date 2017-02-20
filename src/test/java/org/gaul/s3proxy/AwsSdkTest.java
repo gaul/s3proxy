@@ -276,9 +276,6 @@ public final class AwsSdkTest {
         }
     }
 
-    // TODO: cannot test with jclouds since S3BlobRequestSigner does not
-    // implement the same logic as
-    // AWSS3BlobRequestSigner.signForTemporaryAccess.
     @Test
     public void testAwsV2UrlSigning() throws Exception {
         client = AmazonS3ClientBuilder.standard()
@@ -323,7 +320,6 @@ public final class AwsSdkTest {
         }
     }
 
-    // TODO: jclouds lacks support for multipart copy
     @Test
     public void testMultipartCopy() throws Exception {
         String sourceBlobName = "testMultipartCopy-source";
