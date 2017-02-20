@@ -198,6 +198,7 @@ public class S3ProxyHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
+    private final boolean ignoreUnknownParameters;
     private final boolean corsAllowAll;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
@@ -220,7 +221,7 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            boolean corsAllowAll) {
+            boolean ignoreUnknownParameters, boolean corsAllowAll) {
         if (identity != null) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -249,6 +250,7 @@ public class S3ProxyHandler {
         this.virtualHost = requireNonNull(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
+        this.ignoreUnknownParameters = ignoreUnknownParameters;
         this.corsAllowAll = corsAllowAll;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
@@ -455,6 +457,9 @@ public class S3ProxyHandler {
         // emit NotImplemented for unknown parameters
         for (String parameter : Collections.list(
                 request.getParameterNames())) {
+            if (ignoreUnknownParameters) {
+                continue;
+            }
             if (!SUPPORTED_PARAMETERS.contains(parameter)) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());

@@ -105,7 +105,8 @@ public final class S3Proxy {
                 builder.authenticationType, builder.identity,
                 builder.credential, Optional.fromNullable(builder.virtualHost),
                 builder.v4MaxNonChunkedRequestSize,
-                builder.ignoreUnknownHeaders, builder.corsAllowAll);
+                builder.ignoreUnknownHeaders, builder.ignoreUnknownParameters,
+                builder.corsAllowAll);
         server.setHandler(handler);
     }
 
@@ -122,6 +123,7 @@ public final class S3Proxy {
         private String virtualHost;
         private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
+        private boolean ignoreUnknownParameters;
         private boolean corsAllowAll;
 
         Builder() {
@@ -178,6 +180,12 @@ public final class S3Proxy {
 
         public Builder ignoreUnknownHeaders(boolean ignoreUnknownHeaders) {
             this.ignoreUnknownHeaders = ignoreUnknownHeaders;
+            return this;
+        }
+
+        public Builder ignoreUnknownParameters(
+                boolean ignoreUnknownParameters) {
+            this.ignoreUnknownParameters = ignoreUnknownParameters;
             return this;
         }
 
