@@ -181,7 +181,13 @@ public class S3ProxyHandler {
             "response-expires",
             "Signature",
             "uploadId",
-            "uploads"
+            "uploads",
+            "X-Amz-Algorithm",
+            "X-Amz-Credential",
+            "X-Amz-Date",
+            "X-Amz-Expires",
+            "X-Amz-Signature",
+            "X-Amz-SignedHeaders"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
@@ -333,6 +339,7 @@ public class S3ProxyHandler {
                 (method.equals("GET") || method.equals("HEAD") ||
                 method.equals("POST")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
+                request.getParameter("X-Amz-Algorithm") == null &&
                 request.getParameter("AWSAccessKeyId") == null &&
                 defaultBlobStore != null) {
             doHandleAnonymous(request, response, is, uri, defaultBlobStore);
@@ -340,6 +347,7 @@ public class S3ProxyHandler {
         }
 
         if (!anonymousIdentity && !hasDateHeader && !hasXAmzDateHeader &&
+                request.getParameter("X-Amz-Date") == null &&
                 request.getParameter("Expires") == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
                     "AWS authentication requires a valid Date or" +
@@ -373,13 +381,32 @@ public class S3ProxyHandler {
 
         if (!anonymousIdentity) {
             if (headerAuthorization == null) {
-                String identity = request.getParameter("AWSAccessKeyId");
-                String signature = request.getParameter("Signature");
-                if (identity == null || signature == null) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                String algorithm = request.getParameter("X-Amz-Algorithm");
+                if (algorithm == null) {
+                    String identity = request.getParameter("AWSAccessKeyId");
+                    String signature = request.getParameter("Signature");
+                    if (identity == null || signature == null) {
+                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                    }
+                    headerAuthorization = "AWS " + identity + ":" + signature;
+                    presignedUrl = true;
+                } else if (algorithm.equals("AWS4-HMAC-SHA256")) {
+                    String credential = request.getParameter(
+                            "X-Amz-Credential");
+                    String signedHeaders = request.getParameter(
+                            "X-Amz-SignedHeaders");
+                    String signature = request.getParameter(
+                            "X-Amz-Signature");
+                    if (credential == null || signedHeaders == null ||
+                            signature == null) {
+                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                    }
+                    headerAuthorization = "AWS4-HMAC-SHA256" +
+                            " Credential=" + credential +
+                            ", requestSignedHeaders=" + signedHeaders +
+                            ", Signature=" + signature;
+                    presignedUrl = true;
                 }
-                headerAuthorization = "AWS " + identity + ":" + signature;
-                presignedUrl = true;
             }
 
             try {
@@ -464,7 +491,9 @@ public class S3ProxyHandler {
                         "x-amz-content-sha256");
                 try {
                     byte[] payload;
-                    if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
+                    if (request.getParameter("X-Amz-Algorithm") != null) {
+                        payload = new byte[0];
+                    } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                             contentSha256)) {
                         payload = new byte[0];
                         is = new ChunkedInputStream(is);
@@ -481,7 +510,8 @@ public class S3ProxyHandler {
                         is = new ByteArrayInputStream(payload);
                     }
                     expectedSignature = createAuthorizationSignatureV4(
-                            baseRequest, payload, uriForSigning, credential);
+                            baseRequest, authHeader, payload, uriForSigning,
+                            credential);
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
                 }
@@ -2572,12 +2602,10 @@ public class S3ProxyHandler {
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
      */
     private static String createAuthorizationSignatureV4(
-            HttpServletRequest request,
+            HttpServletRequest request, S3AuthorizationHeader authHeader,
             byte[] payload, String uri, String credential)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
             S3Exception {
-        S3AuthorizationHeader authHeader = new S3AuthorizationHeader(
-                request.getHeader("Authorization"));
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
                 authHeader.hashAlgorithm);
         String algorithm = authHeader.hmacAlgorithm;
@@ -2594,8 +2622,12 @@ public class S3ProxyHandler {
         byte[] signingKey = signMessage(
                 "aws4_request".getBytes(StandardCharsets.UTF_8),
                 dateRegionServiceKey, algorithm);
+        String date = request.getHeader("x-amz-date");
+        if (date == null) {
+            date = request.getParameter("X-Amz-Date");
+        }
         String signatureString = "AWS4-HMAC-SHA256\n" +
-                request.getHeader("x-amz-date") + "\n" +
+                date + "\n" +
                 authHeader.date + "/" + authHeader.region +
                         "/s3/aws4_request\n" +
                 canonicalRequest;
@@ -2617,15 +2649,27 @@ public class S3ProxyHandler {
             throws IOException, NoSuchAlgorithmException {
         String authorizationHeader = request.getHeader("Authorization");
         String xAmzContentSha256 = request.getHeader("x-amz-content-sha256");
+        if (xAmzContentSha256 == null) {
+            xAmzContentSha256 = request.getParameter("X-Amz-SignedHeaders");
+        }
         String digest;
-        if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(xAmzContentSha256)) {
+        if (authorizationHeader == null) {
+            digest = "UNSIGNED-PAYLOAD";
+        } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
+                xAmzContentSha256)) {
             digest = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
         } else if ("UNSIGNED-PAYLOAD".equals(xAmzContentSha256)) {
             digest = "UNSIGNED-PAYLOAD";
         } else {
             digest = getMessageDigest(payload, hashAlgorithm);
         }
-        String[] signedHeaders = extractSignedHeaders(authorizationHeader);
+        String[] signedHeaders;
+        if (authorizationHeader != null) {
+            signedHeaders = extractSignedHeaders(authorizationHeader);
+        } else {
+            signedHeaders = request.getParameter("X-Amz-SignedHeaders")
+                    .split(";");
+        }
         String canonicalRequest = Joiner.on("\n").join(
                 request.getMethod(),
                 uri,
@@ -2693,6 +2737,9 @@ public class S3ProxyHandler {
         List<String> queryParameters = new ArrayList<>();
 
         for (String key : parameters) {
+            if (key.equals("X-Amz-Signature")) {
+                continue;
+            }
             // re-encode keys and values in AWS normalized form
             String value = request.getParameter(key);
             queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +

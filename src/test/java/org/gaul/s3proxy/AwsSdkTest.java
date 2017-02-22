@@ -390,8 +390,6 @@ public final class AwsSdkTest {
         }
     }
 
-    // TODO: implement V4 URL signing
-    @Ignore
     @Test
     public void testAwsV4UrlSigning() throws Exception {
         String blobName = "foo";
