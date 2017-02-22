@@ -82,6 +82,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 
+import org.apache.http.NameValuePair;
+import org.apache.http.client.utils.URLEncodedUtils;
 import org.assertj.core.api.Fail;
 
 import org.jclouds.blobstore.BlobStoreContext;
@@ -363,11 +365,26 @@ public final class AwsSdkTest {
         headerOverride.setContentType("text/plain");
         generatePresignedUrlRequest.setResponseHeaders(headerOverride);
 
-        Date expiration = new Date(System.currentTimeMillis() +
-                TimeUnit.HOURS.toMillis(1));
+        Date expiration = new Date((System.currentTimeMillis() +
+                TimeUnit.HOURS.toMillis(1)) / 1000 * 1000);
         generatePresignedUrlRequest.setExpiration(expiration);
 
         URL url = client.generatePresignedUrl(generatePresignedUrlRequest);
+        List<NameValuePair> params = URLEncodedUtils.parse(url.toURI(),
+                "UTF-8");
+        for (NameValuePair param : params) {
+            if (param.getName().equals("response-content-disposition")) {
+                assertThat(param.getValue())
+                        .isEqualTo(headerOverride.getContentDisposition());
+            } else if (param.getName().equals("response-content-type")) {
+                assertThat(param.getValue())
+                        .isEqualTo(headerOverride.getContentType());
+            } else if (param.getName().equals("Expires")) {
+                assertThat(param.getValue())
+                        .isEqualTo(String.valueOf(expiration.getTime() / 1000));
+            }
+        }
+
         try (InputStream actual = url.openStream();
              InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
