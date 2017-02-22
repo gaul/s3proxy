@@ -137,12 +137,28 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('_'))
                     .or(CharMatcher.is('-'));
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
-            "acl", "delete", "lifecycle", "location", "logging", "notification",
-            "partNumber", "policy", "requestPayment", "response-cache-control",
-            "response-content-disposition", "response-content-encoding",
-            "response-content-language", "response-content-type",
-            "response-expires", "torrent", "uploadId", "uploads", "versionId",
-            "versioning", "versions", "website"
+            "acl",
+            "delete",
+            "lifecycle",
+            "location",
+            "logging",
+            "notification",
+            "partNumber",
+            "policy",
+            "requestPayment",
+            "response-cache-control",
+            "response-content-disposition",
+            "response-content-encoding",
+            "response-content-language",
+            "response-content-type",
+            "response-expires",
+            "torrent",
+            "uploadId",
+            "uploads",
+            "versionId",
+            "versioning",
+            "versions",
+            "website"
     );
     private static final Set<String> SUPPORTED_PARAMETERS = ImmutableSet.of(
             "acl",
