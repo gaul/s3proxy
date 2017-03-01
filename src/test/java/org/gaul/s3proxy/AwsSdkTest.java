@@ -46,6 +46,7 @@ import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.internal.SkipMd5CheckStrategy;
 import com.amazonaws.services.s3.model.AbortMultipartUploadRequest;
 import com.amazonaws.services.s3.model.AccessControlList;
 import com.amazonaws.services.s3.model.AmazonS3Exception;
@@ -133,9 +134,13 @@ public final class AwsSdkTest {
 
         blobStoreType = context.unwrap().getProviderMetadata().getId();
         if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
-            // AWS SDK checks that ETag matches Content-MD5 during PUT
             System.setProperty(
-                    "com.amazonaws.services.s3.disablePutObjectMD5Validation",
+                    SkipMd5CheckStrategy
+                            .DISABLE_GET_OBJECT_MD5_VALIDATION_PROPERTY,
+                    "true");
+            System.setProperty(
+                    SkipMd5CheckStrategy
+                            .DISABLE_PUT_OBJECT_MD5_VALIDATION_PROPERTY,
                     "true");
         }
     }
