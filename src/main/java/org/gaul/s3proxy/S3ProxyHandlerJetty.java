@@ -18,12 +18,12 @@ package org.gaul.s3proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import org.eclipse.jetty.server.Request;
