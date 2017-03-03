@@ -21,8 +21,8 @@ import static java.util.Objects.requireNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
+import java.util.Optional;
 
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -103,7 +103,7 @@ public final class S3Proxy {
         }
         handler = new S3ProxyHandlerJetty(builder.blobStore,
                 builder.authenticationType, builder.identity,
-                builder.credential, Optional.fromNullable(builder.virtualHost),
+                builder.credential, Optional.ofNullable(builder.virtualHost),
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.ignoreUnknownParameters,
                 builder.corsAllowAll);
