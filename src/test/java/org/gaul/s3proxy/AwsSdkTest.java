@@ -22,6 +22,7 @@ import static org.junit.Assume.assumeTrue;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLConnection;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
@@ -373,8 +374,16 @@ public final class AwsSdkTest {
         generatePresignedUrlRequest.setExpiration(expiration);
 
         URL url = client.generatePresignedUrl(generatePresignedUrlRequest);
-        try (InputStream actual = url.openStream();
+        URLConnection connection =  url.openConnection();
+        try (InputStream actual = connection.getInputStream();
              InputStream expected = BYTE_SOURCE.openStream()) {
+
+            String value = connection.getHeaderField("Content-Disposition");
+            assertThat(value).isEqualTo(headerOverride.getContentDisposition());
+
+            value = connection.getHeaderField("Content-Type");
+            assertThat(value).isEqualTo(headerOverride.getContentType());
+
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
