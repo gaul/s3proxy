@@ -2031,10 +2031,11 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "PartNumber", String.valueOf(
                         part.partNumber()));
 
-                // TODO: bogus value
-                Date lastModified = new Date(0);
-                writeSimpleElement(xml, "LastModified",
-                        formatDate(lastModified));
+                Date lastModified = part.lastModified();
+                if (lastModified != null) {
+                    writeSimpleElement(xml, "LastModified",
+                            formatDate(lastModified));
+                }
 
                 String eTag = part.partETag();
                 if (eTag != null) {
