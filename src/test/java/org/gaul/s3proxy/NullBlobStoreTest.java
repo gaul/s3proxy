@@ -38,6 +38,8 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
+import org.jclouds.blobstore.domain.PageSet;
+import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.Payload;
@@ -96,6 +98,13 @@ public final class NullBlobStoreTest {
                     ByteStreams.nullOutputStream());
             assertThat(actualLength).isEqualTo(expectedLength);
         }
+
+        PageSet<? extends StorageMetadata> pageSet = nullBlobStore.list(
+                containerName);
+        assertThat(pageSet).hasSize(1);
+        StorageMetadata sm = pageSet.iterator().next();
+        assertThat(sm.getName()).isEqualTo(blobName);
+        assertThat(sm.getSize()).isEqualTo(0);
     }
 
     @Test

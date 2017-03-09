@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.util.List;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
@@ -31,6 +32,11 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
+import org.jclouds.blobstore.domain.MutableStorageMetadata;
+import org.jclouds.blobstore.domain.PageSet;
+import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
+import org.jclouds.blobstore.domain.internal.PageSetImpl;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
@@ -82,6 +88,18 @@ final class NullBlobStore extends ForwardingBlobStore {
         payload.getContentMetadata().setContentMD5((HashCode) null);
         blob.setPayload(payload);
         return blob;
+    }
+
+    @Override
+    public PageSet<? extends StorageMetadata> list(String container) {
+        ImmutableSet.Builder<StorageMetadata> builder = ImmutableSet.builder();
+        PageSet<? extends StorageMetadata> pageSet = super.list(container);
+        for (StorageMetadata sm : pageSet) {
+            MutableStorageMetadata msm = new MutableStorageMetadataImpl(sm);
+            msm.setSize(0L);
+            builder.add(msm);
+        }
+        return new PageSetImpl<>(builder.build(), pageSet.getNextMarker());
     }
 
     @Override
