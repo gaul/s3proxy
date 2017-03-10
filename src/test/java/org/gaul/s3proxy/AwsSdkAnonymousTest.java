@@ -16,6 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.InputStream;
 import java.net.URI;
 import java.util.Random;
 
@@ -27,6 +30,9 @@ import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.internal.SkipMd5CheckStrategy;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.S3Object;
+import com.google.common.io.ByteSource;
 
 import org.jclouds.blobstore.BlobStoreContext;
 
@@ -41,6 +47,8 @@ public final class AwsSdkAnonymousTest {
                 "true");
         AwsSdkTest.disableSslVerification();
     }
+
+    private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
 
     private URI s3Endpoint;
     private EndpointConfiguration s3EndpointConfig;
@@ -98,6 +106,27 @@ public final class AwsSdkAnonymousTest {
     @Test
     public void testListBuckets() throws Exception {
         client.listBuckets();
+    }
+
+    @Test
+    public void testAwsV4SignatureChunkedAnonymous() throws Exception {
+        client = AmazonS3ClientBuilder.standard()
+            .withChunkedEncodingDisabled(false)
+            .withEndpointConfiguration(s3EndpointConfig)
+            .build();
+
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
+                metadata);
+
+        S3Object object = client.getObject(containerName, "foo");
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+            InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
     }
 
     private static String createRandomContainerName() {
