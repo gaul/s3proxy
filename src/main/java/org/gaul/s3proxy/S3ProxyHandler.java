@@ -241,7 +241,7 @@ public class S3ProxyHandler {
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean ignoreUnknownParameters, boolean corsAllowAll) {
-        if (identity != null) {
+        if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
@@ -389,6 +389,10 @@ public class S3ProxyHandler {
                         path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
             blobStore = provider.getValue();
+            String contentSha256 = request.getHeader("x-amz-content-sha256");
+            if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
+                is = new ChunkedInputStream(is);
+            }
         } else if (requestIdentity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         } else {
