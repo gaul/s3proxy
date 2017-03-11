@@ -171,9 +171,9 @@ final class TestUtils {
         AuthenticationType s3ProxyAuthorization =
                 AuthenticationType.fromString(s3ProxyAuthorizationString);
         info.s3Identity = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_IDENTITY);
+                S3ProxyConstants.PROPERTY_IDENTITY, null);
         info.s3Credential = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_CREDENTIAL);
+                S3ProxyConstants.PROPERTY_CREDENTIAL, null);
         info.endpoint = new URI(info.getProperties().getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT));
         String secureEndpoint = info.getProperties().getProperty(

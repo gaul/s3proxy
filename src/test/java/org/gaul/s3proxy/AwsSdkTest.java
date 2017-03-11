@@ -42,7 +42,9 @@ import javax.net.ssl.X509TrustManager;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
+import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.AnonymousAWSCredentials;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
@@ -112,17 +114,16 @@ public final class AwsSdkTest {
     private BlobStoreContext context;
     private String blobStoreType;
     private String containerName;
-    private BasicAWSCredentials awsCreds;
+    private AWSCredentials awsCreds;
     private AmazonS3 client;
 
     @Before
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy();
-        awsCreds = new BasicAWSCredentials(info.getS3Identity(),
-                info.getS3Credential());
+        awsCreds = new AnonymousAWSCredentials();
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
-        s3Endpoint = info.getSecureEndpoint();
+        s3Endpoint = info.getEndpoint();
         s3EndpointConfig = new EndpointConfiguration(
                 s3Endpoint.toString(), "us-east-1");
         client = AmazonS3ClientBuilder.standard()
@@ -238,7 +239,7 @@ public final class AwsSdkTest {
     public void testAwsV4SignatureNonChunked() throws Exception {
         client = AmazonS3ClientBuilder.standard()
                 .withChunkedEncodingDisabled(true)
-                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+//                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
 
@@ -252,6 +253,28 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+    }
+    
+    @Test
+    public void testAwsV4SignatureChunked() throws Exception {
+        client = AmazonS3ClientBuilder.standard()
+            .withChunkedEncodingDisabled(false)
+//            .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+            .withEndpointConfiguration(s3EndpointConfig)
+            .build();
+        
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo",
+                         BYTE_SOURCE.openStream(), metadata);
+        
+        S3Object object = client.getObject(containerName, "foo");
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                                                                            BYTE_SOURCE.size());
+        try (InputStream actual = object.getObjectContent();
+            InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasContentEqualTo(expected);
         }
     }
