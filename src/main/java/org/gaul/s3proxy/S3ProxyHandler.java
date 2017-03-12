@@ -219,6 +219,7 @@ public class S3ProxyHandler {
     private final boolean ignoreUnknownHeaders;
     private final boolean ignoreUnknownParameters;
     private final boolean corsAllowAll;
+    private final String servicePath;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -240,7 +241,8 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            boolean ignoreUnknownParameters, boolean corsAllowAll) {
+            boolean ignoreUnknownParameters, boolean corsAllowAll,
+            final String servicePath) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -274,6 +276,7 @@ public class S3ProxyHandler {
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
+        this.servicePath = Strings.nullToEmpty(servicePath);
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
@@ -285,6 +288,13 @@ public class S3ProxyHandler {
             InputStream is) throws IOException, S3Exception {
         String method = request.getMethod();
         String uri = request.getRequestURI();
+
+        if (!this.servicePath.isEmpty()) {
+            if (uri.length() > this.servicePath.length()) {
+                uri = uri.substring(this.servicePath.length());
+            }
+        }
+
         logger.debug("request: {}", request);
         String hostHeader = request.getHeader(HttpHeaders.HOST);
         if (hostHeader != null && virtualHost.isPresent()) {
@@ -359,6 +369,7 @@ public class S3ProxyHandler {
         String headerAuthorization = request.getHeader(
                 HttpHeaders.AUTHORIZATION);
         S3AuthorizationHeader authHeader = null;
+        boolean presignedUrl = false;
 
         if (!anonymousIdentity) {
             if (headerAuthorization == null) {
@@ -368,6 +379,7 @@ public class S3ProxyHandler {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
                 headerAuthorization = "AWS " + identity + ":" + signature;
+                presignedUrl = true;
             }
 
             try {
@@ -441,9 +453,12 @@ public class S3ProxyHandler {
             }
 
             String expectedSignature = null;
+
+            // When presigned url is generated, it doesn't consider service path
+            String uriForSigning = presignedUrl ? uri : this.servicePath + uri;
             if (authHeader.hmacAlgorithm == null) {
                 expectedSignature = createAuthorizationSignature(request,
-                        uri, credential);
+                        uriForSigning, credential);
             } else {
                 String contentSha256 = request.getHeader(
                         "x-amz-content-sha256");
@@ -466,13 +481,14 @@ public class S3ProxyHandler {
                         is = new ByteArrayInputStream(payload);
                     }
                     expectedSignature = createAuthorizationSignatureV4(
-                            baseRequest, payload, uri, credential);
+                            baseRequest, payload, uriForSigning, credential);
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
                 }
             }
 
             if (!expectedSignature.equals(authHeader.signature)) {
+                logger.debug("fail to validate signature");
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
         }

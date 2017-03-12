@@ -25,6 +25,8 @@ public final class S3ProxyConstants {
             "s3proxy.authorization";
     public static final String PROPERTY_IDENTITY =
             "s3proxy.identity";
+    public static final String PROPERTY_SERVICE_PATH =
+            "s3proxy.service-path";
     /** When true, include "Access-Control-Allow-Origin: *" in all responses. */
     public static final String PROPERTY_CORS_ALLOW_ALL =
             "s3proxy.cors-allow-all";
