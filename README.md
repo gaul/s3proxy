@@ -12,7 +12,7 @@ and *proxies* requests, enabling several use cases:
 
 * translation from S3 to Backblaze B2, Google Cloud, Microsoft Azure, or OpenStack Swift
 * testing without Amazon by using the local filesystem
-* extension via middlewares, e.g., eventual consistency simulation
+* extension via middlewares
 * embedding into Java applications
 
 Usage with Docker
@@ -84,6 +84,14 @@ Supported storage backends
 * transient (in-memory storage)
 
 See the wiki for [examples of configurations](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-examples).
+
+Middlewares
+-----------
+
+S3Proxy can modify its behavior based on middlewares:
+
+* [eventual consistency modeling](https://github.com/andrewgaul/s3proxy/wiki/Middleware---eventual-consistency)
+* [large object mocking](https://github.com/andrewgaul/s3proxy/wiki/Middleware-large-object-mocking)
 
 Limitations
 -----------

@@ -174,6 +174,13 @@ public final class Main {
                     delay, TimeUnit.SECONDS, probability);
         }
 
+        String nullBlobStore = properties.getProperty(
+                S3ProxyConstants.PROPERTY_NULL_BLOBSTORE);
+        if ("true".equalsIgnoreCase(nullBlobStore)) {
+            System.err.println("Using null storage backend");
+            blobStore = NullBlobStore.newNullBlobStore(blobStore);
+        }
+
         S3Proxy s3Proxy;
         try {
             S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()

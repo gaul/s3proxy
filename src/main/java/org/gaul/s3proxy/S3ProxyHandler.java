@@ -243,7 +243,7 @@ public class S3ProxyHandler {
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean ignoreUnknownParameters, boolean corsAllowAll,
             final String servicePath) {
-        if (identity != null) {
+        if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
@@ -401,6 +401,10 @@ public class S3ProxyHandler {
                         path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
             blobStore = provider.getValue();
+            String contentSha256 = request.getHeader("x-amz-content-sha256");
+            if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
+                is = new ChunkedInputStream(is);
+            }
         } else if (requestIdentity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         } else {
@@ -1921,7 +1925,7 @@ public class S3ProxyHandler {
                     throw new S3Exception(S3ErrorCode.INVALID_PART);
                 }
                 parts.add(MultipartPart.create(entry.getKey(),
-                        partSize, part.partETag()));
+                        partSize, part.partETag(), part.lastModified()));
             }
         }
 
@@ -2004,8 +2008,9 @@ public class S3ProxyHandler {
             parts = new ArrayList<>();
             for (Map.Entry<Integer, Long> entry : map.entrySet()) {
                 String eTag = "";  // TODO: bogus value
+                Date lastModified = null;  // TODO: bogus value
                 parts.add(MultipartPart.create(entry.getKey(),
-                        entry.getValue(), eTag));
+                        entry.getValue(), eTag, lastModified));
             }
         } else {
             parts = blobStore.listMultipartUpload(mpu);
@@ -2046,7 +2051,7 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "PartNumber", String.valueOf(
                         part.partNumber()));
 
-                Date lastModified = null;  // TODO: not part of MultipartPart
+                Date lastModified = part.lastModified();
                 if (lastModified != null) {
                     writeSimpleElement(xml, "LastModified",
                             formatDate(lastModified));
