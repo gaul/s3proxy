@@ -72,15 +72,16 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 
 Supported storage backends
 --------------------------
+
 * atmos
-* aws-s3
+* aws-s3 (Amazon-only)
 * azureblob
 * b2
 * filesystem (on-disk storage)
 * google-cloud-storage
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
-* s3
+* s3 (all implementations)
 * transient (in-memory storage)
 
 See the wiki for [examples of configurations](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-examples).
