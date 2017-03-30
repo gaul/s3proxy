@@ -15,6 +15,7 @@ ENV \
     S3PROXY_CORS_ALLOW_ALL="false" \
     JCLOUDS_PROVIDER="filesystem" \
     JCLOUDS_ENDPOINT="" \
+    JCLOUDS_REGION="" \
     JCLOUDS_IDENTITY="remote-identity" \
     JCLOUDS_CREDENTIAL="remote-credential"
 
