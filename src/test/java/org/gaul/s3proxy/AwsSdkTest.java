@@ -916,30 +916,26 @@ public final class AwsSdkTest {
     public void testSinglepartUpload() throws Exception {
         String blobName = "singlepart-upload";
         String cacheControl = "max-age=3600";
-        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
-            cacheControl = null;
-        }
         String contentDisposition = "attachment; filename=new.jpg";
-        if (Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-            contentDisposition = null;
-        }
         String contentEncoding = "gzip";
-        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
-            contentEncoding = null;
-        }
         String contentLanguage = "fr";
-        if (Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
-            contentLanguage = null;
-        }
         String contentType = "audio/mp4";
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
-        metadata.setCacheControl(cacheControl);
-        metadata.setContentDisposition(contentDisposition);
-        metadata.setContentEncoding(contentEncoding);
-        metadata.setContentLanguage(contentLanguage);
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            metadata.setCacheControl(cacheControl);
+        }
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            metadata.setContentDisposition(contentDisposition);
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            metadata.setContentEncoding(contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            metadata.setContentLanguage(contentLanguage);
+        }
         metadata.setContentLength(BYTE_SOURCE.size());
         metadata.setContentType(contentType);
         // TODO: expires
@@ -982,30 +978,26 @@ public final class AwsSdkTest {
     public void testMultipartUpload() throws Exception {
         String blobName = "multipart-upload";
         String cacheControl = "max-age=3600";
-        if (Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
-            cacheControl = null;
-        }
         String contentDisposition = "attachment; filename=new.jpg";
-        if (Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-            contentDisposition = null;
-        }
         String contentEncoding = "gzip";
-        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
-            contentEncoding = null;
-        }
         String contentLanguage = "fr";
-        if (Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
-            contentLanguage = null;
-        }
         String contentType = "audio/mp4";
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
-        metadata.setCacheControl(cacheControl);
-        metadata.setContentDisposition(contentDisposition);
-        metadata.setContentEncoding(contentEncoding);
-        metadata.setContentLanguage(contentLanguage);
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            metadata.setCacheControl(cacheControl);
+        }
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            metadata.setContentDisposition(contentDisposition);
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            metadata.setContentEncoding(contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            metadata.setContentLanguage(contentLanguage);
+        }
         metadata.setContentType(contentType);
         // TODO: expires
         metadata.setUserMetadata(userMetadata);
@@ -1140,20 +1132,25 @@ public final class AwsSdkTest {
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=old.jpg";
         String contentEncoding = "gzip";
-        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
-            contentEncoding = null;
-        }
         String contentLanguage = "en";
         String contentType = "audio/ogg";
         Map<String, String> userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
-        metadata.setCacheControl(cacheControl);
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            metadata.setCacheControl(cacheControl);
+        }
         metadata.setContentLength(BYTE_SOURCE.size());
-        metadata.setContentDisposition(contentDisposition);
-        metadata.setContentEncoding(contentEncoding);
-        metadata.setContentLanguage(contentLanguage);
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            metadata.setContentDisposition(contentDisposition);
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            metadata.setContentEncoding(contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            metadata.setContentLanguage(contentLanguage);
+        }
         metadata.setContentType(contentType);
         // TODO: expires
         metadata.setUserMetadata(userMetadata);
@@ -1176,8 +1173,10 @@ public final class AwsSdkTest {
             assertThat(contentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
-        assertThat(contentMetadata.getContentDisposition()).isEqualTo(
-                contentDisposition);
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            assertThat(contentMetadata.getContentDisposition()).isEqualTo(
+                    contentDisposition);
+        }
         if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             assertThat(contentMetadata.getContentEncoding()).isEqualTo(
                     contentEncoding);
@@ -1199,10 +1198,18 @@ public final class AwsSdkTest {
         String toName = "to-name";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
-        metadata.setCacheControl("max-age=3600");
-        metadata.setContentDisposition("attachment; filename=old.jpg");
-        metadata.setContentEncoding("compress");
-        metadata.setContentLanguage("en");
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            metadata.setCacheControl("max-age=3600");
+        }
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            metadata.setContentDisposition("attachment; filename=old.jpg");
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            metadata.setContentEncoding("compress");
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            metadata.setContentLanguage("en");
+        }
         metadata.setContentType("audio/ogg");
         // TODO: expires
         metadata.setUserMetadata(ImmutableMap.of(
@@ -1214,16 +1221,21 @@ public final class AwsSdkTest {
         String cacheControl = "max-age=1800";
         String contentDisposition = "attachment; filename=new.jpg";
         String contentEncoding = "gzip";
-        if (Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
-            contentEncoding = null;
-        }
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
         ObjectMetadata contentMetadata = new ObjectMetadata();
-        contentMetadata.setCacheControl(cacheControl);
-        contentMetadata.setContentDisposition(contentDisposition);
-        contentMetadata.setContentEncoding(contentEncoding);
-        contentMetadata.setContentLanguage(contentLanguage);
+        if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
+            contentMetadata.setCacheControl(cacheControl);
+        }
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            contentMetadata.setContentDisposition(contentDisposition);
+        }
+        if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
+            contentMetadata.setContentEncoding(contentEncoding);
+        }
+        if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
+            contentMetadata.setContentLanguage(contentLanguage);
+        }
         contentMetadata.setContentType(contentType);
         // TODO: expires
         Map<String, String> userMetadata = ImmutableMap.of(
@@ -1246,8 +1258,10 @@ public final class AwsSdkTest {
             assertThat(contentMetadata.getCacheControl()).isEqualTo(
                     cacheControl);
         }
-        assertThat(toContentMetadata.getContentDisposition()).isEqualTo(
-                contentDisposition);
+        if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
+            assertThat(toContentMetadata.getContentDisposition()).isEqualTo(
+                    contentDisposition);
+        }
         if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
             assertThat(toContentMetadata.getContentEncoding()).isEqualTo(
                     contentEncoding);
