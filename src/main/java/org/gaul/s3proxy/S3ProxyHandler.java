@@ -75,7 +75,6 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
-import com.google.common.io.FileBackedOutputStream;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
@@ -215,8 +214,6 @@ public class S3ProxyHandler {
     );
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
             new PercentEscaper("-_.~", false);
-    // TODO: configurable fileThreshold
-    private static final int B2_PUT_BLOB_BUFFER_SIZE = 1024 * 1024;
 
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
@@ -1698,23 +1695,12 @@ public class S3ProxyHandler {
             options.multipart(true);
         }
 
-        FileBackedOutputStream fbos = null;
         String eTag;
         try {
-            BlobBuilder.PayloadBlobBuilder builder;
-            if (blobStoreType.equals("b2")) {
-                // B2 requires a repeatable payload to calculate the SHA1 hash
-                fbos = new FileBackedOutputStream(B2_PUT_BLOB_BUFFER_SIZE);
-                ByteStreams.copy(is, fbos);
-                fbos.close();
-                builder = blobStore.blobBuilder(blobName)
-                        .payload(fbos.asByteSource());
-            } else {
-                builder = blobStore.blobBuilder(blobName)
-                        .payload(is);
-            }
-
-            builder.contentLength(contentLength);
+            BlobBuilder.PayloadBlobBuilder builder = blobStore
+                    .blobBuilder(blobName)
+                    .payload(is)
+                    .contentLength(contentLength);
 
             addContentMetdataFromHttpRequest(builder, request);
             if (contentMD5 != null) {
@@ -1739,10 +1725,6 @@ public class S3ProxyHandler {
                 break;
             }
             return;
-        } finally {
-            if (fbos != null) {
-                fbos.reset();
-            }
         }
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
@@ -2210,7 +2192,6 @@ public class S3ProxyHandler {
                 blobMetadata.getContentMetadata().getContentLength();
 
         String blobStoreType = getBlobStoreType(blobStore);
-        FileBackedOutputStream fbos = null;
         try (InputStream is = blob.getPayload().openStream()) {
             if (blobStoreType.equals("azureblob")) {
                 // Azure has a maximum part size of 4 MB while S3 has a minimum
@@ -2235,28 +2216,12 @@ public class S3ProxyHandler {
                 eTag = BaseEncoding.base16().lowerCase().encode(
                         his.hash().asBytes());
             } else {
-                Payload payload;
-                if (blobStoreType.equals("b2")) {
-                    // B2 requires a repeatable payload to calculate the SHA1
-                    // hash
-                    fbos = new FileBackedOutputStream(B2_PUT_BLOB_BUFFER_SIZE);
-                    ByteStreams.copy(is, fbos);
-                    fbos.close();
-                    payload = Payloads.newByteSourcePayload(
-                            fbos.asByteSource());
-                } else {
-                    payload = Payloads.newInputStreamPayload(is);
-                }
-
+                Payload payload = Payloads.newInputStreamPayload(is);
                 payload.getContentMetadata().setContentLength(contentLength);
 
                 MultipartPart part = blobStore.uploadMultipartPart(mpu,
                         partNumber, payload);
                 eTag = part.partETag();
-            }
-        } finally {
-            if (fbos != null) {
-                fbos.reset();
             }
         }
 
@@ -2380,32 +2345,13 @@ public class S3ProxyHandler {
                             his.hash().asBytes())));
         } else {
             MultipartPart part;
-            Payload payload;
-            FileBackedOutputStream fbos = null;
-            try {
-                String blobStoreType = getBlobStoreType(blobStore);
-                if (blobStoreType.equals("b2")) {
-                    // B2 requires a repeatable payload to calculate the SHA1
-                    // hash
-                    fbos = new FileBackedOutputStream(B2_PUT_BLOB_BUFFER_SIZE);
-                    ByteStreams.copy(is, fbos);
-                    fbos.close();
-                    payload = Payloads.newByteSourcePayload(
-                            fbos.asByteSource());
-                } else {
-                    payload = Payloads.newInputStreamPayload(is);
-                }
-                payload.getContentMetadata().setContentLength(contentLength);
-                if (contentMD5 != null) {
-                    payload.getContentMetadata().setContentMD5(contentMD5);
-                }
-
-                part = blobStore.uploadMultipartPart(mpu, partNumber, payload);
-            } finally {
-                if (fbos != null) {
-                    fbos.reset();
-                }
+            Payload payload = Payloads.newInputStreamPayload(is);
+            payload.getContentMetadata().setContentLength(contentLength);
+            if (contentMD5 != null) {
+                payload.getContentMetadata().setContentMD5(contentMD5);
             }
+
+            part = blobStore.uploadMultipartPart(mpu, partNumber, payload);
 
             if (part.partETag() != null) {
                 response.addHeader(HttpHeaders.ETAG,
