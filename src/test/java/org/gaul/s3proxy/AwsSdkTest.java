@@ -455,8 +455,8 @@ public final class AwsSdkTest {
     @Test
     public void testBigMultipartUpload() throws Exception {
         String key = "multipart-upload";
-        int size = 10_000_000;
-        int partSize = 5 * 1024 * 1024;
+        long partSize = context.getBlobStore().getMinimumMultipartPartSize();
+        long size = partSize + 1;
         ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
 
         InitiateMultipartUploadRequest initRequest =
