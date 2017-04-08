@@ -410,6 +410,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartCopy() throws Exception {
+        // B2 requires two parts to issue an MPU
+        assumeTrue(!blobStoreType.equals("b2"));
+
         String sourceBlobName = "testMultipartCopy-source";
         String targetBlobName = "testMultipartCopy-target";
 
@@ -556,6 +559,9 @@ public final class AwsSdkTest {
     @Test
     public void testSpecialCharacters() throws Exception {
         String prefix = "special ~`!@#$%^&*()-_+=[]{}\\|;:'\"<>,./?";
+        if (blobStoreType.equals("b2")) {
+            prefix = prefix.replace("\\", "");
+        }
         String blobName = prefix + "foo";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -1125,6 +1131,8 @@ public final class AwsSdkTest {
         assertThat(listing.getObjectSummaries()).isEmpty();
     }
 
+    // TODO: Fails since B2 returns the Cache-Control header on reads but does
+    // not accept it on writes.
     @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
         String fromName = "from-name";
@@ -1279,6 +1287,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testConditionalGet() throws Exception {
+        assumeTrue(!blobStoreType.equals("b2"));
+
         String blobName = "blob-name";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
