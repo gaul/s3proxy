@@ -408,8 +408,8 @@ public class S3ProxyHandler {
 
             try {
                 authHeader = new S3AuthorizationHeader(headerAuthorization);
-            } catch (IllegalArgumentException e) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
             }
             requestIdentity = authHeader.identity;
         }
@@ -510,7 +510,7 @@ public class S3ProxyHandler {
                             baseRequest, authHeader, payload, uriForSigning,
                             credential);
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
-                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, e);
                 }
             }
 
@@ -1474,7 +1474,8 @@ public class S3ProxyHandler {
         try {
             blob = blobStore.getBlob(containerName, blobName, options);
         } catch (IllegalArgumentException iae) {
-            throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+            // TODO: correct mapping?
+            throw new S3Exception(S3ErrorCode.INVALID_RANGE, iae);
         }
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
