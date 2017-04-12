@@ -67,11 +67,14 @@ import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.HeadBucketRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
+import com.amazonaws.services.s3.model.ListMultipartUploadsRequest;
 import com.amazonaws.services.s3.model.ListObjectsRequest;
 import com.amazonaws.services.s3.model.ListPartsRequest;
+import com.amazonaws.services.s3.model.MultipartUploadListing;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PartETag;
+import com.amazonaws.services.s3.model.PartListing;
 import com.amazonaws.services.s3.model.Permission;
 import com.amazonaws.services.s3.model.PutObjectResult;
 import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
@@ -1112,11 +1115,20 @@ public final class AwsSdkTest {
     @Test
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, context.getBlobStore().getMinimumMultipartPartSize());
+
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
 
-        ByteSource byteSource = TestUtils.randomByteSource().slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize());
+        MultipartUploadListing multipartListing = client.listMultipartUploads(
+                new ListMultipartUploadsRequest(containerName));
+        assertThat(multipartListing.getMultipartUploads()).hasSize(1);
+
+        PartListing partListing = client.listParts(new ListPartsRequest(
+                containerName, blobName, result.getUploadId()));
+        assertThat(partListing.getParts()).isEmpty();
+
         client.uploadPart(new UploadPartRequest()
                 .withBucketName(containerName)
                 .withKey(blobName)
@@ -1125,8 +1137,17 @@ public final class AwsSdkTest {
                 .withPartSize(byteSource.size())
                 .withInputStream(byteSource.openStream()));
 
+        partListing = client.listParts(new ListPartsRequest(
+                containerName, blobName, result.getUploadId()));
+        assertThat(partListing.getParts()).hasSize(1);
+
         client.abortMultipartUpload(new AbortMultipartUploadRequest(
                 containerName, blobName, result.getUploadId()));
+
+        multipartListing = client.listMultipartUploads(
+                new ListMultipartUploadsRequest(containerName));
+        assertThat(multipartListing.getMultipartUploads()).isEmpty();
+
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).isEmpty();
     }
