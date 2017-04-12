@@ -1320,7 +1320,8 @@ public class S3ProxyHandler {
             for (String commonPrefix : commonPrefixes) {
                 xml.writeStartElement("CommonPrefixes");
 
-                writeSimpleElement(xml, "Prefix", commonPrefix);
+                writeSimpleElement(xml, "Prefix", encodeBlob(encodingType,
+                        commonPrefix));
 
                 xml.writeEndElement();
             }
