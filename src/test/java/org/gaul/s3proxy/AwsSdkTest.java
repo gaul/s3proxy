@@ -561,9 +561,14 @@ public final class AwsSdkTest {
 
     @Test
     public void testSpecialCharacters() throws Exception {
-        String prefix = "special ~`!@#$%^&*()-_+=[]{}\\|;:'\"<>,./?";
-        if (blobStoreType.equals("b2")) {
+        String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+        if (blobStoreType.equals("azureblob") || blobStoreType.equals("b2")) {
             prefix = prefix.replace("\\", "");
+        }
+        if (blobStoreType.equals("azureblob")) {
+            // Avoid blob names that end with a dot (.), a forward slash (/), or
+            // a sequence or combination of the two.
+            prefix = prefix.replace("./", "/") + ".";
         }
         String blobName = prefix + "foo";
         ObjectMetadata metadata = new ObjectMetadata();
@@ -573,8 +578,7 @@ public final class AwsSdkTest {
 
         ObjectListing listing = client.listObjects(new ListObjectsRequest()
                 .withBucketName(containerName)
-                .withPrefix(prefix)
-                .withDelimiter("/"));
+                .withPrefix(prefix));
         List<S3ObjectSummary> summaries = listing.getObjectSummaries();
         assertThat(summaries).hasSize(1);
         S3ObjectSummary summary = summaries.iterator().next();
