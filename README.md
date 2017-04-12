@@ -118,6 +118,12 @@ The wiki collects
 [compatability notes](https://github.com/andrewgaul/s3proxy/wiki/Storage-backend-compatibility)
 for specific storage backends.
 
+Support
+-------
+
+[GitHub issues](https://github.com/andrewgaul/s3proxy/issues) provide community
+support.  Andrew Gaul provides commercial support via <andrew@gaul.org>.
+
 References
 ----------
 
