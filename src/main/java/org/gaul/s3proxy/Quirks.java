@@ -86,6 +86,19 @@ final class Quirks {
             "azureblob"
     );
 
+    /**
+     * S3 stores object metadata during initiate multipart while others
+     * require it during complete multipart.  Emulate the former in the latter
+     * by storing and retrieving a stub object.
+     */
+    static final Set<String> MULTIPART_REQUIRES_STUB = ImmutableSet.of(
+            "azureblob",
+            "filesystem",
+            "google-cloud-storage",
+            "openstack-swift",
+            "transient"
+    );
+
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = ImmutableSet.of(
             "azureblob",

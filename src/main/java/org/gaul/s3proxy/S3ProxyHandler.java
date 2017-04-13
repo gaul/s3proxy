@@ -91,6 +91,7 @@ import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.CreateContainerOptions;
 import org.jclouds.blobstore.options.GetOptions;
@@ -1862,11 +1863,11 @@ public class S3ProxyHandler {
         MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
                 builder.build().getMetadata(), options);
 
-        // S3 requires blob metadata during the initiate call while Azure and
-        // Swift require it in the complete call.  Store a stub blob which
-        // allows reproducing this metadata later.
-        blobStore.putBlob(containerName, builder.name(mpu.id()).build(),
-                options);
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                blobStore))) {
+            blobStore.putBlob(containerName, builder.name(mpu.id()).build(),
+                    options);
+        }
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1889,11 +1890,20 @@ public class S3ProxyHandler {
     private void handleCompleteMultipartUpload(HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName,
             String blobName, String uploadId) throws IOException, S3Exception {
-        Blob stubBlob = blobStore.getBlob(containerName, uploadId);
-        BlobAccess access = blobStore.getBlobAccess(containerName, uploadId);
-        MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, stubBlob.getMetadata(),
-                new PutOptions().setBlobAccess(access));
+        MultipartUpload mpu;
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                blobStore))) {
+            Blob stubBlob = blobStore.getBlob(containerName, uploadId);
+            BlobAccess access = blobStore.getBlobAccess(containerName,
+                    uploadId);
+            mpu = MultipartUpload.create(containerName,
+                    blobName, uploadId, stubBlob.getMetadata(),
+                    new PutOptions().setBlobAccess(access));
+        } else {
+            mpu = MultipartUpload.create(containerName,
+                    blobName, uploadId, new MutableBlobMetadataImpl(),
+                    new PutOptions());
+        }
 
         // List parts to get part sizes and to map multiple Azure parts
         // into single parts.
@@ -1950,7 +1960,10 @@ public class S3ProxyHandler {
 
         String eTag = blobStore.completeMultipartUpload(mpu, parts);
 
-        blobStore.removeBlob(containerName, stubBlob.getMetadata().getName());
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                blobStore))) {
+            blobStore.removeBlob(containerName, uploadId);
+        }
 
         try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1980,11 +1993,14 @@ public class S3ProxyHandler {
     private static void handleAbortMultipartUpload(HttpServletResponse response,
             BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
-        if (!blobStore.blobExists(containerName, uploadId)) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
-        }
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                blobStore))) {
+            if (!blobStore.blobExists(containerName, uploadId)) {
+                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
+            }
 
-        blobStore.removeBlob(containerName, uploadId);
+            blobStore.removeBlob(containerName, uploadId);
+        }
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
