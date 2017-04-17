@@ -1125,9 +1125,17 @@ public final class AwsSdkTest {
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
 
+        // TODO: google-cloud-storage and openstack-swift cannot list multipart
+        // uploads
         MultipartUploadListing multipartListing = client.listMultipartUploads(
                 new ListMultipartUploadsRequest(containerName));
-        assertThat(multipartListing.getMultipartUploads()).hasSize(1);
+        if (blobStoreType.equals("azureblob")) {
+            // Azure does not create a manifest during initiate multi-part
+            // upload.  Instead the first part creates this.
+            assertThat(multipartListing.getMultipartUploads()).isEmpty();
+        } else {
+            assertThat(multipartListing.getMultipartUploads()).hasSize(1);
+        }
 
         PartListing partListing = client.listParts(new ListPartsRequest(
                 containerName, blobName, result.getUploadId()));
@@ -1141,6 +1149,10 @@ public final class AwsSdkTest {
                 .withPartSize(byteSource.size())
                 .withInputStream(byteSource.openStream()));
 
+        multipartListing = client.listMultipartUploads(
+                new ListMultipartUploadsRequest(containerName));
+        assertThat(multipartListing.getMultipartUploads()).hasSize(1);
+
         partListing = client.listParts(new ListPartsRequest(
                 containerName, blobName, result.getUploadId()));
         assertThat(partListing.getParts()).hasSize(1);
@@ -1150,7 +1162,13 @@ public final class AwsSdkTest {
 
         multipartListing = client.listMultipartUploads(
                 new ListMultipartUploadsRequest(containerName));
-        assertThat(multipartListing.getMultipartUploads()).isEmpty();
+        if (blobStoreType.equals("azureblob")) {
+            // Azure does not support explicit abort.  It automatically
+            // removes incomplete multi-part uploads after 7 days.
+            assertThat(multipartListing.getMultipartUploads()).hasSize(1);
+        } else {
+            assertThat(multipartListing.getMultipartUploads()).isEmpty();
+        }
 
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).isEmpty();
