@@ -55,7 +55,6 @@ public final class S3Proxy {
         checkArgument(builder.endpoint != null ||
                         builder.secureEndpoint != null,
                 "Must provide endpoint or secure-endpoint");
-        // TODO: allow service paths?
         if (builder.endpoint != null) {
             checkArgument(builder.endpoint.getPath().isEmpty(),
                     "endpoint path must be empty, was: %s",
