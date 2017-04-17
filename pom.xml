@@ -279,10 +279,6 @@
     <surefire.version>2.19.1</surefire.version>
   </properties>
 
-  <prerequisites>
-    <maven>3.0.5</maven>
-  </prerequisites>
-
   <repositories>
     <repository>
       <id>apache-snapshots</id>
