@@ -16,14 +16,13 @@
 
 package org.gaul.s3proxy;
 
-import static org.testng.Assert.fail;
-
 import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import org.assertj.core.api.Fail;
 import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobSignerLiveTest;
@@ -82,7 +81,8 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
             throws InterruptedException, IOException {
         try {
             super.testSignGetUrlWithTime();
-            fail();
+            Fail.failBecauseExceptionWasNotThrown(
+                    UnsupportedOperationException.class);
         } catch (UnsupportedOperationException uoe) {
             throw new SkipException("not supported by jclouds S3 signer");
         }
@@ -93,7 +93,8 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
             throws InterruptedException, IOException {
         try {
             super.testSignGetUrlWithTimeExpired();
-            fail();
+            Fail.failBecauseExceptionWasNotThrown(
+                    UnsupportedOperationException.class);
         } catch (UnsupportedOperationException uoe) {
             throw new SkipException("not supported by jclouds S3 signer");
         }
@@ -103,7 +104,8 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
     public void testSignPutUrlWithTime() throws Exception {
         try {
             super.testSignPutUrlWithTime();
-            fail();
+            Fail.failBecauseExceptionWasNotThrown(
+                    UnsupportedOperationException.class);
         } catch (UnsupportedOperationException uoe) {
             throw new SkipException("not supported by jclouds S3 signer");
         }
@@ -113,7 +115,8 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
     public void testSignPutUrlWithTimeExpired() throws Exception {
         try {
             super.testSignPutUrlWithTimeExpired();
-            fail();
+            Fail.failBecauseExceptionWasNotThrown(
+                    UnsupportedOperationException.class);
         } catch (UnsupportedOperationException uoe) {
             throw new SkipException("not supported by jclouds S3 signer");
         }
