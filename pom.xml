@@ -276,7 +276,7 @@
     <java.version>1.7</java.version>
     <jclouds.version>2.0.2-SNAPSHOT</jclouds.version>
     <slf4j.version>1.7.23</slf4j.version>
-    <surefire.version>2.19.1</surefire.version>
+    <surefire.version>2.20</surefire.version>
   </properties>
 
   <repositories>
