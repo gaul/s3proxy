@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -444,8 +445,20 @@ public class S3ProxyHandler {
             if (expiresString != null) {
                 long expires = Long.parseLong(expiresString);
                 long nowSeconds = System.currentTimeMillis() / 1000;
-                if (nowSeconds > expires) {
+                if (nowSeconds >= expires) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+            }
+
+            String dateString = request.getParameter("X-Amz-Date");
+            expiresString = request.getParameter("X-Amz-Expires");
+            if (dateString != null && expiresString != null) {
+                long date = parseIso8601(dateString);
+                long expires = Long.parseLong(expiresString);
+                long nowSeconds = System.currentTimeMillis() / 1000;
+                if (nowSeconds >= date + expires) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                            "Request has expired");
                 }
             }
 
@@ -2433,6 +2446,18 @@ public class S3ProxyHandler {
                 metadata.getUserMetadata().entrySet()) {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
                     entry.getValue());
+        }
+    }
+
+    /** Parse ISO 8601 timestamp into seconds since 1970. */
+    private static long parseIso8601(String date) {
+        SimpleDateFormat formatter = new SimpleDateFormat(
+                "yyyyMMdd'T'HHmmss'Z'");
+        formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
+        try {
+            return formatter.parse(date).getTime() / 1000;
+        } catch (ParseException pe) {
+            throw new IllegalArgumentException(pe);
         }
     }
 
