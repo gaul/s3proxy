@@ -2356,7 +2356,8 @@ public class S3ProxyHandler {
             // Azure has a maximum part size of 4 MB while S3 has a minimum
             // part size of 5 MB and a maximum of 5 GB.  Split a single S3
             // part multiple Azure parts.
-            long azureMaximumMultipartPartSize = 4 * 1024 * 1024;
+            long azureMaximumMultipartPartSize =
+                        blobStore.getMaximumMultipartPartSize();
             HashingInputStream his = new HashingInputStream(Hashing.md5(),
                     is);
             for (int offset = 0, subPartNumber = 0; offset < contentLength;
