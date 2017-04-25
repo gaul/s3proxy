@@ -379,6 +379,11 @@
       <version>${slf4j.version}</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-exec</artifactId>
+      <version>1.3</version>
+    </dependency>
     <!-- tests dependencies -->
     <dependency>
       <groupId>org.apache.jclouds</groupId>

@@ -34,6 +34,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
 import com.google.inject.Module;
 
+import org.apache.commons.exec.LogOutputStream;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
@@ -246,11 +247,12 @@ public final class Main {
     }
 
     private static PrintStream createLoggerErrorPrintStream() {
-        return new PrintStream(System.err) {
-            public void print(final String string) {
-                logger.error(string);
+        return new PrintStream(new LogOutputStream() {
+            @Override
+            protected void processLine(String s, int i) {
+                logger.error(s);
             }
-        };
+        });
     }
 
     private static BlobStore createBlobStore(Properties properties)
