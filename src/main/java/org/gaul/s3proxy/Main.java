@@ -247,8 +247,26 @@ public final class Main {
 
     private static PrintStream createLoggerErrorPrintStream() {
         return new PrintStream(System.err) {
+            private final StringBuilder builder = new StringBuilder();
+
+            @Override
             public void print(final String string) {
                 logger.error(string);
+            }
+
+            @Override
+            public void write(byte[] buf, int off, int len) {
+                for (int i = off; i < len; ++i) {
+                    char ch = (char) buf[i];
+                    if (ch == '\n') {
+                        if (builder.length() != 0) {
+                            print(builder.toString());
+                            builder.setLength(0);
+                        }
+                    } else {
+                        builder.append(ch);
+                    }
+                }
             }
         };
     }
