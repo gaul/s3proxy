@@ -199,7 +199,7 @@ public final class Main {
             if (keyStorePath != null || keyStorePassword != null) {
                 s3ProxyBuilder.keyStore(keyStorePath, keyStorePassword);
             }
-            if (virtualHost != null) {
+            if (!Strings.isNullOrEmpty(virtualHost)) {
                 s3ProxyBuilder.virtualHost(virtualHost);
             }
             if (v4MaxNonChunkedRequestSize != null) {
