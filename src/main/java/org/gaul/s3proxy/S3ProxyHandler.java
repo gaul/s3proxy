@@ -161,34 +161,25 @@ public class S3ProxyHandler {
             "versions",
             "website"
     );
-    private static final Set<String> SUPPORTED_PARAMETERS = ImmutableSet.of(
-            "acl",
-            "AWSAccessKeyId",
-            "delete",
-            "delimiter",
-            "encoding-type",
-            "Expires",
-            "location",
-            "marker",
-            "max-keys",
-            "part-number-marker",
-            "partNumber",
-            "prefix",
-            "response-cache-control",
-            "response-content-disposition",
-            "response-content-encoding",
-            "response-content-language",
-            "response-content-type",
-            "response-expires",
-            "Signature",
-            "uploadId",
-            "uploads",
-            "X-Amz-Algorithm",
-            "X-Amz-Credential",
-            "X-Amz-Date",
-            "X-Amz-Expires",
-            "X-Amz-Signature",
-            "X-Amz-SignedHeaders"
+    private static final Set<String> UNSUPPORTED_PARAMETERS = ImmutableSet.of(
+            "accelerate",
+            "analytics",
+            "cors",
+            "inventory",
+            "lifecycle",
+            "list-type",
+            "logging",
+            "metrics",
+            "notification",
+            "policy",
+            "replication",
+            "requestPayment",
+            "restore",
+            "tagging",
+            "torrent",
+            "versioning",
+            "versions",
+            "website"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
@@ -222,7 +213,6 @@ public class S3ProxyHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
-    private final boolean ignoreUnknownParameters;
     private final boolean corsAllowAll;
     private final String servicePath;
     private final XMLOutputFactory xmlOutputFactory =
@@ -246,8 +236,7 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, Optional<String> virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            boolean ignoreUnknownParameters, boolean corsAllowAll,
-            final String servicePath) {
+            boolean corsAllowAll, final String servicePath) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -276,7 +265,6 @@ public class S3ProxyHandler {
         this.virtualHost = requireNonNull(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
-        this.ignoreUnknownParameters = ignoreUnknownParameters;
         this.corsAllowAll = corsAllowAll;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
@@ -534,13 +522,9 @@ public class S3ProxyHandler {
             }
         }
 
-        // emit NotImplemented for unknown parameters
         for (String parameter : Collections.list(
                 request.getParameterNames())) {
-            if (ignoreUnknownParameters) {
-                continue;
-            }
-            if (!SUPPORTED_PARAMETERS.contains(parameter)) {
+            if (UNSUPPORTED_PARAMETERS.contains(parameter)) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
