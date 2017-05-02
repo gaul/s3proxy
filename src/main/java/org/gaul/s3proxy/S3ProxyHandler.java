@@ -35,7 +35,18 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TimeZone;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 
 import javax.crypto.Mac;
@@ -1749,7 +1760,8 @@ public class S3ProxyHandler {
                 multipartStream.readBodyData(baos);
                 if (isField(header, "acl")) {
                     // TODO: acl
-                } else if (isField(header, "AWSAccessKeyId") || isField(header, "X-Amz-Credential")) {
+                } else if (isField(header, "AWSAccessKeyId") ||
+                        isField(header, "X-Amz-Credential")) {
                     identity = new String(baos.toByteArray());
                 } else if (isField(header, "Content-Type")) {
                     contentType = new String(baos.toByteArray());
@@ -1760,7 +1772,8 @@ public class S3ProxyHandler {
                     blobName = new String(baos.toByteArray());
                 } else if (isField(header, "policy")) {
                     policy = baos.toByteArray();
-                } else if (isField(header, "signature") || isField(header, "X-Amz-Signature")) {
+                } else if (isField(header, "signature") ||
+                        isField(header, "X-Amz-Signature")) {
                     signature = new String(baos.toByteArray());
                 } else if (isField(header, "X-Amz-Algorithm")) {
                     algorithm = new String(baos.toByteArray());
@@ -1777,18 +1790,18 @@ public class S3ProxyHandler {
 
         String headerAuthorization = null;
         S3AuthorizationHeader authHeader = null;
-        boolean SignatureVersion4;
+        boolean signatureVersion4;
         if (algorithm == null) {
             if (identity == null || signature == null) {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
-            SignatureVersion4 = false;
+            signatureVersion4 = false;
             headerAuthorization = "AWS " + identity + ":" + signature;
         } else if (algorithm.equals("AWS4-HMAC-SHA256")) {
             if (identity == null || signature == null) {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
-            SignatureVersion4 = true;
+            signatureVersion4 = true;
             headerAuthorization = "AWS4-HMAC-SHA256" +
                     " Credential=" + identity +
                     ", Signature=" + signature;
@@ -1804,26 +1817,32 @@ public class S3ProxyHandler {
         }
 
         Map.Entry<String, BlobStore> provider =
-                blobStoreLocator.locateBlobStore(authHeader.identity, null, null);
+                blobStoreLocator.locateBlobStore(authHeader.identity, null,
+                        null);
         if (provider == null) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
         String credential = provider.getKey();
 
-        if (SignatureVersion4) {
+        if (signatureVersion4) {
             byte[] kSecret = ("AWS4" + credential).getBytes("UTF8");
-            byte[] kDate = hmacSHA256(authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
-            byte[] kRegion = hmacSHA256(authHeader.region.getBytes(StandardCharsets.UTF_8), kDate);
-            byte[] kService = hmacSHA256(authHeader.service.getBytes(StandardCharsets.UTF_8), kRegion);
-            byte[] kSigning = hmacSHA256("aws4_request".getBytes(StandardCharsets.UTF_8), kService);
+            byte[] kDate = hmacSHA256(
+                    authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
+            byte[] kRegion = hmacSHA256(
+                    authHeader.region.getBytes(StandardCharsets.UTF_8), kDate);
+            byte[] kService = hmacSHA256(authHeader.service.getBytes(
+                    StandardCharsets.UTF_8), kRegion);
+            byte[] kSigning = hmacSHA256(
+                    "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
             String expectedSignature = hex(hmacSHA256(policy, kSigning));
             if (!signature.equals(expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
         } else {
-            String expectedSignature = BaseEncoding.base64().encode(hmacSHA1(policy, credential.getBytes(StandardCharsets.UTF_8)));
+            String expectedSignature = BaseEncoding.base64().encode(hmacSHA1(
+                    policy, credential.getBytes(StandardCharsets.UTF_8)));
             if (!signature.equals(expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
@@ -2826,7 +2845,8 @@ public class S3ProxyHandler {
     }
 
     private static boolean isField(String string, String field) {
-        return startsWithIgnoreCase(string,"Content-Disposition: form-data; name=\"" + field + "\"");
+        return startsWithIgnoreCase(string,
+                "Content-Disposition: form-data; name=\"" + field + "\"");
     }
 
     private static byte[] hmac(String algorithm, byte[] data, byte[] key) {
