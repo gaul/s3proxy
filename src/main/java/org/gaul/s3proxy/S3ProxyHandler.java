@@ -658,9 +658,18 @@ public class S3ProxyHandler {
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
-                BlobAccess access = blobStore.getBlobAccess(containerName,
-                        blobName);
-                if (access != BlobAccess.PUBLIC_READ) {
+                boolean publicAccess = false;
+                String blobStoreType = getBlobStoreType(blobStore);
+                if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+                    ContainerAccess access = blobStore.getContainerAccess(
+                            containerName);
+                    publicAccess = access == ContainerAccess.PUBLIC_READ;
+                } else {
+                    BlobAccess access = blobStore.getBlobAccess(containerName,
+                            blobName);
+                    publicAccess = access == BlobAccess.PUBLIC_READ;
+                }
+                if (!publicAccess) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
                 handleGetBlob(request, response, blobStore, containerName,
