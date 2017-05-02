@@ -1826,7 +1826,8 @@ public class S3ProxyHandler {
         String credential = provider.getKey();
 
         if (signatureVersion4) {
-            byte[] kSecret = ("AWS4" + credential).getBytes("UTF8");
+            byte[] kSecret = ("AWS4" + credential).getBytes(
+                    StandardCharsets.UTF_8);
             byte[] kDate = hmacSHA256(
                     authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
             byte[] kRegion = hmacSHA256(
