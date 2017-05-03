@@ -660,6 +660,20 @@ public class S3ProxyHandler {
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
+    private boolean checkPublicAccess(BlobStore blobStore,
+            String containerName, String blobName) {
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+            ContainerAccess access = blobStore.getContainerAccess(
+                    containerName);
+            return access == ContainerAccess.PUBLIC_READ;
+        } else {
+            BlobAccess access = blobStore.getBlobAccess(containerName,
+                    blobName);
+            return access == BlobAccess.PUBLIC_READ;
+        }
+    }
+
     private void doHandleAnonymous(HttpServletRequest request,
             HttpServletResponse response, InputStream is, String uri,
             BlobStore blobStore)
@@ -683,9 +697,7 @@ public class S3ProxyHandler {
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
-                BlobAccess access = blobStore.getBlobAccess(containerName,
-                        blobName);
-                if (access != BlobAccess.PUBLIC_READ) {
+                if (!checkPublicAccess(blobStore, containerName, blobName)) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
                 handleGetBlob(request, response, blobStore, containerName,
@@ -706,9 +718,7 @@ public class S3ProxyHandler {
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
-                BlobAccess access = blobStore.getBlobAccess(containerName,
-                        blobName);
-                if (access != BlobAccess.PUBLIC_READ) {
+                if (!checkPublicAccess(blobStore, containerName, blobName)) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
                 handleBlobMetadata(request, response, blobStore, containerName,
