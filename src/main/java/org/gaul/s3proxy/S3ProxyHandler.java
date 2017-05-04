@@ -1837,7 +1837,7 @@ public class S3ProxyHandler {
             byte[] kSigning = hmac("HmacSHA256",
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
             String expectedSignature = BaseEncoding.base16().lowerCase().encode(
-                    hmac("HmacSHA256",policy, kSigning));
+                    hmac("HmacSHA256", policy, kSigning));
             if (!signature.equals(expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
