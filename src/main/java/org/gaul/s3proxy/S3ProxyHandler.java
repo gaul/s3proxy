@@ -1828,22 +1828,24 @@ public class S3ProxyHandler {
         if (signatureVersion4) {
             byte[] kSecret = ("AWS4" + credential).getBytes(
                     StandardCharsets.UTF_8);
-            byte[] kDate = hmacSHA256(
+            byte[] kDate = hmac("HmacSHA256",
                     authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
-            byte[] kRegion = hmacSHA256(
+            byte[] kRegion = hmac("HmacSHA256",
                     authHeader.region.getBytes(StandardCharsets.UTF_8), kDate);
-            byte[] kService = hmacSHA256(authHeader.service.getBytes(
+            byte[] kService = hmac("HmacSHA256", authHeader.service.getBytes(
                     StandardCharsets.UTF_8), kRegion);
-            byte[] kSigning = hmacSHA256(
+            byte[] kSigning = hmac("HmacSHA256",
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
-            String expectedSignature = hex(hmacSHA256(policy, kSigning));
+            String expectedSignature = BaseEncoding.base16().lowerCase().encode(
+                    hmac("HmacSHA256",policy, kSigning));
             if (!signature.equals(expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
         } else {
-            String expectedSignature = BaseEncoding.base64().encode(hmacSHA1(
-                    policy, credential.getBytes(StandardCharsets.UTF_8)));
+            String expectedSignature = BaseEncoding.base64().encode(
+                    hmac("HmacSHA1", policy,
+                            credential.getBytes(StandardCharsets.UTF_8)));
             if (!signature.equals(expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
@@ -2858,25 +2860,6 @@ public class S3ProxyHandler {
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private static byte[] hmacSHA1(byte[] data, byte[] key) {
-        return hmac("HmacSHA1", data, key);
-    }
-
-    private static byte[] hmacSHA256(byte[] data, byte[] key) {
-        return hmac("HmacSHA256", data, key);
-    }
-
-    private static String hex(byte[] bytes) {
-        char[] hexArray = "0123456789abcdef".toCharArray();
-        char[] hexChars = new char[bytes.length * 2];
-        for (int j = 0; j < bytes.length; j++) {
-            int v = bytes[j] & 0xFF;
-            hexChars[j * 2] = hexArray[v >>> 4];
-            hexChars[j * 2 + 1] = hexArray[v & 0x0F];
-        }
-        return new String(hexChars);
     }
 
     // Encode blob name if client requests it.  This allows for characters
