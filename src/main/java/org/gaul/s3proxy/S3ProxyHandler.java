@@ -1759,6 +1759,7 @@ public class S3ProxyHandler {
         // TODO: handle policy
         byte[] policy = null;
         String signature = null;
+        String algorithm = null;
         byte[] payload = null;
         MultipartStream multipartStream = new MultipartStream(is,
                 boundary.getBytes(StandardCharsets.UTF_8), 4096, null);
@@ -1767,67 +1768,126 @@ public class S3ProxyHandler {
             String header = multipartStream.readHeaders();
             try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
                 multipartStream.readBodyData(baos);
-                if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"acl\"")) {
+                if (isField(header, "acl")) {
                     // TODO: acl
-                } else if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"AWSAccessKeyId\"")) {
+                } else if (isField(header, "AWSAccessKeyId") ||
+                        isField(header, "X-Amz-Credential")) {
                     identity = new String(baos.toByteArray());
-                } else if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"Content-Type\"")) {
+                } else if (isField(header, "Content-Type")) {
                     contentType = new String(baos.toByteArray());
-                } else if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"file\"")) {
+                } else if (isField(header, "file")) {
                     // TODO: buffers entire payload
                     payload = baos.toByteArray();
-                } else if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"key\"")) {
+                } else if (isField(header, "key")) {
                     blobName = new String(baos.toByteArray());
-                } else if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"policy\"")) {
+                } else if (isField(header, "policy")) {
                     policy = baos.toByteArray();
-                } else if (startsWithIgnoreCase(header,
-                        "Content-Disposition: form-data;" +
-                        " name=\"signature\"")) {
+                } else if (isField(header, "signature") ||
+                        isField(header, "X-Amz-Signature")) {
                     signature = new String(baos.toByteArray());
+                } else if (isField(header, "X-Amz-Algorithm")) {
+                    algorithm = new String(baos.toByteArray());
                 }
             }
             nextPart = multipartStream.readBoundary();
         }
 
-        if (identity == null || signature == null || blobName == null ||
-                policy == null) {
+
+        if (blobName == null || policy == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
 
+        String headerAuthorization = null;
+        S3AuthorizationHeader authHeader = null;
+        boolean signatureVersion4;
+        if (algorithm == null) {
+            if (identity == null || signature == null) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+            signatureVersion4 = false;
+            headerAuthorization = "AWS " + identity + ":" + signature;
+        } else if (algorithm.equals("AWS4-HMAC-SHA256")) {
+            if (identity == null || signature == null) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+            signatureVersion4 = true;
+            headerAuthorization = "AWS4-HMAC-SHA256" +
+                    " Credential=" + identity +
+                    ", Signature=" + signature;
+        } else {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
+        try {
+            authHeader = new S3AuthorizationHeader(headerAuthorization);
+        } catch (IllegalArgumentException iae) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+        }
+
+        switch (authHeader.authenticationType) {
+        case AWS_V2:
+            switch (authenticationType) {
+            case AWS_V2:
+            case AWS_V2_OR_V4:
+            case NONE:
+                break;
+            default:
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+            break;
+        case AWS_V4:
+            switch (authenticationType) {
+            case AWS_V4:
+            case AWS_V2_OR_V4:
+            case NONE:
+                break;
+            default:
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+            break;
+        case NONE:
+            break;
+        default:
+            throw new IllegalArgumentException("Unhandled type: " +
+                    authHeader.authenticationType);
+        }
+
         Map.Entry<String, BlobStore> provider =
-                blobStoreLocator.locateBlobStore(identity, null, null);
+                blobStoreLocator.locateBlobStore(authHeader.identity, null,
+                        null);
         if (provider == null) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
         String credential = provider.getKey();
 
-        Mac mac;
-        try {
-            mac = Mac.getInstance("HmacSHA1");
-            mac.init(new SecretKeySpec(credential.getBytes(
-                    StandardCharsets.UTF_8), "HmacSHA1"));
-        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-        String expectedSignature = BaseEncoding.base64().encode(
-                mac.doFinal(policy));
-        if (!signature.equals(expectedSignature)) {
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            return;
+        if (signatureVersion4) {
+            byte[] kSecret = ("AWS4" + credential).getBytes(
+                    StandardCharsets.UTF_8);
+            byte[] kDate = hmac("HmacSHA256",
+                    authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
+            byte[] kRegion = hmac("HmacSHA256",
+                    authHeader.region.getBytes(StandardCharsets.UTF_8), kDate);
+            byte[] kService = hmac("HmacSHA256", authHeader.service.getBytes(
+                    StandardCharsets.UTF_8), kRegion);
+            byte[] kSigning = hmac("HmacSHA256",
+                    "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
+            String expectedSignature = BaseEncoding.base16().lowerCase().encode(
+                    hmac("HmacSHA256", policy, kSigning));
+            if (!signature.equals(expectedSignature)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+        } else {
+            String expectedSignature = BaseEncoding.base64().encode(
+                    hmac("HmacSHA1", policy,
+                            credential.getBytes(StandardCharsets.UTF_8)));
+            if (!signature.equals(expectedSignature)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
         }
 
         BlobBuilder.PayloadBlobBuilder builder = blobStore
@@ -1840,6 +1900,10 @@ public class S3ProxyHandler {
         blobStore.putBlob(containerName, blob);
 
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        if (corsAllowAll) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        }
     }
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
@@ -2819,6 +2883,21 @@ public class S3ProxyHandler {
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
+    }
+
+    private static boolean isField(String string, String field) {
+        return startsWithIgnoreCase(string,
+                "Content-Disposition: form-data; name=\"" + field + "\"");
+    }
+
+    private static byte[] hmac(String algorithm, byte[] data, byte[] key) {
+        try {
+            Mac mac = Mac.getInstance(algorithm);
+            mac.init(new SecretKeySpec(key, algorithm));
+            return mac.doFinal(data);
+        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     // Encode blob name if client requests it.  This allows for characters
