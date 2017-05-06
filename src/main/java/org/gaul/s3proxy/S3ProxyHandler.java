@@ -2941,7 +2941,7 @@ public class S3ProxyHandler {
         for (String part : parts) {
             try {
                 int num = Integer.parseInt(part);
-                if (num > 255) {
+                if (num < 0 || num > 255) {
                     return false;
                 }
             } catch (NumberFormatException nfe) {
