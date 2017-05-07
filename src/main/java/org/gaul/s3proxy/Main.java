@@ -16,10 +16,12 @@
 
 package org.gaul.s3proxy;
 
+import java.io.Console;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -32,6 +34,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
 import com.google.inject.Module;
 
+import org.apache.commons.exec.LogOutputStream;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
@@ -43,8 +46,11 @@ import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class Main {
+    private static final Logger logger = LoggerFactory.getLogger(Main.class);
     private Main() {
         throw new AssertionError("intentionally not implemented");
     }
@@ -59,6 +65,11 @@ public final class Main {
     }
 
     public static void main(String[] args) throws Exception {
+        Console console = System.console();
+        if (console == null) {
+            System.setErr(createLoggerErrorPrintStream());
+        }
+
         Options options = new Options();
         CmdLineParser parser = new CmdLineParser(options);
         try {
@@ -227,6 +238,15 @@ public final class Main {
             System.err.println(e.getMessage());
             System.exit(1);
         }
+    }
+
+    private static PrintStream createLoggerErrorPrintStream() {
+        return new PrintStream(new LogOutputStream() {
+            @Override
+            protected void processLine(String s, int i) {
+                logger.error(s);
+            }
+        });
     }
 
     private static BlobStore createBlobStore(Properties properties)
