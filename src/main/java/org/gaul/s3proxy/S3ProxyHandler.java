@@ -660,7 +660,7 @@ public class S3ProxyHandler {
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
-    private boolean checkPublicAccess(BlobStore blobStore,
+    private static boolean checkPublicAccess(BlobStore blobStore,
             String containerName, String blobName) {
         String blobStoreType = getBlobStoreType(blobStore);
         if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {

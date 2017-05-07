@@ -18,7 +18,6 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -85,8 +84,7 @@ public final class JcloudsBucketsLiveTest extends BucketsLiveTest {
 
     @Override
     @Test
-    public void testUpdateBucketACL() throws InterruptedException,
-            ExecutionException, TimeoutException, IOException, Exception {
+    public void testUpdateBucketACL() throws Exception {
         try {
             super.testUpdateBucketACL();
             Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
