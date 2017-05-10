@@ -99,8 +99,6 @@ import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.domain.Location;
-import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
@@ -1706,36 +1704,18 @@ public class S3ProxyHandler {
         }
 
         String eTag;
-        try {
-            BlobBuilder.PayloadBlobBuilder builder = blobStore
-                    .blobBuilder(blobName)
-                    .payload(is)
-                    .contentLength(contentLength);
+        BlobBuilder.PayloadBlobBuilder builder = blobStore
+                .blobBuilder(blobName)
+                .payload(is)
+                .contentLength(contentLength);
 
-            addContentMetdataFromHttpRequest(builder, request);
-            if (contentMD5 != null) {
-                builder = builder.contentMD5(contentMD5);
-            }
-
-            eTag = blobStore.putBlob(containerName, builder.build(),
-                    options);
-        } catch (HttpResponseException hre) {
-            HttpResponse hr = hre.getResponse();
-            if (hr == null) {
-                return;
-            }
-            int status = hr.getStatusCode();
-            switch (status) {
-            case HttpServletResponse.SC_BAD_REQUEST:
-            case 422:  // Swift returns 422 Unprocessable Entity
-                throw new S3Exception(S3ErrorCode.BAD_DIGEST);
-            default:
-                // TODO: emit hre.getContent() ?
-                response.sendError(status);
-                break;
-            }
-            return;
+        addContentMetdataFromHttpRequest(builder, request);
+        if (contentMD5 != null) {
+            builder = builder.contentMD5(contentMD5);
         }
+
+        eTag = blobStore.putBlob(containerName, builder.build(),
+                options);
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
