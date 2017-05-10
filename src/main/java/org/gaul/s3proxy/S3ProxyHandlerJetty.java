@@ -50,6 +50,13 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 ignoreUnknownHeaders, corsAllowAll, servicePath);
     }
 
+    private void sendS3Exception(HttpServletRequest request,
+            HttpServletResponse response, S3Exception se)
+            throws IOException {
+        handler.sendSimpleErrorResponse(request, response,
+                se.getError(), se.getMessage(), se.getElements());
+    }
+
     @Override
     public void handle(String target, Request baseRequest,
             HttpServletRequest request, HttpServletResponse response)
@@ -69,10 +76,24 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (HttpResponseException hre) {
-            HttpResponse httpResponse = hre.getResponse();
-            response.sendError(httpResponse == null ?
-                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR :
-                    httpResponse.getStatusCode());
+            HttpResponse hr = hre.getResponse();
+            if (hr == null) {
+                response.sendError(
+                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                return;
+            }
+            int status = hr.getStatusCode();
+            switch (status) {
+            case HttpServletResponse.SC_BAD_REQUEST:
+            case 422:  // Swift returns 422 Unprocessable Entity
+                sendS3Exception(request, response,
+                    new S3Exception(S3ErrorCode.BAD_DIGEST));
+                break;
+            default:
+                // TODO: emit hre.getContent() ?
+                response.sendError(status);
+                break;
+            }
             baseRequest.setHandled(true);
             return;
         } catch (IllegalArgumentException iae) {
@@ -86,8 +107,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (S3Exception se) {
-            handler.sendSimpleErrorResponse(request, response,
-                    se.getError(), se.getMessage(), se.getElements());
+            sendS3Exception(request, response, se);
             baseRequest.setHandled(true);
             return;
         } catch (UnsupportedOperationException uoe) {
