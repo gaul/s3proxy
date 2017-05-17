@@ -103,6 +103,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * BitTorrent hosting
 * bucket logging
 * cross-origin resource sharing, see [#142](https://github.com/andrewgaul/s3proxy/issues/142)
+* hosting static websites
 * POST upload policies, see [#73](https://github.com/andrewgaul/s3proxy/issues/73)
 * list objects v2, see [#168](https://github.com/andrewgaul/s3proxy/issues/168)
 * object server-side encryption
@@ -131,7 +132,8 @@ References
 * [Ceph s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
 * [fake-s3](https://github.com/jubos/fake-s3), [gofakes3](https://github.com/johannesboyne/gofakes3), [S3 ninja](https://github.com/scireum/s3ninja), [s3rver](https://github.com/jamhall/s3rver), and [Scality S3 Server](https://s3.scality.com/) provide functionality similar to S3Proxy when using the filesystem backend
 * [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs
-* [minio](https://github.com/minio/minio) provides filesystem and Azure storage backends.
+* [minio](https://github.com/minio/minio) provides functionality similar to S3Proxy when using the filesystem and Azure storage backends
+* [s3mock](https://github.com/findify/s3mock) mocks the S3 API for Java/Scala projects
 * [sbt-s3](https://github.com/localytics/sbt-s3) runs S3Proxy via the Scala Build Tool
 * [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
 
