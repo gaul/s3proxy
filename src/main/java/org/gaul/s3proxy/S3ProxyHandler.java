@@ -274,6 +274,18 @@ public class S3ProxyHandler {
         return blobStore.getContext().unwrap().getProviderMetadata().getId();
     }
 
+    private static boolean isValidContainer(String containerName) {
+        if (containerName == null ||
+                containerName.length() < 3 || containerName.length() > 255 ||
+                containerName.startsWith(".") || containerName.endsWith(".") ||
+                validateIpAddress(containerName) ||
+                !VALID_BUCKET_FIRST_CHAR.matches(containerName.charAt(0)) ||
+                !VALID_BUCKET.matchesAllOf(containerName)) {
+            return false;
+        }
+        return true;
+    }
+
     public final void doHandle(HttpServletRequest baseRequest,
             HttpServletRequest request, HttpServletResponse response,
             InputStream is) throws IOException, S3Exception {
@@ -545,6 +557,10 @@ public class S3ProxyHandler {
                         headerName, request.getRequestURI());
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
+        }
+
+        if (!uri.equals("/") && !isValidContainer(path[1])) {
+            throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
         }
 
         String uploadId = request.getParameter("uploadId");
@@ -1095,13 +1111,6 @@ public class S3ProxyHandler {
             String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
             throw new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED);
-        }
-        if (containerName.length() < 3 || containerName.length() > 255 ||
-                containerName.startsWith(".") || containerName.endsWith(".") ||
-                validateIpAddress(containerName) ||
-                !VALID_BUCKET_FIRST_CHAR.matches(containerName.charAt(0)) ||
-                !VALID_BUCKET.matchesAllOf(containerName)) {
-            throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
         }
 
         String contentLengthString = request.getHeader(
