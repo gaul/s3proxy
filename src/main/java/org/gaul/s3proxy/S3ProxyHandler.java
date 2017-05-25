@@ -128,10 +128,10 @@ public class S3ProxyHandler {
     private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
     private static final CharMatcher VALID_BUCKET_FIRST_CHAR =
             CharMatcher.inRange('a', 'z')
+                    .or(CharMatcher.inRange('A', 'Z'))
                     .or(CharMatcher.inRange('0', '9'));
     private static final CharMatcher VALID_BUCKET =
             VALID_BUCKET_FIRST_CHAR
-                    .or(CharMatcher.inRange('A', 'Z'))
                     .or(CharMatcher.is('.'))
                     .or(CharMatcher.is('_'))
                     .or(CharMatcher.is('-'));
