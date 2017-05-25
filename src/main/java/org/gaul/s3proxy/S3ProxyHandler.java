@@ -2513,7 +2513,7 @@ public class S3ProxyHandler {
             HttpServletRequest request, HttpServletResponse response,
             S3ErrorCode code, String message,
             Map<String, String> elements) throws IOException {
-        logger.debug("{} {}", code, elements);
+        logger.error("{} {}", code, elements);
 
         response.setStatus(code.getHttpStatusCode());
 
