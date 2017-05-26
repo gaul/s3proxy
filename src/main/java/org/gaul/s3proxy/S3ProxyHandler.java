@@ -559,8 +559,15 @@ public class S3ProxyHandler {
             }
         }
 
+        // Validate container name
         if (!uri.equals("/") && !isValidContainer(path[1])) {
-            throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
+            if (method.equals("PUT") &&
+                    (path.length <= 2 || path[2].isEmpty()) &&
+                    !("".equals(request.getParameter("acl"))))  {
+                throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
+            } else {
+                throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            }
         }
 
         String uploadId = request.getParameter("uploadId");
