@@ -2039,9 +2039,10 @@ public class S3ProxyHandler {
             xml.writeStartElement("CompleteMultipartUploadResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            // TODO: bogus value
-            writeSimpleElement(xml, "Location",
-                    "http://Example-Bucket.s3.amazonaws.com/" + blobName);
+            String location = virtualHost.isPresent() ?
+                    "https://" + containerName + ".s3.amazonaws.com/" + blobName :
+                    "https://s3.amazonaws.com/" + containerName + "/" + blobName;
+            writeSimpleElement(xml, "Location", location);
 
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", blobName);
