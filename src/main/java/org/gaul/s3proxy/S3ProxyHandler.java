@@ -31,7 +31,6 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -59,7 +58,6 @@ import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
@@ -68,8 +66,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-import com.google.common.collect.SortedSetMultimap;
-import com.google.common.collect.TreeMultimap;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
@@ -78,7 +74,6 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
-import com.google.common.net.PercentEscaper;
 
 import org.apache.commons.fileupload.MultipartStream;
 import org.jclouds.blobstore.BlobStore;
@@ -135,30 +130,6 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('.'))
                     .or(CharMatcher.is('_'))
                     .or(CharMatcher.is('-'));
-    private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
-            "acl",
-            "delete",
-            "lifecycle",
-            "location",
-            "logging",
-            "notification",
-            "partNumber",
-            "policy",
-            "requestPayment",
-            "response-cache-control",
-            "response-content-disposition",
-            "response-content-encoding",
-            "response-content-language",
-            "response-content-type",
-            "response-expires",
-            "torrent",
-            "uploadId",
-            "uploads",
-            "versionId",
-            "versioning",
-            "versions",
-            "website"
-    );
     private static final Set<String> UNSUPPORTED_PARAMETERS = ImmutableSet.of(
             "accelerate",
             "analytics",
@@ -203,8 +174,6 @@ public class S3ProxyHandler {
             "bucket-owner-full-control",
             "log-delivery-write"
     );
-    private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
-            new PercentEscaper("-_.~", false);
 
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
@@ -493,8 +462,8 @@ public class S3ProxyHandler {
             // When presigned url is generated, it doesn't consider service path
             String uriForSigning = presignedUrl ? uri : this.servicePath + uri;
             if (authHeader.hmacAlgorithm == null) {
-                expectedSignature = createAuthorizationSignature(request,
-                        uriForSigning, credential);
+                expectedSignature = AwsSignature.createAuthorizationSignature(
+                        request, uriForSigning, credential);
             } else {
                 String contentSha256 = request.getHeader(
                         "x-amz-content-sha256");
@@ -518,7 +487,8 @@ public class S3ProxyHandler {
                         }
                         is = new ByteArrayInputStream(payload);
                     }
-                    expectedSignature = createAuthorizationSignatureV4(
+                    expectedSignature = AwsSignature
+                            .createAuthorizationSignatureV4(
                             baseRequest, authHeader, payload, uriForSigning,
                             credential);
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
@@ -2559,237 +2529,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-    }
-
-    /**
-     * Create Amazon V2 signature.  Reference:
-     * http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
-     */
-    private static String createAuthorizationSignature(
-            HttpServletRequest request, String uri, String credential) {
-        // sort Amazon headers
-        SortedSetMultimap<String, String> canonicalizedHeaders =
-                TreeMultimap.create();
-        for (String headerName : Collections.list(request.getHeaderNames())) {
-            Collection<String> headerValues = Collections.list(
-                    request.getHeaders(headerName));
-            headerName = headerName.toLowerCase();
-            if (!headerName.startsWith("x-amz-")) {
-                continue;
-            }
-            if (headerValues.isEmpty()) {
-                canonicalizedHeaders.put(headerName, "");
-            }
-            for (String headerValue : headerValues) {
-                canonicalizedHeaders.put(headerName,
-                        Strings.nullToEmpty(headerValue));
-            }
-        }
-
-        // build string to sign
-        StringBuilder builder = new StringBuilder()
-                .append(request.getMethod())
-                .append('\n')
-                .append(Strings.nullToEmpty(request.getHeader(
-                        HttpHeaders.CONTENT_MD5)))
-                .append('\n')
-                .append(Strings.nullToEmpty(request.getHeader(
-                        HttpHeaders.CONTENT_TYPE)))
-                .append('\n');
-        String expires = request.getParameter("Expires");
-        if (expires != null) {
-            builder.append(expires);
-        } else if (!canonicalizedHeaders.containsKey("x-amz-date")) {
-            builder.append(request.getHeader(HttpHeaders.DATE));
-        }
-        builder.append('\n');
-        for (Map.Entry<String, String> entry : canonicalizedHeaders.entries()) {
-            builder.append(entry.getKey()).append(':')
-                    .append(entry.getValue()).append('\n');
-        }
-        builder.append(uri);
-
-        char separator = '?';
-        List<String> subresources = Collections.list(
-                request.getParameterNames());
-        Collections.sort(subresources);
-        for (String subresource : subresources) {
-            if (SIGNED_SUBRESOURCES.contains(subresource)) {
-                builder.append(separator).append(subresource);
-
-                String value = request.getParameter(subresource);
-                if (!"".equals(value)) {
-                    builder.append('=').append(value);
-                }
-                separator = '&';
-            }
-        }
-
-        String stringToSign = builder.toString();
-        logger.trace("stringToSign: {}", stringToSign);
-
-        // sign string
-        Mac mac;
-        try {
-            mac = Mac.getInstance("HmacSHA1");
-            mac.init(new SecretKeySpec(credential.getBytes(
-                    StandardCharsets.UTF_8), "HmacSHA1"));
-        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-        return BaseEncoding.base64().encode(mac.doFinal(
-                stringToSign.getBytes(StandardCharsets.UTF_8)));
-    }
-
-    /**
-     * Create v4 signature.  Reference:
-     * http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
-     */
-    private static String createAuthorizationSignatureV4(
-            HttpServletRequest request, S3AuthorizationHeader authHeader,
-            byte[] payload, String uri, String credential)
-            throws InvalidKeyException, IOException, NoSuchAlgorithmException,
-            S3Exception {
-        String canonicalRequest = createCanonicalRequest(request, uri, payload,
-                authHeader.hashAlgorithm);
-        String algorithm = authHeader.hmacAlgorithm;
-        byte[] dateKey = signMessage(
-                authHeader.date.getBytes(StandardCharsets.UTF_8),
-                ("AWS4" + credential).getBytes(StandardCharsets.UTF_8),
-                algorithm);
-        byte[] dateRegionKey = signMessage(
-                authHeader.region.getBytes(StandardCharsets.UTF_8), dateKey,
-                algorithm);
-        byte[] dateRegionServiceKey = signMessage(
-                authHeader.service.getBytes(StandardCharsets.UTF_8),
-                dateRegionKey, algorithm);
-        byte[] signingKey = signMessage(
-                "aws4_request".getBytes(StandardCharsets.UTF_8),
-                dateRegionServiceKey, algorithm);
-        String date = request.getHeader("x-amz-date");
-        if (date == null) {
-            date = request.getParameter("X-Amz-Date");
-        }
-        String signatureString = "AWS4-HMAC-SHA256\n" +
-                date + "\n" +
-                authHeader.date + "/" + authHeader.region +
-                        "/s3/aws4_request\n" +
-                canonicalRequest;
-        byte[] signature = signMessage(
-                signatureString.getBytes(StandardCharsets.UTF_8),
-                signingKey, algorithm);
-        return BaseEncoding.base16().lowerCase().encode(signature);
-    }
-
-    private static byte[] signMessage(byte[] data, byte[] key, String algorithm)
-            throws InvalidKeyException, NoSuchAlgorithmException {
-        Mac mac = Mac.getInstance(algorithm);
-        mac.init(new SecretKeySpec(key, algorithm));
-        return mac.doFinal(data);
-    }
-
-    private static String createCanonicalRequest(HttpServletRequest request,
-            String uri, byte[] payload, String hashAlgorithm)
-            throws IOException, NoSuchAlgorithmException {
-        String authorizationHeader = request.getHeader("Authorization");
-        String xAmzContentSha256 = request.getHeader("x-amz-content-sha256");
-        if (xAmzContentSha256 == null) {
-            xAmzContentSha256 = request.getParameter("X-Amz-SignedHeaders");
-        }
-        String digest;
-        if (authorizationHeader == null) {
-            digest = "UNSIGNED-PAYLOAD";
-        } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
-                xAmzContentSha256)) {
-            digest = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
-        } else if ("UNSIGNED-PAYLOAD".equals(xAmzContentSha256)) {
-            digest = "UNSIGNED-PAYLOAD";
-        } else {
-            digest = getMessageDigest(payload, hashAlgorithm);
-        }
-        String[] signedHeaders;
-        if (authorizationHeader != null) {
-            signedHeaders = extractSignedHeaders(authorizationHeader);
-        } else {
-            signedHeaders = request.getParameter("X-Amz-SignedHeaders")
-                    .split(";");
-        }
-        String canonicalRequest = Joiner.on("\n").join(
-                request.getMethod(),
-                uri,
-                buildCanonicalQueryString(request),
-                buildCanonicalHeaders(request, signedHeaders) + "\n",
-                Joiner.on(';').join(signedHeaders),
-                digest);
-        return getMessageDigest(
-                canonicalRequest.getBytes(StandardCharsets.UTF_8),
-                hashAlgorithm);
-    }
-
-    private static String getMessageDigest(byte[] payload, String algorithm)
-            throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance(algorithm);
-        byte[] hash = md.digest(payload);
-        return BaseEncoding.base16().lowerCase().encode(hash);
-    }
-
-    private static String[] extractSignedHeaders(String authorization) {
-        int index = authorization.indexOf("SignedHeaders=");
-        if (index < 0) {
-            return null;
-        }
-        int endSigned = authorization.indexOf(',', index);
-        if (endSigned < 0) {
-            return null;
-        }
-        int startHeaders = authorization.indexOf('=', index);
-        return authorization.substring(startHeaders + 1, endSigned).split(";");
-    }
-
-    private static String buildCanonicalHeaders(HttpServletRequest request,
-            String[] signedHeaders) {
-        List<String> headers = new ArrayList<>();
-        for (String header : signedHeaders) {
-            headers.add(header.toLowerCase());
-        }
-        Collections.sort(headers);
-        List<String> headersWithValues = new ArrayList<>();
-        for (String header : headers) {
-            List<String> values = new ArrayList<>();
-            StringBuilder headerWithValue = new StringBuilder();
-            headerWithValue.append(header);
-            headerWithValue.append(":");
-            for (String value : Collections.list(request.getHeaders(header))) {
-                value = value.trim();
-                if (!value.startsWith("\"")) {
-                    value = value.replaceAll("\\s+", " ");
-                }
-                values.add(value);
-            }
-            headerWithValue.append(Joiner.on(",").join(values));
-            headersWithValues.add(headerWithValue.toString());
-        }
-
-        return Joiner.on("\n").join(headersWithValues);
-    }
-
-    private static String buildCanonicalQueryString(HttpServletRequest request)
-            throws UnsupportedEncodingException {
-        // The parameters are required to be sorted
-        List<String> parameters = Collections.list(request.getParameterNames());
-        Collections.sort(parameters);
-        List<String> queryParameters = new ArrayList<>();
-
-        for (String key : parameters) {
-            if (key.equals("X-Amz-Signature")) {
-                continue;
-            }
-            // re-encode keys and values in AWS normalized form
-            String value = request.getParameter(key);
-            queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
-                    "=" + AWS_URL_PARAMETER_ESCAPER.escape(value));
-        }
-        return Joiner.on("&").join(queryParameters);
     }
 
     private static void addContentMetdataFromHttpRequest(
