@@ -18,6 +18,12 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
+// CHECKSTYLE:OFF
+import static org.gaul.s3proxy.XMLUtils.writeInitiatorStanza;
+import static org.gaul.s3proxy.XMLUtils.writeOwnerStanza;
+import static org.gaul.s3proxy.XMLUtils.writeSimpleElement;
+// CHECKSTYLE:ON
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FilterInputStream;
@@ -81,6 +87,8 @@ import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
 import org.apache.commons.fileupload.MultipartStream;
+import org.gaul.s3proxy.requesthandlers.S3BucketListHandler;
+import org.gaul.s3proxy.requesthandlers.S3DeleteObjectHandler;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
@@ -581,12 +589,15 @@ public class S3ProxyHandler {
                         path[2], uploadId);
                 return;
             } else {
-                handleBlobRemove(response, blobStore, path[1], path[2]);
+                new S3DeleteObjectHandler(request, response, blobStore,
+                        path[1], path[2])
+                        .executeRequest();
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response, blobStore);
+                new S3BucketListHandler(request, response, blobStore)
+                        .executeRequest();
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
@@ -704,7 +715,8 @@ public class S3ProxyHandler {
         switch (method) {
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response, blobStore);
+                new S3BucketListHandler(request, response, blobStore)
+                        .executeRequest();
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
@@ -986,47 +998,6 @@ public class S3ProxyHandler {
             return "private";
         } else {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
-        }
-    }
-
-    private void handleContainerList(HttpServletResponse response,
-            BlobStore blobStore) throws IOException {
-        PageSet<? extends StorageMetadata> buckets = blobStore.list();
-
-        try (Writer writer = response.getWriter()) {
-            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
-                    writer);
-            xml.writeStartDocument();
-            xml.writeStartElement("ListAllMyBucketsResult");
-            xml.writeDefaultNamespace(AWS_XMLNS);
-
-            writeOwnerStanza(xml);
-
-            xml.writeStartElement("Buckets");
-            for (StorageMetadata metadata : buckets) {
-                xml.writeStartElement("Bucket");
-
-                writeSimpleElement(xml, "Name", metadata.getName());
-
-                Date creationDate = metadata.getCreationDate();
-                if (creationDate == null) {
-                    // Some providers, e.g., Swift, do not provide container
-                    // creation date.  Emit a bogus one to satisfy clients like
-                    // s3cmd which require one.
-                    creationDate = new Date(0);
-                }
-                writeSimpleElement(xml, "CreationDate",
-                        blobStore.getContext().utils().date()
-                                .iso8601DateFormat(creationDate).trim());
-
-                xml.writeEndElement();
-            }
-            xml.writeEndElement();
-
-            xml.writeEndElement();
-            xml.flush();
-        } catch (XMLStreamException xse) {
-            throw new IOException(xse);
         }
     }
 
@@ -1353,13 +1324,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-    }
-
-    private static void handleBlobRemove(HttpServletResponse response,
-            BlobStore blobStore, String containerName,
-            String blobName) throws IOException, S3Exception {
-        blobStore.removeBlob(containerName, blobName);
-        response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleMultiBlobRemove(HttpServletResponse response,
@@ -2821,36 +2785,6 @@ public class S3ProxyHandler {
         if (expires != -1) {
             builder.expires(new Date(expires));
         }
-    }
-
-    // TODO: bogus values
-    private static void writeInitiatorStanza(XMLStreamWriter xml)
-            throws XMLStreamException {
-        xml.writeStartElement("Initiator");
-
-        writeSimpleElement(xml, "ID", FAKE_INITIATOR_ID);
-        writeSimpleElement(xml, "DisplayName",
-                FAKE_INITIATOR_DISPLAY_NAME);
-
-        xml.writeEndElement();
-    }
-
-    // TODO: bogus values
-    private static void writeOwnerStanza(XMLStreamWriter xml)
-            throws XMLStreamException {
-        xml.writeStartElement("Owner");
-
-        writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
-        writeSimpleElement(xml, "DisplayName", FAKE_OWNER_DISPLAY_NAME);
-
-        xml.writeEndElement();
-    }
-
-    private static void writeSimpleElement(XMLStreamWriter xml,
-            String elementName, String characters) throws XMLStreamException {
-        xml.writeStartElement(elementName);
-        xml.writeCharacters(characters);
-        xml.writeEndElement();
     }
 
     private static BlobMetadata createFakeBlobMetadata(BlobStore blobStore) {
