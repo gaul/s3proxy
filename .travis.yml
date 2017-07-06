@@ -15,6 +15,8 @@ services:
   - docker
 script:
  - mvn test
+ # Work around Travis environment failure: https://github.com/travis-ci/travis-ci/issues/7940
+ - export BOTO_CONFIG=/dev/null
  - ./src/test/resources/run-s3-tests.sh
 after_success:
   - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
