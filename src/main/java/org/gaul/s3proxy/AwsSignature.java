@@ -45,7 +45,7 @@ import com.google.common.net.PercentEscaper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class AwsSignature {
+final class AwsSignature {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
@@ -81,7 +81,7 @@ public final class AwsSignature {
      * Create Amazon V2 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
      */
-    public static String createAuthorizationSignature(
+    static String createAuthorizationSignature(
             HttpServletRequest request, String uri, String credential) {
         // sort Amazon headers
         SortedSetMultimap<String, String> canonicalizedHeaders =
@@ -273,7 +273,7 @@ public final class AwsSignature {
      * Create v4 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
      */
-    public static String createAuthorizationSignatureV4(
+    static String createAuthorizationSignatureV4(
             HttpServletRequest request, S3AuthorizationHeader authHeader,
             byte[] payload, String uri, String credential)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
