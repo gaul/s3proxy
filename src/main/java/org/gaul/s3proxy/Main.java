@@ -272,6 +272,7 @@ public final class Main {
         String credential = properties.getProperty(
                 Constants.PROPERTY_CREDENTIAL);
         String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
+        properties.remove(Constants.PROPERTY_ENDPOINT);
         String region = properties.getProperty(
                 LocationConstants.PROPERTY_REGION);
 
@@ -306,7 +307,7 @@ public final class Main {
                 .credentials(identity, credential)
                 .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
                 .overrides(properties);
-        if (endpoint != null) {
+        if (!Strings.isNullOrEmpty(endpoint)) {
             builder = builder.endpoint(endpoint);
         }
 
