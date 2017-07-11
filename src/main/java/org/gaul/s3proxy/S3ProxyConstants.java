@@ -70,6 +70,9 @@ public final class S3ProxyConstants {
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
+    static final String AWS_XMLNS =
+            "http://s3.amazonaws.com/doc/2006-03-01/";
+
     private S3ProxyConstants() {
         throw new AssertionError("Cannot instantiate utility constructor");
     }

@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.requesthandlers;
+package org.gaul.s3proxy;
 
 import java.io.IOException;
 
-import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.xml.stream.XMLOutputFactory;
 
-import org.gaul.s3proxy.S3Exception;
 import org.jclouds.blobstore.BlobStore;
 
-abstract class AbstractS3BucketHandler extends AbstractRequestHandler {
-    AbstractS3BucketHandler(HttpServletRequest request,
-                            HttpServletResponse response,
-                            BlobStore blobStore) {
-        super(request, response, blobStore);
+final class ObjectApi {
+    private static final XMLOutputFactory xmlOutputFactory =
+            XMLOutputFactory.newInstance();
+
+    private ObjectApi() {
     }
 
-    abstract void executeRequest() throws IOException, S3Exception;
+    static void delete(HttpServletResponse response, BlobStore blobStore,
+                       String containerName, String blobName)
+            throws IOException, S3Exception {
+        blobStore.removeBlob(containerName, blobName);
+        response.sendError(HttpServletResponse.SC_NO_CONTENT);
+    }
 }

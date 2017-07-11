@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import static java.util.Objects.requireNonNull;
 
 // CHECKSTYLE:OFF
+// TODO: remove these when all handlers refactored to static utilties.
 import static org.gaul.s3proxy.XMLUtils.writeInitiatorStanza;
 import static org.gaul.s3proxy.XMLUtils.writeOwnerStanza;
 import static org.gaul.s3proxy.XMLUtils.writeSimpleElement;
@@ -87,8 +88,6 @@ import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
 import org.apache.commons.fileupload.MultipartStream;
-import org.gaul.s3proxy.requesthandlers.S3BucketListHandler;
-import org.gaul.s3proxy.requesthandlers.S3DeleteObjectHandler;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
@@ -589,15 +588,13 @@ public class S3ProxyHandler {
                         path[2], uploadId);
                 return;
             } else {
-                new S3DeleteObjectHandler(request, response, blobStore,
-                        path[1], path[2])
-                        .executeRequest();
+                ObjectApi.delete(response, blobStore,
+                        path[1], path[2]);
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
-                new S3BucketListHandler(request, response, blobStore)
-                        .executeRequest();
+                BucketApi.list(response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if ("".equals(request.getParameter("acl"))) {
@@ -715,8 +712,7 @@ public class S3ProxyHandler {
         switch (method) {
         case "GET":
             if (uri.equals("/")) {
-                new S3BucketListHandler(request, response, blobStore)
-                        .executeRequest();
+                BucketApi.list(response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];

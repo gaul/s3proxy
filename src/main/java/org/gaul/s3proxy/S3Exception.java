@@ -27,33 +27,33 @@ public final class S3Exception extends Exception {
     private final S3ErrorCode error;
     private final Map<String, String> elements;
 
-    public S3Exception(S3ErrorCode error) {
+    S3Exception(S3ErrorCode error) {
         this(error, error.getMessage(), (Throwable) null,
                 ImmutableMap.<String, String>of());
     }
 
-    public S3Exception(S3ErrorCode error, String message) {
+    S3Exception(S3ErrorCode error, String message) {
         this(error, message, (Throwable) null,
                 ImmutableMap.<String, String>of());
     }
 
-    public S3Exception(S3ErrorCode error, Throwable cause) {
+    S3Exception(S3ErrorCode error, Throwable cause) {
         this(error, error.getMessage(), cause,
                 ImmutableMap.<String, String>of());
     }
 
-    public S3Exception(S3ErrorCode error, String message, Throwable cause,
+    S3Exception(S3ErrorCode error, String message, Throwable cause,
                 Map<String, String> elements) {
         super(requireNonNull(message), cause);
         this.error = requireNonNull(error);
         this.elements = ImmutableMap.copyOf(elements);
     }
 
-    public S3ErrorCode getError() {
+    S3ErrorCode getError() {
         return error;
     }
 
-    public Map<String, String> getElements() {
+    Map<String, String> getElements() {
         return elements;
     }
 

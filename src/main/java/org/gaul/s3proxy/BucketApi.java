@@ -14,39 +14,37 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.requesthandlers;
+package org.gaul.s3proxy;
 
 import java.io.IOException;
 import java.io.Writer;
 import java.util.Date;
 
-import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
-import org.gaul.s3proxy.S3Exception;
-import org.gaul.s3proxy.XMLUtils;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 
-public final class S3BucketListHandler extends AbstractS3BucketHandler {
-    public S3BucketListHandler(HttpServletRequest request,
-                        HttpServletResponse response,
-                        BlobStore blobStore) {
-        super(request, response, blobStore);
-    }
+final class BucketApi {
+    private static final XMLOutputFactory xmlOutputFactory =
+            XMLOutputFactory.newInstance();
 
-    @Override
-    public void executeRequest() throws IOException, S3Exception {
-        PageSet<? extends StorageMetadata> buckets = this.getBlobStore().list();
-        try (Writer writer = this.getResponse().getWriter()) {
+    private BucketApi() { }
+
+    static void list(HttpServletResponse response,
+                                     BlobStore blobStore) throws IOException {
+        PageSet<? extends StorageMetadata> buckets = blobStore.list();
+
+        try (Writer writer = response.getWriter()) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
             xml.writeStartElement("ListAllMyBucketsResult");
-            xml.writeDefaultNamespace(AWS_XMLNS);
+            xml.writeDefaultNamespace(S3ProxyConstants.AWS_XMLNS);
 
             XMLUtils.writeOwnerStanza(xml);
 
@@ -64,7 +62,7 @@ public final class S3BucketListHandler extends AbstractS3BucketHandler {
                     creationDate = new Date(0);
                 }
                 XMLUtils.writeSimpleElement(xml, "CreationDate",
-                        this.getBlobStore().getContext().utils().date()
+                        blobStore.getContext().utils().date()
                                 .iso8601DateFormat(creationDate).trim());
 
                 xml.writeEndElement();
