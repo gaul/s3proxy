@@ -674,8 +674,7 @@ public class S3ProxyHandler {
         switch (method) {
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response, blobStore);
-                return;
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
                 ContainerAccess access = blobStore.getContainerAccess(
