@@ -2174,6 +2174,7 @@ public class S3ProxyHandler {
 
         GetOptions options = new GetOptions();
         String range = request.getHeader("x-amz-copy-source-range");
+        long expectedSize = -1;
         if (range != null && range.startsWith("bytes=") &&
                 // ignore multiple ranges
                 range.indexOf(',') == -1) {
@@ -2184,8 +2185,10 @@ public class S3ProxyHandler {
             } else if (ranges[1].isEmpty()) {
                 options.startAt(Long.parseLong(ranges[0]));
             } else {
-                options.range(Long.parseLong(ranges[0]),
-                        Long.parseLong(ranges[1]));
+                long start = Long.parseLong(ranges[0]);
+                long end = Long.parseLong(ranges[1]);
+                expectedSize = end - start + 1;
+                options.range(start, end);
             }
         }
 
@@ -2223,6 +2226,10 @@ public class S3ProxyHandler {
         }
 
         BlobMetadata blobMetadata = blob.getMetadata();
+        // HTTP GET allow overlong ranges but S3 CopyPart does not
+        if (expectedSize != -1 && blobMetadata.getSize() < expectedSize) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
 
         String ifMatch = request.getHeader(
                 "x-amz-copy-source-if-match");
