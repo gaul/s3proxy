@@ -25,10 +25,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PushbackInputStream;
-import java.io.UnsupportedEncodingException;
 import java.io.Writer;
 import java.net.URLDecoder;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -66,6 +64,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
@@ -74,6 +73,7 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
+import com.google.common.net.PercentEscaper;
 
 import org.apache.commons.fileupload.MultipartStream;
 import org.jclouds.blobstore.BlobStore;
@@ -175,6 +175,8 @@ public class S3ProxyHandler {
             "log-delivery-write"
     );
     private static final String XML_CONTENT_TYPE = "application/xml";
+    /** URLEncoder escapes / which we do not want. */
+    private static Escaper urlEscaper = new PercentEscaper("*-./_", true);
 
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
@@ -2651,11 +2653,7 @@ public class S3ProxyHandler {
     // which XML 1.0 cannot represent.
     private static String encodeBlob(String encodingType, String blobName) {
         if (encodingType != null && encodingType.equals("url")) {
-            try {
-                return URLEncoder.encode(blobName, "UTF-8");
-            } catch (UnsupportedEncodingException e) {
-                throw new RuntimeException(e);
-            }
+            return urlEscaper.escape(blobName);
         } else {
             return blobName;
         }
