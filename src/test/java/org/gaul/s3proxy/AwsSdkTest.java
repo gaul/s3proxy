@@ -76,6 +76,7 @@ import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.PartListing;
 import com.amazonaws.services.s3.model.Permission;
+import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.PutObjectResult;
 import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
 import com.amazonaws.services.s3.model.S3Object;
@@ -1347,6 +1348,22 @@ public final class AwsSdkTest {
                 new GetObjectRequest(containerName, blobName)
                         .withNonmatchingETagConstraint(result.getETag()));
         assertThat(object).isNull();
+    }
+
+    @Test
+    public void testUnknownHeader() throws Exception {
+        String blobName = "test-unknown-header";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        PutObjectRequest request = new PutObjectRequest(
+                containerName, blobName, BYTE_SOURCE.openStream(), metadata)
+                .withStorageClass("REDUCED_REDUNDANCY");
+        try {
+            client.putObject(request);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        }
     }
 
     @Test

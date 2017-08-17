@@ -162,8 +162,7 @@ public class S3ProxyHandler {
             "x-amz-copy-source-range",
             "x-amz-date",
             "x-amz-decoded-content-length",
-            "x-amz-metadata-directive",
-            "x-amz-storage-class"  // ignored
+            "x-amz-metadata-directive"
     );
     private static final Set<String> CANNED_ACLS = ImmutableSet.of(
             "private",
@@ -523,6 +522,10 @@ public class S3ProxyHandler {
                 continue;
             }
             if (headerName.startsWith("x-amz-meta-")) {
+                continue;
+            }
+            if (headerName.equals("x-amz-storage-class") &&
+                    request.getHeader(headerName).equals("STANDARD")) {
                 continue;
             }
             if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName.toLowerCase())) {
