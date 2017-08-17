@@ -13,6 +13,7 @@ ENV \
     S3PROXY_IDENTITY="local-identity" \
     S3PROXY_CREDENTIAL="local-credential" \
     S3PROXY_CORS_ALLOW_ALL="false" \
+    S3PROXY_IGNORE_UNKNOWN_HEADERS="false" \
     JCLOUDS_PROVIDER="filesystem" \
     JCLOUDS_ENDPOINT="" \
     JCLOUDS_REGION="" \

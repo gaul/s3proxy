@@ -214,7 +214,7 @@ public final class Main {
                 s3ProxyBuilder.v4MaxNonChunkedRequestSize(Long.parseLong(
                         v4MaxNonChunkedRequestSize));
             }
-            if (ignoreUnknownHeaders != null) {
+            if (!Strings.isNullOrEmpty(ignoreUnknownHeaders)) {
                 s3ProxyBuilder.ignoreUnknownHeaders(Boolean.parseBoolean(
                         ignoreUnknownHeaders));
             }
