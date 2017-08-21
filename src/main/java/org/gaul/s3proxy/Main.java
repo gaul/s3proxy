@@ -283,8 +283,8 @@ public final class Main {
         } else if (provider.equals("google-cloud-storage")) {
             File credentialFile = new File(credential);
             if (credentialFile.exists()) {
-                credential = Files.toString(credentialFile,
-                        StandardCharsets.UTF_8);
+                credential = Files.asCharSource(credentialFile,
+                        StandardCharsets.UTF_8).read();
             }
             properties.remove(Constants.PROPERTY_CREDENTIAL);
         }

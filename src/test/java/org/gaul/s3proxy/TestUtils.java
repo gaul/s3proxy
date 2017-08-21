@@ -26,6 +26,8 @@ import java.util.Random;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
@@ -41,6 +43,9 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 
 final class TestUtils {
+    @SuppressWarnings("deprecation")
+    static final HashFunction MD5 = Hashing.md5();
+
     private TestUtils() {
         throw new AssertionError("intentionally unimplemented");
     }
@@ -164,8 +169,8 @@ final class TestUtils {
         if (provider.equals("google-cloud-storage")) {
             File credentialFile = new File(credential);
             if (credentialFile.exists()) {
-                credential = Files.toString(credentialFile,
-                        StandardCharsets.UTF_8);
+                credential = Files.asCharSource(credentialFile,
+                        StandardCharsets.UTF_8).read();
             }
             info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
         }

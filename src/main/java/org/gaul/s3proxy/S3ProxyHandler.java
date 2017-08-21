@@ -66,6 +66,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
@@ -175,7 +176,9 @@ public class S3ProxyHandler {
     );
     private static final String XML_CONTENT_TYPE = "application/xml";
     /** URLEncoder escapes / which we do not want. */
-    private static Escaper urlEscaper = new PercentEscaper("*-./_", true);
+    private static final Escaper urlEscaper = new PercentEscaper("*-./_", true);
+    @SuppressWarnings("deprecation")
+    private static final HashFunction MD5 = Hashing.md5();
 
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
@@ -1662,7 +1665,7 @@ public class S3ProxyHandler {
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
             }
-            if (contentMD5.bits() != Hashing.md5().bits()) {
+            if (contentMD5.bits() != MD5.bits()) {
                 throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
             }
         }
@@ -2276,8 +2279,7 @@ public class S3ProxyHandler {
                 // part multiple Azure parts.
                 long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
-                HashingInputStream his = new HashingInputStream(Hashing.md5(),
-                        is);
+                HashingInputStream his = new HashingInputStream(MD5, is);
                 for (int offset = 0, subPartNumber = 0; offset < contentLength;
                         offset += azureMaximumMultipartPartSize,
                         ++subPartNumber) {
@@ -2354,7 +2356,7 @@ public class S3ProxyHandler {
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
             }
-            if (contentMD5.bits() != Hashing.md5().bits()) {
+            if (contentMD5.bits() != MD5.bits()) {
                 throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
             }
         }
@@ -2405,8 +2407,7 @@ public class S3ProxyHandler {
             // part multiple Azure parts.
             long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
-            HashingInputStream his = new HashingInputStream(Hashing.md5(),
-                    is);
+            HashingInputStream his = new HashingInputStream(MD5, is);
             for (int offset = 0, subPartNumber = 0; offset < contentLength;
                     offset += azureMaximumMultipartPartSize,
                     ++subPartNumber) {

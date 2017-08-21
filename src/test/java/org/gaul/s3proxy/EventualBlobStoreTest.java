@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 import com.google.inject.Module;
@@ -196,7 +195,7 @@ public final class EventualBlobStoreTest {
                 .contentEncoding("compress")
                 .contentLength(BYTE_SOURCE.size())
                 .contentType(MediaType.MP4_AUDIO)
-                .contentMD5(BYTE_SOURCE.hash(Hashing.md5()))
+                .contentMD5(BYTE_SOURCE.hash(TestUtils.MD5))
                 .userMetadata(ImmutableMap.of("key", "value"))
                 .build();
     }
