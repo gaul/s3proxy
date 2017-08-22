@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
@@ -171,6 +172,7 @@ final class AwsSignature {
         return BaseEncoding.base16().lowerCase().encode(hash);
     }
 
+    @Nullable
     private static String[] extractSignedHeaders(String authorization) {
         int index = authorization.indexOf("SignedHeaders=");
         if (index < 0) {

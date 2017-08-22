@@ -20,6 +20,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -53,6 +55,7 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         Blob blob = getBlob(container, name);
         if (blob == null) {
@@ -62,11 +65,13 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String container, String name) {
         return getBlob(container, name, GetOptions.NONE);
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String container, String name, GetOptions options) {
         Blob blob = super.getBlob(container, name, options);
         if (blob == null) {

@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nullable;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -1381,6 +1382,7 @@ public final class AwsSdkTest {
     private static final class NullX509TrustManager
             implements X509TrustManager {
         @Override
+        @Nullable
         public X509Certificate[] getAcceptedIssuers() {
             return null;
         }
