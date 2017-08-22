@@ -2282,7 +2282,8 @@ public class S3ProxyHandler {
                 long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
                 HashingInputStream his = new HashingInputStream(MD5, is);
-                for (int offset = 0, subPartNumber = 0; offset < contentLength;
+                int subPartNumber = 0;
+                for (long offset = 0; offset < contentLength;
                         offset += azureMaximumMultipartPartSize,
                         ++subPartNumber) {
                     Payload payload = Payloads.newInputStreamPayload(
@@ -2410,7 +2411,8 @@ public class S3ProxyHandler {
             long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
             HashingInputStream his = new HashingInputStream(MD5, is);
-            for (int offset = 0, subPartNumber = 0; offset < contentLength;
+            int subPartNumber = 0;
+            for (long offset = 0; offset < contentLength;
                     offset += azureMaximumMultipartPartSize,
                     ++subPartNumber) {
                 Payload payload = Payloads.newInputStreamPayload(
