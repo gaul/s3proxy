@@ -1560,13 +1560,7 @@ public class S3ProxyHandler {
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
-        Blob blob;
-        try {
-            blob = blobStore.getBlob(containerName, blobName, options);
-        } catch (IllegalArgumentException iae) {
-            // TODO: correct mapping?
-            throw new S3Exception(S3ErrorCode.INVALID_RANGE, iae);
-        }
+        Blob blob = blobStore.getBlob(containerName, blobName, options);
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }

@@ -274,7 +274,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>1.7</java.version>
-    <jclouds.version>2.0.3</jclouds.version>
+    <jclouds.version>2.1.0</jclouds.version>
     <slf4j.version>1.7.25</slf4j.version>
     <surefire.version>2.20</surefire.version>
   </properties>
@@ -350,18 +350,8 @@
       <version>${jclouds.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.jclouds.labs</groupId>
-      <artifactId>b2</artifactId>
-      <version>${jclouds.version}</version>
-    </dependency>
-    <dependency>
       <groupId>org.apache.jclouds.driver</groupId>
       <artifactId>jclouds-slf4j</artifactId>
-      <version>${jclouds.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.jclouds.labs</groupId>
-      <artifactId>google-cloud-storage</artifactId>
       <version>${jclouds.version}</version>
     </dependency>
     <dependency>

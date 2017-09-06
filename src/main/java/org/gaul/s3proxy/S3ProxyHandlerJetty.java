@@ -84,6 +84,10 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             }
             int status = hr.getStatusCode();
             switch (status) {
+            case 416:
+                sendS3Exception(request, response,
+                        new S3Exception(S3ErrorCode.INVALID_RANGE));
+                break;
             case HttpServletResponse.SC_BAD_REQUEST:
             case 422:  // Swift returns 422 Unprocessable Entity
                 sendS3Exception(request, response,

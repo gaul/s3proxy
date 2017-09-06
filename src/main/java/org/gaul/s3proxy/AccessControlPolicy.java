@@ -20,7 +20,7 @@ import java.util.Collection;
 
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /** Represent an Amazon AccessControlPolicy for a container or object. */
 // CHECKSTYLE:OFF
@@ -32,7 +32,7 @@ final class AccessControlPolicy {
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(AccessControlList.class)
+        return MoreObjects.toStringHelper(AccessControlList.class)
                 .add("owner", owner)
                 .add("aclList", aclList)
                 .toString();
@@ -46,7 +46,7 @@ final class AccessControlPolicy {
 
         @Override
         public String toString() {
-            return Objects.toStringHelper(Owner.class)
+            return MoreObjects.toStringHelper(Owner.class)
                     .add("id", id)
                     .add("displayName", displayName)
                     .toString();
@@ -60,7 +60,7 @@ final class AccessControlPolicy {
 
         @Override
         public String toString() {
-            return Objects.toStringHelper(AccessControlList.class)
+            return MoreObjects.toStringHelper(AccessControlList.class)
                     .add("grants", grants)
                     .toString();
         }
@@ -73,7 +73,7 @@ final class AccessControlPolicy {
 
             @Override
             public String toString() {
-                return Objects.toStringHelper(Grant.class)
+                return MoreObjects.toStringHelper(Grant.class)
                         .add("grantee", grantee)
                         .add("permission", permission)
                         .toString();
@@ -94,7 +94,7 @@ final class AccessControlPolicy {
 
                 @Override
                 public String toString() {
-                    return Objects.toStringHelper(Grantee.class)
+                    return MoreObjects.toStringHelper(Grantee.class)
                             .add("type", type)
                             .add("id", id)
                             .add("displayName", displayName)
