@@ -13,7 +13,7 @@
   <packaging>jar</packaging>
 
   <name>S3 Proxy</name>
-  <url>https://github.com/andrewgaul/s3proxy</url>
+  <url>https://github.com/gaul/s3proxy</url>
   <description>Access other storage backends via the S3 API</description>
 
   <licenses>
@@ -25,9 +25,9 @@
   </licenses>
 
   <scm>
-    <connection>scm:git:git@github.com:andrewgaul/s3proxy.git</connection>
-    <developerConnection>scm:git:git@github.com:andrewgaul/s3proxy.git</developerConnection>
-    <url>git@github.com:andrewgaul/s3proxy.git</url>
+    <connection>scm:git:git@github.com:gaul/s3proxy.git</connection>
+    <developerConnection>scm:git:git@github.com:gaul/s3proxy.git</developerConnection>
+    <url>git@github.com:gaul/s3proxy.git</url>
   </scm>
 
   <developers>
