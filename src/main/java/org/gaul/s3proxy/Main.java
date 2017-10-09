@@ -189,6 +189,13 @@ public final class Main {
             blobStore = NullBlobStore.newNullBlobStore(blobStore);
         }
 
+        String readOnlyBlobStore = properties.getProperty(
+                S3ProxyConstants.PROPERTY_READ_ONLY_BLOBSTORE);
+        if ("true".equalsIgnoreCase(readOnlyBlobStore)) {
+            System.err.println("Using read-only storage backend");
+            blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
+        }
+
         S3Proxy s3Proxy;
         try {
             S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()

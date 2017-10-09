@@ -93,6 +93,7 @@ S3Proxy can modify its behavior based on middlewares:
 
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
+* [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
 
 Limitations
 -----------

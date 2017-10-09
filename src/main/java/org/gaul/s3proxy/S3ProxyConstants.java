@@ -67,6 +67,9 @@ public final class S3ProxyConstants {
     /** Discard object data. */
     public static final String PROPERTY_NULL_BLOBSTORE =
             "s3proxy.null-blobstore";
+    /** Prevent mutations. */
+    public static final String PROPERTY_READ_ONLY_BLOBSTORE =
+            "s3proxy.read-only-blobstore";
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
