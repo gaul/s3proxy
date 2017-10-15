@@ -112,7 +112,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * POST upload policies, see [#73](https://github.com/gaul/s3proxy/issues/73)
 * requester pays buckets
 * [select object content](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectSELECTContent.html)
-* storage classes, see [#234](https://github.com/gaul/s3proxy/issues/234)
 
 S3Proxy emulates the following operations:
 

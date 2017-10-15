@@ -75,6 +75,7 @@ import com.amazonaws.services.s3.model.ListPartsRequest;
 import com.amazonaws.services.s3.model.MultipartUploadListing;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.ObjectTagging;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.PartListing;
 import com.amazonaws.services.s3.model.Permission;
@@ -84,6 +85,7 @@ import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.SetBucketLoggingConfigurationRequest;
+import com.amazonaws.services.s3.model.Tag;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.collect.ImmutableList;
@@ -1367,13 +1369,26 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testStorageClass() throws Exception {
+        String blobName = "test-storage-class";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        PutObjectRequest request = new PutObjectRequest(
+                containerName, blobName, BYTE_SOURCE.openStream(), metadata)
+                .withStorageClass("STANDARD_IA");
+        client.putObject(request);
+        metadata = client.getObjectMetadata(containerName, blobName);
+        assertThat(metadata.getStorageClass()).isEqualTo("STANDARD_IA");
+    }
+
+    @Test
     public void testUnknownHeader() throws Exception {
         String blobName = "test-unknown-header";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         PutObjectRequest request = new PutObjectRequest(
                 containerName, blobName, BYTE_SOURCE.openStream(), metadata)
-                .withStorageClass("REDUCED_REDUNDANCY");
+                .withTagging(new ObjectTagging(ImmutableList.<Tag>of()));
         try {
             client.putObject(request);
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
