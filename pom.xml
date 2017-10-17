@@ -12,7 +12,7 @@
   <version>1.6.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
-  <name>S3 Proxy</name>
+  <name>S3Proxy</name>
   <url>https://github.com/gaul/s3proxy</url>
   <description>Access other storage backends via the S3 API</description>
 
