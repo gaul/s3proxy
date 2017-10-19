@@ -18,9 +18,18 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Properties;
 import java.util.Random;
 
+import javax.script.Invocable;
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+
+import jdk.nashorn.api.scripting.NashornException;
+
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.Resources;
 import com.google.inject.Module;
 
 import org.assertj.core.api.Fail;
@@ -50,7 +59,13 @@ public final class ReadOnlyBlobStoreTest {
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
         blobStore.createContainerInLocation(null, containerName);
-        readOnlyBlobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
+
+        ScriptEngineManager factory = new ScriptEngineManager();
+        ScriptEngine engine = factory.getEngineByName("nashorn");
+        engine.eval(Resources.toString(Resources.getResource(
+                "readonly_blobstore.js"), StandardCharsets.UTF_8));
+        readOnlyBlobStore = (BlobStore) ((Invocable) engine).invokeFunction(
+                "newBlobStore", blobStore, new Properties());
     }
 
     @After
@@ -73,9 +88,10 @@ public final class ReadOnlyBlobStoreTest {
         try {
             readOnlyBlobStore.putBlob(containerName, null);
             Fail.failBecauseExceptionWasNotThrown(
+                    NashornException.class);
+        } catch (NashornException ne) {
+            assertThat(ne.getCause().getClass()).isEqualTo(
                     UnsupportedOperationException.class);
-        } catch (UnsupportedOperationException ne) {
-            // expected
         }
     }
 
@@ -84,9 +100,10 @@ public final class ReadOnlyBlobStoreTest {
         try {
             readOnlyBlobStore.putBlob(containerName, null, new PutOptions());
             Fail.failBecauseExceptionWasNotThrown(
+                    NashornException.class);
+        } catch (NashornException ne) {
+            assertThat(ne.getCause().getClass()).isEqualTo(
                     UnsupportedOperationException.class);
-        } catch (UnsupportedOperationException ne) {
-            // expected
         }
     }
 

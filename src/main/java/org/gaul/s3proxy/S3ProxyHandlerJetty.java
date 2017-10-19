@@ -23,6 +23,8 @@ import java.util.concurrent.TimeoutException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import jdk.nashorn.api.scripting.NashornException;
+
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
@@ -67,7 +69,11 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setAttribute(S3ProxyConstants.ATTRIBUTE_QUERY_ENCODING,
                     baseRequest.getQueryEncoding());
 
-            handler.doHandle(baseRequest, request, response, is);
+            try {
+                handler.doHandle(baseRequest, request, response, is);
+            } catch (NashornException ne) {
+                throw ne.getCause();
+            }
             baseRequest.setHandled(true);
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
@@ -96,6 +102,8 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             }
             baseRequest.setHandled(true);
             return;
+        } catch (IOException ioe) {
+            throw ioe;
         } catch (IllegalArgumentException iae) {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             baseRequest.setHandled(true);
@@ -130,7 +138,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
-                throw throwable;
+                throw new RuntimeException(throwable);
             }
         }
     }

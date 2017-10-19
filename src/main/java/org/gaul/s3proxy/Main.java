@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import java.io.Console;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -29,9 +30,14 @@ import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import javax.script.Invocable;
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
+import com.google.common.io.Resources;
 import com.google.inject.Module;
 
 import org.jclouds.Constants;
@@ -61,6 +67,9 @@ public final class Main {
 
         @Option(name = "--version", usage = "display version")
         private boolean version;
+
+        @Option(name = "--middleware", usage = "JavaScript file")
+        private String middleware;
     }
 
     public static void main(String[] args) throws Exception {
@@ -194,6 +203,22 @@ public final class Main {
         if ("true".equalsIgnoreCase(readOnlyBlobStore)) {
             System.err.println("Using read-only storage backend");
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
+        }
+
+        if (options.middleware != null) {
+            ScriptEngineManager factory = new ScriptEngineManager();
+            ScriptEngine engine = factory.getEngineByName("nashorn");
+            String script;
+            try {
+                script = Files.toString(new File(options.middleware),
+                        StandardCharsets.UTF_8);
+            } catch (FileNotFoundException fnfe) {
+                script = Resources.toString(Resources.getResource(
+                        options.middleware), StandardCharsets.UTF_8);
+            }
+            engine.eval(script);
+            blobStore = (BlobStore) ((Invocable) engine).invokeFunction(
+                    "newBlobStore", blobStore, properties);
         }
 
         S3Proxy s3Proxy;

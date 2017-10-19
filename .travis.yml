@@ -2,7 +2,7 @@ dist: trusty
 sudo: required
 language: java
 jdk:
-  - openjdk7
+  - openjdk8
 env:
   global:
     - secure: "aY2WMlIMs7qiKJ6ZH4CgC4JpkXHUgZm9VyrBUPNa7E5vDVRK8+fQpZx2xSlUOIl/DG6OhtPyFGydXiYNjSdBldjEN6mqCo85bzZfRnl0E/fp2lBYarMvAcNrN8+8CSme077Hs/wV7XSdsEhBpm/LAWd7Enql9x3Vwuj4NxAN04c="  # DOCKER_EMAIL
