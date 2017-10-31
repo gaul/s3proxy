@@ -87,10 +87,13 @@ import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
 
+import org.jclouds.ContextBuilder;
+import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.rest.HttpClient;
 
@@ -1376,6 +1379,58 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        }
+    }
+
+    @Test
+    public void testBlobStoreLocator() throws Exception {
+        final BlobStore blobStore1 = context.getBlobStore();
+        final BlobStore blobStore2 = ContextBuilder
+                .newBuilder(blobStoreType)
+                .credentials("other-identity", "credential")
+                .build(BlobStoreContext.class)
+                .getBlobStore();
+        s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
+            @Override
+            public Map.Entry<String, BlobStore> locateBlobStore(
+                    String identity, String container, String blob) {
+                if (identity.equals(awsCreds.getAWSAccessKeyId())) {
+                    return Maps.immutableEntry(awsCreds.getAWSSecretKey(),
+                            blobStore1);
+                } else if (identity.equals("other-identity")) {
+                    return Maps.immutableEntry("credential", blobStore2);
+                } else {
+                    return null;
+                }
+            }
+        });
+
+        // check first access key
+        List<Bucket> buckets = client.listBuckets();
+        assertThat(buckets).hasSize(1);
+        assertThat(buckets.get(0).getName()).isEqualTo(containerName);
+
+        // check second access key
+        client = AmazonS3ClientBuilder.standard()
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials("other-identity",
+                                "credential")))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+        buckets = client.listBuckets();
+        assertThat(buckets).isEmpty();
+
+        // check invalid access key
+        client = AmazonS3ClientBuilder.standard()
+                .withCredentials(new AWSStaticCredentialsProvider(
+                        new BasicAWSCredentials("bad-identity", "credential")))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+        try {
+            client.listBuckets();
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("InvalidAccessKeyId");
         }
     }
 

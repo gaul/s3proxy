@@ -25,6 +25,7 @@ import java.io.PrintStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executors;
@@ -32,6 +33,8 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import com.google.inject.Module;
 
@@ -57,8 +60,8 @@ public final class Main {
 
     private static final class Options {
         @Option(name = "--properties",
-                usage = "S3Proxy configuration (required)")
-        private File propertiesFile;
+                usage = "S3Proxy configuration (required, multiple allowed)")
+        private List<File> propertiesFiles;
 
         @Option(name = "--version", usage = "display version")
         private boolean version;
@@ -82,30 +85,78 @@ public final class Main {
             System.err.println(
                     Main.class.getPackage().getImplementationVersion());
             System.exit(0);
-        } else if (options.propertiesFile == null) {
+        } else if (options.propertiesFiles.isEmpty()) {
             usage(parser);
         }
 
-        Properties properties = new Properties();
-        try (InputStream is = new FileInputStream(options.propertiesFile)) {
-            properties.load(is);
+        S3Proxy.Builder s3ProxyBuilder = null;
+        ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
+                ImmutableMap.builder();
+        for (File propertiesFile : options.propertiesFiles) {
+            Properties properties = new Properties();
+            try (InputStream is = new FileInputStream(propertiesFile)) {
+                properties.load(is);
+            }
+            properties.putAll(System.getProperties());
+
+            BlobStore blobStore = createBlobStore(properties);
+
+            blobStore = parseMiddlewareProperties(blobStore, properties);
+
+            String s3ProxyAuthorizationString = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_AUTHORIZATION);
+            if (AuthenticationType.fromString(s3ProxyAuthorizationString) !=
+                    AuthenticationType.NONE) {
+                String localIdentity = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_IDENTITY);
+                String localCredential = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_CREDENTIAL);
+                locators.put(localIdentity, Maps.immutableEntry(
+                        localCredential, blobStore));
+            }
+
+            S3Proxy.Builder s3ProxyBuilder2 = parseS3ProxyProperties(properties)
+                    .blobStore(blobStore);
+
+            if (s3ProxyBuilder != null &&
+                    !s3ProxyBuilder.equals(s3ProxyBuilder2)) {
+                System.err.println("Multiple configurations require" +
+                        " identical s3proxy properties");
+                System.exit(1);
+            }
+            s3ProxyBuilder = s3ProxyBuilder2;
         }
-        properties.putAll(System.getProperties());
-
-        BlobStore blobStore = createBlobStore(properties);
-
-        blobStore = parseMiddlewareProperties(blobStore, properties);
 
         S3Proxy s3Proxy;
         try {
-            S3Proxy.Builder s3ProxyBuilder = parseS3ProxyProperties(properties);
-            s3Proxy = s3ProxyBuilder.blobStore(blobStore)
-                    .build();
+            s3Proxy = s3ProxyBuilder.build();
         } catch (IllegalArgumentException | IllegalStateException e) {
             System.err.println(e.getMessage());
             System.exit(1);
             throw e;
         }
+
+        final Map<String, Map.Entry<String, BlobStore>> locator =
+                locators.build();
+        if (!locator.isEmpty()) {
+            s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
+                @Override
+                public Map.Entry<String, BlobStore> locateBlobStore(
+                        String identity, String container, String blob) {
+                    if (identity == null) {
+                        if (locator.size() == 1) {
+                            return locator.entrySet().iterator().next()
+                                    .getValue();
+                        }
+                        throw new IllegalArgumentException(
+                            "cannot use anonymous access with multiple" +
+                            " backends");
+                    }
+                    return locator.get(identity);
+                }
+            });
+        }
+
         try {
             s3Proxy.start();
         } catch (Exception e) {

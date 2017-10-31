@@ -21,6 +21,7 @@ import static java.util.Objects.requireNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
+import java.util.Objects;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -204,6 +205,37 @@ public final class S3Proxy {
             }
 
             this.servicePath = path;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            } else if (!(object instanceof S3Proxy.Builder)) {
+                return false;
+            }
+            S3Proxy.Builder that = (S3Proxy.Builder) object;
+            // do not check credentials or storage backend fields
+            return Objects.equals(this.endpoint, that.endpoint) &&
+                    Objects.equals(this.secureEndpoint, that.secureEndpoint) &&
+                    Objects.equals(this.keyStorePath, that.keyStorePath) &&
+                    Objects.equals(this.keyStorePassword,
+                            that.keyStorePassword) &&
+                    Objects.equals(this.virtualHost, that.virtualHost) &&
+                    Objects.equals(this.servicePath, that.servicePath) &&
+                    Objects.equals(this.v4MaxNonChunkedRequestSize,
+                            that.v4MaxNonChunkedRequestSize) &&
+                    Objects.equals(this.ignoreUnknownHeaders,
+                            that.ignoreUnknownHeaders) &&
+                    Objects.equals(this.corsAllowAll, that.corsAllowAll);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(endpoint, secureEndpoint, keyStorePath,
+                    keyStorePassword, virtualHost, servicePath,
+                    v4MaxNonChunkedRequestSize, ignoreUnknownHeaders,
+                    corsAllowAll);
         }
     }
 
