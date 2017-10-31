@@ -1291,7 +1291,7 @@ public class S3ProxyHandler {
             for (StorageMetadata metadata : set) {
                 switch (metadata.getType()) {
                 case FOLDER:
-                    continue;
+                    // fallthrough
                 case RELATIVE_PATH:
                     commonPrefixes.add(metadata.getName());
                     continue;
