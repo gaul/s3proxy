@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import java.util.concurrent.TimeUnit;
+
 public final class S3ProxyConstants {
     public static final String PROPERTY_ENDPOINT =
             "s3proxy.endpoint";
@@ -72,6 +74,8 @@ public final class S3ProxyConstants {
     /** Prevent mutations. */
     public static final String PROPERTY_READ_ONLY_BLOBSTORE =
             "s3proxy.read-only-blobstore";
+
+    public static final long PROPERTY_TIMESKEW = TimeUnit.MINUTES.toSeconds(15);
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
