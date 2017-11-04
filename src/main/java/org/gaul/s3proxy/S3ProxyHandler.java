@@ -29,6 +29,7 @@ import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -296,14 +297,25 @@ public class S3ProxyHandler {
         for (String headerName : Collections.list(request.getHeaderNames())) {
             for (String headerValue : Collections.list(request.getHeaders(
                     headerName))) {
-                logger.trace("header: {}: {}", headerName,
+                logger.debug("header: {}: {}", headerName,
                         Strings.nullToEmpty(headerValue));
             }
             if (headerName.equalsIgnoreCase(HttpHeaders.DATE)) {
                 hasDateHeader = true;
             } else if (headerName.equalsIgnoreCase("x-amz-date")) {
-                hasXAmzDateHeader = true;
+                logger.debug("have the x-amz-date heaer {}", headerName);
+                // why x-amz-date name exist,but value is null?
+                if ("".equals(request.getHeader("x-amz-date")) ||
+                    request.getHeader("x-amz-date") == null) {
+                    logger.debug("have empty x-amz-date");
+                } else {
+                    hasXAmzDateHeader = true;
+                }
             }
+        }
+        boolean haveBothDateHeader = false;
+        if (hasDateHeader && hasXAmzDateHeader) {
+            haveBothDateHeader = true;
         }
 
         // when access information is not provided in request header,
@@ -312,13 +324,15 @@ public class S3ProxyHandler {
                 (method.equals("GET") || method.equals("HEAD") ||
                 method.equals("POST")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
-                request.getParameter("X-Amz-Algorithm") == null &&
-                request.getParameter("AWSAccessKeyId") == null &&
+                // v2 or /v4
+                request.getParameter("X-Amz-Algorithm") == null && // v4 query
+                request.getParameter("AWSAccessKeyId") == null &&  // v2 query
                 defaultBlobStore != null) {
             doHandleAnonymous(request, response, is, uri, defaultBlobStore);
             return;
         }
 
+        // should according the AWSAccessKeyId=  Signature  or auth header nil
         if (!anonymousIdentity && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("X-Amz-Date") == null &&
                 request.getParameter("Expires") == null) {
@@ -327,23 +341,6 @@ public class S3ProxyHandler {
                     " x-amz-date header");
         }
 
-        // TODO: apply sanity checks to X-Amz-Date
-        if (hasDateHeader) {
-            long date;
-            try {
-                date = request.getDateHeader(HttpHeaders.DATE);
-            } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
-            }
-            if (date < 0) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-            }
-            long now = System.currentTimeMillis();
-            if (now + TimeUnit.DAYS.toMillis(1) < date ||
-                    now - TimeUnit.DAYS.toMillis(1) > date) {
-                throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
-            }
-        }
 
         BlobStore blobStore;
         String requestIdentity = null;
@@ -355,7 +352,7 @@ public class S3ProxyHandler {
         if (!anonymousIdentity) {
             if (headerAuthorization == null) {
                 String algorithm = request.getParameter("X-Amz-Algorithm");
-                if (algorithm == null) {
+                if (algorithm == null) { //v2 query
                     String identity = request.getParameter("AWSAccessKeyId");
                     String signature = request.getParameter("Signature");
                     if (identity == null || signature == null) {
@@ -363,7 +360,7 @@ public class S3ProxyHandler {
                     }
                     headerAuthorization = "AWS " + identity + ":" + signature;
                     presignedUrl = true;
-                } else if (algorithm.equals("AWS4-HMAC-SHA256")) {
+                } else if (algorithm.equals("AWS4-HMAC-SHA256")) { //v4 query
                     String credential = request.getParameter(
                             "X-Amz-Credential");
                     String signedHeaders = request.getParameter(
@@ -384,11 +381,66 @@ public class S3ProxyHandler {
 
             try {
                 authHeader = new S3AuthorizationHeader(headerAuthorization);
+                //whether v2 or v4 (normal header and query)
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
             }
             requestIdentity = authHeader.identity;
         }
+
+        long dateSkew = 0; //date for timeskew check
+
+        //v2 GET /s3proxy-1080747708/foo?AWSAccessKeyId=local-identity&Expires=
+        //1510322602&Signature=UTyfHY1b1Wgr5BFEn9dpPlWdtFE%3D)
+        //have no date
+
+        boolean haveDate = true;
+
+        AuthenticationType finalAuthType = null;
+        if (authHeader.authenticationType == AuthenticationType.AWS_V2 &&
+            (authenticationType == AuthenticationType.AWS_V2 ||
+            authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
+            finalAuthType = AuthenticationType.AWS_V2;
+        } else if (authHeader.authenticationType == AuthenticationType.AWS_V4 &&
+            (authenticationType == AuthenticationType.AWS_V4 ||
+            authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
+            finalAuthType = AuthenticationType.AWS_V4;
+        } else if (authenticationType != AuthenticationType.NONE) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+        }
+
+        if (hasXAmzDateHeader) { //format diff between v2 and v4
+            if (finalAuthType == AuthenticationType.AWS_V2) {
+                dateSkew = request.getDateHeader("x-amz-date");
+                dateSkew /= 1000;
+                //case sensetive?
+            } else if (finalAuthType == AuthenticationType.AWS_V4) {
+                logger.debug("into process v4 {}",
+                    request.getHeader("x-amz-date"));
+
+                dateSkew = parseIso8601(request.getHeader("x-amz-date"));
+            }
+        } else if (request.getParameter("X-Amz-Date") != null) { // v4 query
+            String dateString = request.getParameter("X-Amz-Date");
+            dateSkew = parseIso8601(dateString);
+        } else if (hasDateHeader) {
+            try {
+                dateSkew = request.getDateHeader(HttpHeaders.DATE);
+                logger.debug("dateheader {}", dateSkew);
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+            }
+            dateSkew /= 1000;
+            logger.debug("dateheader {}", dateSkew);
+
+        } else {
+            haveDate = false;
+        }
+        logger.debug("dateSkew {}", dateSkew);
+        if (haveDate) {
+            isTimeSkewed(dateSkew);
+        }
+
 
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
@@ -416,7 +468,7 @@ public class S3ProxyHandler {
             blobStore = provider.getValue();
 
             String expiresString = request.getParameter("Expires");
-            if (expiresString != null) {
+            if (expiresString != null) { // v2 query
                 long expires = Long.parseLong(expiresString);
                 long nowSeconds = System.currentTimeMillis() / 1000;
                 if (nowSeconds >= expires) {
@@ -425,8 +477,9 @@ public class S3ProxyHandler {
             }
 
             String dateString = request.getParameter("X-Amz-Date");
+            //from para v4 query
             expiresString = request.getParameter("X-Amz-Expires");
-            if (dateString != null && expiresString != null) {
+            if (dateString != null && expiresString != null) { //v4 query
                 long date = parseIso8601(dateString);
                 long expires = Long.parseLong(expiresString);
                 long nowSeconds = System.currentTimeMillis() / 1000;
@@ -435,7 +488,7 @@ public class S3ProxyHandler {
                             "Request has expired");
                 }
             }
-
+            // The aim ?
             switch (authHeader.authenticationType) {
             case AWS_V2:
                 switch (authenticationType) {
@@ -468,9 +521,10 @@ public class S3ProxyHandler {
 
             // When presigned url is generated, it doesn't consider service path
             String uriForSigning = presignedUrl ? uri : this.servicePath + uri;
-            if (authHeader.hmacAlgorithm == null) {
+            if (authHeader.hmacAlgorithm == null) { //v2
                 expectedSignature = AwsSignature.createAuthorizationSignature(
-                        request, uriForSigning, credential);
+                        request, uriForSigning, credential, presignedUrl,
+                        haveBothDateHeader);
             } else {
                 String contentSha256 = request.getHeader(
                         "x-amz-content-sha256");
@@ -486,16 +540,31 @@ public class S3ProxyHandler {
                         payload = new byte[0];
                     } else {
                         // buffer the entire stream to calculate digest
+                        // why input stream read contentlength of header?
                         payload = ByteStreams.toByteArray(ByteStreams.limit(
                                 is, v4MaxNonChunkedRequestSize + 1));
                         if (payload.length == v4MaxNonChunkedRequestSize + 1) {
                             throw new S3Exception(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
                         }
+
+                        // maybe we should check this when signing,
+                        // a lot of dup code with aws sign code.
+                        MessageDigest md = MessageDigest.getInstance(
+                            authHeader.hashAlgorithm);
+                        byte[] hash = md.digest(payload);
+                        if  (!contentSha256.equals(
+                              BaseEncoding.base16().lowerCase()
+                              .encode(hash))) {
+                            throw new S3Exception(
+                                    S3ErrorCode
+                                    .X_AMZ_CONTENT_S_H_A_256_MISMATCH);
+                        }
                         is = new ByteArrayInputStream(payload);
                     }
+
                     expectedSignature = AwsSignature
-                            .createAuthorizationSignatureV4(
+                            .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
                             credential);
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
@@ -2507,10 +2576,23 @@ public class S3ProxyHandler {
         SimpleDateFormat formatter = new SimpleDateFormat(
                 "yyyyMMdd'T'HHmmss'Z'");
         formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
+        logger.debug("8601date {}", date);
         try {
             return formatter.parse(date).getTime() / 1000;
         } catch (ParseException pe) {
             throw new IllegalArgumentException(pe);
+        }
+    }
+
+    private static void isTimeSkewed(long date) throws S3Exception  {
+        if (date < 0) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+        }
+        long now = System.currentTimeMillis() / 1000;
+        if (now + S3ProxyConstants.PROPERTY_TIMESKEW < date ||
+                now - S3ProxyConstants.PROPERTY_TIMESKEW > date) {
+            logger.debug("time skewed {} {}", date, now);
+            throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
         }
     }
 

@@ -83,7 +83,8 @@ final class AwsSignature {
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
      */
     static String createAuthorizationSignature(
-            HttpServletRequest request, String uri, String credential) {
+            HttpServletRequest request, String uri, String credential,
+            boolean queryAuth, boolean bothDateHeader) {
         // sort Amazon headers
         SortedSetMultimap<String, String> canonicalizedHeaders =
                 TreeMultimap.create();
@@ -91,7 +92,8 @@ final class AwsSignature {
             Collection<String> headerValues = Collections.list(
                     request.getHeaders(headerName));
             headerName = headerName.toLowerCase();
-            if (!headerName.startsWith("x-amz-")) {
+            if (!headerName.startsWith("x-amz-") || (bothDateHeader &&
+                  headerName.equalsIgnoreCase("x-amz-date"))) {
                 continue;
             }
             if (headerValues.isEmpty()) {
@@ -103,7 +105,7 @@ final class AwsSignature {
             }
         }
 
-        // build string to sign
+        // Build string to sign
         StringBuilder builder = new StringBuilder()
                 .append(request.getMethod())
                 .append('\n')
@@ -114,11 +116,28 @@ final class AwsSignature {
                         HttpHeaders.CONTENT_TYPE)))
                 .append('\n');
         String expires = request.getParameter("Expires");
-        if (expires != null) {
-            builder.append(expires);
-        } else if (!canonicalizedHeaders.containsKey("x-amz-date")) {
-            builder.append(request.getHeader(HttpHeaders.DATE));
+        if (queryAuth) {
+            // If expires is  not nil, then it is query string sign
+            // If expires is nil,maybe alse query string sign
+            // So should check other accessid para ,presign to judge.
+            // not the expires
+            builder.append(Strings.nullToEmpty(expires));
+        }  else {
+            if (!bothDateHeader) {
+                if (canonicalizedHeaders.containsKey("x-amz-date")) {
+                    builder.append("");
+                } else {
+                    builder.append(request.getHeader(HttpHeaders.DATE));
+                }
+            }  else {
+                if (!canonicalizedHeaders.containsKey("x-amz-date")) {
+                    builder.append(request.getHeader("x-amz-date"));
+                }  else {
+                    // panic
+                }
+            }
         }
+
         builder.append('\n');
         for (Map.Entry<String, String> entry : canonicalizedHeaders.entries()) {
             builder.append(entry.getKey()).append(':')
@@ -145,7 +164,7 @@ final class AwsSignature {
         String stringToSign = builder.toString();
         logger.trace("stringToSign: {}", stringToSign);
 
-        // sign string
+        // Sign string
         Mac mac;
         try {
             mac = Mac.getInstance("HmacSHA1");

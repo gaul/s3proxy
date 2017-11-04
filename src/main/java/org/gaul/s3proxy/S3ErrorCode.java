@@ -79,7 +79,10 @@ enum S3ErrorCode {
             "At least one of the preconditions you specified did not hold."),
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
-    SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden");
+    SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    X_AMZ_CONTENT_S_H_A_256_MISMATCH(HttpServletResponse.SC_BAD_REQUEST,
+            "The provided 'x-amz-content-sha256' header does not match what" +
+            " was computed.");
 
     private final String errorCode;
     private final int httpStatusCode;
