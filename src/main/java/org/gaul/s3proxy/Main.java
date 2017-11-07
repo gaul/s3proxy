@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Properties;
@@ -91,6 +92,30 @@ public final class Main {
         }
         properties.putAll(System.getProperties());
 
+        BlobStore blobStore = createBlobStore(properties);
+
+        blobStore = parseMiddlewareProperties(blobStore, properties);
+
+        S3Proxy s3Proxy;
+        try {
+            S3Proxy.Builder s3ProxyBuilder = parseS3ProxyProperties(properties);
+            s3Proxy = s3ProxyBuilder.blobStore(blobStore)
+                    .build();
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+            throw e;
+        }
+        try {
+            s3Proxy.start();
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+        }
+    }
+
+    private static S3Proxy.Builder parseS3ProxyProperties(
+            Properties properties) throws URISyntaxException {
         String s3ProxyEndpointString = properties.getProperty(
                 S3ProxyConstants.PROPERTY_ENDPOINT);
         String secureEndpoint = properties.getProperty(
@@ -99,12 +124,12 @@ public final class Main {
                 S3ProxyConstants.PROPERTY_AUTHORIZATION);
         if ((s3ProxyEndpointString == null && secureEndpoint == null) ||
                 s3ProxyAuthorizationString == null) {
-            System.err.println("Properties file must contain:\n" +
+            throw new IllegalArgumentException(
+                    "Properties file must contain:\n" +
                     S3ProxyConstants.PROPERTY_AUTHORIZATION + "\n" +
                     "and one of\n" +
                     S3ProxyConstants.PROPERTY_ENDPOINT + "\n" +
                     S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
-            System.exit(1);
         }
 
         String s3ProxyServicePath = properties.getProperty(
@@ -123,19 +148,18 @@ public final class Main {
             localCredential = properties.getProperty(
                     S3ProxyConstants.PROPERTY_CREDENTIAL);
             if (localIdentity == null || localCredential == null) {
-                System.err.println("Must specify both " +
+                throw new IllegalArgumentException("Must specify both " +
                         S3ProxyConstants.PROPERTY_IDENTITY + " and " +
                         S3ProxyConstants.PROPERTY_CREDENTIAL +
                         " when using authentication");
-                System.exit(1);
             }
             break;
         case NONE:
             break;
         default:
-            System.err.println(S3ProxyConstants.PROPERTY_AUTHORIZATION +
+            throw new IllegalArgumentException(
+                    S3ProxyConstants.PROPERTY_AUTHORIZATION +
                     " invalid value, was: " + s3ProxyAuthorization);
-            System.exit(1);
         }
 
         String keyStorePath = properties.getProperty(
@@ -151,8 +175,45 @@ public final class Main {
         String corsAllowAll = properties.getProperty(
                 S3ProxyConstants.PROPERTY_CORS_ALLOW_ALL);
 
-        BlobStore blobStore = createBlobStore(properties);
+        S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder();
+        if (s3ProxyEndpointString != null) {
+            s3ProxyBuilder.endpoint(new URI(s3ProxyEndpointString));
+        }
+        if (secureEndpoint != null) {
+            s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
+        }
+        if (localIdentity != null || localCredential != null) {
+            s3ProxyBuilder.awsAuthentication(
+                    s3ProxyAuthorization, localIdentity,
+                    localCredential);
+        }
+        if (keyStorePath != null || keyStorePassword != null) {
+            s3ProxyBuilder.keyStore(keyStorePath, keyStorePassword);
+        }
+        if (!Strings.isNullOrEmpty(virtualHost)) {
+            s3ProxyBuilder.virtualHost(virtualHost);
+        }
+        if (v4MaxNonChunkedRequestSize != null) {
+            s3ProxyBuilder.v4MaxNonChunkedRequestSize(Long.parseLong(
+                    v4MaxNonChunkedRequestSize));
+        }
+        if (!Strings.isNullOrEmpty(ignoreUnknownHeaders)) {
+            s3ProxyBuilder.ignoreUnknownHeaders(Boolean.parseBoolean(
+                    ignoreUnknownHeaders));
+        }
+        if (corsAllowAll != null) {
+            s3ProxyBuilder.corsAllowAll(Boolean.parseBoolean(
+                    corsAllowAll));
+        }
+        if (s3ProxyServicePath != null) {
+            s3ProxyBuilder.servicePath(s3ProxyServicePath);
+        }
 
+        return s3ProxyBuilder;
+    }
+
+    private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
+            Properties properties) throws IOException {
         Properties altProperties = new Properties();
         for (Map.Entry<Object, Object> entry : properties.entrySet()) {
             String key = (String) entry.getKey();
@@ -196,54 +257,7 @@ public final class Main {
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
         }
 
-        S3Proxy s3Proxy;
-        try {
-            S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                    .blobStore(blobStore);
-            if (s3ProxyEndpointString != null) {
-                s3ProxyBuilder.endpoint(new URI(s3ProxyEndpointString));
-            }
-            if (secureEndpoint != null) {
-                s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
-            }
-            if (localIdentity != null || localCredential != null) {
-                s3ProxyBuilder.awsAuthentication(
-                        s3ProxyAuthorization, localIdentity,
-                        localCredential);
-            }
-            if (keyStorePath != null || keyStorePassword != null) {
-                s3ProxyBuilder.keyStore(keyStorePath, keyStorePassword);
-            }
-            if (!Strings.isNullOrEmpty(virtualHost)) {
-                s3ProxyBuilder.virtualHost(virtualHost);
-            }
-            if (v4MaxNonChunkedRequestSize != null) {
-                s3ProxyBuilder.v4MaxNonChunkedRequestSize(Long.parseLong(
-                        v4MaxNonChunkedRequestSize));
-            }
-            if (!Strings.isNullOrEmpty(ignoreUnknownHeaders)) {
-                s3ProxyBuilder.ignoreUnknownHeaders(Boolean.parseBoolean(
-                        ignoreUnknownHeaders));
-            }
-            if (corsAllowAll != null) {
-                s3ProxyBuilder.corsAllowAll(Boolean.parseBoolean(
-                        corsAllowAll));
-            }
-            if (s3ProxyServicePath != null) {
-                s3ProxyBuilder.servicePath(s3ProxyServicePath);
-            }
-            s3Proxy = s3ProxyBuilder.build();
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            System.err.println(e.getMessage());
-            System.exit(1);
-            throw e;
-        }
-        try {
-            s3Proxy.start();
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-            System.exit(1);
-        }
+        return blobStore;
     }
 
     private static PrintStream createLoggerErrorPrintStream() {
