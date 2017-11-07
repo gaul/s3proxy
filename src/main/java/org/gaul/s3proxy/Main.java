@@ -26,7 +26,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Strings;
@@ -34,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.io.Files;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Module;
 
 import org.jclouds.Constants;
@@ -41,6 +44,8 @@ import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.concurrent.DynamicExecutors;
+import org.jclouds.concurrent.config.ExecutorServiceModule;
 import org.jclouds.location.reference.LocationConstants;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
@@ -88,6 +93,12 @@ public final class Main {
         }
 
         S3Proxy.Builder s3ProxyBuilder = null;
+        ThreadFactory factory = new ThreadFactoryBuilder()
+                .setNameFormat("user thread %d")
+                .setThreadFactory(Executors.defaultThreadFactory())
+                .build();
+        ExecutorService executorService = DynamicExecutors.newScalingThreadPool(
+                1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
         for (File propertiesFile : options.propertiesFiles) {
@@ -97,9 +108,10 @@ public final class Main {
             }
             properties.putAll(System.getProperties());
 
-            BlobStore blobStore = createBlobStore(properties);
+            BlobStore blobStore = createBlobStore(properties, executorService);
 
-            blobStore = parseMiddlewareProperties(blobStore, properties);
+            blobStore = parseMiddlewareProperties(blobStore, executorService,
+                    properties);
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
@@ -165,7 +177,8 @@ public final class Main {
     }
 
     private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
-            Properties properties) throws IOException {
+            ExecutorService executorService, Properties properties)
+            throws IOException {
         Properties altProperties = new Properties();
         for (Map.Entry<Object, Object> entry : properties.entrySet()) {
             String key = (String) entry.getKey();
@@ -179,7 +192,8 @@ public final class Main {
         String eventualConsistency = properties.getProperty(
                 S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY);
         if ("true".equalsIgnoreCase(eventualConsistency)) {
-            BlobStore altBlobStore = createBlobStore(altProperties);
+            BlobStore altBlobStore = createBlobStore(altProperties,
+                    executorService);
             int delay = Integer.parseInt(properties.getProperty(
                     S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_DELAY,
                     "5"));
@@ -238,8 +252,8 @@ public final class Main {
         };
     }
 
-    private static BlobStore createBlobStore(Properties properties)
-            throws IOException {
+    private static BlobStore createBlobStore(Properties properties,
+            ExecutorService executorService) throws IOException {
         String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
         String credential = properties.getProperty(
@@ -278,7 +292,9 @@ public final class Main {
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(ImmutableList.<Module>of(
+                        new SLF4JLoggingModule(),
+                        new ExecutorServiceModule(executorService)))
                 .overrides(properties);
         if (!Strings.isNullOrEmpty(endpoint)) {
             builder = builder.endpoint(endpoint);
