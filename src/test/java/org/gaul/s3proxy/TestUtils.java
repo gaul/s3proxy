@@ -176,39 +176,6 @@ final class TestUtils {
         }
         String endpoint = info.getProperties().getProperty(
                 Constants.PROPERTY_ENDPOINT);
-        String s3ProxyAuthorizationString = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_AUTHORIZATION);
-        AuthenticationType s3ProxyAuthorization =
-                AuthenticationType.fromString(s3ProxyAuthorizationString);
-        info.s3Identity = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_IDENTITY);
-        info.s3Credential = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_CREDENTIAL);
-        info.endpoint = new URI(info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_ENDPOINT));
-        String secureEndpoint = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
-        String keyStorePath = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
-        String keyStorePassword = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
-        String virtualHost = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
-        String jettyMaxThreads = info.getProperties().getProperty(
-                S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS);
-        String servicePath = Strings.nullToEmpty(info.getProperties()
-                .getProperty(S3ProxyConstants.PROPERTY_SERVICE_PATH));
-        if (!servicePath.isEmpty()) {
-            if (!servicePath.startsWith("/")) {
-                servicePath = "/" + servicePath;
-            }
-        }
-        info.servicePath = servicePath;
-        info.getProperties().setProperty(Constants.PROPERTY_USER_AGENT,
-                String.format("s3proxy/%s jclouds/%s java/%s",
-                        TestUtils.class.getPackage().getImplementationVersion(),
-                        JcloudsVersion.get(),
-                        System.getProperty("java.version")));
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
@@ -221,30 +188,29 @@ final class TestUtils {
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         info.blobStore = context.getBlobStore();
 
-        S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                .blobStore(info.getBlobStore())
-                .endpoint(info.getEndpoint());
-        if (secureEndpoint != null) {
-            s3ProxyBuilder.secureEndpoint(new URI(secureEndpoint));
-            info.secureEndpoint = new URI(secureEndpoint);
-        }
-        if (info.getS3Identity() != null || info.getS3Credential() != null) {
-            s3ProxyBuilder.awsAuthentication(s3ProxyAuthorization,
-                    info.getS3Identity(), info.getS3Credential());
-        }
+        S3Proxy.Builder s3ProxyBuilder = S3Proxy.Builder.fromProperties(
+                info.getProperties());
+        s3ProxyBuilder.blobStore(info.blobStore);
+        info.endpoint = s3ProxyBuilder.getEndpoint();
+        info.secureEndpoint = s3ProxyBuilder.getSecureEndpoint();
+        info.s3Identity = s3ProxyBuilder.getIdentity();
+        info.s3Credential = s3ProxyBuilder.getCredential();
+        info.servicePath = s3ProxyBuilder.getServicePath();
+        info.getProperties().setProperty(Constants.PROPERTY_USER_AGENT,
+                String.format("s3proxy/%s jclouds/%s java/%s",
+                        TestUtils.class.getPackage().getImplementationVersion(),
+                        JcloudsVersion.get(),
+                        System.getProperty("java.version")));
+
+        // resolve relative path for tests
+        String keyStorePath = info.getProperties().getProperty(
+                S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
+        String keyStorePassword = info.getProperties().getProperty(
+                S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         if (keyStorePath != null || keyStorePassword != null) {
             s3ProxyBuilder.keyStore(
                     Resources.getResource(keyStorePath).toString(),
                     keyStorePassword);
-        }
-        if (virtualHost != null) {
-            s3ProxyBuilder.virtualHost(virtualHost);
-        }
-        if (servicePath != null) {
-            s3ProxyBuilder.servicePath(servicePath);
-        }
-        if (jettyMaxThreads != null) {
-            s3ProxyBuilder.jettyMaxThreads(Integer.parseInt(jettyMaxThreads));
         }
         info.s3Proxy = s3ProxyBuilder.build();
         info.s3Proxy.start();
