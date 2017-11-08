@@ -260,6 +260,12 @@ public final class Main {
             s3ProxyBuilder.servicePath(s3ProxyServicePath);
         }
 
+        String jettyMaxThreads = properties.getProperty(
+                S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS);
+        if (jettyMaxThreads != null) {
+            s3ProxyBuilder.jettyMaxThreads(Integer.parseInt(jettyMaxThreads));
+        }
+
         return s3ProxyBuilder;
     }
 

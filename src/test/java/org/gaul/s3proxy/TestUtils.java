@@ -194,6 +194,8 @@ final class TestUtils {
                 S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
         String virtualHost = info.getProperties().getProperty(
                 S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
+        String jettyMaxThreads = info.getProperties().getProperty(
+                S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS);
         String servicePath = Strings.nullToEmpty(info.getProperties()
                 .getProperty(S3ProxyConstants.PROPERTY_SERVICE_PATH));
         if (!servicePath.isEmpty()) {
@@ -240,6 +242,9 @@ final class TestUtils {
         }
         if (servicePath != null) {
             s3ProxyBuilder.servicePath(servicePath);
+        }
+        if (jettyMaxThreads != null) {
+            s3ProxyBuilder.jettyMaxThreads(Integer.parseInt(jettyMaxThreads));
         }
         info.s3Proxy = s3ProxyBuilder.build();
         info.s3Proxy.start();

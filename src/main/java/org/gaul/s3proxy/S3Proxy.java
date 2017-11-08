@@ -74,14 +74,15 @@ public final class S3Proxy {
                 !Strings.isNullOrEmpty(builder.credential),
                 "Must provide both identity and credential");
 
-        server = new Server();
+        QueuedThreadPool pool = new QueuedThreadPool(builder.jettyMaxThreads);
+        pool.setName("S3Proxy-Jetty");
+        server = new Server(pool);
 
         if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
             ContextHandler context = new ContextHandler();
             context.setContextPath(builder.servicePath);
         }
 
-        ((QueuedThreadPool) server.getThreadPool()).setName("S3Proxy");
         HttpConnectionFactory httpConnectionFactory =
                 new HttpConnectionFactory();
         ServerConnector connector;
@@ -132,6 +133,7 @@ public final class S3Proxy {
         private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
         private boolean corsAllowAll;
+        private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
 
         Builder() {
         }
@@ -192,6 +194,11 @@ public final class S3Proxy {
 
         public Builder corsAllowAll(boolean corsAllowAll) {
             this.corsAllowAll = corsAllowAll;
+            return this;
+        }
+
+        public Builder jettyMaxThreads(int jettyMaxThreads) {
+            this.jettyMaxThreads = jettyMaxThreads;
             return this;
         }
 
