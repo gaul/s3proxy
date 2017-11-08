@@ -89,6 +89,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.io.ByteSource;
+import com.google.common.io.ByteStreams;
 
 import org.assertj.core.api.Fail;
 
@@ -631,6 +632,7 @@ public final class AwsSdkTest {
         String contentType = "text/html; charset=UTF-8";
         String expires = "Wed, 13 Jul 2016 21:23:51 GMT";
         long expiresTime = 1468445031000L;
+
         GetObjectRequest getObjectRequest = new GetObjectRequest(containerName,
                 blobName);
         getObjectRequest.setResponseHeaders(
@@ -642,6 +644,11 @@ public final class AwsSdkTest {
                     .withContentType(contentType)
                     .withExpires(expires));
         S3Object object = client.getObject(getObjectRequest);
+        try (InputStream is = object.getObjectContent()) {
+            assertThat(is).isNotNull();
+            ByteStreams.copy(is, ByteStreams.nullOutputStream());
+        }
+
         ObjectMetadata reponseMetadata = object.getObjectMetadata();
         assertThat(reponseMetadata.getCacheControl()).isEqualTo(
                 cacheControl);
@@ -1346,7 +1353,10 @@ public final class AwsSdkTest {
         S3Object object = client.getObject(
                 new GetObjectRequest(containerName, blobName)
                         .withMatchingETagConstraint(result.getETag()));
-        assertThat(object.getObjectContent()).isNotNull();
+        try (InputStream is = object.getObjectContent()) {
+            assertThat(is).isNotNull();
+            ByteStreams.copy(is, ByteStreams.nullOutputStream());
+        }
 
         object = client.getObject(
                 new GetObjectRequest(containerName, blobName)
