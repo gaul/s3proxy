@@ -1401,6 +1401,7 @@ public final class AwsSdkTest {
                 .build(BlobStoreContext.class)
                 .getBlobStore();
         s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
+            @Nullable
             @Override
             public Map.Entry<String, BlobStore> locateBlobStore(
                     String identity, String container, String blob) {
