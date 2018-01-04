@@ -194,9 +194,20 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     private static final class NullInputStream extends InputStream {
+        private boolean closed;
+
         @Override
         public int read() throws IOException {
+            if (closed) {
+                throw new IOException("Stream already closed");
+            }
             return 0;
+        }
+
+        @Override
+        public void close() throws IOException {
+            super.close();
+            closed = true;
         }
     }
 }
