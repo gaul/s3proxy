@@ -398,13 +398,16 @@ public class S3ProxyHandler {
             boolean haveDate = true;
 
             AuthenticationType finalAuthType = null;
-            if (authHeader.authenticationType == AuthenticationType.AWS_V2 && (authenticationType == AuthenticationType.AWS_V2 || authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
+            if (authHeader.authenticationType == AuthenticationType.AWS_V2 &&
+                    (authenticationType == AuthenticationType.AWS_V2 ||
+                    authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V2;
-            }
-            else if (authHeader.authenticationType == AuthenticationType.AWS_V4 && (authenticationType == AuthenticationType.AWS_V4 || authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
+            } else if (
+                authHeader.authenticationType == AuthenticationType.AWS_V4 &&
+                        (authenticationType == AuthenticationType.AWS_V4 ||
+                    authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V4;
-            }
-            else if (authenticationType != AuthenticationType.NONE) {
+            } else if (authenticationType != AuthenticationType.NONE) {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
 
@@ -413,30 +416,26 @@ public class S3ProxyHandler {
                     dateSkew = request.getDateHeader("x-amz-date");
                     dateSkew /= 1000;
                     //case sensetive?
-                }
-                else if (finalAuthType == AuthenticationType.AWS_V4) {
-                    logger.debug("into process v4 {}", request.getHeader("x-amz-date"));
+                } else if (finalAuthType == AuthenticationType.AWS_V4) {
+                    logger.debug("into process v4 {}",
+                            request.getHeader("x-amz-date"));
 
                     dateSkew = parseIso8601(request.getHeader("x-amz-date"));
                 }
-            }
-            else if (request.getParameter("X-Amz-Date") != null) { // v4 query
+            } else if (request.getParameter("X-Amz-Date") != null) { // v4 query
                 String dateString = request.getParameter("X-Amz-Date");
                 dateSkew = parseIso8601(dateString);
-            }
-            else if (hasDateHeader) {
+            } else if (hasDateHeader) {
                 try {
                     dateSkew = request.getDateHeader(HttpHeaders.DATE);
                     logger.debug("dateheader {}", dateSkew);
-                }
-                catch (IllegalArgumentException iae) {
+                } catch (IllegalArgumentException iae) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
                 }
                 dateSkew /= 1000;
                 logger.debug("dateheader {}", dateSkew);
 
-            }
-            else {
+            } else {
                 haveDate = false;
             }
             logger.debug("dateSkew {}", dateSkew);
