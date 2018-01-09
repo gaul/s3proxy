@@ -43,6 +43,7 @@ import javax.net.ssl.X509TrustManager;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
+import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
@@ -121,7 +122,7 @@ public final class AwsSdkTest {
     private BlobStoreContext context;
     private String blobStoreType;
     private String containerName;
-    private BasicAWSCredentials awsCreds;
+    private AWSCredentials awsCreds;
     private AmazonS3 client;
     private String servicePath;
 
@@ -1465,7 +1466,7 @@ public final class AwsSdkTest {
         }
     }
 
-    private static void disableSslVerification() {
+    static void disableSslVerification() {
         try {
             // Create a trust manager that does not validate certificate chains
             TrustManager[] trustAllCerts = new TrustManager[] {
