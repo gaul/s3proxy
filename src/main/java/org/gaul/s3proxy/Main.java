@@ -264,6 +264,13 @@ public final class Main {
         String region = properties.getProperty(
                 LocationConstants.PROPERTY_REGION);
 
+        if (provider == null) {
+            System.err.println(
+                    "Properties file must contain: " +
+                    Constants.PROPERTY_PROVIDER);
+            System.exit(1);
+        }
+
         if (provider.equals("filesystem") || provider.equals("transient")) {
             // local blobstores do not require credentials
             identity = Strings.nullToEmpty(identity);
@@ -277,11 +284,12 @@ public final class Main {
             properties.remove(Constants.PROPERTY_CREDENTIAL);
         }
 
-        if (provider == null || identity == null || credential == null) {
-            System.err.println("Properties file must contain:\n" +
-                    Constants.PROPERTY_PROVIDER + "\n" +
-                    Constants.PROPERTY_IDENTITY + "\n" +
-                    Constants.PROPERTY_CREDENTIAL + "\n");
+        if (identity == null || credential == null) {
+            System.err.println(
+                    "Properties file must contain: " +
+                    Constants.PROPERTY_IDENTITY + " and " +
+                    Constants.PROPERTY_CREDENTIAL);
+            System.exit(1);
         }
 
         properties.setProperty(Constants.PROPERTY_USER_AGENT,
