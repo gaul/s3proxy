@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -64,7 +65,7 @@ public final class Main {
     private static final class Options {
         @Option(name = "--properties",
                 usage = "S3Proxy configuration (required, multiple allowed)")
-        private List<File> propertiesFiles;
+        private List<File> propertiesFiles = new ArrayList<>();
 
         @Option(name = "--version", usage = "display version")
         private boolean version;
