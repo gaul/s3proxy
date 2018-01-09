@@ -127,7 +127,8 @@ public final class AwsSdkTest {
 
     @Before
     public void setUp() throws Exception {
-        TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy();
+        TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
+                "s3proxy.conf");
         awsCreds = new BasicAWSCredentials(info.getS3Identity(),
                 info.getS3Credential());
         context = info.getBlobStore().getContext();

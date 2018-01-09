@@ -152,11 +152,11 @@ final class TestUtils {
         }
     }
 
-    static S3ProxyLaunchInfo startS3Proxy() throws Exception {
+    static S3ProxyLaunchInfo startS3Proxy(String configFile) throws Exception {
         S3ProxyLaunchInfo info = new S3ProxyLaunchInfo();
 
         try (InputStream is = Resources.asByteSource(Resources.getResource(
-                "s3proxy.conf")).openStream()) {
+                configFile)).openStream()) {
             info.getProperties().load(is);
         }
 
