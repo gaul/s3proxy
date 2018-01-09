@@ -28,6 +28,7 @@ import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -1231,6 +1232,10 @@ public class S3ProxyHandler {
             created = blobStore.createContainerInLocation(location,
                     containerName, options);
         } catch (AuthorizationException ae) {
+            if (ae.getCause() instanceof AccessDeniedException) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                        "Could not create bucket", ae);
+            }
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, ae);
         }
         if (!created) {

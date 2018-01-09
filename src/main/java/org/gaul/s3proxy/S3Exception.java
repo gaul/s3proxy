@@ -42,6 +42,10 @@ public final class S3Exception extends Exception {
                 ImmutableMap.<String, String>of());
     }
 
+    S3Exception(S3ErrorCode error, String message, Throwable cause) {
+        this(error, message, cause, ImmutableMap.<String, String>of());
+    }
+
     S3Exception(S3ErrorCode error, String message, Throwable cause,
                 Map<String, String> elements) {
         super(requireNonNull(message), cause);
