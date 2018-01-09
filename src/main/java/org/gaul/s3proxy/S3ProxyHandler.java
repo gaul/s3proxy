@@ -575,7 +575,7 @@ public class S3ProxyHandler {
                 }
             }
 
-            if (!expectedSignature.equals(authHeader.signature)) {
+            if (!constantTimeEquals(expectedSignature, authHeader.signature)) {
                 logger.debug("fail to validate signature");
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
@@ -1931,7 +1931,7 @@ public class S3ProxyHandler {
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
             String expectedSignature = BaseEncoding.base16().lowerCase().encode(
                     hmac("HmacSHA256", policy, kSigning));
-            if (!signature.equals(expectedSignature)) {
+            if (!constantTimeEquals(signature, expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -1939,7 +1939,7 @@ public class S3ProxyHandler {
             String expectedSignature = BaseEncoding.base64().encode(
                     hmac("HmacSHA1", policy,
                             credential.getBytes(StandardCharsets.UTF_8)));
-            if (!signature.equals(expectedSignature)) {
+            if (!constantTimeEquals(signature, expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -2794,5 +2794,10 @@ public class S3ProxyHandler {
             }
         }
         return true;
+    }
+
+    private static boolean constantTimeEquals(String x, String y) {
+        return MessageDigest.isEqual(x.getBytes(StandardCharsets.UTF_8),
+                y.getBytes(StandardCharsets.UTF_8));
     }
 }
