@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -202,6 +203,15 @@ final class NullBlobStore extends ForwardingBlobStore {
                 throw new IOException("Stream already closed");
             }
             return 0;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (closed) {
+                throw new IOException("Stream already closed");
+            }
+            Arrays.fill(b, off, off + len, (byte) 0);
+            return len;
         }
 
         @Override
