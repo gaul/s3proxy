@@ -378,6 +378,9 @@ public class S3ProxyHandler {
                             ", requestSignedHeaders=" + signedHeaders +
                             ", Signature=" + signature;
                     presignedUrl = true;
+                } else {
+                    throw new IllegalArgumentException("unknown algorithm: " +
+                            algorithm);
                 }
             }
 
