@@ -35,6 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SortedSetMultimap;
@@ -192,7 +193,7 @@ final class AwsSignature {
     }
 
     @Nullable
-    private static String[] extractSignedHeaders(String authorization) {
+    private static List<String> extractSignedHeaders(String authorization) {
         int index = authorization.indexOf("SignedHeaders=");
         if (index < 0) {
             return null;
@@ -202,11 +203,12 @@ final class AwsSignature {
             return null;
         }
         int startHeaders = authorization.indexOf('=', index);
-        return authorization.substring(startHeaders + 1, endSigned).split(";");
+        return Splitter.on(';').splitToList(authorization.substring(
+                startHeaders + 1, endSigned));
     }
 
     private static String buildCanonicalHeaders(HttpServletRequest request,
-                                                String[] signedHeaders) {
+            List<String> signedHeaders) {
         List<String> headers = new ArrayList<>();
         for (String header : signedHeaders) {
             headers.add(header.toLowerCase());
@@ -271,12 +273,12 @@ final class AwsSignature {
         } else {
             digest = getMessageDigest(payload, hashAlgorithm);
         }
-        String[] signedHeaders;
+        List<String> signedHeaders;
         if (authorizationHeader != null) {
             signedHeaders = extractSignedHeaders(authorizationHeader);
         } else {
-            signedHeaders = request.getParameter("X-Amz-SignedHeaders")
-                    .split(";");
+            signedHeaders = Splitter.on(';').splitToList(request.getParameter(
+                    "X-Amz-SignedHeaders"));
         }
         String canonicalRequest = Joiner.on("\n").join(
                 request.getMethod(),

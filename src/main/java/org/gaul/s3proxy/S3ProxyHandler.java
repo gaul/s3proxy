@@ -59,6 +59,7 @@ import javax.xml.stream.XMLStreamWriter;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Optional;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -2779,8 +2780,8 @@ public class S3ProxyHandler {
     }
 
     private static boolean validateIpAddress(String string) {
-        String[] parts = string.split("\\.");
-        if (parts.length != 4) {
+        List<String> parts = Splitter.on('.').splitToList(string);
+        if (parts.size() != 4) {
             return false;
         }
         for (String part : parts) {

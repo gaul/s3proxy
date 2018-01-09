@@ -16,6 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import java.util.List;
+
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 
 final class S3AuthorizationHeader {
@@ -48,16 +51,17 @@ final class S3AuthorizationHeader {
             region = null;
             date = null;
             service = null;
-            String[] fields = header.split(" ");
-            if (fields.length != 2) {
+            List<String> fields = Splitter.on(' ').splitToList(header);
+            if (fields.size() != 2) {
                 throw new IllegalArgumentException("Invalid header");
             }
-            String[] identityTuple = fields[1].split(":");
-            if (identityTuple.length != 2) {
+            List<String> identityTuple = Splitter.on(':').splitToList(
+                    fields.get(1));
+            if (identityTuple.size() != 2) {
                 throw new IllegalArgumentException("Invalid header");
             }
-            identity = identityTuple[0];
-            signature = identityTuple[1];
+            identity = identityTuple.get(0);
+            signature = identityTuple.get(1);
         } else if (header.startsWith("AWS4-HMAC")) {
             authenticationType = AuthenticationType.AWS_V4;
             signature = extractSignature(header);
@@ -72,19 +76,21 @@ final class S3AuthorizationHeader {
             }
             String credential = header.substring(credentialIndex +
                     CREDENTIAL_FIELD.length(), credentialEnd);
-            String[] fields = credential.split("/");
-            if (fields.length != 5) {
+            List<String> fields = Splitter.on('/').splitToList(credential);
+            if (fields.size() != 5) {
                 throw new IllegalArgumentException(
                         "Invalid Credential: " + credential);
             }
-            identity = fields[0];
-            date = fields[1];
-            region = fields[2];
-            service = fields[3];
+            identity = fields.get(0);
+            date = fields.get(1);
+            region = fields.get(2);
+            service = fields.get(3);
             String awsSignatureVersion = header.substring(
                     0, header.indexOf(' '));
-            hashAlgorithm = DIGEST_MAP.get(awsSignatureVersion.split("-")[2]);
-            hmacAlgorithm = "Hmac" + awsSignatureVersion.split("-")[2];
+            hashAlgorithm = DIGEST_MAP.get(Splitter.on('-').splitToList(
+                    awsSignatureVersion).get(2));
+            hmacAlgorithm = "Hmac" + Splitter.on('-').splitToList(
+                    awsSignatureVersion).get(2);
         } else {
             throw new IllegalArgumentException("Invalid header");
         }
