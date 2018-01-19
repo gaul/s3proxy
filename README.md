@@ -105,11 +105,11 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * bucket logging
 * cross-origin resource sharing, see [#142](https://github.com/gaul/s3proxy/issues/142)
 * hosting static websites
-* POST upload policies, see [#73](https://github.com/gaul/s3proxy/issues/73)
 * list objects v2, see [#168](https://github.com/gaul/s3proxy/issues/168)
 * object server-side encryption
 * object tagging
 * object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74)
+* POST upload policies, see [#73](https://github.com/gaul/s3proxy/issues/73)
 * requester pays buckets
 * [select object content](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectSELECTContent.html)
 * storage classes, see [#234](https://github.com/gaul/s3proxy/issues/234)
