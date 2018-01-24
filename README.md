@@ -139,6 +139,7 @@ References
 * [s3mock](https://github.com/findify/s3mock) mocks the S3 API for Java/Scala projects
 * [sbt-s3](https://github.com/localytics/sbt-s3) runs S3Proxy via the Scala Build Tool
 * [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
+* [edgefs](https://github.com/Nexenta/edge-fuse) NexentaEdge Extended S3 API, mount S3 bucket for full POSIX read/write access, tailored for AI/ML applications such as HDF5 and LMDB training datasets
 
 License
 -------
