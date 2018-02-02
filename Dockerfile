@@ -5,7 +5,7 @@ MAINTAINER Andrew Gaul <andrew@gaul.org>
 WORKDIR /opt/s3proxy
 COPY . /opt/s3proxy/
 
-RUN mvn package
+RUN mvn package -DskipTests
 
 # Multistage - Image
 FROM java:7u121-jre-alpine
