@@ -5,7 +5,6 @@ jdk:
   - openjdk7
 env:
   global:
-    - secure: "aY2WMlIMs7qiKJ6ZH4CgC4JpkXHUgZm9VyrBUPNa7E5vDVRK8+fQpZx2xSlUOIl/DG6OhtPyFGydXiYNjSdBldjEN6mqCo85bzZfRnl0E/fp2lBYarMvAcNrN8+8CSme077Hs/wV7XSdsEhBpm/LAWd7Enql9x3Vwuj4NxAN04c="  # DOCKER_EMAIL
     - secure: "kLL/DJT13SO4WGpqzBTRqzbk4sOg6zeczQXSbC6I2W4hUCrr1hgFZt2bhZAI7AD89Q633Yj0XczOFWAlKIb0h/1jauCHwxmhDKieDI6VibnoauuFlKDT/279768Wg4oVnRM+uSeSd69jrsTnngbCckKAgSqow0XR3BcM6iSITaM="  # DOCKER_USER
     - secure: "FykiXU5ZFxIvw28pp0BgLJULRAOs1QSc10Cx2hp8fW1I1U/JUxv1RlawePoyNgpGNCZvLQMZJtaccEZUBzc0ucFnMZD5Cu+powGzdXos0v3W7Fb5YI7lSabIa8Zq6mYYp+toaMJRx3dJcIwAtFiMRzbqM3d9DECKLb/9N2IvLRU="  # DOCKER_PASS
     - COMMIT=${TRAVIS_COMMIT::8}
@@ -22,7 +21,7 @@ script:
  - export BOTO_CONFIG=/dev/null
  - ./src/test/resources/run-s3-tests.sh
 after_success:
-  - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
+  - docker login -u $DOCKER_USER -p $DOCKER_PASS
   - export REPO=andrewgaul/s3proxy
   - export TAG=`if [ "$TRAVIS_BRANCH" == "master" ]; then echo "latest"; else echo $TRAVIS_BRANCH ; fi`
   - docker build -f Dockerfile -t $REPO:$COMMIT .
