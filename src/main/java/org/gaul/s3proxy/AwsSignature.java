@@ -118,9 +118,9 @@ final class AwsSignature {
                 .append('\n');
         String expires = request.getParameter("Expires");
         if (queryAuth) {
-            // If expires is  not nil, then it is query string sign
-            // If expires is nil,maybe alse query string sign
-            // So should check other accessid para ,presign to judge.
+            // If expires is not nil, then it is query string sign
+            // If expires is nil, maybe also query string sign
+            // So should check other accessid param, presign to judge.
             // not the expires
             builder.append(Strings.nullToEmpty(expires));
         }  else {

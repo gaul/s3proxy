@@ -119,7 +119,7 @@ S3Proxy emulates the following operations:
 * copy multi-part objects, see [#76](https://github.com/gaul/s3proxy/issues/76)
 
 The wiki collects
-[compatability notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)
+[compatibility notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)
 for specific storage backends.
 
 Support
