@@ -6,6 +6,9 @@ s3proxy.iml
 .project
 .settings
 
+# MAC stuff
+.DS_Store
+
 # below is default github .ignore for java
 *.class
 # Mobile Tools for Java (J2ME)
