@@ -13,7 +13,10 @@
   </containerDescriptorHandlers>
   <dependencySets>
     <dependencySet>
-      <outputDirectory>/</outputDirectory>
+      <excludes>
+        <exclude>org.eclipse.jetty:*</exclude>
+      </excludes>
+      <outputDirectory/>
       <useProjectArtifact>true</useProjectArtifact>
       <unpack>true</unpack>
       <scope>runtime</scope>
@@ -22,7 +25,7 @@
   <fileSets>
     <fileSet>
       <directory>${project.basedir}/src/main/config</directory>
-      <outputDirectory>/</outputDirectory>
+      <outputDirectory/>
       <includes>
         <include>logback.xml</include>
       </includes>
