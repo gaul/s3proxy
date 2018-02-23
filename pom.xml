@@ -147,6 +147,33 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+             <createDependencyReducedPom>false</createDependencyReducedPom>
+             <artifactSet>
+                <includes>
+                  <include>org.eclipse.jetty:*</include>
+                </includes>
+              </artifactSet>
+              <relocations>
+                <relocation>
+                  <pattern>org.eclipse.jetty</pattern>
+                  <shadedPattern>${shade.prefix}.org.eclipse.jetty</shadedPattern>
+                </relocation>
+              </relocations>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>      
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
         <version>3.0.0</version>
         <configuration>
@@ -276,6 +303,7 @@
     <java.version>1.7</java.version>
     <jclouds.version>2.1.0</jclouds.version>
     <slf4j.version>1.7.25</slf4j.version>
+    <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>2.20</surefire.version>
   </properties>
 

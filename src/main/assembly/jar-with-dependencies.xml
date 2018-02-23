@@ -13,6 +13,9 @@
   </containerDescriptorHandlers>
   <dependencySets>
     <dependencySet>
+      <excludes>
+        <exclude>org.eclipse.jetty:*</exclude>
+      </excludes>
       <outputDirectory>/</outputDirectory>
       <useProjectArtifact>true</useProjectArtifact>
       <unpack>true</unpack>
