@@ -392,7 +392,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
-      <version>9.2.22.v20170606</version>
+      <version>9.2.24.v20180105</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
