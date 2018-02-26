@@ -20,8 +20,6 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import org.assertj.core.api.Assertions;
-
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
@@ -32,6 +30,8 @@ import com.amazonaws.services.s3.model.Bucket;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 
 import com.google.common.io.Files;
+
+import org.assertj.core.api.Assertions;
 
 import org.junit.Before;
 import org.junit.Rule;

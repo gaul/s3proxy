@@ -54,7 +54,7 @@ public final class S3ProxyRule extends ExternalResource {
         private String secretStorePassword;
         private int port = -1;
         private boolean ignoreUnknownHeaders;
-        private boolean useHttps = false;
+        private boolean useHttps;
         private String blobStoreProvider = "filesystem";
 
         private Builder() { }
