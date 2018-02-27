@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.junit.rules;
+package org.gaul.s3proxy.junit;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,9 +31,12 @@ import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.annotations.Beta;
+
 /**
  * Emulates a S3 endpoint.
  */
+@Beta
 public final class S3ProxyRule extends ExternalResource {
     private static final Logger logger = LoggerFactory.getLogger(
         S3ProxyRule.class);
@@ -111,6 +114,7 @@ public final class S3ProxyRule extends ExternalResource {
         try {
             blobStoreLocation = Files.createTempDirectory("S3ProxyRule")
                     .toFile();
+            blobStoreLocation.deleteOnExit();
             properties.setProperty("jclouds.filesystem.basedir",
                 blobStoreLocation.getCanonicalPath());
         } catch (IOException e) {

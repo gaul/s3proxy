@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.junit.rules;
+package org.gaul.s3proxy.junit;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -31,8 +33,7 @@ import com.amazonaws.services.s3.model.S3ObjectSummary;
 
 import com.google.common.io.Files;
 
-import org.assertj.core.api.Assertions;
-
+import org.gaul.s3proxy.junit.S3ProxyRule;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -53,7 +54,6 @@ public class S3ProxyRuleTest {
     public @Rule S3ProxyRule s3Proxy = S3ProxyRule
         .builder()
         .withCredentials(AWS_ACCESS_KEY, AWS_SECRET_KEY)
-        .ignoreUnknownHeaders()
         .build();
 
     private AmazonS3 s3Client;
@@ -77,8 +77,8 @@ public class S3ProxyRuleTest {
     @Test
     public final void listBucket() {
         List<Bucket> buckets = s3Client.listBuckets();
-        Assertions.assertThat(buckets.size()).isEqualTo(1);
-        Assertions.assertThat(buckets.get(0).getName())
+        assertThat(buckets).hasSize(1);
+        assertThat(buckets.get(0).getName())
             .isEqualTo(MY_TEST_BUCKET);
     }
 
@@ -91,9 +91,9 @@ public class S3ProxyRuleTest {
         List<S3ObjectSummary> summaries = s3Client
                                             .listObjects(MY_TEST_BUCKET)
                                             .getObjectSummaries();
-        Assertions.assertThat(summaries.size()).isEqualTo(1);
-        Assertions.assertThat(summaries.get(0).getKey()).isEqualTo("file.txt");
-        Assertions.assertThat(summaries.get(0).getSize())
+        assertThat(summaries.size()).isEqualTo(1);
+        assertThat(summaries.get(0).getKey()).isEqualTo("file.txt");
+        assertThat(summaries.get(0).getSize())
             .isEqualTo(testFile.length());
     }
 
