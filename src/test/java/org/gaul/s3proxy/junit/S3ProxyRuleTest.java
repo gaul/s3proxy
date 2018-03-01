@@ -84,17 +84,15 @@ public class S3ProxyRuleTest {
 
     @Test
     public final void uploadFile() throws Exception {
-        File testFile = temporaryFolder.newFile("test.txt");
-        Files.asCharSink(testFile, StandardCharsets.UTF_8).write("content");
-        s3Client.putObject(MY_TEST_BUCKET, "file.txt", testFile);
+        String testInput = "content";
+        s3Client.putObject(MY_TEST_BUCKET, "file.txt", testInput);
 
         List<S3ObjectSummary> summaries = s3Client
                                             .listObjects(MY_TEST_BUCKET)
                                             .getObjectSummaries();
         assertThat(summaries.size()).isEqualTo(1);
         assertThat(summaries.get(0).getKey()).isEqualTo("file.txt");
-        assertThat(summaries.get(0).getSize())
-            .isEqualTo(testFile.length());
+        assertThat(summaries).hasSize(1);
     }
 
 }

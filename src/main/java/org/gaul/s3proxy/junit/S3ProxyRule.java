@@ -26,7 +26,9 @@ import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.gaul.s3proxy.AuthenticationType;
 import org.gaul.s3proxy.S3Proxy;
 import org.jclouds.ContextBuilder;
+import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.domain.StorageMetadata;
 import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +36,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.annotations.Beta;
 
 /**
- * Emulates a S3 endpoint.
+ * A JUnit Rule that manages an S3Proxy instance which tests can use as an S3 API endpoint.
  */
 @Beta
 public final class S3ProxyRule extends ExternalResource {
@@ -46,8 +48,10 @@ public final class S3ProxyRule extends ExternalResource {
     private final String accessKey;
     private final String secretKey;
     private final String endpointFormat;
-    private final File blobStoreLocation;
     private final S3Proxy s3Proxy;
+
+    private BlobStoreContext blobStoreContext;
+    private URI endpointUri;
 
     public static final class Builder {
         private AuthenticationType authType = AuthenticationType.NONE;
@@ -57,7 +61,6 @@ public final class S3ProxyRule extends ExternalResource {
         private String secretStorePassword;
         private int port = -1;
         private boolean ignoreUnknownHeaders;
-        private boolean useHttps;
         private String blobStoreProvider = "filesystem";
 
         private Builder() { }
@@ -91,11 +94,6 @@ public final class S3ProxyRule extends ExternalResource {
             return this;
         }
 
-        public Builder withHttps() {
-            useHttps = true;
-            return this;
-        }
-
         public Builder ignoreUnknownHeaders() {
             ignoreUnknownHeaders = true;
             return this;
@@ -112,7 +110,7 @@ public final class S3ProxyRule extends ExternalResource {
 
         Properties properties = new Properties();
         try {
-            blobStoreLocation = Files.createTempDirectory("S3ProxyRule")
+            File blobStoreLocation = Files.createTempDirectory("S3ProxyRule")
                     .toFile();
             blobStoreLocation.deleteOnExit();
             properties.setProperty("jclouds.filesystem.basedir",
@@ -121,13 +119,13 @@ public final class S3ProxyRule extends ExternalResource {
             throw new RuntimeException("Unable to initialize Blob Store", e);
         }
 
-        BlobStoreContext context = ContextBuilder.newBuilder(
+        blobStoreContext = ContextBuilder.newBuilder(
                     builder.blobStoreProvider)
                 .credentials(accessKey, secretKey)
                 .overrides(properties).build(BlobStoreContext.class);
 
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-            .blobStore(context.getBlobStore())
+            .blobStore(blobStoreContext.getBlobStore())
             .awsAuthentication(builder.authType, accessKey, secretKey)
             .ignoreUnknownHeaders(builder.ignoreUnknownHeaders);
 
@@ -138,15 +136,9 @@ public final class S3ProxyRule extends ExternalResource {
         }
 
         int port = builder.port < 0 ? 0 : builder.port;
-        if (builder.useHttps) {
-            endpointFormat = "https://%s:%d";
-            String endpoint = String.format(endpointFormat, LOCALHOST, port);
-            s3ProxyBuilder.secureEndpoint(URI.create(endpoint));
-        } else {
-            endpointFormat = "http://%s:%d";
-            String endpoint = String.format(endpointFormat, LOCALHOST, port);
-            s3ProxyBuilder.endpoint(URI.create(endpoint));
-        }
+        endpointFormat = "http://%s:%d";
+        String endpoint = String.format(endpointFormat, LOCALHOST, port);
+        s3ProxyBuilder.endpoint(URI.create(endpoint));
 
         s3Proxy = s3ProxyBuilder.build();
     }
@@ -162,6 +154,7 @@ public final class S3ProxyRule extends ExternalResource {
         while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
             Thread.sleep(10);
         }
+        endpointUri = URI.create(String.format(endpointFormat, LOCALHOST, s3Proxy.getPort()));
         logger.debug("S3 proxy is running");
     }
 
@@ -170,6 +163,11 @@ public final class S3ProxyRule extends ExternalResource {
         logger.debug("S3 proxy is stopping");
         try {
             s3Proxy.stop();
+            BlobStore blobStore = blobStoreContext.getBlobStore();
+            for (StorageMetadata metadata : blobStore.list()) {
+              blobStore.deleteContainer(metadata.getName());
+            }
+            blobStoreContext.close();
         } catch (Exception e) {
             throw new RuntimeException("Unable to stop S3 proxy", e);
         }
@@ -177,8 +175,7 @@ public final class S3ProxyRule extends ExternalResource {
     }
 
     public URI getUri() {
-        return URI.create(String.format(endpointFormat, LOCALHOST,
-            s3Proxy.getPort()));
+        return endpointUri;
     }
 
     public String getAccessKey() {
