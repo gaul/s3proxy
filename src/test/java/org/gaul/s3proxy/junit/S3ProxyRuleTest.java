@@ -47,13 +47,10 @@ public class S3ProxyRuleTest {
 
     private static final String MY_TEST_BUCKET = "my-test-bucket";
 
-    private static final String AWS_ACCESS_KEY = "access";
-    private static final String AWS_SECRET_KEY = "secret";
-
     public @Rule TemporaryFolder temporaryFolder = new TemporaryFolder();
     public @Rule S3ProxyRule s3Proxy = S3ProxyRule
         .builder()
-        .withCredentials(AWS_ACCESS_KEY, AWS_SECRET_KEY)
+        .withCredentials("access", "secret")
         .build();
 
     private AmazonS3 s3Client;
