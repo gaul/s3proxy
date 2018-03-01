@@ -22,6 +22,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.util.Properties;
 
+import org.apache.commons.io.FileUtils;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.gaul.s3proxy.AuthenticationType;
 import org.gaul.s3proxy.S3Proxy;
@@ -52,6 +53,7 @@ public final class S3ProxyRule extends ExternalResource {
 
     private BlobStoreContext blobStoreContext;
     private URI endpointUri;
+    private File blobStoreLocation;
 
     public static final class Builder {
         private AuthenticationType authType = AuthenticationType.NONE;
@@ -110,9 +112,8 @@ public final class S3ProxyRule extends ExternalResource {
 
         Properties properties = new Properties();
         try {
-            File blobStoreLocation = Files.createTempDirectory("S3ProxyRule")
+            blobStoreLocation = Files.createTempDirectory("S3ProxyRule")
                     .toFile();
-            blobStoreLocation.deleteOnExit();
             properties.setProperty("jclouds.filesystem.basedir",
                 blobStoreLocation.getCanonicalPath());
         } catch (IOException e) {
@@ -171,6 +172,7 @@ public final class S3ProxyRule extends ExternalResource {
         } catch (Exception e) {
             throw new RuntimeException("Unable to stop S3 proxy", e);
         }
+        FileUtils.deleteQuietly(blobStoreLocation);
         logger.debug("S3 proxy has stopped");
     }
 
