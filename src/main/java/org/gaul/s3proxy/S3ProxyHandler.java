@@ -182,6 +182,7 @@ public class S3ProxyHandler {
             "log-delivery-write"
     );
     private static final String XML_CONTENT_TYPE = "application/xml";
+    private static final String UTF_8 = "UTF-8";
     /** URLEncoder escapes / which we do not want. */
     private static final Escaper urlEscaper = new PercentEscaper("*-./_", true);
     @SuppressWarnings("deprecation")
@@ -455,7 +456,7 @@ public class S3ProxyHandler {
 
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
-            path[i] = URLDecoder.decode(path[i], "UTF-8");
+            path[i] = URLDecoder.decode(path[i], UTF_8);
         }
 
         Map.Entry<String, BlobStore> provider =
@@ -820,6 +821,7 @@ public class S3ProxyHandler {
             BlobStore blobStore, String containerName) throws IOException {
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -917,6 +919,7 @@ public class S3ProxyHandler {
             String blobName) throws IOException {
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1051,6 +1054,7 @@ public class S3ProxyHandler {
             BlobStore blobStore) throws IOException {
         PageSet<? extends StorageMetadata> buckets = blobStore.list();
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1091,6 +1095,7 @@ public class S3ProxyHandler {
 
     private void handleContainerLocation(HttpServletResponse response,
             BlobStore blobStore, String containerName) throws IOException {
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1120,6 +1125,7 @@ public class S3ProxyHandler {
         List<MultipartUpload> uploads = blobStore.listMultipartUploads(
                 container);
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1315,13 +1321,12 @@ public class S3ProxyHandler {
         }
         options.maxResults(maxKeys);
 
-        response.setCharacterEncoding("UTF-8");
-
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
-            response.setContentType("application/xml");
+            response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
@@ -1442,6 +1447,7 @@ public class S3ProxyHandler {
 
         blobStore.removeBlobs(containerName, blobNames);
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1595,7 +1601,7 @@ public class S3ProxyHandler {
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
         String copySourceHeader = request.getHeader("x-amz-copy-source");
-        copySourceHeader = URLDecoder.decode(copySourceHeader, "UTF-8");
+        copySourceHeader = URLDecoder.decode(copySourceHeader, UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -1691,6 +1697,7 @@ public class S3ProxyHandler {
 
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
                 destBlobName);
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2017,6 +2024,7 @@ public class S3ProxyHandler {
                     options);
         }
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2114,6 +2122,7 @@ public class S3ProxyHandler {
             blobStore.removeBlob(containerName, uploadId);
         }
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2198,6 +2207,7 @@ public class S3ProxyHandler {
 
         String encodingType = request.getParameter("encoding-type");
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2263,7 +2273,7 @@ public class S3ProxyHandler {
             throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
         String copySourceHeader = request.getHeader("x-amz-copy-source");
-        copySourceHeader = URLDecoder.decode(copySourceHeader, "UTF-8");
+        copySourceHeader = URLDecoder.decode(copySourceHeader, UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -2402,6 +2412,7 @@ public class S3ProxyHandler {
             }
         }
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2656,6 +2667,7 @@ public class S3ProxyHandler {
             return;
         }
 
+        response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
