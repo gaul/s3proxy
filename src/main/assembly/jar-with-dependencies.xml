@@ -15,6 +15,10 @@
     <dependencySet>
       <excludes>
         <exclude>org.eclipse.jetty:*</exclude>
+        <exclude>com.google.guava:guava</exclude>
+        <exclude>org.apache.jclouds:*</exclude>
+        <exclude>org.apache.jclouds.api:*</exclude>
+        <exclude>org.apache.jclouds.provider:*</exclude>
       </excludes>
       <outputDirectory>/</outputDirectory>
       <useProjectArtifact>true</useProjectArtifact>
