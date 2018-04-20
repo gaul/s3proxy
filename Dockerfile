@@ -1,6 +1,6 @@
 # Multistage - Builder
 FROM maven:3.5.0-jdk-7-alpine as s3proxy-builder
-MAINTAINER Andrew Gaul <andrew@gaul.org>
+LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
 COPY . /opt/s3proxy/
@@ -8,8 +8,8 @@ COPY . /opt/s3proxy/
 RUN mvn package -DskipTests
 
 # Multistage - Image
-FROM java:7u121-jre-alpine
-MAINTAINER Andrew Gaul <andrew@gaul.org>
+FROM openjdk:7-jre-alpine
+LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
 
