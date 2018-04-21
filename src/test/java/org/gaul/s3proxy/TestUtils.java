@@ -111,7 +111,7 @@ final class TestUtils {
 
     static final class S3ProxyLaunchInfo {
         private S3Proxy s3Proxy;
-        private Properties properties = new Properties();
+        private final Properties properties = new Properties();
         private String s3Identity;
         private String s3Credential;
         private BlobStore blobStore;

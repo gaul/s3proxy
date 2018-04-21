@@ -52,9 +52,9 @@ public final class S3ProxyRule extends ExternalResource {
     private final String endpointFormat;
     private final S3Proxy s3Proxy;
 
-    private BlobStoreContext blobStoreContext;
+    private final BlobStoreContext blobStoreContext;
     private URI endpointUri;
-    private File blobStoreLocation;
+    private final File blobStoreLocation;
 
     public static final class Builder {
         private AuthenticationType authType = AuthenticationType.NONE;
