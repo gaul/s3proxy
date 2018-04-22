@@ -25,7 +25,6 @@ import java.net.URISyntaxException;
 import java.util.Objects;
 import java.util.Properties;
 
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -113,7 +112,7 @@ public final class S3Proxy {
         }
         handler = new S3ProxyHandlerJetty(builder.blobStore,
                 builder.authenticationType, builder.identity,
-                builder.credential, Optional.fromNullable(builder.virtualHost),
+                builder.credential, builder.virtualHost,
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsAllowAll,
                 builder.servicePath);

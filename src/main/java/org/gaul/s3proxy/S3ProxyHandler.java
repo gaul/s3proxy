@@ -16,8 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import static java.util.Objects.requireNonNull;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FilterInputStream;
@@ -214,7 +212,7 @@ public class S3ProxyHandler {
 
     public S3ProxyHandler(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
-            final String credential, Optional<String> virtualHost,
+            final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean corsAllowAll, final String servicePath) {
         if (authenticationType != AuthenticationType.NONE) {
@@ -243,7 +241,7 @@ public class S3ProxyHandler {
             };
         }
         this.authenticationType = authenticationType;
-        this.virtualHost = requireNonNull(virtualHost);
+        this.virtualHost = Optional.fromNullable(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
         this.corsAllowAll = corsAllowAll;

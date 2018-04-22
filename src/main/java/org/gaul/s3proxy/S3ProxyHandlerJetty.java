@@ -20,10 +20,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeoutException;
 
+import javax.annotation.Nullable;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import org.eclipse.jetty.server.Request;
@@ -42,7 +42,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
 
     S3ProxyHandlerJetty(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
-            final String credential, Optional<String> virtualHost,
+            final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
             boolean corsAllowAll, String servicePath) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
