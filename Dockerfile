@@ -29,6 +29,7 @@ ENV \
     JCLOUDS_PROVIDER="filesystem" \
     JCLOUDS_ENDPOINT="" \
     JCLOUDS_REGION="" \
+    JCLOUDS_REGIONS="us-east-1" \
     JCLOUDS_IDENTITY="remote-identity" \
     JCLOUDS_CREDENTIAL="remote-credential"
 
