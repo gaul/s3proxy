@@ -14,6 +14,7 @@ exec java \
     -Djclouds.credential=${JCLOUDS_CREDENTIAL} \
     -Djclouds.endpoint=${JCLOUDS_ENDPOINT} \
     -Djclouds.region=${JCLOUDS_REGION} \
+    -Djclouds.regions=${JCLOUDS_REGIONS} \
     -Djclouds.filesystem.basedir=/data \
     -jar /opt/s3proxy/s3proxy \
     --properties /dev/null
