@@ -8,6 +8,7 @@ env:
     - secure: "kLL/DJT13SO4WGpqzBTRqzbk4sOg6zeczQXSbC6I2W4hUCrr1hgFZt2bhZAI7AD89Q633Yj0XczOFWAlKIb0h/1jauCHwxmhDKieDI6VibnoauuFlKDT/279768Wg4oVnRM+uSeSd69jrsTnngbCckKAgSqow0XR3BcM6iSITaM="  # DOCKER_USER
     - secure: "FykiXU5ZFxIvw28pp0BgLJULRAOs1QSc10Cx2hp8fW1I1U/JUxv1RlawePoyNgpGNCZvLQMZJtaccEZUBzc0ucFnMZD5Cu+powGzdXos0v3W7Fb5YI7lSabIa8Zq6mYYp+toaMJRx3dJcIwAtFiMRzbqM3d9DECKLb/9N2IvLRU="  # DOCKER_PASS
     - COMMIT=${TRAVIS_COMMIT::8}
+    - REPO=andrewgaul/s3proxy
 addons:
   apt_packages:
    - python-pip
@@ -20,11 +21,7 @@ script:
  # Work around Travis environment failure: https://github.com/travis-ci/travis-ci/issues/7940
  - export BOTO_CONFIG=/dev/null
  - ./src/test/resources/run-s3-tests.sh
+ - docker build -f Dockerfile -t $REPO:$COMMIT .
+
 after_success:
-  - docker login -u $DOCKER_USER -p $DOCKER_PASS
-  - export REPO=andrewgaul/s3proxy
-  - export TAG=`if [ "$TRAVIS_BRANCH" == "master" ]; then echo "latest"; else echo $TRAVIS_BRANCH ; fi`
-  - docker build -f Dockerfile -t $REPO:$COMMIT .
-  - docker tag $REPO:$COMMIT $REPO:$TAG
-  - docker tag $REPO:$COMMIT $REPO:travis-$TRAVIS_BUILD_NUMBER
-  - docker push $REPO
+  - if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then $TRAVIS_BUILD_DIR/publish_img.sh; fi
