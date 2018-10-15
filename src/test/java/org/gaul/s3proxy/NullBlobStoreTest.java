@@ -86,7 +86,7 @@ public final class NullBlobStoreTest {
         nullBlobStore.putBlob(containerName, blob);
 
         blob = nullBlobStore.getBlob(containerName, blobName);
-        validateBlobMetadata(blob.getMetadata(), BYTE_SOURCE);
+        validateBlobMetadata(blob.getMetadata());
 
         // content differs, only compare length
         try (InputStream actual = blob.getPayload().openStream();
@@ -113,7 +113,7 @@ public final class NullBlobStoreTest {
         nullBlobStore.putBlob(containerName, blob);
         BlobMetadata metadata = nullBlobStore.blobMetadata(containerName,
                 blobName);
-        validateBlobMetadata(metadata, BYTE_SOURCE);
+        validateBlobMetadata(metadata);
     }
 
     @Test
@@ -151,7 +151,7 @@ public final class NullBlobStoreTest {
                 part2));
 
         Blob newBlob = nullBlobStore.getBlob(containerName, blobName);
-        validateBlobMetadata(newBlob.getMetadata(), byteSource);
+        validateBlobMetadata(newBlob.getMetadata());
 
         // content differs, only compare length
         try (InputStream actual = newBlob.getPayload().openStream();
@@ -185,8 +185,8 @@ public final class NullBlobStoreTest {
                 .build();
     }
 
-    private static void validateBlobMetadata(BlobMetadata metadata,
-            ByteSource byteSource) throws IOException {
+    private static void validateBlobMetadata(BlobMetadata metadata)
+            throws IOException {
         assertThat(metadata).isNotNull();
 
         ContentMetadata contentMetadata = metadata.getContentMetadata();

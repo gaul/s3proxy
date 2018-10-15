@@ -619,7 +619,7 @@ public class S3ProxyHandler {
         if (!uri.equals("/") && !isValidContainer(path[1])) {
             if (method.equals("PUT") &&
                     (path.length <= 2 || path[2].isEmpty()) &&
-                    !("".equals(request.getParameter("acl"))))  {
+                    !"".equals(request.getParameter("acl")))  {
                 throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
             } else {
                 throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
@@ -649,7 +649,7 @@ public class S3ProxyHandler {
                     handleGetContainerAcl(response, blobStore, path[1]);
                     return;
                 } else if ("".equals(request.getParameter("location"))) {
-                    handleContainerLocation(response, blobStore, path[1]);
+                    handleContainerLocation(response);
                     return;
                 } else if ("".equals(request.getParameter("uploads"))) {
                     handleListMultipartUploads(request, response, blobStore,
@@ -1091,8 +1091,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerLocation(HttpServletResponse response,
-            BlobStore blobStore, String containerName) throws IOException {
+    private void handleContainerLocation(HttpServletResponse response)
+            throws IOException {
         response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);

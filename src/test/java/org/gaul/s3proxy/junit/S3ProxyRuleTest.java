@@ -42,8 +42,8 @@ public class S3ProxyRuleTest {
 
     private static final String MY_TEST_BUCKET = "my-test-bucket";
 
-    public @Rule TemporaryFolder temporaryFolder = new TemporaryFolder();
-    public @Rule S3ProxyRule s3Proxy = S3ProxyRule
+    @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    @Rule public S3ProxyRule s3Proxy = S3ProxyRule
         .builder()
         .withCredentials("access", "secret")
         .build();

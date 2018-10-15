@@ -57,7 +57,6 @@ import com.amazonaws.services.s3.model.Bucket;
 import com.amazonaws.services.s3.model.BucketLoggingConfiguration;
 import com.amazonaws.services.s3.model.CannedAccessControlList;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
-import com.amazonaws.services.s3.model.CompleteMultipartUploadResult;
 import com.amazonaws.services.s3.model.CopyObjectRequest;
 import com.amazonaws.services.s3.model.CopyPartRequest;
 import com.amazonaws.services.s3.model.CopyPartResult;
@@ -456,8 +455,7 @@ public final class AwsSdkTest {
                 new CompleteMultipartUploadRequest(
                         containerName, targetBlobName, uploadId,
                         ImmutableList.of(copyPartResult.getPartETag()));
-        CompleteMultipartUploadResult completeUploadResponse =
-                client.completeMultipartUpload(completeRequest);
+        client.completeMultipartUpload(completeRequest);
 
         S3Object object = client.getObject(containerName, targetBlobName);
         assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(

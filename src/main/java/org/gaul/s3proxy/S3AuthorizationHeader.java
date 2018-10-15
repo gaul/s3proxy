@@ -18,6 +18,8 @@ package org.gaul.s3proxy;
 
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 
@@ -34,11 +36,11 @@ final class S3AuthorizationHeader {
     // TODO: these fields should have accessors
     // CHECKSTYLE:OFF
     final AuthenticationType authenticationType;
-    final String hmacAlgorithm;
-    final String hashAlgorithm;
-    final String region;
-    final String date;
-    final String service;
+    @Nullable final String hmacAlgorithm;
+    @Nullable final String hashAlgorithm;
+    @Nullable final String region;
+    @Nullable final String date;
+    @Nullable final String service;
     final String identity;
     final String signature;
     // CHECKSTYLE:ON
