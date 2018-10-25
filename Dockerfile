@@ -31,7 +31,10 @@ ENV \
     JCLOUDS_REGION="" \
     JCLOUDS_REGIONS="us-east-1" \
     JCLOUDS_IDENTITY="remote-identity" \
-    JCLOUDS_CREDENTIAL="remote-credential"
+    JCLOUDS_CREDENTIAL="remote-credential" \
+    JCLOUDS_KEYSTONE_VERSION="" \
+    JCLOUDS_KEYSTONE_SCOPE="" \
+    JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME=""
 
 EXPOSE 80
 VOLUME /data
