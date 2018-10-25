@@ -729,6 +729,10 @@ public class S3ProxyHandler {
                         path[2]);
                 return;
             }
+        case "OPTIONS":
+            handleOptionsBlob(request, response, blobStore, path[1],
+                        path[2]);
+            return;
         default:
             break;
         }
@@ -1517,6 +1521,33 @@ public class S3ProxyHandler {
 
         response.setStatus(HttpServletResponse.SC_OK);
         addMetadataToResponse(request, response, metadata);
+    }
+
+    private void handleOptionsBlob(HttpServletRequest request,
+            HttpServletResponse response,
+            BlobStore blobStore, String containerName,
+            String blobName) throws IOException, S3Exception {
+        if (!blobStore.containerExists(containerName)) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+        }
+
+        BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
+        if (metadata != null) {
+            addMetadataToResponse(request, response, metadata);
+        }
+
+        // TODO Get the CORS Headers from the blobstore
+        // TODO Evaluate allowed Origins based on meta from blobstore
+        // TODO Addtional CORS Header Access-Control-Max-Age, Access-Control-Allow-Headers, Access-Control-Expose-Headers
+        if (corsAllowAll) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            String corsMethod = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+            if (corsMethod != null) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, corsMethod);
+            }
+        }
+
+        response.setStatus(HttpServletResponse.SC_OK);
     }
 
     private void handleGetBlob(HttpServletRequest request,
