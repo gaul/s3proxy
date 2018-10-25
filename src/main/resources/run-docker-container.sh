@@ -15,6 +15,9 @@ exec java \
     -Djclouds.endpoint=${JCLOUDS_ENDPOINT} \
     -Djclouds.region=${JCLOUDS_REGION} \
     -Djclouds.regions=${JCLOUDS_REGIONS} \
+    -Djclouds.keystone.version=${JCLOUDS_KEYSTONE_VERSION} \
+    -Djclouds.keystone.scope=${JCLOUDS_KEYSTONE_SCOPE} \
+    -Djclouds.keystone.project-domain-name=${JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME} \
     -Djclouds.filesystem.basedir=/data \
     -jar /opt/s3proxy/s3proxy \
     --properties /dev/null
