@@ -8,7 +8,7 @@ COPY . /opt/s3proxy/
 RUN mvn package -DskipTests
 
 # Multistage - Image
-FROM openjdk:7-jre-alpine
+FROM openjdk:8-jre-alpine
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
