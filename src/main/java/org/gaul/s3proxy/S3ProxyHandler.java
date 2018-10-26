@@ -1528,22 +1528,31 @@ public class S3ProxyHandler {
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
-        }
-
-        BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
-        if (metadata != null) {
-            addMetadataToResponse(request, response, metadata);
+            // Don't leak internal information, although authenticated
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
 
         // TODO Get the CORS Headers from the blobstore
         // TODO Evaluate allowed Origins based on meta from blobstore
         // TODO Addtional CORS Header Access-Control-Max-Age, Access-Control-Allow-Headers, Access-Control-Expose-Headers
         if (corsAllowAll) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+            if (corsOrigin != null) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
+            }
+            else {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+            response.addHeader(HttpHeaders.VARY, "Origin");
+
             String corsMethod = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
             if (corsMethod != null) {
                 response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, corsMethod);
+            }
+
+            String corsHeaders = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
+            if (corsHeaders != null) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, corsHeaders);
             }
         }
 
