@@ -1613,7 +1613,13 @@ public class S3ProxyHandler {
         response.setStatus(status);
 
         if (corsAllowAll) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+            if (corsOrigin != null) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
+            }
+            else {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            }
         }
 
         addMetadataToResponse(request, response, blob.getMetadata());
@@ -1755,7 +1761,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handlePutBlob(HttpServletRequest request,
+    private void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1849,6 +1855,16 @@ public class S3ProxyHandler {
 
         eTag = blobStore.putBlob(containerName, builder.build(),
                 options);
+
+        if (corsAllowAll) {
+            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+            if (corsOrigin != null) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
+            }
+            else {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            }
+        }
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
@@ -2015,7 +2031,13 @@ public class S3ProxyHandler {
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 
         if (corsAllowAll) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+            if (corsOrigin != null) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
+            }
+            else {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            }
         }
     }
 
