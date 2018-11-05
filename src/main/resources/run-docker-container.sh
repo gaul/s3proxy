@@ -8,6 +8,9 @@ exec java \
     -Ds3proxy.identity=${S3PROXY_IDENTITY} \
     -Ds3proxy.credential=${S3PROXY_CREDENTIAL} \
     -Ds3proxy.cors-allow-all=${S3PROXY_CORS_ALLOW_ALL} \
+    -Ds3proxy.cors-allow-origins="${S3PROXY_CORS_ALLOW_ORIGINS}" \
+    -Ds3proxy.cors-allow-methods="${S3PROXY_CORS_ALLOW_METHODS}" \
+    -Ds3proxy.cors-allow-headers="${S3PROXY_CORS_ALLOW_HEADERS}" \
     -Ds3proxy.ignore-unknown-headers=${S3PROXY_IGNORE_UNKNOWN_HEADERS} \
     -Djclouds.provider=${JCLOUDS_PROVIDER} \
     -Djclouds.identity=${JCLOUDS_IDENTITY} \
