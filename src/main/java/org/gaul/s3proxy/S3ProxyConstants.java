@@ -32,6 +32,12 @@ public final class S3ProxyConstants {
     /** When true, include "Access-Control-Allow-Origin: *" in all responses. */
     public static final String PROPERTY_CORS_ALLOW_ALL =
             "s3proxy.cors-allow-all";
+    public static final String PROPERTY_CORS_ALLOW_ORIGINS =
+            "s3proxy.cors-allow-origins";
+    public static final String PROPERTY_CORS_ALLOW_METHODS =
+            "s3proxy.cors-allow-methods";
+    public static final String PROPERTY_CORS_ALLOW_HEADERS =
+            "s3proxy.cors-allow-headers";
     public static final String PROPERTY_CREDENTIAL =
             "s3proxy.credential";
     public static final String PROPERTY_IGNORE_UNKNOWN_HEADERS =
