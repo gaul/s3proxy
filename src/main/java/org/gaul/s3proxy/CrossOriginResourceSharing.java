@@ -1,4 +1,6 @@
 /*
+ * Copyright 2014-2018 Andrew Gaul <andrew@gaul.org>
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,12 +16,12 @@
 
 package org.gaul.s3proxy;
 
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import java.util.regex.Pattern;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -27,27 +29,27 @@ import com.google.common.base.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class CORSRules {
+class CrossOriginResourceSharing {
+    private static final String VALUE_SEPARATOR = " ";
+    private static final String HEADER_VALUE_SEPARATOR = ", ";
+    private static final String ALLOW_ANY_HEADER = "*";
+
+    private static final Logger logger = LoggerFactory.getLogger(
+            CrossOriginResourceSharing.class);
+
     private String allowedMethodsRaw;
     private String allowedHeadersRaw;
     private List<Pattern> allowedOrigins;
     private List<String> allowedMethods;
     private List<String> allowedHeaders;
 
-    private static final String VALUE_SEPARATOR = " ";
-    private static final String HEADER_VALUE_SEPARATOR = ", ";
-    private static final String ALLOW_ANY_HEADER = "*";
-
-    private static final Logger logger = LoggerFactory.getLogger(
-            CORSRules.class);
-
-    protected CORSRules() {
+    protected CrossOriginResourceSharing() {
         // CORS Allow all
         this(".+", "GET PUT POST", ALLOW_ANY_HEADER);
     }
 
-    protected CORSRules(String allowedOrigins, String allowedMethods,
-            String allowedHeaders) {
+    protected CrossOriginResourceSharing(String allowedOrigins,
+            String allowedMethods, String allowedHeaders) {
         this.allowedOrigins = new ArrayList<Pattern>();
         for (String origin: allowedOrigins.split(VALUE_SEPARATOR)) {
             this.allowedOrigins.add(
@@ -64,7 +66,7 @@ class CORSRules {
     }
 
     public String getAllowedMethods() {
-       return this.allowedMethodsRaw;
+        return this.allowedMethodsRaw;
     }
 
     public boolean isOriginAllowed(String origin) {
@@ -114,7 +116,7 @@ class CORSRules {
             return false;
         }
 
-        CORSRules that = (CORSRules) object;
+        CrossOriginResourceSharing that = (CrossOriginResourceSharing) object;
         return this.allowedOrigins.equals(that.allowedOrigins) &&
                 this.allowedMethodsRaw.equals(that.allowedMethodsRaw) &&
                 this.allowedHeadersRaw.equals(that.allowedHeadersRaw);

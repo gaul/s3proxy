@@ -191,7 +191,7 @@ public class S3ProxyHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
-    private final CORSRules corsRules;
+    private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
@@ -214,7 +214,7 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CORSRules corsRules, final String servicePath) {
+            CrossOriginResourceSharing corsRules, final String servicePath) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -1549,8 +1549,7 @@ public class S3ProxyHandler {
             if (corsRules.isEveryHeaderAllowed(corsHeaders)) {
                 response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
                         corsHeaders);
-            }
-            else {
+            } else {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
         }

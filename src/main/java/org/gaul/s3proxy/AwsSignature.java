@@ -290,11 +290,11 @@ final class AwsSignature {
         */
         String method = request.getMethod();
         if ("OPTIONS".equals(method)) {
-          String corsMethod = request.getHeader(
-                  HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
-          if (corsMethod != null) {
-            method = corsMethod;
-          }
+            String corsMethod = request.getHeader(
+                    HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+            if (corsMethod != null) {
+                method = corsMethod;
+            }
         }
 
         String canonicalRequest = Joiner.on("\n").join(
