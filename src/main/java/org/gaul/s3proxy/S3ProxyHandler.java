@@ -191,7 +191,7 @@ public class S3ProxyHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
-    private final boolean corsAllowAll;
+    private final CORSRules corsRules;
     private final String servicePath;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
@@ -214,7 +214,7 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            boolean corsAllowAll, final String servicePath) {
+            CORSRules corsRules, final String servicePath) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -244,7 +244,7 @@ public class S3ProxyHandler {
         this.virtualHost = Optional.fromNullable(virtualHost);
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
-        this.corsAllowAll = corsAllowAll;
+        this.corsRules = corsRules;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -1532,29 +1532,33 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
 
-        // TODO Get the CORS Headers from the blobstore
-        // TODO Evaluate allowed Origins based on meta from blobstore
-        // TODO Addtional CORS Header Access-Control-Max-Age, Access-Control-Allow-Headers, Access-Control-Expose-Headers
-        if (corsAllowAll) {
-            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-            if (corsOrigin != null) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!corsRules.isOriginAllowed(corsOrigin)) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+        }
+
+        String corsMethod = request.getHeader(
+                HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+        if (!corsRules.isMethodAllowed(corsMethod)) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+        }
+
+        String corsHeaders = request.getHeader(
+                HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
+        if (!Strings.isNullOrEmpty(corsHeaders)) {
+            if (corsRules.isEveryHeaderAllowed(corsHeaders)) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                        corsHeaders);
             }
             else {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
-            response.addHeader(HttpHeaders.VARY, "Origin");
-
-            String corsMethod = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
-            if (corsMethod != null) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, corsMethod);
-            }
-
-            String corsHeaders = request.getHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
-            if (corsHeaders != null) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, corsHeaders);
-            }
         }
+
+        response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
+        response.addHeader(HttpHeaders.VARY, HttpHeaders.ORIGIN);
+        response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                corsRules.getAllowedMethods());
 
         response.setStatus(HttpServletResponse.SC_OK);
     }
@@ -1612,14 +1616,10 @@ public class S3ProxyHandler {
 
         response.setStatus(status);
 
-        if (corsAllowAll) {
-            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-            if (corsOrigin != null) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
-            }
-            else {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-            }
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!Strings.isNullOrEmpty(corsOrigin)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                    corsOrigin);
         }
 
         addMetadataToResponse(request, response, blob.getMetadata());
@@ -1856,14 +1856,10 @@ public class S3ProxyHandler {
         eTag = blobStore.putBlob(containerName, builder.build(),
                 options);
 
-        if (corsAllowAll) {
-            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-            if (corsOrigin != null) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
-            }
-            else {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-            }
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!Strings.isNullOrEmpty(corsOrigin)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                    corsOrigin);
         }
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
@@ -2030,14 +2026,10 @@ public class S3ProxyHandler {
 
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 
-        if (corsAllowAll) {
-            String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-            if (corsOrigin != null) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
-            }
-            else {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-            }
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!Strings.isNullOrEmpty(corsOrigin)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                    corsOrigin);
         }
     }
 
