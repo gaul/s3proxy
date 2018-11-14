@@ -51,14 +51,23 @@ class CrossOriginResourceSharing {
     protected CrossOriginResourceSharing(String allowedOrigins,
             String allowedMethods, String allowedHeaders) {
         this.allowedOrigins = new ArrayList<Pattern>();
-        for (String origin: allowedOrigins.split(VALUE_SEPARATOR)) {
-            this.allowedOrigins.add(
-                    Pattern.compile(origin, Pattern.CASE_INSENSITIVE));
+        this.allowedMethods = new ArrayList<String>();
+        this.allowedHeaders = new ArrayList<String>();
+
+        if (!Strings.isNullOrEmpty(allowedOrigins)) {
+            for (String origin: allowedOrigins.split(VALUE_SEPARATOR)) {
+                this.allowedOrigins.add(
+                        Pattern.compile(origin, Pattern.CASE_INSENSITIVE));
+            }
         }
-        this.allowedMethods = Arrays.asList(allowedMethods.split(
-                VALUE_SEPARATOR));
-        this.allowedHeaders = Arrays.asList(allowedHeaders.split(
-                VALUE_SEPARATOR));
+        if (!Strings.isNullOrEmpty(allowedMethods)) {
+            this.allowedMethods.addAll(Arrays.asList(allowedMethods.split(
+                    VALUE_SEPARATOR)));
+        }
+        if (!Strings.isNullOrEmpty(allowedMethods)) {
+            this.allowedHeaders.addAll(Arrays.asList(allowedHeaders.split(
+                    VALUE_SEPARATOR)));
+        }
 
         this.allowedMethodsRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedMethods);
