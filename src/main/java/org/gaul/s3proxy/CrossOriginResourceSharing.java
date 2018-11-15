@@ -16,15 +16,16 @@
 
 package org.gaul.s3proxy;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,11 +38,11 @@ class CrossOriginResourceSharing {
     private static final Logger logger = LoggerFactory.getLogger(
             CrossOriginResourceSharing.class);
 
-    private String allowedMethodsRaw;
-    private String allowedHeadersRaw;
-    private List<Pattern> allowedOrigins;
-    private List<String> allowedMethods;
-    private List<String> allowedHeaders;
+    private final String allowedMethodsRaw;
+    private final String allowedHeadersRaw;
+    private final Set<Pattern> allowedOrigins;
+    private final Set<String> allowedMethods;
+    private final Set<String> allowedHeaders;
 
     protected CrossOriginResourceSharing() {
         // CORS Allow all
@@ -50,27 +51,28 @@ class CrossOriginResourceSharing {
 
     protected CrossOriginResourceSharing(String allowedOrigins,
             String allowedMethods, String allowedHeaders) {
-        this.allowedOrigins = new ArrayList<Pattern>();
-        this.allowedMethods = new ArrayList<String>();
-        this.allowedHeaders = new ArrayList<String>();
-
+        Set<Pattern> allowedPattern = new HashSet<Pattern>();
         if (!Strings.isNullOrEmpty(allowedOrigins)) {
             for (String origin: allowedOrigins.split(VALUE_SEPARATOR)) {
-                this.allowedOrigins.add(
-                        Pattern.compile(origin, Pattern.CASE_INSENSITIVE));
+                allowedPattern.add(Pattern.compile(
+                        origin, Pattern.CASE_INSENSITIVE));
             }
         }
-        if (!Strings.isNullOrEmpty(allowedMethods)) {
-            this.allowedMethods.addAll(Arrays.asList(allowedMethods.split(
-                    VALUE_SEPARATOR)));
-        }
-        if (!Strings.isNullOrEmpty(allowedMethods)) {
-            this.allowedHeaders.addAll(Arrays.asList(allowedHeaders.split(
-                    VALUE_SEPARATOR)));
-        }
+        this.allowedOrigins = ImmutableSet.copyOf(allowedPattern);
 
+        if (allowedMethods == null) {
+            allowedMethods = "";
+        }
+        this.allowedMethods = ImmutableSet.copyOf(allowedMethods.split(
+                VALUE_SEPARATOR));
         this.allowedMethodsRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedMethods);
+
+        if (allowedHeaders == null) {
+            allowedHeaders = "";
+        }
+        this.allowedHeaders = ImmutableSet.copyOf(allowedHeaders.split(
+                VALUE_SEPARATOR));
         this.allowedHeadersRaw = allowedHeaders;
     }
 
@@ -104,16 +106,31 @@ class CrossOriginResourceSharing {
     }
 
     public boolean isEveryHeaderAllowed(String headers) {
-        if (!this.allowedHeadersRaw.equals(ALLOW_ANY_HEADER)) {
-            for (String header: headers.split(HEADER_VALUE_SEPARATOR)) {
-                if (!this.allowedHeaders.contains(header)) {
-                    logger.debug("CORS headers not allowed: {}", headers);
-                    return false;
+        Boolean result = false;
+        String message = "CORS headers not allowed: {}";
+
+        if (!Strings.isNullOrEmpty(headers)) {
+            if (this.allowedHeadersRaw.equals(ALLOW_ANY_HEADER)) {
+                result = true;
+            } else {
+                for (String header: Splitter.on(HEADER_VALUE_SEPARATOR).split(
+                        headers)) {
+                    result = this.allowedHeaders.contains(header);
+                    if (!result) {
+                        // First not matching header breaks
+                        break;
+                    }
                 }
             }
         }
-        logger.debug("CORS headers allowed: {}", headers);
-        return true;
+
+        if (result) {
+            logger.debug("CORS headers allowed: {}", headers);
+        } else {
+            logger.debug("CORS headers not allowed: {}", headers);
+        }
+
+        return result;
     }
 
     @Override
@@ -133,7 +150,7 @@ class CrossOriginResourceSharing {
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.allowedOrigins.hashCode(),
-                this.allowedMethodsRaw, this.allowedHeadersRaw);
+        return Objects.hash(this.allowedOrigins, this.allowedMethodsRaw,
+                this.allowedHeadersRaw);
     }
 }
