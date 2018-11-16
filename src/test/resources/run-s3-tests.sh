@@ -18,6 +18,11 @@ sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
 $S3PROXY_BIN --properties target/s3proxy.conf &
 S3PROXY_PID=$!
 
+function finish {
+    kill $S3PROXY_PID
+}
+trap finish EXIT
+
 # wait for S3Proxy to start
 for i in $(seq 30);
 do
@@ -33,9 +38,3 @@ done
 # execute s3-tests
 pushd s3-tests
 ./virtualenv/bin/nosetests -a '!fails_on_s3proxy,!bucket-policy,!cors,!encryption,!fails_strict_rfc2616,!lifecycle,!policy,!s3website,!tagging,!versioning'
-EXIT_CODE=$?
-popd
-
-# clean up and return s3-tests exit code
-kill $S3PROXY_PID
-exit $EXIT_CODE
