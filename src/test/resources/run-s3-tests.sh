@@ -4,7 +4,7 @@ set -o errexit
 set -o nounset
 
 S3PROXY_BIN="${PWD}/target/s3proxy"
-S3PROXY_PORT="8081"
+S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
 
 # configure s3-tests
