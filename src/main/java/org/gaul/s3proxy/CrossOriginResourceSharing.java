@@ -74,6 +74,10 @@ class CrossOriginResourceSharing {
         this.allowedHeaders = ImmutableSet.copyOf(allowedHeaders.split(
                 VALUE_SEPARATOR));
         this.allowedHeadersRaw = allowedHeaders;
+
+        logger.info("CORS allowed origins: {}", allowedOrigins);
+        logger.info("CORS allowed methods: {}", allowedMethods);
+        logger.info("CORS allowed headers: {}", allowedHeaders);
     }
 
     public String getAllowedMethods() {
@@ -107,7 +111,6 @@ class CrossOriginResourceSharing {
 
     public boolean isEveryHeaderAllowed(String headers) {
         Boolean result = false;
-        String message = "CORS headers not allowed: {}";
 
         if (!Strings.isNullOrEmpty(headers)) {
             if (this.allowedHeadersRaw.equals(ALLOW_ANY_HEADER)) {
