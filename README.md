@@ -103,7 +103,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * ACLs other than private and public-read
 * BitTorrent hosting
 * bucket logging
-* cross-origin resource sharing, see [#142](https://github.com/gaul/s3proxy/issues/142)
+* [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors)
 * hosting static websites
 * list objects v2, see [#168](https://github.com/gaul/s3proxy/issues/168)
 * object server-side encryption
@@ -116,6 +116,18 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 S3Proxy emulates the following operations:
 
 * copy multi-part objects, see [#76](https://github.com/gaul/s3proxy/issues/76)
+
+S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
+file (and corresponding ENV variables for Docker):
+
+```
+s3proxy.cors-allow-origins=https://example\.com https://.+\.example\.com https://example\.cloud
+s3proxy.cors-allow-methods=GET PUT
+s3proxy.cors-allow-headers=Accept Content-Type
+```
+
+CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
+Actual CORS requests are supported for GET, PUT and POST methods.
 
 The wiki collects
 [compatibility notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)
