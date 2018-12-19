@@ -386,7 +386,7 @@ public final class S3Proxy {
             return Objects.hash(endpoint, secureEndpoint, keyStorePath,
                     keyStorePassword, virtualHost, servicePath,
                     v4MaxNonChunkedRequestSize, ignoreUnknownHeaders,
-                    corsRules.hashCode());
+                    corsRules);
         }
     }
 

@@ -30,7 +30,7 @@ import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class CrossOriginResourceSharing {
+final class CrossOriginResourceSharing {
     private static final String VALUE_SEPARATOR = " ";
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_HEADER = "*";
@@ -53,24 +53,20 @@ class CrossOriginResourceSharing {
             String allowedMethods, String allowedHeaders) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
         if (!Strings.isNullOrEmpty(allowedOrigins)) {
-            for (String origin: allowedOrigins.split(VALUE_SEPARATOR)) {
+            for (String origin : allowedOrigins.split(VALUE_SEPARATOR)) {
                 allowedPattern.add(Pattern.compile(
                         origin, Pattern.CASE_INSENSITIVE));
             }
         }
         this.allowedOrigins = ImmutableSet.copyOf(allowedPattern);
 
-        if (allowedMethods == null) {
-            allowedMethods = "";
-        }
+        allowedMethods = Strings.nullToEmpty(allowedMethods);
         this.allowedMethods = ImmutableSet.copyOf(allowedMethods.split(
                 VALUE_SEPARATOR));
         this.allowedMethodsRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedMethods);
 
-        if (allowedHeaders == null) {
-            allowedHeaders = "";
-        }
+        allowedHeaders = Strings.nullToEmpty(allowedHeaders);
         this.allowedHeaders = ImmutableSet.copyOf(allowedHeaders.split(
                 VALUE_SEPARATOR));
         this.allowedHeadersRaw = allowedHeaders;
@@ -86,7 +82,7 @@ class CrossOriginResourceSharing {
 
     public boolean isOriginAllowed(String origin) {
         if (!Strings.isNullOrEmpty(origin)) {
-            for (Pattern pattern: this.allowedOrigins) {
+            for (Pattern pattern : this.allowedOrigins) {
                 Matcher matcher = pattern.matcher(origin);
                 if (matcher.matches()) {
                     logger.debug("CORS origin allowed: {}", origin);
@@ -110,13 +106,13 @@ class CrossOriginResourceSharing {
     }
 
     public boolean isEveryHeaderAllowed(String headers) {
-        Boolean result = false;
+        boolean result = false;
 
         if (!Strings.isNullOrEmpty(headers)) {
             if (this.allowedHeadersRaw.equals(ALLOW_ANY_HEADER)) {
                 result = true;
             } else {
-                for (String header: Splitter.on(HEADER_VALUE_SEPARATOR).split(
+                for (String header : Splitter.on(HEADER_VALUE_SEPARATOR).split(
                         headers)) {
                     result = this.allowedHeaders.contains(header);
                     if (!result) {
@@ -141,7 +137,7 @@ class CrossOriginResourceSharing {
         if (this == object) {
             return true;
         }
-        if (object == null || getClass() != object.getClass()) {
+        if (object == null || !(object instanceof CrossOriginResourceSharing)) {
             return false;
         }
 
