@@ -1616,7 +1616,8 @@ public class S3ProxyHandler {
         response.setStatus(status);
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin)) {
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
         }
@@ -1856,7 +1857,8 @@ public class S3ProxyHandler {
                 options);
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin)) {
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
         }
@@ -2026,7 +2028,8 @@ public class S3ProxyHandler {
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin)) {
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
         }
