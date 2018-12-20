@@ -25,7 +25,9 @@ import java.net.URISyntaxException;
 import java.util.Objects;
 import java.util.Properties;
 
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
@@ -245,14 +247,18 @@ public final class S3Proxy {
                 builder.corsRules(new CrossOriginResourceSharing());
             } else {
                 String corsAllowOrigins = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS);
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS, "");
                 String corsAllowMethods = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS);
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS, "");
                 String corsAllowHeaders = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS);
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
+                Splitter splitter = Splitter.on(" ").trimResults()
+                        .omitEmptyStrings();
 
                 builder.corsRules(new CrossOriginResourceSharing(
-                        corsAllowOrigins, corsAllowMethods, corsAllowHeaders));
+                        Lists.newArrayList(splitter.split(corsAllowOrigins)),
+                        Lists.newArrayList(splitter.split(corsAllowMethods)),
+                        Lists.newArrayList(splitter.split(corsAllowHeaders))));
             }
 
             String jettyMaxThreads = properties.getProperty(

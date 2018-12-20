@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -26,12 +27,12 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class CrossOriginResourceSharing {
-    private static final String VALUE_SEPARATOR = " ";
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_HEADER = "*";
 
@@ -46,30 +47,37 @@ final class CrossOriginResourceSharing {
 
     protected CrossOriginResourceSharing() {
         // CORS Allow all
-        this(".+", "GET PUT POST", ALLOW_ANY_HEADER);
+        this(Lists.newArrayList(".*"), Lists.newArrayList("GET", "PUT", "POST"),
+                Lists.newArrayList(ALLOW_ANY_HEADER));
     }
 
-    protected CrossOriginResourceSharing(String allowedOrigins,
-            String allowedMethods, String allowedHeaders) {
+    protected CrossOriginResourceSharing(Collection<String> allowedOrigins,
+            Collection<String> allowedMethods,
+            Collection<String> allowedHeaders) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
-        if (!Strings.isNullOrEmpty(allowedOrigins)) {
-            for (String origin : allowedOrigins.split(VALUE_SEPARATOR)) {
+        if (allowedOrigins != null) {
+            for (String origin : allowedOrigins) {
                 allowedPattern.add(Pattern.compile(
                         origin, Pattern.CASE_INSENSITIVE));
             }
         }
         this.allowedOrigins = ImmutableSet.copyOf(allowedPattern);
 
-        allowedMethods = Strings.nullToEmpty(allowedMethods);
-        this.allowedMethods = ImmutableSet.copyOf(allowedMethods.split(
-                VALUE_SEPARATOR));
+        if (allowedMethods == null) {
+            this.allowedMethods = ImmutableSet.of();
+        } else {
+            this.allowedMethods = ImmutableSet.copyOf(allowedMethods);
+        }
         this.allowedMethodsRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedMethods);
 
-        allowedHeaders = Strings.nullToEmpty(allowedHeaders);
-        this.allowedHeaders = ImmutableSet.copyOf(allowedHeaders.split(
-                VALUE_SEPARATOR));
-        this.allowedHeadersRaw = allowedHeaders;
+        if (allowedHeaders == null) {
+            this.allowedHeaders = ImmutableSet.of();
+        } else {
+            this.allowedHeaders = ImmutableSet.copyOf(allowedHeaders);
+        }
+        this.allowedHeadersRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
+                this.allowedHeaders);
 
         logger.info("CORS allowed origins: {}", allowedOrigins);
         logger.info("CORS allowed methods: {}", allowedMethods);

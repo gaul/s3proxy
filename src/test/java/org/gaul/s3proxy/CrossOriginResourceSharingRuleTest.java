@@ -18,6 +18,8 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.google.common.collect.Lists;
+
 import org.junit.Before;
 import org.junit.Test;
 
@@ -32,9 +34,11 @@ public final class CrossOriginResourceSharingRuleTest {
         corsAll = new CrossOriginResourceSharing();
         // CORS Configured
         corsCfg = new CrossOriginResourceSharing(
-                "https://example\\.com https://.+\\.example\\.com " +
-                "https://example\\.cloud",
-                "GET PUT", "Accept Content-Type");
+                Lists.newArrayList("https://example\\.com",
+                        "https://.+\\.example\\.com",
+                        "https://example\\.cloud"),
+                Lists.newArrayList("GET", "PUT"),
+                Lists.newArrayList("Accept", "Content-Type"));
         // CORS disabled
         corsOff = new CrossOriginResourceSharing(null, null, null);
     }
