@@ -1344,6 +1344,13 @@ public class S3ProxyHandler {
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                    corsOrigin);
+        }
+
         response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
