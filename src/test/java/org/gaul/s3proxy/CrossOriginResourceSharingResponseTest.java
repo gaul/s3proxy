@@ -39,6 +39,7 @@ import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.CannedAccessControlList;
 
 import com.google.common.io.ByteSource;
 import com.google.common.net.HttpHeaders;
@@ -86,6 +87,7 @@ public final class CrossOriginResourceSharingResponseTest {
     private String servicePath;
     private CloseableHttpClient httpClient;
     private URI presignedGET;
+    private URI publicGET;
 
     @Before
     public void setUp() throws Exception {
@@ -108,6 +110,9 @@ public final class CrossOriginResourceSharingResponseTest {
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
 
+        s3Client.setBucketAcl(containerName,
+                CannedAccessControlList.PublicRead);
+
         String blobName = "test";
         ByteSource payload = ByteSource.wrap("blob-content".getBytes(
                 StandardCharsets.UTF_8));
@@ -119,6 +124,8 @@ public final class CrossOriginResourceSharingResponseTest {
                 TimeUnit.HOURS.toMillis(1));
         presignedGET = s3Client.generatePresignedUrl(containerName, blobName,
                 expiration, HttpMethod.GET).toURI();
+
+        publicGET = s3Client.getUrl(containerName, blobName).toURI();
     }
 
     @After
@@ -231,6 +238,34 @@ public final class CrossOriginResourceSharingResponseTest {
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
                 "Accept, Content-Type");
         response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_OK);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isTrue();
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
+                .isEqualTo("https://example.com");
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
+                .isEqualTo("GET, PUT");
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS)).isTrue();
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
+                .isEqualTo("Accept, Content-Type");
+    }
+
+    @Test
+    public void testCorsPreflightPublicRead() throws Exception {
+        // Allowed origin and method
+        HttpOptions request = new HttpOptions(publicGET);
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
+        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                "Accept, Content-Type");
+        HttpResponse response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
                 .isEqualTo(HttpStatus.SC_OK);
         assertThat(response.containsHeader(

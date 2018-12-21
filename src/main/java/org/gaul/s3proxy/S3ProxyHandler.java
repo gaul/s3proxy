@@ -326,7 +326,7 @@ public class S3ProxyHandler {
         // treat it as anonymous, return all public accessible information
         if (!anonymousIdentity &&
                 (method.equals("GET") || method.equals("HEAD") ||
-                method.equals("POST")) &&
+                method.equals("POST") || method.equals("OPTIONS")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 // v2 or /v4
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
@@ -811,6 +811,24 @@ public class S3ProxyHandler {
                 return;
             }
             break;
+        case "OPTIONS":
+            if (uri.equals("/")) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            } else {
+                String containerName = path[1];
+                /*
+                 * Only check access on bucket level. The preflight request
+                 * might be for a PUT, so the object is not yet there.
+                 */
+                ContainerAccess access = blobStore.getContainerAccess(
+                        containerName);
+                if (access == ContainerAccess.PRIVATE) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+                handleOptionsBlob(request, response, blobStore, containerName,
+                        "");
+                return;
+            }
         default:
             break;
         }
