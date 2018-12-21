@@ -25,7 +25,9 @@ import java.net.URISyntaxException;
 import java.util.Objects;
 import java.util.Properties;
 
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
@@ -114,7 +116,7 @@ public final class S3Proxy {
                 builder.authenticationType, builder.identity,
                 builder.credential, builder.virtualHost,
                 builder.v4MaxNonChunkedRequestSize,
-                builder.ignoreUnknownHeaders, builder.corsAllowAll,
+                builder.ignoreUnknownHeaders, builder.corsRules,
                 builder.servicePath);
         server.setHandler(handler);
     }
@@ -133,7 +135,7 @@ public final class S3Proxy {
         private String virtualHost;
         private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
-        private boolean corsAllowAll;
+        private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
 
         Builder() {
@@ -240,9 +242,23 @@ public final class S3Proxy {
 
             String corsAllowAll = properties.getProperty(
                     S3ProxyConstants.PROPERTY_CORS_ALLOW_ALL);
-            if (corsAllowAll != null) {
-                builder.corsAllowAll(Boolean.parseBoolean(
-                        corsAllowAll));
+            if (!Strings.isNullOrEmpty(corsAllowAll) && Boolean.parseBoolean(
+                         corsAllowAll)) {
+                builder.corsRules(new CrossOriginResourceSharing());
+            } else {
+                String corsAllowOrigins = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS, "");
+                String corsAllowMethods = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS, "");
+                String corsAllowHeaders = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
+                Splitter splitter = Splitter.on(" ").trimResults()
+                        .omitEmptyStrings();
+
+                builder.corsRules(new CrossOriginResourceSharing(
+                        Lists.newArrayList(splitter.split(corsAllowOrigins)),
+                        Lists.newArrayList(splitter.split(corsAllowMethods)),
+                        Lists.newArrayList(splitter.split(corsAllowHeaders))));
             }
 
             String jettyMaxThreads = properties.getProperty(
@@ -304,8 +320,8 @@ public final class S3Proxy {
             return this;
         }
 
-        public Builder corsAllowAll(boolean corsAllowAll) {
-            this.corsAllowAll = corsAllowAll;
+        public Builder corsRules(CrossOriginResourceSharing corsRules) {
+            this.corsRules = corsRules;
             return this;
         }
 
@@ -368,7 +384,7 @@ public final class S3Proxy {
                             that.v4MaxNonChunkedRequestSize) &&
                     Objects.equals(this.ignoreUnknownHeaders,
                             that.ignoreUnknownHeaders) &&
-                    Objects.equals(this.corsAllowAll, that.corsAllowAll);
+                    this.corsRules.equals(that.corsRules);
         }
 
         @Override
@@ -376,7 +392,7 @@ public final class S3Proxy {
             return Objects.hash(endpoint, secureEndpoint, keyStorePath,
                     keyStorePassword, virtualHost, servicePath,
                     v4MaxNonChunkedRequestSize, ignoreUnknownHeaders,
-                    corsAllowAll);
+                    corsRules);
         }
     }
 
