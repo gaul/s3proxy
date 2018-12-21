@@ -46,7 +46,6 @@ import com.google.common.net.HttpHeaders;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
-import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpOptions;
 import org.apache.http.config.Registry;
@@ -146,7 +145,14 @@ public final class CrossOriginResourceSharingResponseTest {
     public void testCorsPreflightNegative() throws Exception {
         // No CORS headers
         HttpOptions request = new HttpOptions(presignedGET);
-        CloseableHttpResponse response = httpClient.execute(request);
+        HttpResponse response = httpClient.execute(request);
+        /*
+         * For non presigned URLs that should give a 400, but the
+         * Access-Control-Request-Method header is needed for presigned URLs
+         * to calculate the same signature. If this is missing it fails already
+         * with 403 - Signature mismatch before processing the OPTIONS request
+         * See testCorsPreflightPublicRead for that cases
+         */
         assertThat(response.getStatusLine().getStatusCode())
                 .isEqualTo(HttpStatus.SC_FORBIDDEN);
 
@@ -259,13 +265,28 @@ public final class CrossOriginResourceSharingResponseTest {
 
     @Test
     public void testCorsPreflightPublicRead() throws Exception {
-        // Allowed origin and method
+        // No CORS headers
         HttpOptions request = new HttpOptions(publicGET);
+        HttpResponse response = httpClient.execute(request);
+
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_BAD_REQUEST);
+
+        // Not allowed method
+        request.reset();
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH");
+        response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_BAD_REQUEST);
+
+        // Allowed origin and method
+        request.reset();
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
                 "Accept, Content-Type");
-        HttpResponse response = httpClient.execute(request);
+        response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
                 .isEqualTo(HttpStatus.SC_OK);
         assertThat(response.containsHeader(

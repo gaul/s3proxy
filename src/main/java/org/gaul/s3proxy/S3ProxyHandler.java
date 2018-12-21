@@ -1558,6 +1558,9 @@ public class S3ProxyHandler {
         }
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (Strings.isNullOrEmpty(corsOrigin)) {
+            throw new S3Exception(S3ErrorCode.INVALID_CORS_ORIGIN);
+        }
         if (!corsRules.isOriginAllowed(corsOrigin)) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
@@ -1565,7 +1568,7 @@ public class S3ProxyHandler {
         String corsMethod = request.getHeader(
                 HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
         if (!corsRules.isMethodAllowed(corsMethod)) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3Exception(S3ErrorCode.INVALID_CORS_METHOD);
         }
 
         String corsHeaders = request.getHeader(
