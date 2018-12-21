@@ -318,6 +318,11 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
                 .isEqualTo("https://example.com");
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
+                    .isEqualTo("GET");
     }
 
     @Test

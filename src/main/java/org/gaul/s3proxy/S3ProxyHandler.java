@@ -1349,6 +1349,7 @@ public class S3ProxyHandler {
                 corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -1648,6 +1649,7 @@ public class S3ProxyHandler {
                 corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
         }
 
         addMetadataToResponse(request, response, blob.getMetadata());
@@ -1889,6 +1891,7 @@ public class S3ProxyHandler {
                 corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "PUT");
         }
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
@@ -2060,6 +2063,8 @@ public class S3ProxyHandler {
                 corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                    "POST");
         }
     }
 
