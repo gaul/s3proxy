@@ -4,7 +4,7 @@ set -o errexit
 set -o nounset
 
 S3PROXY_BIN="${PWD}/target/s3proxy"
-S3PROXY_PORT="8081"
+S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
 
 # configure s3-tests
@@ -17,6 +17,11 @@ sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
         < src/test/resources/s3proxy.conf | grep -v secure-endpoint > target/s3proxy.conf
 $S3PROXY_BIN --properties target/s3proxy.conf &
 S3PROXY_PID=$!
+
+function finish {
+    kill $S3PROXY_PID
+}
+trap finish EXIT
 
 # wait for S3Proxy to start
 for i in $(seq 30);
@@ -32,10 +37,4 @@ done
 
 # execute s3-tests
 pushd s3-tests
-./virtualenv/bin/nosetests -a '!fails_on_s3proxy,!bucket-policy,!encryption,!fails_strict_rfc2616,!lifecycle,!policy,!s3website,!tagging,!versioning'
-EXIT_CODE=$?
-popd
-
-# clean up and return s3-tests exit code
-kill $S3PROXY_PID
-exit $EXIT_CODE
+./virtualenv/bin/nosetests -a '!fails_on_s3proxy,!bucket-policy,!cors,!encryption,!fails_strict_rfc2616,!lifecycle,!policy,!s3website,!tagging,!versioning'

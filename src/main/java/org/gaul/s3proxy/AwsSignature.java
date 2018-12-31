@@ -282,19 +282,20 @@ final class AwsSignature {
         }
 
         /*
-        CORS Preflight
-
-        The signature is based on the canonical request, which includes the HTTP
-        Method.
-        For presigned URLs, the method must be replaced with OPTIONS to match
-        */
+         * CORS Preflight
+         *
+         * The signature is based on the canonical request, which includes the
+         * HTTP Method.
+         * For presigned URLs, the method must be replaced for OPTIONS request
+         * to match
+         */
         String method = request.getMethod();
         if ("OPTIONS".equals(method)) {
-          String corsMethod = request.getHeader(
-                  HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
-          if (corsMethod != null) {
-            method = corsMethod;
-          }
+            String corsMethod = request.getHeader(
+                    HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+            if (corsMethod != null) {
+                method = corsMethod;
+            }
         }
 
         String canonicalRequest = Joiner.on("\n").join(

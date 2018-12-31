@@ -46,6 +46,10 @@ enum S3ErrorCode {
     INVALID_ARGUMENT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST,
             "The specified bucket is not valid."),
+    INVALID_CORS_ORIGIN(HttpServletResponse.SC_BAD_REQUEST,
+            "Insufficient information. Origin request header needed."),
+    INVALID_CORS_METHOD(HttpServletResponse.SC_BAD_REQUEST,
+            "The specified Access-Control-Request-Method is not valid."),
     INVALID_DIGEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_LOCATION_CONSTRAINT(HttpServletResponse.SC_BAD_REQUEST,
             "The specified location constraint is not valid. For" +

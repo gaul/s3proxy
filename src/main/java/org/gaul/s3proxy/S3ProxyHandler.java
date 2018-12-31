@@ -191,7 +191,7 @@ public class S3ProxyHandler {
     private final Optional<String> virtualHost;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
-    private final CORSRules corsRules;
+    private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
@@ -214,7 +214,7 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CORSRules corsRules, final String servicePath) {
+            CrossOriginResourceSharing corsRules, final String servicePath) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -326,7 +326,7 @@ public class S3ProxyHandler {
         // treat it as anonymous, return all public accessible information
         if (!anonymousIdentity &&
                 (method.equals("GET") || method.equals("HEAD") ||
-                method.equals("POST")) &&
+                method.equals("POST") || method.equals("OPTIONS")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 // v2 or /v4
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
@@ -811,6 +811,24 @@ public class S3ProxyHandler {
                 return;
             }
             break;
+        case "OPTIONS":
+            if (uri.equals("/")) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            } else {
+                String containerName = path[1];
+                /*
+                 * Only check access on bucket level. The preflight request
+                 * might be for a PUT, so the object is not yet there.
+                 */
+                ContainerAccess access = blobStore.getContainerAccess(
+                        containerName);
+                if (access == ContainerAccess.PRIVATE) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+                handleOptionsBlob(request, response, blobStore, containerName,
+                        "");
+                return;
+            }
         default:
             break;
         }
@@ -1326,6 +1344,14 @@ public class S3ProxyHandler {
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                    corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
+        }
+
         response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
@@ -1533,6 +1559,9 @@ public class S3ProxyHandler {
         }
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (Strings.isNullOrEmpty(corsOrigin)) {
+            throw new S3Exception(S3ErrorCode.INVALID_CORS_ORIGIN);
+        }
         if (!corsRules.isOriginAllowed(corsOrigin)) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
@@ -1540,7 +1569,7 @@ public class S3ProxyHandler {
         String corsMethod = request.getHeader(
                 HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
         if (!corsRules.isMethodAllowed(corsMethod)) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3Exception(S3ErrorCode.INVALID_CORS_METHOD);
         }
 
         String corsHeaders = request.getHeader(
@@ -1549,8 +1578,7 @@ public class S3ProxyHandler {
             if (corsRules.isEveryHeaderAllowed(corsHeaders)) {
                 response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
                         corsHeaders);
-            }
-            else {
+            } else {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
         }
@@ -1617,9 +1645,11 @@ public class S3ProxyHandler {
         response.setStatus(status);
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin)) {
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
         }
 
         addMetadataToResponse(request, response, blob.getMetadata());
@@ -1857,9 +1887,11 @@ public class S3ProxyHandler {
                 options);
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin)) {
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "PUT");
         }
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
@@ -2027,9 +2059,12 @@ public class S3ProxyHandler {
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin)) {
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                    "POST");
         }
     }
 
