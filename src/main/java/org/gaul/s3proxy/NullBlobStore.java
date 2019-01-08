@@ -93,6 +93,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         payload.getContentMetadata().setContentLength(length);
         payload.getContentMetadata().setContentMD5((HashCode) null);
         blob.setPayload(payload);
+        blob.getMetadata().setSize(length);
         return blob;
     }
 
@@ -140,17 +141,33 @@ final class NullBlobStore extends ForwardingBlobStore {
         long length = 0;
         for (MultipartPart part : parts) {
             length += part.partSize();
+            super.removeBlob(mpu.containerName(), mpu.id() + "-" +
+                    part.partNumber());
         }
 
         byte[] array = Longs.toByteArray(length);
         ByteSourcePayload payload = new ByteSourcePayload(
                 ByteSource.wrap(array));
+        payload.getContentMetadata().setContentLength((long) array.length);
 
         super.abortMultipartUpload(mpu);
 
-        MultipartPart part = delegate().uploadMultipartPart(mpu, 1, payload);
+        MultipartUpload mpu2 = super.initiateMultipartUpload(
+                mpu.containerName(), mpu.blobMetadata(), mpu.putOptions());
 
-        return delegate().completeMultipartUpload(mpu, ImmutableList.of(part));
+        MultipartPart part = super.uploadMultipartPart(mpu2, 1, payload);
+
+        return super.completeMultipartUpload(mpu2, ImmutableList.of(part));
+    }
+
+    @Override
+    public void abortMultipartUpload(MultipartUpload mpu) {
+        for (MultipartPart part : super.listMultipartUpload(mpu)) {
+            super.removeBlob(mpu.containerName(), mpu.id() + "-" +
+                    part.partNumber());
+        }
+
+        super.abortMultipartUpload(mpu);
     }
 
     @Override
@@ -170,18 +187,29 @@ final class NullBlobStore extends ForwardingBlobStore {
         newPayload.getContentMetadata().setContentLength((long) array.length);
         newPayload.getContentMetadata().setContentMD5((HashCode) null);
 
+        // create a single-part object which contains the logical length which
+        // list and complete will read later
+        Blob blob = blobBuilder(mpu.id() + "-" + partNumber)
+                .payload(newPayload)
+                .build();
+        super.putBlob(mpu.containerName(), blob);
+
         MultipartPart part = super.uploadMultipartPart(mpu, partNumber,
                 newPayload);
         return MultipartPart.create(part.partNumber(), length, part.partETag(),
                 part.lastModified());
     }
 
-    // Cannot read parts to get the embedded size so return zero instead.
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         ImmutableList.Builder<MultipartPart> builder = ImmutableList.builder();
         for (MultipartPart part : super.listMultipartUpload(mpu)) {
-            builder.add(MultipartPart.create(part.partNumber(), 0,
+            // get real blob size from stub blob
+            Blob blob = getBlob(mpu.containerName(),
+                    mpu.id() + "-" + part.partNumber());
+            long length = blob.getPayload().getContentMetadata()
+                    .getContentLength();
+            builder.add(MultipartPart.create(part.partNumber(), length,
                     part.partETag(), part.lastModified()));
         }
         return builder.build();

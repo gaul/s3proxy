@@ -141,14 +141,15 @@ public final class NullBlobStoreTest {
 
         List<MultipartPart> parts = nullBlobStore.listMultipartUpload(mpu);
         assertThat(parts.get(0).partNumber()).isEqualTo(1);
-        assertThat(parts.get(0).partSize()).isZero();
+        assertThat(parts.get(0).partSize()).isEqualTo(byteSource1.size());
         assertThat(parts.get(0).partETag()).isEqualTo(part1.partETag());
         assertThat(parts.get(1).partNumber()).isEqualTo(2);
-        assertThat(parts.get(1).partSize()).isZero();
+        assertThat(parts.get(1).partSize()).isEqualTo(byteSource2.size());
         assertThat(parts.get(1).partETag()).isEqualTo(part2.partETag());
 
-        nullBlobStore.completeMultipartUpload(mpu, ImmutableList.of(part1,
-                part2));
+        assertThat(nullBlobStore.listMultipartUpload(mpu)).hasSize(2);
+
+        nullBlobStore.completeMultipartUpload(mpu, parts);
 
         Blob newBlob = nullBlobStore.getBlob(containerName, blobName);
         validateBlobMetadata(newBlob.getMetadata());
@@ -162,6 +163,9 @@ public final class NullBlobStoreTest {
                     ByteStreams.nullOutputStream());
             assertThat(actualLength).isEqualTo(expectedLength);
         }
+
+        nullBlobStore.removeBlob(containerName, blobName);
+        assertThat(nullBlobStore.list(containerName)).isEmpty();
     }
 
     private static String createRandomContainerName() {
