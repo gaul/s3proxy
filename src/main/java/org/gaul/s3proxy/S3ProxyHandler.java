@@ -22,6 +22,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
@@ -45,6 +46,7 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.annotation.Nullable;
 import javax.crypto.Mac;
@@ -2126,9 +2128,9 @@ public class S3ProxyHandler {
     }
 
     private void handleCompleteMultipartUpload(HttpServletResponse response,
-            InputStream is, BlobStore blobStore, String containerName,
+            InputStream is, final BlobStore blobStore, String containerName,
             String blobName, String uploadId) throws IOException, S3Exception {
-        MultipartUpload mpu;
+        final MultipartUpload mpu;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             Blob stubBlob = blobStore.getBlob(containerName, uploadId);
@@ -2152,7 +2154,7 @@ public class S3ProxyHandler {
         }
         ImmutableMap<Integer, MultipartPart> partsByListing = builder.build();
 
-        List<MultipartPart> parts = new ArrayList<>();
+        final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob")) {
             // TODO: how to sanity check parts?
@@ -2196,21 +2198,53 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
 
-        String eTag = blobStore.completeMultipartUpload(mpu, parts);
-
-        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
-                blobStore))) {
-            blobStore.removeBlob(containerName, uploadId);
-        }
-
         response.setCharacterEncoding(UTF_8);
-        try (Writer writer = response.getWriter()) {
+        try (PrintWriter writer = response.getWriter()) {
+            response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(XML_CONTENT_TYPE);
+
+            // Launch async thread to allow main thread to emit newlines to
+            // the client while completeMultipartUpload processes.
+            final AtomicReference<String> eTag = new AtomicReference<>();
+            final AtomicReference<RuntimeException> exception =
+                    new AtomicReference<>();
+            Thread thread = new Thread() {
+                @Override
+                public void run() {
+                    try {
+                        eTag.set(blobStore.completeMultipartUpload(mpu, parts));
+                    } catch (RuntimeException re) {
+                        exception.set(re);
+                    }
+                }
+            };
+            thread.start();
+
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
             xml.writeStartElement("CompleteMultipartUploadResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
+            xml.flush();
+
+            while (thread.isAlive()) {
+                try {
+                    thread.join(1000);
+                } catch (InterruptedException ie) {
+                    // ignore
+                }
+                writer.write("\n");
+                writer.flush();
+            }
+
+            if (exception.get() != null) {
+                throw exception.get();
+            }
+
+            if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                    blobStore))) {
+                blobStore.removeBlob(containerName, uploadId);
+            }
 
             // TODO: bogus value
             writeSimpleElement(xml, "Location",
@@ -2220,7 +2254,7 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Key", blobName);
 
             if (eTag != null) {
-                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag.get()));
             }
 
             xml.writeEndElement();
