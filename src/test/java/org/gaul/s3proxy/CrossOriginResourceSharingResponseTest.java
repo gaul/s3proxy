@@ -79,7 +79,6 @@ public final class CrossOriginResourceSharingResponseTest {
     private EndpointConfiguration s3EndpointConfig;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
-    private String blobStoreType;
     private String containerName;
     private AWSCredentials awsCreds;
     private AmazonS3 s3Client;
@@ -345,6 +344,7 @@ public final class CrossOriginResourceSharingResponseTest {
         // Relax SSL Certificate check
         SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(
                 null, new TrustStrategy() {
+                    @Override
                     public boolean isTrusted(X509Certificate[] arg0,
                             String arg1) throws CertificateException {
                         return true;

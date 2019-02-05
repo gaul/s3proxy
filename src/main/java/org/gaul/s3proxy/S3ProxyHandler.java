@@ -730,8 +730,7 @@ public class S3ProxyHandler {
                 return;
             }
         case "OPTIONS":
-            handleOptionsBlob(request, response, blobStore, path[1],
-                        path[2]);
+            handleOptionsBlob(request, response, blobStore, path[1]);
             return;
         default:
             break;
@@ -825,8 +824,7 @@ public class S3ProxyHandler {
                 if (access == ContainerAccess.PRIVATE) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
-                handleOptionsBlob(request, response, blobStore, containerName,
-                        "");
+                handleOptionsBlob(request, response, blobStore, containerName);
                 return;
             }
         default:
@@ -1551,8 +1549,8 @@ public class S3ProxyHandler {
 
     private void handleOptionsBlob(HttpServletRequest request,
             HttpServletResponse response,
-            BlobStore blobStore, String containerName,
-            String blobName) throws IOException, S3Exception {
+            BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             // Don't leak internal information, although authenticated
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
