@@ -1859,7 +1859,7 @@ public class S3ProxyHandler {
 
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob") &&
-                contentLength > 64 * 1024 * 1024) {
+                contentLength > 256 * 1024 * 1024) {
             options.multipart(true);
         }
 
@@ -2464,9 +2464,8 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         try (InputStream is = blob.getPayload().openStream()) {
             if (blobStoreType.equals("azureblob")) {
-                // Azure has a maximum part size of 4 MB while S3 has a minimum
-                // part size of 5 MB and a maximum of 5 GB.  Split a single S3
-                // part multiple Azure parts.
+                // Azure has a smaller maximum part size than S3.  Split a
+                // single S3 part multiple Azure parts.
                 long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
                 HashingInputStream his = new HashingInputStream(MD5, is);
@@ -2600,9 +2599,8 @@ public class S3ProxyHandler {
                 blobName, uploadId, blobMetadata, new PutOptions());
 
         if (getBlobStoreType(blobStore).equals("azureblob")) {
-            // Azure has a maximum part size of 4 MB while S3 has a minimum
-            // part size of 5 MB and a maximum of 5 GB.  Split a single S3
-            // part multiple Azure parts.
+            // Azure has a smaller maximum part size than S3.  Split a single
+            // S3 part multiple Azure parts.
             long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
             HashingInputStream his = new HashingInputStream(MD5, is);
