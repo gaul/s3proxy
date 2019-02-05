@@ -133,6 +133,20 @@ public final class JcloudsS3BlobIntegrationLiveTest
         super.testListMultipartUploads();
     }
 
+    // TODO: remove after JCLOUDS-1489 resolved
+    @Override
+    public void testPutBlobTierArchive() throws Exception {
+        throw new SkipException(
+                "S3BlobIntegrationLiveTest expects a failure");
+    }
+
+    // TODO: remove after JCLOUDS-1489 resolved
+    @Override
+    public void testPutBlobTierArchiveMultipart() throws Exception {
+        throw new SkipException(
+                "S3BlobIntegrationLiveTest expects a failure");
+    }
+
     @Override
     protected void checkCacheControl(Blob blob, String cacheControl) {
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {

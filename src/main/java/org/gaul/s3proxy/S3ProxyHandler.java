@@ -1872,8 +1872,6 @@ public class S3ProxyHandler {
         String storageClass = request.getHeader("x-amz-storage-class");
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
-        } else if (storageClass.equalsIgnoreCase("GLACIER")) {
-            throw new IllegalArgumentException();
         } else {
             builder.tier(StorageClass.valueOf(storageClass).toTier());
         }
@@ -2082,8 +2080,6 @@ public class S3ProxyHandler {
         String storageClass = request.getHeader("x-amz-storage-class");
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
-        } else if (storageClass.equalsIgnoreCase("GLACIER")) {
-            throw new IllegalArgumentException();
         } else {
             builder.tier(StorageClass.valueOf(storageClass).toTier());
         }
