@@ -70,6 +70,8 @@ import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ListMultipartUploadsRequest;
 import com.amazonaws.services.s3.model.ListObjectsRequest;
+import com.amazonaws.services.s3.model.ListObjectsV2Request;
+import com.amazonaws.services.s3.model.ListObjectsV2Result;
 import com.amazonaws.services.s3.model.ListPartsRequest;
 import com.amazonaws.services.s3.model.MultipartUploadListing;
 import com.amazonaws.services.s3.model.ObjectListing;
@@ -902,6 +904,52 @@ public final class AwsSdkTest {
         assertThat(listing.getObjectSummaries()).hasSize(1);
         assertThat(listing.getObjectSummaries().iterator().next().getKey())
                 .isEqualTo("blob2");
+    }
+
+    @Test
+    public void testBlobListV2() throws Exception {
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        for (int i = 1; i < 5; ++i) {
+            client.putObject(containerName, String.valueOf(i),
+                    BYTE_SOURCE.openStream(), metadata);
+        }
+
+        ListObjectsV2Result result = client.listObjectsV2(
+                new ListObjectsV2Request()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withStartAfter("1"));
+        assertThat(result.getContinuationToken()).isEmpty();
+        assertThat(result.getStartAfter()).isEqualTo("1");
+        assertThat(result.getNextContinuationToken()).isEqualTo("2");
+        assertThat(result.isTruncated()).isTrue();
+        assertThat(result.getObjectSummaries()).hasSize(1);
+        assertThat(result.getObjectSummaries().get(0).getKey()).isEqualTo("2");
+
+        result = client.listObjectsV2(
+                new ListObjectsV2Request()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withContinuationToken(result.getNextContinuationToken()));
+        assertThat(result.getContinuationToken()).isEqualTo("2");
+        assertThat(result.getStartAfter()).isEmpty();
+        assertThat(result.getNextContinuationToken()).isEqualTo("3");
+        assertThat(result.isTruncated()).isTrue();
+        assertThat(result.getObjectSummaries()).hasSize(1);
+        assertThat(result.getObjectSummaries().get(0).getKey()).isEqualTo("3");
+
+        result = client.listObjectsV2(
+                new ListObjectsV2Request()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withContinuationToken(result.getNextContinuationToken()));
+        assertThat(result.getContinuationToken()).isEqualTo("3");
+        assertThat(result.getStartAfter()).isEmpty();
+        assertThat(result.getNextContinuationToken()).isNull();
+        assertThat(result.isTruncated()).isFalse();
+        assertThat(result.getObjectSummaries()).hasSize(1);
+        assertThat(result.getObjectSummaries().get(0).getKey()).isEqualTo("4");
     }
 
     @Test

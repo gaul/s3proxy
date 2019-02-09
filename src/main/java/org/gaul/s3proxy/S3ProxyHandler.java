@@ -143,7 +143,6 @@ public class S3ProxyHandler {
             "cors",
             "inventory",
             "lifecycle",
-            "list-type",
             "logging",
             "metrics",
             "notification",
@@ -1316,7 +1315,27 @@ public class S3ProxyHandler {
         if (prefix != null && !prefix.isEmpty()) {
             options.prefix(prefix);
         }
-        String marker = request.getParameter("marker");
+
+        boolean isListV2 = false;
+        String marker;
+        String listType = request.getParameter("list-type");
+        String continuationToken = request.getParameter("continuation-token");
+        String startAfter = request.getParameter("start-after");
+        if (listType == null) {
+            marker = request.getParameter("marker");
+        } else if (listType.equals("2")) {
+            isListV2 = true;
+            if (continuationToken != null && startAfter != null) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            }
+            if (continuationToken != null) {
+                marker = continuationToken;
+            } else {
+                marker = startAfter;
+            }
+        } else {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
         if (marker != null) {
             if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                 String realMarker = lastKeyToMarker.getIfPresent(
@@ -1327,6 +1346,12 @@ public class S3ProxyHandler {
             }
             options.afterMarker(marker);
         }
+
+        String fetchOwner = request.getParameter("fetch-owner");
+        if (fetchOwner != null && !fetchOwner.equals("false")) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+
         int maxKeys = 1000;
         String maxKeysString = request.getParameter("max-keys");
         if (maxKeysString != null) {
@@ -1372,11 +1397,26 @@ public class S3ProxyHandler {
 
             writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
 
-            if (marker == null) {
-                xml.writeEmptyElement("Marker");
+            if (!isListV2) {
+                if (marker == null) {
+                    xml.writeEmptyElement("Marker");
+                } else {
+                    writeSimpleElement(xml, "Marker", encodeBlob(
+                            encodingType, marker));
+                }
             } else {
-                writeSimpleElement(xml, "Marker", encodeBlob(
-                        encodingType, marker));
+                if (continuationToken == null) {
+                    xml.writeEmptyElement("ContinuationToken");
+                } else {
+                    writeSimpleElement(xml, "ContinuationToken", encodeBlob(
+                            encodingType, continuationToken));
+                }
+                if (startAfter == null) {
+                    xml.writeEmptyElement("StartAfter");
+                } else {
+                    writeSimpleElement(xml, "StartAfter", encodeBlob(
+                            encodingType, startAfter));
+                }
             }
 
             if (delimiter != null) {
@@ -1391,8 +1431,9 @@ public class S3ProxyHandler {
             String nextMarker = set.getNextMarker();
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
-                writeSimpleElement(xml, "NextMarker", encodeBlob(
-                        encodingType, nextMarker));
+                writeSimpleElement(xml,
+                        isListV2 ? "NextContinuationToken" : "NextMarker",
+                        encodeBlob(encodingType, nextMarker));
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                     lastKeyToMarker.put(Maps.immutableEntry(containerName,
                             Iterables.getLast(set).getName()), nextMarker);

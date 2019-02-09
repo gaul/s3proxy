@@ -105,7 +105,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * bucket logging
 * [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration (see below).
 * hosting static websites
-* list objects v2, see [#168](https://github.com/gaul/s3proxy/issues/168)
 * object server-side encryption
 * object tagging
 * object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74)
