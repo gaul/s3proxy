@@ -29,7 +29,6 @@ import com.amazonaws.auth.AnonymousAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.internal.SkipMd5CheckStrategy;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.S3Object;
 import com.google.common.io.ByteSource;
@@ -54,7 +53,6 @@ public final class AwsSdkAnonymousTest {
     private EndpointConfiguration s3EndpointConfig;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
-    private String blobStoreType;
     private String containerName;
     private AWSCredentials awsCreds;
     private AmazonS3 client;
@@ -78,18 +76,6 @@ public final class AwsSdkAnonymousTest {
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
-
-        blobStoreType = context.unwrap().getProviderMetadata().getId();
-        if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
-            System.setProperty(
-                    SkipMd5CheckStrategy
-                            .DISABLE_GET_OBJECT_MD5_VALIDATION_PROPERTY,
-                    "true");
-            System.setProperty(
-                    SkipMd5CheckStrategy
-                            .DISABLE_PUT_OBJECT_MD5_VALIDATION_PROPERTY,
-                    "true");
-        }
     }
 
     @After

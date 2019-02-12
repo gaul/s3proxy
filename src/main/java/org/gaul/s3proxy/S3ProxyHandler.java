@@ -1469,7 +1469,8 @@ public class S3ProxyHandler {
 
                 String eTag = metadata.getETag();
                 if (eTag != null) {
-                    writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+                    writeSimpleElement(xml, "ETag",
+                            formatETag(blobStore, eTag));
                 }
 
                 writeSimpleElement(xml, "Size",
@@ -1556,8 +1557,10 @@ public class S3ProxyHandler {
 
         // BlobStore.blobMetadata does not support GetOptions so we emulate
         // conditional requests.
-        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
-        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        String ifMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                HttpHeaders.IF_MATCH));
+        String ifNoneMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                HttpHeaders.IF_NONE_MATCH));
         long ifModifiedSince = request.getDateHeader(
                 HttpHeaders.IF_MODIFIED_SINCE);
         long ifUnmodifiedSince = request.getDateHeader(
@@ -1565,7 +1568,7 @@ public class S3ProxyHandler {
 
         String eTag = metadata.getETag();
         if (eTag != null) {
-            eTag = maybeQuoteETag(eTag);
+            eTag = formatETag(blobStore, eTag);
             if (ifMatch != null && !ifMatch.equals(eTag)) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
@@ -1589,7 +1592,7 @@ public class S3ProxyHandler {
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
-        addMetadataToResponse(request, response, metadata);
+        addMetadataToResponse(request, response, blobStore, metadata);
     }
 
     private void handleOptionsBlob(HttpServletRequest request,
@@ -1641,12 +1644,14 @@ public class S3ProxyHandler {
         int status = HttpServletResponse.SC_OK;
         GetOptions options = new GetOptions();
 
-        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                HttpHeaders.IF_MATCH));
         if (ifMatch != null) {
             options.ifETagMatches(ifMatch);
         }
 
-        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        String ifNoneMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                HttpHeaders.IF_NONE_MATCH));
         if (ifNoneMatch != null) {
             options.ifETagDoesntMatch(ifNoneMatch);
         }
@@ -1695,7 +1700,7 @@ public class S3ProxyHandler {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
         }
 
-        addMetadataToResponse(request, response, blob.getMetadata());
+        addMetadataToResponse(request, response, blobStore, blob.getMetadata());
         // TODO: handles only a single range due to jclouds limitations
         Collection<String> contentRanges =
                 blob.getAllHeaders().get(HttpHeaders.CONTENT_RANGE);
@@ -1740,12 +1745,13 @@ public class S3ProxyHandler {
 
         CopyOptions.Builder options = CopyOptions.builder();
 
-        String ifMatch = request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
+        String ifMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                AwsHttpHeaders.COPY_SOURCE_IF_MATCH));
         if (ifMatch != null) {
             options.ifMatch(ifMatch);
         }
-        String ifNoneMatch = request.getHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
+        String ifNoneMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH));
         if (ifNoneMatch != null) {
             options.ifNoneMatch(ifNoneMatch);
         }
@@ -1825,7 +1831,7 @@ public class S3ProxyHandler {
 
             writeSimpleElement(xml, "LastModified",
                     formatDate(blobMetadata.getLastModified()));
-            writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+            writeSimpleElement(xml, "ETag", formatETag(blobStore, eTag));
 
             xml.writeEndElement();
             xml.flush();
@@ -1935,7 +1941,7 @@ public class S3ProxyHandler {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "PUT");
         }
 
-        response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        response.addHeader(HttpHeaders.ETAG, formatETag(blobStore, eTag));
     }
 
     private void handlePostBlob(HttpServletRequest request,
@@ -2297,7 +2303,8 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Key", blobName);
 
             if (eTag != null) {
-                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag.get()));
+                writeSimpleElement(xml, "ETag",
+                        formatETag(blobStore, eTag.get()));
             }
 
             xml.writeEndElement();
@@ -2409,7 +2416,8 @@ public class S3ProxyHandler {
 
                 String eTag = part.partETag();
                 if (eTag != null) {
-                    writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+                    writeSimpleElement(xml, "ETag",
+                            formatETag(blobStore, eTag));
                 }
 
                 writeSimpleElement(xml, "Size", String.valueOf(
@@ -2502,17 +2510,17 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
-        String ifMatch = request.getHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
-        String ifNoneMatch = request.getHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
+        String ifMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                AwsHttpHeaders.COPY_SOURCE_IF_MATCH));
+        String ifNoneMatch = maybeUnmungeETag(blobStore, request.getHeader(
+                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH));
         long ifModifiedSince = request.getDateHeader(
                 AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
         long ifUnmodifiedSince = request.getDateHeader(
                 AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
         String eTag = blobMetadata.getETag();
         if (eTag != null) {
-            eTag = maybeQuoteETag(eTag);
+            eTag = formatETag(blobStore, eTag);
             if (ifMatch != null && !ifMatch.equals(eTag)) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
@@ -2580,7 +2588,7 @@ public class S3ProxyHandler {
 
             writeSimpleElement(xml, "LastModified", formatDate(lastModified));
             if (eTag != null) {
-                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+                writeSimpleElement(xml, "ETag", formatETag(blobStore, eTag));
             }
 
             xml.writeEndElement();
@@ -2692,8 +2700,8 @@ public class S3ProxyHandler {
                 blobStore.uploadMultipartPart(mpu,
                         10_000 * partNumber + subPartNumber, payload);
             }
-            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(
-                    BaseEncoding.base16().lowerCase().encode(
+            response.addHeader(HttpHeaders.ETAG, formatETag(
+                    blobStore, BaseEncoding.base16().lowerCase().encode(
                             his.hash().asBytes())));
         } else {
             MultipartPart part;
@@ -2707,7 +2715,7 @@ public class S3ProxyHandler {
 
             if (part.partETag() != null) {
                 response.addHeader(HttpHeaders.ETAG,
-                        maybeQuoteETag(part.partETag()));
+                        formatETag(blobStore, part.partETag()));
             }
         }
     }
@@ -2726,7 +2734,7 @@ public class S3ProxyHandler {
     }
 
     private static void addMetadataToResponse(HttpServletRequest request,
-            HttpServletResponse response,
+            HttpServletResponse response, BlobStore blobStore,
             BlobMetadata metadata) {
         ContentMetadata contentMetadata =
                 metadata.getContentMetadata();
@@ -2750,7 +2758,7 @@ public class S3ProxyHandler {
                 overrideContentType : contentMetadata.getContentType());
         String eTag = metadata.getETag();
         if (eTag != null) {
-            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+            response.addHeader(HttpHeaders.ETAG, formatETag(blobStore, eTag));
         }
         String overrideExpires = request.getParameter("response-expires");
         if (overrideExpires != null) {
@@ -2925,10 +2933,34 @@ public class S3ProxyHandler {
         return s1.equals(s2);
     }
 
-    private static String maybeQuoteETag(String eTag) {
-        if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
-            eTag = "\"" + eTag + "\"";
+    /**
+     * Ensure that ETag have quotes.  Also append a fake multipart suffix for
+     * Azure and B2 so that clients to not try to compare it against MD5
+     * hashes.
+     */
+    private static String formatETag(BlobStore blobStore, String eTag) {
+        if (eTag.startsWith("\"") && eTag.endsWith("\"")) {
+            eTag = eTag.substring(1, eTag.length() - 1);
         }
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
+            eTag += "-0";
+        }
+        return "\"" + eTag + "\"";
+    }
+
+    /** Remove -0 suffix from ETags.  See above. */
+    private static String maybeUnmungeETag(BlobStore blobStore,
+            @Nullable String eTag) {
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (!Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
+            return eTag;
+        }
+
+        if (eTag != null && eTag.endsWith("-0")) {
+            return eTag.substring(eTag.length() - 2);
+        }
+
         return eTag;
     }
 
