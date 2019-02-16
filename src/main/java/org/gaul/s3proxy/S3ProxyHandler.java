@@ -158,18 +158,18 @@ public class S3ProxyHandler {
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
-            "x-amz-acl",
-            "x-amz-content-sha256",
-            "x-amz-copy-source",
-            "x-amz-copy-source-if-match",
-            "x-amz-copy-source-if-modified-since",
-            "x-amz-copy-source-if-none-match",
-            "x-amz-copy-source-if-unmodified-since",
-            "x-amz-copy-source-range",
-            "x-amz-date",
-            "x-amz-decoded-content-length",
-            "x-amz-metadata-directive",
-            "x-amz-storage-class"
+            AwsHttpHeaders.ACL,
+            AwsHttpHeaders.CONTENT_SHA256,
+            AwsHttpHeaders.COPY_SOURCE,
+            AwsHttpHeaders.COPY_SOURCE_IF_MATCH,
+            AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE,
+            AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH,
+            AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE,
+            AwsHttpHeaders.COPY_SOURCE_RANGE,
+            AwsHttpHeaders.DATE,
+            AwsHttpHeaders.DECODED_CONTENT_LENGTH,
+            AwsHttpHeaders.METADATA_DIRECTIVE,
+            AwsHttpHeaders.STORAGE_CLASS
     );
     private static final Set<String> CANNED_ACLS = ImmutableSet.of(
             "private",
@@ -307,11 +307,11 @@ public class S3ProxyHandler {
             }
             if (headerName.equalsIgnoreCase(HttpHeaders.DATE)) {
                 hasDateHeader = true;
-            } else if (headerName.equalsIgnoreCase("x-amz-date")) {
+            } else if (headerName.equalsIgnoreCase(AwsHttpHeaders.DATE)) {
                 logger.debug("have the x-amz-date heaer {}", headerName);
                 // why x-amz-date name exist,but value is null?
-                if ("".equals(request.getHeader("x-amz-date")) ||
-                    request.getHeader("x-amz-date") == null) {
+                if ("".equals(request.getHeader(AwsHttpHeaders.DATE)) ||
+                    request.getHeader(AwsHttpHeaders.DATE) == null) {
                     logger.debug("have empty x-amz-date");
                 } else {
                     hasXAmzDateHeader = true;
@@ -421,14 +421,15 @@ public class S3ProxyHandler {
 
             if (hasXAmzDateHeader) { //format diff between v2 and v4
                 if (finalAuthType == AuthenticationType.AWS_V2) {
-                    dateSkew = request.getDateHeader("x-amz-date");
+                    dateSkew = request.getDateHeader(AwsHttpHeaders.DATE);
                     dateSkew /= 1000;
                     //case sensetive?
                 } else if (finalAuthType == AuthenticationType.AWS_V4) {
                     logger.debug("into process v4 {}",
-                            request.getHeader("x-amz-date"));
+                            request.getHeader(AwsHttpHeaders.DATE));
 
-                    dateSkew = parseIso8601(request.getHeader("x-amz-date"));
+                    dateSkew = parseIso8601(request.getHeader(
+                            AwsHttpHeaders.DATE));
                 }
             } else if (request.getParameter("X-Amz-Date") != null) { // v4 query
                 String dateString = request.getParameter("X-Amz-Date");
@@ -464,7 +465,8 @@ public class S3ProxyHandler {
                         path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
             blobStore = provider.getValue();
-            String contentSha256 = request.getHeader("x-amz-content-sha256");
+            String contentSha256 = request.getHeader(
+                    AwsHttpHeaders.CONTENT_SHA256);
             if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
                 is = new ChunkedInputStream(is);
             }
@@ -538,7 +540,7 @@ public class S3ProxyHandler {
                         haveBothDateHeader);
             } else {
                 String contentSha256 = request.getHeader(
-                        "x-amz-content-sha256");
+                        AwsHttpHeaders.CONTENT_SHA256);
                 try {
                     byte[] payload;
                     if (request.getParameter("X-Amz-Algorithm") != null) {
@@ -606,7 +608,7 @@ public class S3ProxyHandler {
             if (!headerName.startsWith("x-amz-")) {
                 continue;
             }
-            if (headerName.startsWith("x-amz-meta-")) {
+            if (headerName.startsWith(USER_METADATA_PREFIX)) {
                 continue;
             }
             if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName.toLowerCase())) {
@@ -708,7 +710,7 @@ public class S3ProxyHandler {
                         path[1]);
                 return;
             } else if (uploadId != null) {
-                if (request.getHeader("x-amz-copy-source") != null) {
+                if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
                     handleCopyPart(request, response, blobStore, path[1],
                             path[2], uploadId);
                 } else {
@@ -716,7 +718,7 @@ public class S3ProxyHandler {
                             path[2], uploadId);
                 }
                 return;
-            } else if (request.getHeader("x-amz-copy-source") != null) {
+            } else if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
                 handleCopyBlob(request, response, is, blobStore, path[1],
                         path[2]);
                 return;
@@ -902,7 +904,7 @@ public class S3ProxyHandler {
             String containerName) throws IOException, S3Exception {
         ContainerAccess access;
 
-        String cannedAcl = request.getHeader("x-amz-acl");
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || "private".equalsIgnoreCase(cannedAcl)) {
             access = ContainerAccess.PRIVATE;
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
@@ -1001,7 +1003,7 @@ public class S3ProxyHandler {
             throws IOException, S3Exception {
         BlobAccess access;
 
-        String cannedAcl = request.getHeader("x-amz-acl");
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || "private".equalsIgnoreCase(cannedAcl)) {
             access = BlobAccess.PRIVATE;
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
@@ -1250,7 +1252,7 @@ public class S3ProxyHandler {
         logger.debug("Creating bucket with location: {}", location);
 
         CreateContainerOptions options = new CreateContainerOptions();
-        String acl = request.getHeader("x-amz-acl");
+        String acl = request.getHeader(AwsHttpHeaders.ACL);
         if ("public-read".equalsIgnoreCase(acl)) {
             options.publicRead();
         }
@@ -1715,7 +1717,7 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
-        String copySourceHeader = request.getHeader("x-amz-copy-source");
+        String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         copySourceHeader = URLDecoder.decode(copySourceHeader, UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
@@ -1728,7 +1730,7 @@ public class S3ProxyHandler {
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
         boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
-                "x-amz-metadata-directive"));
+                AwsHttpHeaders.METADATA_DIRECTIVE));
 
         if (sourceContainerName.equals(destContainerName) &&
                 sourceBlobName.equals(destBlobName) &&
@@ -1738,22 +1740,22 @@ public class S3ProxyHandler {
 
         CopyOptions.Builder options = CopyOptions.builder();
 
-        String ifMatch = request.getHeader("x-amz-copy-source-if-match");
+        String ifMatch = request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
         if (ifMatch != null) {
             options.ifMatch(ifMatch);
         }
         String ifNoneMatch = request.getHeader(
-                "x-amz-copy-source-if-none-match");
+                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
         if (ifNoneMatch != null) {
             options.ifNoneMatch(ifNoneMatch);
         }
         long ifModifiedSince = request.getDateHeader(
-                "x-amz-copy-source-if-modified-since");
+                AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
         if (ifModifiedSince != -1) {
             options.ifModifiedSince(new Date(ifModifiedSince));
         }
         long ifUnmodifiedSince = request.getDateHeader(
-                "x-amz-copy-source-if-unmodified-since");
+                AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
         if (ifUnmodifiedSince != -1) {
             options.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
         }
@@ -1804,7 +1806,7 @@ public class S3ProxyHandler {
         }
 
         // TODO: jclouds should include this in CopyOptions
-        String cannedAcl = request.getHeader("x-amz-acl");
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl != null && !cannedAcl.equalsIgnoreCase("private")) {
             handleSetBlobAcl(request, response, is, blobStore,
                     destContainerName, destBlobName);
@@ -1847,7 +1849,7 @@ public class S3ProxyHandler {
             if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
                 contentLengthString = headerValue;
             } else if (headerName.equalsIgnoreCase(
-                    "x-amz-decoded-content-length")) {
+                    AwsHttpHeaders.DECODED_CONTENT_LENGTH)) {
                 decodedContentLengthString = headerValue;
             } else if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_MD5)) {
                 contentMD5String = headerValue;
@@ -1884,7 +1886,7 @@ public class S3ProxyHandler {
         }
 
         BlobAccess access;
-        String cannedAcl = request.getHeader("x-amz-acl");
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
             access = BlobAccess.PRIVATE;
         } else if (cannedAcl.equalsIgnoreCase("public-read")) {
@@ -1910,7 +1912,7 @@ public class S3ProxyHandler {
                 .payload(is)
                 .contentLength(contentLength);
 
-        String storageClass = request.getHeader("x-amz-storage-class");
+        String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
         } else {
@@ -2118,7 +2120,7 @@ public class S3ProxyHandler {
         addContentMetdataFromHttpRequest(builder, request);
         builder.contentLength(payload.size());
 
-        String storageClass = request.getHeader("x-amz-storage-class");
+        String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
         } else {
@@ -2126,7 +2128,7 @@ public class S3ProxyHandler {
         }
 
         BlobAccess access;
-        String cannedAcl = request.getHeader("x-amz-acl");
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
             access = BlobAccess.PRIVATE;
         } else if (cannedAcl.equalsIgnoreCase("public-read")) {
@@ -2428,7 +2430,7 @@ public class S3ProxyHandler {
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
-        String copySourceHeader = request.getHeader("x-amz-copy-source");
+        String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         copySourceHeader = URLDecoder.decode(copySourceHeader, UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
@@ -2442,7 +2444,7 @@ public class S3ProxyHandler {
         String sourceBlobName = path[1];
 
         GetOptions options = new GetOptions();
-        String range = request.getHeader("x-amz-copy-source-range");
+        String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         long expectedSize = -1;
         if (range != null && range.startsWith("bytes=") &&
                 // ignore multiple ranges
@@ -2501,13 +2503,13 @@ public class S3ProxyHandler {
         }
 
         String ifMatch = request.getHeader(
-                "x-amz-copy-source-if-match");
+                AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
         String ifNoneMatch = request.getHeader(
-                "x-amz-copy-source-if-none-match");
+                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
         long ifModifiedSince = request.getDateHeader(
-                "x-amz-copy-source-if-modified-since");
+                AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
         long ifUnmodifiedSince = request.getDateHeader(
-                "x-amz-copy-source-if-unmodified-since");
+                AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
         String eTag = blobMetadata.getETag();
         if (eTag != null) {
             eTag = maybeQuoteETag(eTag);
@@ -2602,7 +2604,7 @@ public class S3ProxyHandler {
             if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
                 contentLengthString = headerValue;
             } else if (headerName.equalsIgnoreCase(
-                    "x-amz-decoded-content-length")) {
+                    AwsHttpHeaders.DECODED_CONTENT_LENGTH)) {
                 decodedContentLengthString = headerValue;
             } else if (headerName.equalsIgnoreCase(HttpHeaders.CONTENT_MD5)) {
                 contentMD5String = headerValue;
@@ -2763,7 +2765,7 @@ public class S3ProxyHandler {
                 metadata.getLastModified().getTime());
         Tier tier = metadata.getTier();
         if (tier != null) {
-            response.addHeader("x-amz-storage-class",
+            response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
                     StorageClass.fromTier(tier).toString());
         }
         for (Map.Entry<String, String> entry :

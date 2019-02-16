@@ -94,7 +94,7 @@ final class AwsSignature {
                     request.getHeaders(headerName));
             headerName = headerName.toLowerCase();
             if (!headerName.startsWith("x-amz-") || (bothDateHeader &&
-                  headerName.equalsIgnoreCase("x-amz-date"))) {
+                  headerName.equalsIgnoreCase(AwsHttpHeaders.DATE))) {
                 continue;
             }
             if (headerValues.isEmpty()) {
@@ -125,14 +125,14 @@ final class AwsSignature {
             builder.append(Strings.nullToEmpty(expires));
         }  else {
             if (!bothDateHeader) {
-                if (canonicalizedHeaders.containsKey("x-amz-date")) {
+                if (canonicalizedHeaders.containsKey(AwsHttpHeaders.DATE)) {
                     builder.append("");
                 } else {
                     builder.append(request.getHeader(HttpHeaders.DATE));
                 }
             }  else {
-                if (!canonicalizedHeaders.containsKey("x-amz-date")) {
-                    builder.append(request.getHeader("x-amz-date"));
+                if (!canonicalizedHeaders.containsKey(AwsHttpHeaders.DATE)) {
+                    builder.append(request.getHeader(AwsHttpHeaders.DATE));
                 }  else {
                     // panic
                 }
@@ -258,7 +258,8 @@ final class AwsSignature {
                                                  String hashAlgorithm)
             throws IOException, NoSuchAlgorithmException {
         String authorizationHeader = request.getHeader("Authorization");
-        String xAmzContentSha256 = request.getHeader("x-amz-content-sha256");
+        String xAmzContentSha256 = request.getHeader(
+                AwsHttpHeaders.CONTENT_SHA256);
         if (xAmzContentSha256 == null) {
             xAmzContentSha256 = request.getParameter("X-Amz-SignedHeaders");
         }
@@ -336,7 +337,7 @@ final class AwsSignature {
         byte[] signingKey = signMessage(
                 "aws4_request".getBytes(StandardCharsets.UTF_8),
                 dateRegionServiceKey, algorithm);
-        String date = request.getHeader("x-amz-date");
+        String date = request.getHeader(AwsHttpHeaders.DATE);
         if (date == null) {
             date = request.getParameter("X-Amz-Date");
         }
