@@ -2503,9 +2503,9 @@ public class S3ProxyHandler {
         String ifMatch = request.getHeader(
                 "x-amz-copy-source-if-match");
         String ifNoneMatch = request.getHeader(
-                "x-amz-copy-source-if-modified-since");
-        long ifModifiedSince = request.getDateHeader(
                 "x-amz-copy-source-if-none-match");
+        long ifModifiedSince = request.getDateHeader(
+                "x-amz-copy-source-if-modified-since");
         long ifUnmodifiedSince = request.getDateHeader(
                 "x-amz-copy-source-if-unmodified-since");
         String eTag = blobMetadata.getETag();
