@@ -62,7 +62,7 @@ public final class S3Exception extends Exception {
     }
 
     @Override
-    public String toString() {
+    public String getMessage() {
         return error + " " + elements;
     }
 }
