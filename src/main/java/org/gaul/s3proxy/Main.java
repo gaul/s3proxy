@@ -310,12 +310,13 @@ public final class Main {
         }
 
         BlobStoreContext context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
-        if (context instanceof RegionScopedBlobStoreContext &&
-                region != null) {
-            blobStore = ((RegionScopedBlobStoreContext) context)
+	BlobStore blobStore;
+	if (region != null) {
+	        blobStore = ((RegionScopedBlobStoreContext) context)
                     .getBlobStore(region);
-        }
+	} else {
+		blobStore = context.getBlobStore();
+	}
         return blobStore;
     }
 
