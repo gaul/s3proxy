@@ -311,7 +311,8 @@ public final class Main {
 
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         BlobStore blobStore;
-        if (region != null) {
+        if (context instanceof RegionScopedBlobStoreContext &&
+                region != null) {
             blobStore = ((RegionScopedBlobStoreContext) context)
                     .getBlobStore(region);
         } else {
