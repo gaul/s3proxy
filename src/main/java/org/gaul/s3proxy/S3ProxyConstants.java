@@ -80,6 +80,15 @@ public final class S3ProxyConstants {
     /** Prevent mutations. */
     public static final String PROPERTY_READ_ONLY_BLOBSTORE =
             "s3proxy.read-only-blobstore";
+    /** Encrypt data. */
+    public static final String PROPERTY_ENCRYPTED_BLOBSTORE =
+        "s3proxy.encrypted-blobstore";
+    /** Encryption key. */
+    public static final String PROPERTY_ENCRYPTION_KEY =
+        "s3proxy.encrypted-blobstore-key";
+    /** Encryption salt. */
+    public static final String PROPERTY_ENCRYPTION_SALT =
+        "s3proxy.encrypted-blobstore-salt";
 
     public static final long PROPERTY_TIMESKEW = TimeUnit.MINUTES.toSeconds(15);
 

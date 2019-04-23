@@ -58,6 +58,14 @@ final class TestUtils {
         return new RandomByteSource(seed);
     }
 
+    public static String createRandomContainerName() {
+        return "container-" + new Random().nextInt(Integer.MAX_VALUE);
+    }
+
+    public static String createRandomBlobName() {
+        return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
+    }
+
     private static final class RandomByteSource extends ByteSource {
         private final long seed;
 

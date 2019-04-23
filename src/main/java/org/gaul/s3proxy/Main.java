@@ -224,6 +224,14 @@ public final class Main {
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
         }
 
+        String encryptedBlobStore = properties.getProperty(
+            S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE);
+        if ("true".equalsIgnoreCase(encryptedBlobStore)) {
+            System.err.println("Using encrypted storage backend");
+            blobStore = EncryptedBlobStore.newEncryptedBlobStore(blobStore,
+                properties);
+        }
+
         return blobStore;
     }
 

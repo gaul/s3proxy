@@ -58,7 +58,7 @@ public final class NullBlobStoreTest {
 
     @Before
     public void setUp() throws Exception {
-        containerName = createRandomContainerName();
+        containerName = TestUtils.createRandomContainerName();
 
         context = ContextBuilder
                 .newBuilder("transient")
@@ -81,7 +81,7 @@ public final class NullBlobStoreTest {
 
     @Test
     public void testCreateBlobGetBlob() throws Exception {
-        String blobName = createRandomBlobName();
+        String blobName = TestUtils.createRandomBlobName();
         Blob blob = makeBlob(nullBlobStore, blobName);
         nullBlobStore.putBlob(containerName, blob);
 
@@ -108,7 +108,7 @@ public final class NullBlobStoreTest {
 
     @Test
     public void testCreateBlobBlobMetadata() throws Exception {
-        String blobName = createRandomBlobName();
+        String blobName = TestUtils.createRandomBlobName();
         Blob blob = makeBlob(nullBlobStore, blobName);
         nullBlobStore.putBlob(containerName, blob);
         BlobMetadata metadata = nullBlobStore.blobMetadata(containerName,
@@ -166,14 +166,6 @@ public final class NullBlobStoreTest {
 
         nullBlobStore.removeBlob(containerName, blobName);
         assertThat(nullBlobStore.list(containerName)).isEmpty();
-    }
-
-    private static String createRandomContainerName() {
-        return "container-" + new Random().nextInt(Integer.MAX_VALUE);
-    }
-
-    private static String createRandomBlobName() {
-        return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 
     private static Blob makeBlob(BlobStore blobStore, String blobName)
