@@ -16,8 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Random;
@@ -31,6 +29,7 @@ import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 import com.google.inject.Module;
 
+import org.assertj.core.api.Assertions;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
@@ -105,7 +104,7 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(eventualBlobStore, blobName);
         eventualBlobStore.putBlob(containerName, blob);
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        Assertions.assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
@@ -116,13 +115,13 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(eventualBlobStore, blobName);
         eventualBlobStore.putBlob(containerName, blob);
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        Assertions.assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
         delay();
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        Assertions.assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
     }
 
@@ -148,7 +147,7 @@ public final class EventualBlobStoreTest {
         delay();
         eventualBlobStore.copyBlob(containerName, fromName, containerName,
                 toName, CopyOptions.NONE);
-        assertThat(eventualBlobStore.getBlob(containerName, toName))
+        Assertions.assertThat(eventualBlobStore.getBlob(containerName, toName))
                 .isNull();
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, toName));
@@ -163,7 +162,7 @@ public final class EventualBlobStoreTest {
         MultipartPart part = eventualBlobStore.uploadMultipartPart(mpu,
                 /*partNumber=*/ 1, blob.getPayload());
         eventualBlobStore.completeMultipartUpload(mpu, ImmutableList.of(part));
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        Assertions.assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
@@ -174,9 +173,9 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(eventualBlobStore, blobName);
         eventualBlobStore.putBlob(containerName, blob);
-        assertThat(eventualBlobStore.list(containerName)).isEmpty();
+        Assertions.assertThat(eventualBlobStore.list(containerName)).isEmpty();
         delay();
-        assertThat(eventualBlobStore.list(containerName)).isNotEmpty();
+        Assertions.assertThat(eventualBlobStore.list(containerName)).isNotEmpty();
     }
 
     private static String createRandomContainerName() {
@@ -201,25 +200,25 @@ public final class EventualBlobStoreTest {
     }
 
     private static void validateBlob(Blob blob) throws IOException {
-        assertThat(blob).isNotNull();
+        Assertions.assertThat(blob).isNotNull();
 
         ContentMetadata contentMetadata =
                 blob.getMetadata().getContentMetadata();
-        assertThat(contentMetadata.getContentDisposition())
+        Assertions.assertThat(contentMetadata.getContentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
-        assertThat(contentMetadata.getContentEncoding())
+        Assertions.assertThat(contentMetadata.getContentEncoding())
                 .isEqualTo("compress");
-        assertThat(contentMetadata.getContentLength())
+        Assertions.assertThat(contentMetadata.getContentLength())
                 .isEqualTo(BYTE_SOURCE.size());
-        assertThat(contentMetadata.getContentType())
+        Assertions.assertThat(contentMetadata.getContentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
-        assertThat(blob.getMetadata().getUserMetadata())
+        Assertions.assertThat(blob.getMetadata().getUserMetadata())
                 .isEqualTo(ImmutableMap.of("key", "value"));
 
         try (InputStream actual = blob.getPayload().openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            Assertions.assertThat(actual).hasContentEqualTo(expected);
         }
     }
 
