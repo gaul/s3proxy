@@ -16,12 +16,18 @@
 
 package org.gaul.s3proxy;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.MediaType;
 import com.google.inject.Module;
+
+import org.assertj.core.api.Assertions;
 import org.assertj.core.api.Fail;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -36,13 +42,6 @@ import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.gaul.s3proxy.S3ProxyConstants.*;
 
 public final class EncryptedBlobStoreTest {
     private static final int BYTE_SOURCE_SIZE = 1024;
@@ -66,9 +65,10 @@ public final class EncryptedBlobStoreTest {
         blobStore.createContainerInLocation(null, containerName);
 
         Properties properties = new Properties();
-        properties.put(PROPERTY_ENCRYPTED_BLOBSTORE, "true");
-        properties.put(PROPERTY_ENCRYPTION_KEY, "my-little-secret");
-        properties.put(PROPERTY_ENCRYPTION_SALT, "salty");
+        properties.put(S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE, "true");
+        properties.put(S3ProxyConstants.PROPERTY_ENCRYPTION_KEY,
+            "my-little-secret");
+        properties.put(S3ProxyConstants.PROPERTY_ENCRYPTION_SALT, "salty");
 
         encryptedBlobStore = EncryptedBlobStore.newEncryptedBlobStore(blobStore,
             properties);
@@ -98,14 +98,14 @@ public final class EncryptedBlobStoreTest {
             ByteStreams.nullOutputStream());
         long expectedLength = ByteStreams.copy(expected,
             ByteStreams.nullOutputStream());
-        assertThat(actualLength).isEqualTo(expectedLength);
+        Assertions.assertThat(actualLength).isEqualTo(expectedLength);
 
         PageSet<? extends StorageMetadata> pageSet = encryptedBlobStore.list(
             containerName);
-        assertThat(pageSet).hasSize(1);
+        Assertions.assertThat(pageSet).hasSize(1);
         StorageMetadata sm = pageSet.iterator().next();
-        assertThat(sm.getName()).isEqualTo(blobName);
-        assertThat(sm.getSize() - 17).isEqualTo(BYTE_SOURCE_SIZE);
+        Assertions.assertThat(sm.getName()).isEqualTo(blobName);
+        Assertions.assertThat(sm.getSize() - 17).isEqualTo(BYTE_SOURCE_SIZE);
     }
 
     @Test
@@ -143,17 +143,17 @@ public final class EncryptedBlobStoreTest {
 
     private void validateBlobMetadata(BlobMetadata metadata)
             throws IOException {
-        assertThat(metadata).isNotNull();
+        Assertions.assertThat(metadata).isNotNull();
 
         ContentMetadata contentMetadata = metadata.getContentMetadata();
-        assertThat(contentMetadata.getContentDisposition())
+        Assertions.assertThat(contentMetadata.getContentDisposition())
             .isEqualTo("attachment; filename=secret-recording.mp4");
-        assertThat(contentMetadata.getContentEncoding())
+        Assertions.assertThat(contentMetadata.getContentEncoding())
             .isEqualTo("compress");
-        assertThat(contentMetadata.getContentType())
+        Assertions.assertThat(contentMetadata.getContentType())
             .isEqualTo(MediaType.MP4_AUDIO.toString());
 
-        assertThat(metadata.getUserMetadata())
+        Assertions.assertThat(metadata.getUserMetadata())
             .isEqualTo(ImmutableMap.of("key", "value"));
     }
 }
