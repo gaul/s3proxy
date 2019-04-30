@@ -44,10 +44,11 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CrossOriginResourceSharing corsRules, String servicePath) {
+            CrossOriginResourceSharing corsRules, String servicePath,
+            int maximumTimeSkew) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
                 credential, virtualHost, v4MaxNonChunkedRequestSize,
-                ignoreUnknownHeaders, corsRules, servicePath);
+                ignoreUnknownHeaders, corsRules, servicePath, maximumTimeSkew);
     }
 
     private void sendS3Exception(HttpServletRequest request,

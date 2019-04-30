@@ -194,6 +194,7 @@ public class S3ProxyHandler {
     private final boolean ignoreUnknownHeaders;
     private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
+    private final int maximumTimeSkew;
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -215,7 +216,8 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CrossOriginResourceSharing corsRules, final String servicePath) {
+            CrossOriginResourceSharing corsRules, final String servicePath,
+            int maximumTimeSkew) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -250,6 +252,7 @@ public class S3ProxyHandler {
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
         this.servicePath = Strings.nullToEmpty(servicePath);
+        this.maximumTimeSkew = maximumTimeSkew;
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
@@ -2788,13 +2791,12 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void isTimeSkewed(long date) throws S3Exception  {
+    private void isTimeSkewed(long date) throws S3Exception  {
         if (date < 0) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
         long now = System.currentTimeMillis() / 1000;
-        if (now + S3ProxyConstants.PROPERTY_TIMESKEW < date ||
-                now - S3ProxyConstants.PROPERTY_TIMESKEW > date) {
+        if (now + maximumTimeSkew < date || now - maximumTimeSkew > date) {
             logger.debug("time skewed {} {}", date, now);
             throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
         }

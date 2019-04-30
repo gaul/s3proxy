@@ -117,7 +117,7 @@ public final class S3Proxy {
                 builder.credential, builder.virtualHost,
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsRules,
-                builder.servicePath);
+                builder.servicePath, builder.maximumTimeSkew);
         server.setHandler(handler);
     }
 
@@ -137,6 +137,7 @@ public final class S3Proxy {
         private boolean ignoreUnknownHeaders;
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
+        private int maximumTimeSkew = 15 * 60;
 
         Builder() {
         }
@@ -267,6 +268,12 @@ public final class S3Proxy {
                 builder.jettyMaxThreads(Integer.parseInt(jettyMaxThreads));
             }
 
+            String maximumTimeSkew = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
+            if (maximumTimeSkew != null) {
+                builder.maximumTimeSkew(Integer.parseInt(maximumTimeSkew));
+            }
+
             return builder;
         }
 
@@ -327,6 +334,11 @@ public final class S3Proxy {
 
         public Builder jettyMaxThreads(int jettyMaxThreads) {
             this.jettyMaxThreads = jettyMaxThreads;
+            return this;
+        }
+
+        public Builder maximumTimeSkew(int maximumTimeSkew) {
+            this.maximumTimeSkew = maximumTimeSkew;
             return this;
         }
 

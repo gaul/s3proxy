@@ -16,8 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import java.util.concurrent.TimeUnit;
-
 public final class S3ProxyConstants {
     public static final String PROPERTY_ENDPOINT =
             "s3proxy.endpoint";
@@ -81,7 +79,9 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_READ_ONLY_BLOBSTORE =
             "s3proxy.read-only-blobstore";
 
-    public static final long PROPERTY_TIMESKEW = TimeUnit.MINUTES.toSeconds(15);
+    /** Maximum time skew allowed in signed requests. */
+    public static final String PROPERTY_MAXIMUM_TIME_SKEW =
+            "s3proxy.maximum-timeskew";
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
