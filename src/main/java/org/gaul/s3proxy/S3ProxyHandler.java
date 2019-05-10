@@ -146,7 +146,6 @@ public class S3ProxyHandler {
             "logging",
             "metrics",
             "notification",
-            "policy",
             "replication",
             "requestPayment",
             "restore",
@@ -657,6 +656,9 @@ public class S3ProxyHandler {
                 } else if ("".equals(request.getParameter("location"))) {
                     handleContainerLocation(response);
                     return;
+                } else if ("".equals(request.getParameter("policy"))) {
+                    handleBucketPolicy(response, blobStore, path[1]);
+                    return;
                 } else if ("".equals(request.getParameter("uploads"))) {
                     handleListMultipartUploads(request, response, blobStore,
                             path[1]);
@@ -1133,6 +1135,14 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+    }
+
+    private static void handleBucketPolicy(HttpServletResponse response,
+            BlobStore blobStore, String containerName) throws S3Exception {
+        if (!blobStore.containerExists(containerName)) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+        }
+        throw new S3Exception(S3ErrorCode.NO_SUCH_POLICY);
     }
 
     private void handleListMultipartUploads(HttpServletRequest request,

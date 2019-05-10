@@ -75,6 +75,8 @@ enum S3ErrorCode {
             "The specified bucket does not exist"),
     NO_SUCH_KEY(HttpServletResponse.SC_NOT_FOUND,
             "The specified key does not exist."),
+    NO_SUCH_POLICY(HttpServletResponse.SC_NOT_FOUND,
+            "The specified bucket does not have a bucket policy."),
     NO_SUCH_UPLOAD(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
     NOT_IMPLEMENTED(HttpServletResponse.SC_NOT_IMPLEMENTED,
             "A header you provided implies functionality that is not" +

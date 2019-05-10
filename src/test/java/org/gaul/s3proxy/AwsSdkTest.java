@@ -1444,6 +1444,16 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testGetBucketPolicy() throws Exception {
+        try {
+            client.getBucketPolicy(containerName);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NoSuchPolicy");
+        }
+    }
+
+    @Test
     public void testUnknownParameter() throws Exception {
         try {
             client.setBucketLoggingConfiguration(
