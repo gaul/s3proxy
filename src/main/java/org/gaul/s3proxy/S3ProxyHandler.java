@@ -1520,9 +1520,13 @@ public class S3ProxyHandler {
 
     private void handleMultiBlobRemove(HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName)
-            throws IOException {
+            throws IOException, S3Exception {
         DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
                 is, DeleteMultipleObjectsRequest.class);
+        if (dmor.objects == null) {
+            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+        }
+
         Collection<String> blobNames = new ArrayList<>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects) {

@@ -669,6 +669,19 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testDeleteMultipleObjectsEmpty() throws Exception {
+        DeleteObjectsRequest request = new DeleteObjectsRequest(containerName)
+                .withKeys();
+
+        try {
+            client.deleteObjects(request);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("MalformedXML");
+        }
+    }
+
+    @Test
     public void testDeleteMultipleObjects() throws Exception {
         String blobName = "foo";
         ObjectMetadata metadata = new ObjectMetadata();
