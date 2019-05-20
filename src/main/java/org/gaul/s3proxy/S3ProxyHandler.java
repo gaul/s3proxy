@@ -488,6 +488,10 @@ public class S3ProxyHandler {
                 long expires = Long.parseLong(expiresString);
                 long nowSeconds = System.currentTimeMillis() / 1000;
                 if (nowSeconds >= expires) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                            "Request has expired");
+                }
+                if (expires - nowSeconds > TimeUnit.DAYS.toSeconds(365)) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
             }
@@ -502,6 +506,9 @@ public class S3ProxyHandler {
                 if (nowSeconds >= date + expires) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
                             "Request has expired");
+                }
+                if (expires > TimeUnit.DAYS.toSeconds(7)) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
             }
             // The aim ?
