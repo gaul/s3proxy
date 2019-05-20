@@ -300,6 +300,9 @@ public class S3ProxyHandler {
             }
         }
 
+        // TODO: fake
+        response.addHeader(AwsHttpHeaders.REQUEST_ID, FAKE_REQUEST_ID);
+
         boolean hasDateHeader = false;
         boolean hasXAmzDateHeader = false;
         for (String headerName : Collections.list(request.getHeaderNames())) {

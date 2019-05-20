@@ -32,6 +32,7 @@ final class AwsHttpHeaders {
     static final String DECODED_CONTENT_LENGTH =
             "x-amz-decoded-content-length";
     static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
+    static final String REQUEST_ID = "x-amz-request-id";
     static final String STORAGE_CLASS = "x-amz-storage-class";
 
     private AwsHttpHeaders() {
