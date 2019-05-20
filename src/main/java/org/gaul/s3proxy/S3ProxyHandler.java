@@ -2512,7 +2512,7 @@ public class S3ProxyHandler {
         BlobMetadata blobMetadata = blob.getMetadata();
         // HTTP GET allow overlong ranges but S3 CopyPart does not
         if (expectedSize != -1 && blobMetadata.getSize() < expectedSize) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3Exception(S3ErrorCode.INVALID_RANGE);
         }
 
         String ifMatch = request.getHeader(
