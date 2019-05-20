@@ -1434,7 +1434,7 @@ public class S3ProxyHandler {
                 }
             }
 
-            if (delimiter != null) {
+            if (!Strings.isNullOrEmpty(delimiter)) {
                 writeSimpleElement(xml, "Delimiter", encodeBlob(
                         encodingType, delimiter));
             }
