@@ -85,6 +85,10 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             }
             int status = hr.getStatusCode();
             switch (status) {
+            case 412:
+                sendS3Exception(request, response,
+                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+                break;
             case 416:
                 sendS3Exception(request, response,
                         new S3Exception(S3ErrorCode.INVALID_RANGE));
