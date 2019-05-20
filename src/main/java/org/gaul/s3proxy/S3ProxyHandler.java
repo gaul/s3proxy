@@ -57,6 +57,7 @@ import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
+import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Optional;
@@ -2222,8 +2223,14 @@ public class S3ProxyHandler {
                 parts.add(part);
             }
         } else {
-            CompleteMultipartUploadRequest cmu = new XmlMapper().readValue(
-                    is, CompleteMultipartUploadRequest.class);
+            CompleteMultipartUploadRequest cmu;
+            try {
+                cmu = new XmlMapper().readValue(
+                        is, CompleteMultipartUploadRequest.class);
+            } catch (JsonParseException jpe) {
+                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+            }
+
             // use TreeMap to allow runt last part
             SortedMap<Integer, String> requestParts = new TreeMap<>();
             if (cmu.parts != null) {
