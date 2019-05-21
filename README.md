@@ -103,6 +103,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * ACLs other than private and public-read
 * BitTorrent hosting
 * bucket logging
+* bucket policies
 * [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration (see below).
 * hosting static websites
 * object server-side encryption
