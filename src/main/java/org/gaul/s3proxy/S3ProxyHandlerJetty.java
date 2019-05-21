@@ -35,9 +35,14 @@ import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.util.Throwables2;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Jetty-specific handler for S3 requests. */
 final class S3ProxyHandlerJetty extends AbstractHandler {
+    private static final Logger logger = LoggerFactory.getLogger(
+            S3ProxyHandlerJetty.class);
+
     private final S3ProxyHandler handler;
 
     S3ProxyHandlerJetty(final BlobStore blobStore,
@@ -79,8 +84,11 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
         } catch (HttpResponseException hre) {
             HttpResponse hr = hre.getResponse();
             if (hr == null) {
+                logger.debug("HttpResponseException without HttpResponse:",
+                        hre);
                 response.sendError(
-                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                        HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                        hre.getMessage());
                 return;
             }
             int status = hr.getStatusCode();
@@ -99,14 +107,14 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     new S3Exception(S3ErrorCode.BAD_DIGEST));
                 break;
             default:
-                // TODO: emit hre.getContent() ?
-                response.sendError(status);
+                response.sendError(status, hre.getContent());
                 break;
             }
             baseRequest.setHandled(true);
             return;
         } catch (IllegalArgumentException iae) {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST,
+                    iae.getMessage());
             baseRequest.setHandled(true);
             return;
         } catch (KeyNotFoundException knfe) {
@@ -120,7 +128,8 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (UnsupportedOperationException uoe) {
-            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED,
+                    uoe.getMessage());
             baseRequest.setHandled(true);
             return;
         } catch (Throwable throwable) {
@@ -139,6 +148,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
+                logger.debug("Unknown exception:", throwable);
                 throw throwable;
             }
         }
