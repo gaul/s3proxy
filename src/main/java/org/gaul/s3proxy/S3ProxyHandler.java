@@ -314,12 +314,8 @@ public class S3ProxyHandler {
             if (headerName.equalsIgnoreCase(HttpHeaders.DATE)) {
                 hasDateHeader = true;
             } else if (headerName.equalsIgnoreCase(AwsHttpHeaders.DATE)) {
-                logger.debug("have the x-amz-date heaer {}", headerName);
-                // why x-amz-date name exist,but value is null?
-                if ("".equals(request.getHeader(AwsHttpHeaders.DATE)) ||
-                    request.getHeader(AwsHttpHeaders.DATE) == null) {
-                    logger.debug("have empty x-amz-date");
-                } else {
+                if (!Strings.isNullOrEmpty(request.getHeader(
+                        AwsHttpHeaders.DATE))) {
                     hasXAmzDateHeader = true;
                 }
             }
@@ -431,9 +427,6 @@ public class S3ProxyHandler {
                     dateSkew /= 1000;
                     //case sensetive?
                 } else if (finalAuthType == AuthenticationType.AWS_V4) {
-                    logger.debug("into process v4 {}",
-                            request.getHeader(AwsHttpHeaders.DATE));
-
                     dateSkew = parseIso8601(request.getHeader(
                             AwsHttpHeaders.DATE));
                 }
@@ -443,17 +436,14 @@ public class S3ProxyHandler {
             } else if (hasDateHeader) {
                 try {
                     dateSkew = request.getDateHeader(HttpHeaders.DATE);
-                    logger.debug("dateheader {}", dateSkew);
                 } catch (IllegalArgumentException iae) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
                 }
                 dateSkew /= 1000;
-                logger.debug("dateheader {}", dateSkew);
 
             } else {
                 haveDate = false;
             }
-            logger.debug("dateSkew {}", dateSkew);
             if (haveDate) {
                 isTimeSkewed(dateSkew);
             }
@@ -599,7 +589,6 @@ public class S3ProxyHandler {
             }
 
             if (!constantTimeEquals(expectedSignature, authHeader.signature)) {
-                logger.debug("fail to validate signature");
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
         }
