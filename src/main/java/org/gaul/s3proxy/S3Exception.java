@@ -63,7 +63,7 @@ public final class S3Exception extends Exception {
 
     @Override
     public String getMessage() {
-        StringBuilder builder = new StringBuilder().append(error);
+        StringBuilder builder = new StringBuilder().append(super.getMessage());
         if (!elements.isEmpty()) {
             builder.append(" ").append(elements);
         }
