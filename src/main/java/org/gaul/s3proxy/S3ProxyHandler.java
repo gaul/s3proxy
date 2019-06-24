@@ -2469,20 +2469,33 @@ public class S3ProxyHandler {
         GetOptions options = new GetOptions();
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         long expectedSize = -1;
-        if (range != null && range.startsWith("bytes=") &&
-                // ignore multiple ranges
-                range.indexOf(',') == -1) {
-            range = range.substring("bytes=".length());
-            String[] ranges = range.split("-", 2);
-            if (ranges[0].isEmpty()) {
-                options.tail(Long.parseLong(ranges[1]));
-            } else if (ranges[1].isEmpty()) {
-                options.startAt(Long.parseLong(ranges[0]));
-            } else {
-                long start = Long.parseLong(ranges[0]);
-                long end = Long.parseLong(ranges[1]);
-                expectedSize = end - start + 1;
-                options.range(start, end);
+        if (range != null) {
+            if (!range.startsWith("bytes=") || range.indexOf(',') != -1 ||
+                range.indexOf('-') == -1) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                    "The x-amz-copy-source-range value must be of the form " +
+                    "bytes=first-last where first and last are the " +
+                    "zero-based offsets of the first and last bytes to copy");
+            }
+            try {
+                range = range.substring("bytes=".length());
+                String[] ranges = range.split("-", 2);
+                if (ranges[0].isEmpty()) {
+                    options.tail(Long.parseLong(ranges[1]));
+                } else if (ranges[1].isEmpty()) {
+                    options.startAt(Long.parseLong(ranges[0]));
+                } else {
+                    long start = Long.parseLong(ranges[0]);
+                    long end = Long.parseLong(ranges[1]);
+                    expectedSize = end - start + 1;
+                    options.range(start, end);
+                }
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                    "The x-amz-copy-source-range value must be of the form " +
+                    "bytes=first-last where first and last are the " +
+                    "zero-based offsets of the first and last bytes to copy",
+                    nfe);
             }
         }
 
