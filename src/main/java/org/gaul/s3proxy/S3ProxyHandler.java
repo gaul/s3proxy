@@ -2816,7 +2816,6 @@ public class S3ProxyHandler {
         SimpleDateFormat formatter = new SimpleDateFormat(
                 "yyyyMMdd'T'HHmmss'Z'");
         formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
-        logger.debug("8601date {}", date);
         try {
             return formatter.parse(date).getTime() / 1000;
         } catch (ParseException pe) {
