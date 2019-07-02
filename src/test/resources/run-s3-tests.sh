@@ -37,4 +37,4 @@ done
 
 # execute s3-tests
 pushd s3-tests
-./virtualenv/bin/nosetests -a '!fails_on_s3proxy,!appendobject,!bucket-policy,!cors,!encryption,!fails_strict_rfc2616,!lifecycle,!policy,!s3website,!tagging,!versioning'
+./virtualenv/bin/nosetests -a '!fails_on_s3proxy,!appendobject,!bucket-policy,!cors,!encryption,!fails_strict_rfc2616,!lifecycle,!object-lock,!policy,!s3website,!tagging,!versioning'
