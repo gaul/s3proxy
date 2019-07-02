@@ -1410,6 +1410,9 @@ public class S3ProxyHandler {
                         encodingType, prefix));
             }
 
+            if (isListV2) {
+                writeSimpleElement(xml, "KeyCount", String.valueOf(set.size()));
+            }
             writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
 
             if (!isListV2) {
