@@ -657,7 +657,7 @@ public class S3ProxyHandler {
                     handleContainerLocation(response);
                     return;
                 } else if ("".equals(request.getParameter("policy"))) {
-                    handleBucketPolicy(response, blobStore, path[1]);
+                    handleBucketPolicy(blobStore, path[1]);
                     return;
                 } else if ("".equals(request.getParameter("uploads"))) {
                     handleListMultipartUploads(request, response, blobStore,
@@ -1137,8 +1137,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleBucketPolicy(HttpServletResponse response,
-            BlobStore blobStore, String containerName) throws S3Exception {
+    private static void handleBucketPolicy(BlobStore blobStore,
+            String containerName) throws S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
@@ -2230,7 +2230,7 @@ public class S3ProxyHandler {
                 cmu = new XmlMapper().readValue(
                         is, CompleteMultipartUploadRequest.class);
             } catch (JsonParseException jpe) {
-                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
             }
 
             // use TreeMap to allow runt last part
