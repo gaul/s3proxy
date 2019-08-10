@@ -249,6 +249,13 @@
         <configuration>
           <effort>Max</effort>
           <omitVisitors>CrossSiteScripting,DefaultEncodingDetector,FindNullDeref</omitVisitors>
+          <plugins>
+            <plugin>
+              <groupId>jp.skypencil.findbugs.slf4j</groupId>
+              <artifactId>bug-pattern</artifactId>
+              <version>1.5.0</version>
+            </plugin>
+          </plugins>
         </configuration>
       </plugin>
       <plugin>

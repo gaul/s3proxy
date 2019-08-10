@@ -49,7 +49,7 @@ import org.slf4j.LoggerFactory;
 
 final class AwsSignature {
     private static final Logger logger = LoggerFactory.getLogger(
-            S3ProxyHandler.class);
+            AwsSignature.class);
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
             new PercentEscaper("-_.~", false);
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
