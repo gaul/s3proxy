@@ -25,6 +25,10 @@ public final class S3ProxyConstants {
             "s3proxy.authorization";
     public static final String PROPERTY_IDENTITY =
             "s3proxy.identity";
+    /**
+     * Path to prepend to all requests, e.g.,
+     * https://endpoint/service-path/object.
+     */
     public static final String PROPERTY_SERVICE_PATH =
             "s3proxy.service-path";
     /** When true, include "Access-Control-Allow-Origin: *" in all responses. */
