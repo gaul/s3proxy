@@ -844,7 +844,11 @@ public class S3ProxyHandler {
     }
 
     private void handleGetContainerAcl(HttpServletResponse response,
-            BlobStore blobStore, String containerName) throws IOException {
+            BlobStore blobStore, String containerName)
+            throws IOException, S3Exception {
+        if (!blobStore.containerExists(containerName)) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+        }
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
         response.setCharacterEncoding(UTF_8);
