@@ -87,4 +87,12 @@ public class S3ProxyRuleTest {
         assertThat(summaries.get(0).getSize()).isEqualTo(testInput.length());
     }
 
+    @Test
+    public final void doesBucketExistV2() {
+        assertThat(s3Client.doesBucketExistV2(MY_TEST_BUCKET)).isTrue();
+
+        // Issue #299
+        assertThat(s3Client.doesBucketExistV2("nonexistingbucket")).isFalse();
+    }
+
 }
