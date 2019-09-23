@@ -39,7 +39,8 @@ ENV \
     JCLOUDS_KEYSTONE_SCOPE="" \
     JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME=""
 
-EXPOSE 80
+EXPOSE 8080
 VOLUME /data
+USER 1001
 
 ENTRYPOINT ["/opt/s3proxy/run-docker-container.sh"]
