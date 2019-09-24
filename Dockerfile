@@ -41,6 +41,7 @@ ENV \
 
 EXPOSE 8080
 VOLUME /data
+RUN chmod 775 /data
 USER 1001
 
 ENTRYPOINT ["/opt/s3proxy/run-docker-container.sh"]
