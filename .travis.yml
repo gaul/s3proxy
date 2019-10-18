@@ -1,6 +1,6 @@
 language: java
 jdk:
-  - openjdk7
+  - openjdk8
 env:
   global:
     - secure: "kLL/DJT13SO4WGpqzBTRqzbk4sOg6zeczQXSbC6I2W4hUCrr1hgFZt2bhZAI7AD89Q633Yj0XczOFWAlKIb0h/1jauCHwxmhDKieDI6VibnoauuFlKDT/279768Wg4oVnRM+uSeSd69jrsTnngbCckKAgSqow0XR3BcM6iSITaM="  # DOCKER_USER
