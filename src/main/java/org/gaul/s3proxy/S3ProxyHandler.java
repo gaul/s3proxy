@@ -1366,10 +1366,8 @@ public class S3ProxyHandler {
             options.afterMarker(marker);
         }
 
-        String fetchOwner = request.getParameter("fetch-owner");
-        if (fetchOwner != null && !fetchOwner.equals("false")) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
-        }
+        boolean fetchOwner = !isListV2 ||
+                "true".equals(request.getParameter("fetch-owner"));
 
         int maxKeys = 1000;
         String maxKeysString = request.getParameter("max-keys");
@@ -1497,7 +1495,9 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "StorageClass",
                         StorageClass.fromTier(metadata.getTier()).toString());
 
-                writeOwnerStanza(xml);
+                if (fetchOwner) {
+                    writeOwnerStanza(xml);
+                }
 
                 xml.writeEndElement();
             }
