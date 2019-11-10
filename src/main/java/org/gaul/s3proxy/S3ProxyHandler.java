@@ -2856,6 +2856,11 @@ public class S3ProxyHandler {
             Map<String, String> elements) throws IOException {
         logger.debug("sendSimpleErrorResponse: {} {}", code, elements);
 
+        if (response.isCommitted()) {
+            // Another handler already opened and closed the writer.
+            return;
+        }
+
         response.setStatus(code.getHttpStatusCode());
 
         if (request.getMethod().equals("HEAD")) {
