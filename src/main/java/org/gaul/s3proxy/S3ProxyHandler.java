@@ -276,6 +276,7 @@ public class S3ProxyHandler {
             InputStream is) throws IOException, S3Exception {
         String method = request.getMethod();
         String uri = request.getRequestURI();
+        String originalUri = request.getRequestURI();
 
         if (!this.servicePath.isEmpty()) {
             if (uri.length() > this.servicePath.length()) {
@@ -535,9 +536,11 @@ public class S3ProxyHandler {
 
             String expectedSignature = null;
 
-            // When presigned url is generated, it doesn't consider service path
-            String uriForSigning = presignedUrl ? uri : this.servicePath + uri;
             if (authHeader.hmacAlgorithm == null) { //v2
+                // When presigned url is generated, it doesn't consider
+                // service path
+                String uriForSigning = presignedUrl ? uri : this.servicePath +
+                        uri;
                 expectedSignature = AwsSignature.createAuthorizationSignature(
                         request, uriForSigning, credential, presignedUrl,
                         haveBothDateHeader);
@@ -579,6 +582,8 @@ public class S3ProxyHandler {
                         is = new ByteArrayInputStream(payload);
                     }
 
+                    String uriForSigning = presignedUrl ? originalUri :
+                            this.servicePath + originalUri;
                     expectedSignature = AwsSignature
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
