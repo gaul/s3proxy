@@ -130,8 +130,9 @@ for specific storage backends.
 
 ## Support
 
-[GitHub issues](https://github.com/gaul/s3proxy/issues) provide community
-support.  Andrew Gaul provides commercial support via <andrew@gaul.org>.
+* [GitHub issues](https://github.com/gaul/s3proxy/issues)
+* [Stack Overflow](https://stackoverflow.com/questions/tagged/s3proxy)
+* [commercial support](mailto:andrew@gaul.org)
 
 ## References
 
