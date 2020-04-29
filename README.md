@@ -1,5 +1,4 @@
-S3Proxy
-=======
+# S3Proxy
 
 [![Github All Releases](https://img.shields.io/github/downloads/gaul/s3proxy/total.svg)](https://github.com/gaul/s3proxy/releases/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/andrewgaul/s3proxy.svg)](https://hub.docker.com/r/andrewgaul/s3proxy/)
@@ -15,13 +14,13 @@ and *proxies* requests, enabling several use cases:
 * extension via middlewares
 * embedding into Java applications
 
-Usage with Docker
------------------
+## Usage with Docker
+
 [Docker Hub](https://hub.docker.com/r/andrewgaul/s3proxy/) hosts a Docker image
 and has instructions on how to run it.
 
-Usage without Docker
---------------------
+## Usage without Docker
+
 Users can [download releases](https://github.com/gaul/s3proxy/releases)
 from GitHub.  Developers can build the project by running `mvn package` which
 produces a binary at `target/s3proxy`.  S3Proxy requires Java 7 to run.
@@ -64,14 +63,12 @@ $ curl http://localhost:8080/
 <?xml version="1.0" ?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID><DisplayName>CustomersName@amazon.com</DisplayName></Owner><Buckets><Bucket><Name>testbucket</Name><CreationDate>2015-08-05T22:16:24.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>
 ```
 
-Usage with Java
----------------
+## Usage with Java
 
 Maven Central hosts S3Proxy artifacts and the wiki has
 [instructions on Java use](https://github.com/gaul/s3proxy/wiki/Using-S3Proxy-in-Java-projects).
 
-Supported storage backends
---------------------------
+## Supported storage backends
 
 * atmos
 * aws-s3 (Amazon-only)
@@ -86,8 +83,7 @@ Supported storage backends
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 
-Middlewares
------------
+## Middlewares
 
 S3Proxy can modify its behavior based on middlewares:
 
@@ -95,8 +91,7 @@ S3Proxy can modify its behavior based on middlewares:
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
 
-Limitations
------------
+## Limitations
 
 S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
@@ -133,14 +128,12 @@ The wiki collects
 [compatibility notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)
 for specific storage backends.
 
-Support
--------
+## Support
 
 [GitHub issues](https://github.com/gaul/s3proxy/issues) provide community
 support.  Andrew Gaul provides commercial support via <andrew@gaul.org>.
 
-References
-----------
+## References
 
 * [Apache jclouds](http://jclouds.apache.org/) provides storage backend support for S3Proxy
 * [Ceph s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
@@ -151,8 +144,8 @@ References
 * [sbt-s3](https://github.com/localytics/sbt-s3) runs S3Proxy via the Scala Build Tool
 * [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
 
-License
--------
+## License
+
 Copyright (C) 2014-2019 Andrew Gaul
 
 Licensed under the Apache License, Version 2.0
