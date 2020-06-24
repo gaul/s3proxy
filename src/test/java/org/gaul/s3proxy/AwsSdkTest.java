@@ -118,6 +118,7 @@ public final class AwsSdkTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
     private static final ClientConfiguration V2_SIGNER_CONFIG =
             new ClientConfiguration().withSignerOverride("S3SignerType");
+    private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
 
     private URI s3Endpoint;
     private EndpointConfiguration s3EndpointConfig;
@@ -471,7 +472,7 @@ public final class AwsSdkTest {
     @Test
     public void testBigMultipartUpload() throws Exception {
         String key = "multipart-upload";
-        long partSize = context.getBlobStore().getMinimumMultipartPartSize();
+        long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
         ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
 
@@ -1094,11 +1095,9 @@ public final class AwsSdkTest {
                         metadata));
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize() + 1);
-        ByteSource byteSource1 = byteSource.slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize());
-        ByteSource byteSource2 = byteSource.slice(
-                context.getBlobStore().getMinimumMultipartPartSize(), 1);
+                0, MINIMUM_MULTIPART_SIZE + 1);
+        ByteSource byteSource1 = byteSource.slice(0, MINIMUM_MULTIPART_SIZE);
+        ByteSource byteSource2 = byteSource.slice(MINIMUM_MULTIPART_SIZE, 1);
         UploadPartResult part1 = client.uploadPart(new UploadPartRequest()
                 .withBucketName(containerName)
                 .withKey(blobName)
@@ -1195,7 +1194,7 @@ public final class AwsSdkTest {
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";
         ByteSource byteSource = TestUtils.randomByteSource().slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize());
+                0, MINIMUM_MULTIPART_SIZE);
 
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));

@@ -2257,8 +2257,9 @@ public class S3ProxyHandler {
                     throw new S3Exception(S3ErrorCode.INVALID_PART);
                 }
                 long partSize = part.partSize();
-                if (partSize < blobStore.getMinimumMultipartPartSize() &&
-                        partSize != -1 && it.hasNext()) {
+                if (it.hasNext() && partSize != -1 &&
+                        (partSize < 5 * 1024 * 1024 || partSize <
+                                blobStore.getMinimumMultipartPartSize())) {
                     throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
                 if (part.partETag() != null &&
