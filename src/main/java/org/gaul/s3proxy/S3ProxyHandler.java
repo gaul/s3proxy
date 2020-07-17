@@ -1460,8 +1460,11 @@ public class S3ProxyHandler {
                         isListV2 ? "NextContinuationToken" : "NextMarker",
                         encodeBlob(encodingType, nextMarker));
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
-                    lastKeyToMarker.put(Maps.immutableEntry(containerName,
-                            Iterables.getLast(set).getName()), nextMarker);
+                    StorageMetadata sm = Iterables.getLast(set, null);
+                    if (sm != null) {
+                        lastKeyToMarker.put(Maps.immutableEntry(containerName,
+                                sm.getName()), nextMarker);
+                    }
                 }
             } else {
                 writeSimpleElement(xml, "IsTruncated", "false");
