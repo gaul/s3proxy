@@ -288,7 +288,7 @@ public class S3ProxyHandler {
         logger.debug("request: {}", request);
         String hostHeader = request.getHeader(HttpHeaders.HOST);
         if (hostHeader != null && virtualHost.isPresent()) {
-            hostHeader = HostAndPort.fromString(hostHeader).getHostText();
+            hostHeader = HostAndPort.fromString(hostHeader).getHost();
             String virtualHostSuffix = "." + virtualHost.get();
             if (!hostHeader.equals(virtualHost.get())) {
                 if (hostHeader.endsWith(virtualHostSuffix)) {
