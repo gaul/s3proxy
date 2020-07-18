@@ -1,3 +1,4 @@
+dist: bionic
 version: ~> 1.0
 os: linux
 language: java
@@ -11,6 +12,7 @@ env:
     - REPO=andrewgaul/s3proxy
 addons:
   apt_packages:
+   - python3.6
    - python-pip
    - python-virtualenv
    - libevent-dev

@@ -183,7 +183,8 @@ public class S3ProxyHandler {
     private static final String XML_CONTENT_TYPE = "application/xml";
     private static final String UTF_8 = "UTF-8";
     /** URLEncoder escapes / which we do not want. */
-    private static final Escaper urlEscaper = new PercentEscaper("*-./_", true);
+    private static final Escaper urlEscaper = new PercentEscaper(
+            "*-./_", /*plusForSpace=*/ false);
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
 
