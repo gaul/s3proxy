@@ -1157,15 +1157,18 @@ public final class AwsSdkTest {
                 blobStoreType.equals("transient"));
 
         String blobName = "multipart-upload";
-        int numParts = 10_000;
-        ByteSource byteSource = TestUtils.randomByteSource().slice(0, numParts);
+        int numParts = 32;
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, partSize * numParts);
 
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
         ImmutableList.Builder<PartETag> parts = ImmutableList.builder();
 
         for (int i = 0; i < numParts; ++i) {
-            ByteSource partByteSource = byteSource.slice(i, 1);
+            ByteSource partByteSource = byteSource.slice(
+                    i * partSize, partSize);
             UploadPartResult partResult = client.uploadPart(
                     new UploadPartRequest()
                     .withBucketName(containerName)
@@ -1183,6 +1186,9 @@ public final class AwsSdkTest {
         assertThat(listing.getObjectSummaries()).hasSize(1);
 
         S3Object object = client.getObject(containerName, blobName);
+        ObjectMetadata contentMetadata = object.getObjectMetadata();
+        assertThat(contentMetadata.getContentLength()).isEqualTo(
+                partSize * numParts);
 
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = byteSource.openStream()) {
