@@ -100,6 +100,12 @@ public final class CrossOriginResourceSharingRuleTest {
         probe = "GET";
         assertThat(corsAll.isMethodAllowed(probe))
                 .as("check '%s' as method", probe).isTrue();
+        probe = "PUT";
+        assertThat(corsAll.isMethodAllowed(probe))
+                .as("check '%s' as method", probe).isTrue();
+        probe = "POST";
+        assertThat(corsAll.isMethodAllowed(probe))
+                .as("check '%s' as method", probe).isTrue();
     }
 
     @Test
