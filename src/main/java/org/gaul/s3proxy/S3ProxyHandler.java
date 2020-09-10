@@ -644,8 +644,8 @@ public class S3ProxyHandler {
                 handleContainerDelete(response, blobStore, path[1]);
                 return;
             } else if (uploadId != null) {
-                handleAbortMultipartUpload(response, blobStore, path[1],
-                        path[2], uploadId);
+                handleAbortMultipartUpload(request, response, blobStore,
+                        path[1], path[2], uploadId);
                 return;
             } else {
                 handleBlobRemove(response, blobStore, path[1], path[2]);
@@ -705,8 +705,8 @@ public class S3ProxyHandler {
                 return;
             } else if (uploadId != null &&
                     request.getParameter("partNumber") == null) {
-                handleCompleteMultipartUpload(response, is, blobStore, path[1],
-                        path[2], uploadId);
+                handleCompleteMultipartUpload(request, response, is, blobStore,
+                        path[1], path[2], uploadId);
                 return;
             }
             break;
@@ -1392,13 +1392,7 @@ public class S3ProxyHandler {
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
-        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin) &&
-                corsRules.isOriginAllowed(corsOrigin)) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
-                    corsOrigin);
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
-        }
+        addCorsResponseHeader(request, response);
 
         response.setCharacterEncoding(UTF_8);
         try (Writer writer = response.getWriter()) {
@@ -1720,13 +1714,7 @@ public class S3ProxyHandler {
 
         response.setStatus(status);
 
-        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin) &&
-                corsRules.isOriginAllowed(corsOrigin)) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
-                    corsOrigin);
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET");
-        }
+        addCorsResponseHeader(request, response);
 
         addMetadataToResponse(request, response, blob.getMetadata());
         // TODO: handles only a single range due to jclouds limitations
@@ -1960,13 +1948,7 @@ public class S3ProxyHandler {
         eTag = blobStore.putBlob(containerName, builder.build(),
                 options);
 
-        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin) &&
-                corsRules.isOriginAllowed(corsOrigin)) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
-                    corsOrigin);
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "PUT");
-        }
+        addCorsResponseHeader(request, response);
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
@@ -2132,14 +2114,7 @@ public class S3ProxyHandler {
 
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 
-        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
-        if (!Strings.isNullOrEmpty(corsOrigin) &&
-                corsRules.isOriginAllowed(corsOrigin)) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
-                    corsOrigin);
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
-                    "POST");
-        }
+        addCorsResponseHeader(request, response);
     }
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
@@ -2201,11 +2176,14 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+
+        addCorsResponseHeader(request, response);
     }
 
-    private void handleCompleteMultipartUpload(HttpServletResponse response,
-            InputStream is, final BlobStore blobStore, String containerName,
-            String blobName, String uploadId) throws IOException, S3Exception {
+    private void handleCompleteMultipartUpload(HttpServletRequest request,
+            HttpServletResponse response, InputStream is,
+            final BlobStore blobStore, String containerName, String blobName,
+            String uploadId) throws IOException, S3Exception {
         final MultipartUpload mpu;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
@@ -2345,10 +2323,13 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+
+        addCorsResponseHeader(request, response);
     }
 
-    private static void handleAbortMultipartUpload(HttpServletResponse response,
-            BlobStore blobStore, String containerName, String blobName,
+    private void handleAbortMultipartUpload(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
@@ -2358,6 +2339,9 @@ public class S3ProxyHandler {
 
             blobStore.removeBlob(containerName, uploadId);
         }
+
+
+        addCorsResponseHeader(request, response);
 
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
@@ -2463,6 +2447,8 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+
+        addCorsResponseHeader(request, response);
     }
 
     private void handleCopyPart(HttpServletRequest request,
@@ -2641,9 +2627,11 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+
+        addCorsResponseHeader(request, response);
     }
 
-    private static void handleUploadPart(HttpServletRequest request,
+    private void handleUploadPart(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
@@ -2763,6 +2751,8 @@ public class S3ProxyHandler {
                         maybeQuoteETag(part.partETag()));
             }
         }
+
+        addCorsResponseHeader(request, response);
     }
 
     private static void addResponseHeaderWithOverride(
@@ -2900,6 +2890,18 @@ public class S3ProxyHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
+        }
+    }
+
+    private void addCorsResponseHeader(HttpServletRequest request,
+          HttpServletResponse response) {
+        String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        if (!Strings.isNullOrEmpty(corsOrigin) &&
+                corsRules.isOriginAllowed(corsOrigin)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                    corsOrigin);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                    request.getMethod());
         }
     }
 
