@@ -1,11 +1,11 @@
 /*
- * Copyright 2014-2018 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -49,7 +49,7 @@ import org.slf4j.LoggerFactory;
 
 final class AwsSignature {
     private static final Logger logger = LoggerFactory.getLogger(
-            S3ProxyHandler.class);
+            AwsSignature.class);
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
             new PercentEscaper("-_.~", false);
     private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
@@ -94,7 +94,7 @@ final class AwsSignature {
                     request.getHeaders(headerName));
             headerName = headerName.toLowerCase();
             if (!headerName.startsWith("x-amz-") || (bothDateHeader &&
-                  headerName.equalsIgnoreCase("x-amz-date"))) {
+                  headerName.equalsIgnoreCase(AwsHttpHeaders.DATE))) {
                 continue;
             }
             if (headerValues.isEmpty()) {
@@ -125,14 +125,14 @@ final class AwsSignature {
             builder.append(Strings.nullToEmpty(expires));
         }  else {
             if (!bothDateHeader) {
-                if (canonicalizedHeaders.containsKey("x-amz-date")) {
+                if (canonicalizedHeaders.containsKey(AwsHttpHeaders.DATE)) {
                     builder.append("");
                 } else {
                     builder.append(request.getHeader(HttpHeaders.DATE));
                 }
             }  else {
-                if (!canonicalizedHeaders.containsKey("x-amz-date")) {
-                    builder.append(request.getHeader("x-amz-date"));
+                if (!canonicalizedHeaders.containsKey(AwsHttpHeaders.DATE)) {
+                    builder.append(request.getHeader(AwsHttpHeaders.DATE));
                 }  else {
                     // panic
                 }
@@ -258,7 +258,8 @@ final class AwsSignature {
                                                  String hashAlgorithm)
             throws IOException, NoSuchAlgorithmException {
         String authorizationHeader = request.getHeader("Authorization");
-        String xAmzContentSha256 = request.getHeader("x-amz-content-sha256");
+        String xAmzContentSha256 = request.getHeader(
+                AwsHttpHeaders.CONTENT_SHA256);
         if (xAmzContentSha256 == null) {
             xAmzContentSha256 = request.getParameter("X-Amz-SignedHeaders");
         }
@@ -336,7 +337,7 @@ final class AwsSignature {
         byte[] signingKey = signMessage(
                 "aws4_request".getBytes(StandardCharsets.UTF_8),
                 dateRegionServiceKey, algorithm);
-        String date = request.getHeader("x-amz-date");
+        String date = request.getHeader(AwsHttpHeaders.DATE);
         if (date == null) {
             date = request.getParameter("X-Amz-Date");
         }

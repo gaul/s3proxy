@@ -1,11 +1,11 @@
 /*
- * Copyright 2014-2018 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,8 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import java.util.concurrent.TimeUnit;
-
 public final class S3ProxyConstants {
     public static final String PROPERTY_ENDPOINT =
             "s3proxy.endpoint";
@@ -27,6 +25,10 @@ public final class S3ProxyConstants {
             "s3proxy.authorization";
     public static final String PROPERTY_IDENTITY =
             "s3proxy.identity";
+    /**
+     * Path to prepend to all requests, e.g.,
+     * https://endpoint/service-path/object.
+     */
     public static final String PROPERTY_SERVICE_PATH =
             "s3proxy.service-path";
     /** When true, include "Access-Control-Allow-Origin: *" in all responses. */
@@ -81,7 +83,9 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_READ_ONLY_BLOBSTORE =
             "s3proxy.read-only-blobstore";
 
-    public static final long PROPERTY_TIMESKEW = TimeUnit.MINUTES.toSeconds(15);
+    /** Maximum time skew allowed in signed requests. */
+    public static final String PROPERTY_MAXIMUM_TIME_SKEW =
+            "s3proxy.maximum-timeskew";
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 

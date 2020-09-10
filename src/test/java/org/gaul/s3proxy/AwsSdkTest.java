@@ -1,11 +1,11 @@
 /*
- * Copyright 2014-2018 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -70,6 +70,8 @@ import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.ListMultipartUploadsRequest;
 import com.amazonaws.services.s3.model.ListObjectsRequest;
+import com.amazonaws.services.s3.model.ListObjectsV2Request;
+import com.amazonaws.services.s3.model.ListObjectsV2Result;
 import com.amazonaws.services.s3.model.ListPartsRequest;
 import com.amazonaws.services.s3.model.MultipartUploadListing;
 import com.amazonaws.services.s3.model.ObjectListing;
@@ -116,6 +118,7 @@ public final class AwsSdkTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
     private static final ClientConfiguration V2_SIGNER_CONFIG =
             new ClientConfiguration().withSignerOverride("S3SignerType");
+    private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
 
     private URI s3Endpoint;
     private EndpointConfiguration s3EndpointConfig;
@@ -469,7 +472,7 @@ public final class AwsSdkTest {
     @Test
     public void testBigMultipartUpload() throws Exception {
         String key = "multipart-upload";
-        long partSize = context.getBlobStore().getMinimumMultipartPartSize();
+        long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
         ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
 
@@ -664,6 +667,19 @@ public final class AwsSdkTest {
                 contentType);
         assertThat(reponseMetadata.getHttpExpiresDate().getTime())
             .isEqualTo(expiresTime);
+    }
+
+    @Test
+    public void testDeleteMultipleObjectsEmpty() throws Exception {
+        DeleteObjectsRequest request = new DeleteObjectsRequest(containerName)
+                .withKeys();
+
+        try {
+            client.deleteObjects(request);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("MalformedXML");
+        }
     }
 
     @Test
@@ -905,6 +921,52 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testBlobListV2() throws Exception {
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        for (int i = 1; i < 5; ++i) {
+            client.putObject(containerName, String.valueOf(i),
+                    BYTE_SOURCE.openStream(), metadata);
+        }
+
+        ListObjectsV2Result result = client.listObjectsV2(
+                new ListObjectsV2Request()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withStartAfter("1"));
+        assertThat(result.getContinuationToken()).isEmpty();
+        assertThat(result.getStartAfter()).isEqualTo("1");
+        assertThat(result.getNextContinuationToken()).isEqualTo("2");
+        assertThat(result.isTruncated()).isTrue();
+        assertThat(result.getObjectSummaries()).hasSize(1);
+        assertThat(result.getObjectSummaries().get(0).getKey()).isEqualTo("2");
+
+        result = client.listObjectsV2(
+                new ListObjectsV2Request()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withContinuationToken(result.getNextContinuationToken()));
+        assertThat(result.getContinuationToken()).isEqualTo("2");
+        assertThat(result.getStartAfter()).isEmpty();
+        assertThat(result.getNextContinuationToken()).isEqualTo("3");
+        assertThat(result.isTruncated()).isTrue();
+        assertThat(result.getObjectSummaries()).hasSize(1);
+        assertThat(result.getObjectSummaries().get(0).getKey()).isEqualTo("3");
+
+        result = client.listObjectsV2(
+                new ListObjectsV2Request()
+                .withBucketName(containerName)
+                .withMaxKeys(1)
+                .withContinuationToken(result.getNextContinuationToken()));
+        assertThat(result.getContinuationToken()).isEqualTo("3");
+        assertThat(result.getStartAfter()).isEmpty();
+        assertThat(result.getNextContinuationToken()).isNull();
+        assertThat(result.isTruncated()).isFalse();
+        assertThat(result.getObjectSummaries()).hasSize(1);
+        assertThat(result.getObjectSummaries().get(0).getKey()).isEqualTo("4");
+    }
+
+    @Test
     public void testBlobMetadata() throws Exception {
         String blobName = "blob";
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1033,11 +1095,9 @@ public final class AwsSdkTest {
                         metadata));
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize() + 1);
-        ByteSource byteSource1 = byteSource.slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize());
-        ByteSource byteSource2 = byteSource.slice(
-                context.getBlobStore().getMinimumMultipartPartSize(), 1);
+                0, MINIMUM_MULTIPART_SIZE + 1);
+        ByteSource byteSource1 = byteSource.slice(0, MINIMUM_MULTIPART_SIZE);
+        ByteSource byteSource2 = byteSource.slice(MINIMUM_MULTIPART_SIZE, 1);
         UploadPartResult part1 = client.uploadPart(new UploadPartRequest()
                 .withBucketName(containerName)
                 .withKey(blobName)
@@ -1134,7 +1194,7 @@ public final class AwsSdkTest {
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";
         ByteSource byteSource = TestUtils.randomByteSource().slice(
-                0, context.getBlobStore().getMinimumMultipartPartSize());
+                0, MINIMUM_MULTIPART_SIZE);
 
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
@@ -1392,6 +1452,16 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        }
+    }
+
+    @Test
+    public void testGetBucketPolicy() throws Exception {
+        try {
+            client.getBucketPolicy(containerName);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getErrorCode()).isEqualTo("NoSuchPolicy");
         }
     }
 

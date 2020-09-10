@@ -1,11 +1,11 @@
 /*
- * Copyright 2014-2018 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -232,8 +232,10 @@ public final class Main {
             private final StringBuilder builder = new StringBuilder();
 
             @Override
+            @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+                    "SLF4J_SIGN_ONLY_FORMAT")
             public void print(final String string) {
-                logger.error(string);
+                logger.error("{}", string);
             }
 
             @Override
@@ -310,11 +312,13 @@ public final class Main {
         }
 
         BlobStoreContext context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
+        BlobStore blobStore;
         if (context instanceof RegionScopedBlobStoreContext &&
                 region != null) {
             blobStore = ((RegionScopedBlobStoreContext) context)
                     .getBlobStore(region);
+        } else {
+            blobStore = context.getBlobStore();
         }
         return blobStore;
     }

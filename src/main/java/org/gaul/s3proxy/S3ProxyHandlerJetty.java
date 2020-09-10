@@ -1,11 +1,11 @@
 /*
- * Copyright 2014-2018 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,19 +35,25 @@ import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.util.Throwables2;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Jetty-specific handler for S3 requests. */
 final class S3ProxyHandlerJetty extends AbstractHandler {
+    private static final Logger logger = LoggerFactory.getLogger(
+            S3ProxyHandlerJetty.class);
+
     private final S3ProxyHandler handler;
 
     S3ProxyHandlerJetty(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CrossOriginResourceSharing corsRules, String servicePath) {
+            CrossOriginResourceSharing corsRules, String servicePath,
+            int maximumTimeSkew) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
                 credential, virtualHost, v4MaxNonChunkedRequestSize,
-                ignoreUnknownHeaders, corsRules, servicePath);
+                ignoreUnknownHeaders, corsRules, servicePath, maximumTimeSkew);
     }
 
     private void sendS3Exception(HttpServletRequest request,
@@ -78,12 +84,19 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
         } catch (HttpResponseException hre) {
             HttpResponse hr = hre.getResponse();
             if (hr == null) {
+                logger.debug("HttpResponseException without HttpResponse:",
+                        hre);
                 response.sendError(
-                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                        HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                        hre.getMessage());
                 return;
             }
             int status = hr.getStatusCode();
             switch (status) {
+            case 412:
+                sendS3Exception(request, response,
+                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+                break;
             case 416:
                 sendS3Exception(request, response,
                         new S3Exception(S3ErrorCode.INVALID_RANGE));
@@ -94,14 +107,14 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     new S3Exception(S3ErrorCode.BAD_DIGEST));
                 break;
             default:
-                // TODO: emit hre.getContent() ?
-                response.sendError(status);
+                response.sendError(status, hre.getContent());
                 break;
             }
             baseRequest.setHandled(true);
             return;
         } catch (IllegalArgumentException iae) {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST,
+                    iae.getMessage());
             baseRequest.setHandled(true);
             return;
         } catch (KeyNotFoundException knfe) {
@@ -115,7 +128,8 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (UnsupportedOperationException uoe) {
-            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED);
+            response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED,
+                    uoe.getMessage());
             baseRequest.setHandled(true);
             return;
         } catch (Throwable throwable) {
@@ -134,6 +148,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 baseRequest.setHandled(true);
                 return;
             } else {
+                logger.debug("Unknown exception:", throwable);
                 throw throwable;
             }
         }
