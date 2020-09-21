@@ -2197,20 +2197,20 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is,
             final BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
-        final MultipartUpload mpu;
+        BlobMetadata metadata;
+        PutOptions options;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            Blob stubBlob = blobStore.getBlob(containerName, uploadId);
+            metadata = blobStore.getBlob(containerName, uploadId).getMetadata();
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     uploadId);
-            mpu = MultipartUpload.create(containerName,
-                    blobName, uploadId, stubBlob.getMetadata(),
-                    new PutOptions().setBlobAccess(access));
+            options = new PutOptions().setBlobAccess(access);
         } else {
-            mpu = MultipartUpload.create(containerName,
-                    blobName, uploadId, new MutableBlobMetadataImpl(),
-                    new PutOptions());
+            metadata = new MutableBlobMetadataImpl();
+            options = new PutOptions();
         }
+        final MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, metadata, options);
 
         // List parts to get part sizes and to map multiple Azure parts
         // into single parts.
@@ -2219,7 +2219,6 @@ public class S3ProxyHandler {
         for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
             builder.put(part.partNumber(), part);
         }
-        ImmutableMap<Integer, MultipartPart> partsByListing = builder.build();
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
@@ -2227,6 +2226,28 @@ public class S3ProxyHandler {
             // TODO: how to sanity check parts?
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
                 parts.add(part);
+            }
+        } else if (blobStoreType.equals("google-cloud-storage")) {
+            // GCS only supports 32 parts but we can support up to 1024 by
+            // recursively combining objects.
+            for (int partNumber = 1;; ++partNumber) {
+                MultipartUpload mpu2 = MultipartUpload.create(
+                        containerName,
+                        String.format("%s_%08d", mpu.id(), partNumber),
+                        String.format("%s_%08d", mpu.id(), partNumber),
+                        metadata, options);
+                List<MultipartPart> subParts = blobStore.listMultipartUpload(
+                        mpu2);
+                if (subParts.isEmpty()) {
+                    break;
+                }
+                long partSize = 0;
+                for (MultipartPart part : subParts) {
+                    partSize += part.partSize();
+                }
+                String eTag = blobStore.completeMultipartUpload(mpu2, subParts);
+                parts.add(MultipartPart.create(
+                        partNumber, partSize, eTag, /*lastModified=*/ null));
             }
         } else {
             CompleteMultipartUploadRequest cmu;
@@ -2244,6 +2265,9 @@ public class S3ProxyHandler {
                     requestParts.put(part.partNumber, part.eTag);
                 }
             }
+
+            ImmutableMap<Integer, MultipartPart> partsByListing =
+                    builder.build();
             for (Iterator<Map.Entry<Integer, String>> it =
                     requestParts.entrySet().iterator(); it.hasNext();) {
                 Map.Entry<Integer, String> entry = it.next();
@@ -2720,6 +2744,15 @@ public class S3ProxyHandler {
                     ", inclusive", (Throwable) null, ImmutableMap.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
+        }
+
+        // GCS only supports 32 parts so partition MPU into 32-part chunks.
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (blobStoreType.equals("google-cloud-storage")) {
+            // fix up 1-based part numbers
+            uploadId = String.format(
+                    "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
+            partNumber = ((partNumber - 1) % 32) + 1;
         }
 
         // TODO: how to reconstruct original mpu?
