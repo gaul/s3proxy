@@ -25,7 +25,7 @@ ENV \
     S3PROXY_ENDPOINT="http://0.0.0.0:80" \
     S3PROXY_IDENTITY="local-identity" \
     S3PROXY_CREDENTIAL="local-credential" \
-    S3PROXY_VIRTUAL_HOST="" \
+    S3PROXY_VIRTUALHOST="" \
     S3PROXY_CORS_ALLOW_ALL="false" \
     S3PROXY_CORS_ALLOW_ORIGINS="" \
     S3PROXY_CORS_ALLOW_METHODS="" \
