@@ -22,9 +22,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Collection;
 import java.util.Objects;
 import java.util.Properties;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -255,6 +257,18 @@ public final class S3Proxy {
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
                 Splitter splitter = Splitter.on(" ").trimResults()
                         .omitEmptyStrings();
+
+                //Validate configured methods
+                Collection<String> allowedMethods = Lists.newArrayList(
+                        splitter.split(corsAllowMethods));
+                allowedMethods.removeAll(
+                        CrossOriginResourceSharing.SUPPORTED_METHODS);
+                if (!allowedMethods.isEmpty()) {
+                    throw new IllegalArgumentException(
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS +
+                        " contains not supported values: " + Joiner.on(" ")
+                        .join(allowedMethods));
+                }
 
                 builder.corsRules(new CrossOriginResourceSharing(
                         Lists.newArrayList(splitter.split(corsAllowOrigins)),
