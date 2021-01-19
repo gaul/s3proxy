@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -33,6 +34,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class CrossOriginResourceSharing {
+    public static final Collection<String> SUPPORTED_METHODS =
+            ImmutableList.of("GET", "PUT", "POST", "HEAD");
+
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_HEADER = "*";
 
@@ -47,7 +51,7 @@ final class CrossOriginResourceSharing {
 
     protected CrossOriginResourceSharing() {
         // CORS Allow all
-        this(Lists.newArrayList(".*"), Lists.newArrayList("GET", "PUT", "POST"),
+        this(Lists.newArrayList(".*"), SUPPORTED_METHODS,
                 Lists.newArrayList(ALLOW_ANY_HEADER));
     }
 
