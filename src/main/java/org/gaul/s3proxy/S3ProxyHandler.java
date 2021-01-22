@@ -1653,8 +1653,9 @@ public class S3ProxyHandler {
             }
         }
 
-        response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
         response.addHeader(HttpHeaders.VARY, HttpHeaders.ORIGIN);
+        response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                corsRules.getAllowedOrigin(corsOrigin));
         response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                 corsRules.getAllowedMethods());
 
@@ -2899,9 +2900,9 @@ public class S3ProxyHandler {
         if (!Strings.isNullOrEmpty(corsOrigin) &&
                 corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
-                    corsOrigin);
+                    corsRules.getAllowedOrigin(corsOrigin));
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
-                    request.getMethod());
+                    corsRules.getAllowedMethods());
         }
     }
 
