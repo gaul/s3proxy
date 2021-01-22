@@ -321,7 +321,7 @@ public final class CrossOriginResourceSharingResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                    .isEqualTo("GET");
+                    .isEqualTo("GET, PUT");
     }
 
     @Test
