@@ -34,7 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class CrossOriginResourceSharing {
-    public static final Collection<String> SUPPORTED_METHODS =
+    protected static final Collection<String> SUPPORTED_METHODS =
             ImmutableList.of("GET", "PUT", "POST");
 
     private static final String HEADER_VALUE_SEPARATOR = ", ";
