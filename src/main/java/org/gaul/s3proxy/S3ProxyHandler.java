@@ -191,6 +191,7 @@ public class S3ProxyHandler {
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
     private final Optional<String> virtualHost;
+    private final long maxSinglePartObjectSize;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
     private final CrossOriginResourceSharing corsRules;
@@ -216,9 +217,9 @@ public class S3ProxyHandler {
     public S3ProxyHandler(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
-            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CrossOriginResourceSharing corsRules, final String servicePath,
-            int maximumTimeSkew) {
+            long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
+            boolean ignoreUnknownHeaders, CrossOriginResourceSharing corsRules,
+            final String servicePath, int maximumTimeSkew) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -246,6 +247,7 @@ public class S3ProxyHandler {
         }
         this.authenticationType = authenticationType;
         this.virtualHost = Optional.fromNullable(virtualHost);
+        this.maxSinglePartObjectSize = maxSinglePartObjectSize;
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
         this.corsRules = corsRules;
@@ -1905,6 +1907,9 @@ public class S3ProxyHandler {
         }
         if (contentLength < 0) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        if (contentLength > maxSinglePartObjectSize) {
+            throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE);
         }
 
         BlobAccess access;

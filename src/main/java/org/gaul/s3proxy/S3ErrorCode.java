@@ -38,6 +38,8 @@ enum S3ErrorCode {
             " succeeded and you already own it."),
     BUCKET_NOT_EMPTY(HttpServletResponse.SC_CONFLICT,
             "The bucket you tried to delete is not empty"),
+    ENTITY_TOO_LARGE(HttpServletResponse.SC_BAD_REQUEST,
+            "Your proposed upload exceeds the maximum allowed object size."),
     ENTITY_TOO_SMALL(HttpServletResponse.SC_BAD_REQUEST,
             "Your proposed upload is smaller than the minimum allowed object" +
             " size. Each part must be at least 5 MB in size, except the last" +

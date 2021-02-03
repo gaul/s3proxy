@@ -62,6 +62,8 @@ public final class S3ProxyConstants {
      */
     public static final String PROPERTY_VIRTUAL_HOST =
             "s3proxy.virtual-host";
+    public static final String PROPERTY_MAX_SINGLE_PART_OBJECT_SIZE =
+            "s3proxy.max-single-part-object-size";
     public static final String PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE =
             "s3proxy.v4-max-non-chunked-request-size";
     /** When true, model eventual consistency using two storage backends. */
