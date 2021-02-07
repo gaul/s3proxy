@@ -138,6 +138,8 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('.'))
                     .or(CharMatcher.is('_'))
                     .or(CharMatcher.is('-'));
+    private static final long MAX_MULTIPART_COPY_SIZE =
+            5L * 1024L * 1024L * 1024L;
     private static final Set<String> UNSUPPORTED_PARAMETERS = ImmutableSet.of(
             "accelerate",
             "analytics",
@@ -2497,6 +2499,12 @@ public class S3ProxyHandler {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
                     expectedSize = end - start + 1;
+                    if (expectedSize > MAX_MULTIPART_COPY_SIZE) {
+                        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                                "The specified copy source is larger than" +
+                                " the maximum allowable size for a copy" +
+                                " source: " + MAX_MULTIPART_COPY_SIZE);
+                    }
                     options.range(start, end);
                 }
             } catch (NumberFormatException nfe) {
