@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -33,7 +34,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class CrossOriginResourceSharing {
+    protected static final Collection<String> SUPPORTED_METHODS =
+            ImmutableList.of("GET", "PUT", "POST");
+
     private static final String HEADER_VALUE_SEPARATOR = ", ";
+    private static final String ALLOW_ANY_ORIGIN = "*";
     private static final String ALLOW_ANY_HEADER = "*";
 
     private static final Logger logger = LoggerFactory.getLogger(
@@ -41,13 +46,14 @@ final class CrossOriginResourceSharing {
 
     private final String allowedMethodsRaw;
     private final String allowedHeadersRaw;
+    private final boolean anyOriginAllowed;
     private final Set<Pattern> allowedOrigins;
     private final Set<String> allowedMethods;
     private final Set<String> allowedHeaders;
 
     protected CrossOriginResourceSharing() {
         // CORS Allow all
-        this(Lists.newArrayList(".*"), Lists.newArrayList("GET", "PUT", "POST"),
+        this(Lists.newArrayList(ALLOW_ANY_ORIGIN), SUPPORTED_METHODS,
                 Lists.newArrayList(ALLOW_ANY_HEADER));
     }
 
@@ -55,12 +61,19 @@ final class CrossOriginResourceSharing {
             Collection<String> allowedMethods,
             Collection<String> allowedHeaders) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
+        boolean anyOriginAllowed = false;
+
         if (allowedOrigins != null) {
-            for (String origin : allowedOrigins) {
-                allowedPattern.add(Pattern.compile(
+            if (allowedOrigins.contains(ALLOW_ANY_ORIGIN)) {
+                anyOriginAllowed = true;
+            } else {
+                for (String origin : allowedOrigins) {
+                    allowedPattern.add(Pattern.compile(
                         origin, Pattern.CASE_INSENSITIVE));
+                }
             }
         }
+        this.anyOriginAllowed = anyOriginAllowed;
         this.allowedOrigins = ImmutableSet.copyOf(allowedPattern);
 
         if (allowedMethods == null) {
@@ -88,13 +101,26 @@ final class CrossOriginResourceSharing {
         return this.allowedMethodsRaw;
     }
 
+    public String getAllowedOrigin(String origin) {
+        if (this.anyOriginAllowed) {
+            return ALLOW_ANY_ORIGIN;
+        } else {
+            return origin;
+        }
+    }
+
     public boolean isOriginAllowed(String origin) {
         if (!Strings.isNullOrEmpty(origin)) {
-            for (Pattern pattern : this.allowedOrigins) {
-                Matcher matcher = pattern.matcher(origin);
-                if (matcher.matches()) {
-                    logger.debug("CORS origin allowed: {}", origin);
-                    return true;
+            if (this.anyOriginAllowed) {
+                logger.debug("CORS origin allowed: {}", origin);
+                return true;
+            } else {
+                for (Pattern pattern : this.allowedOrigins) {
+                    Matcher matcher = pattern.matcher(origin);
+                    if (matcher.matches()) {
+                        logger.debug("CORS origin allowed: {}", origin);
+                        return true;
+                    }
                 }
             }
         }

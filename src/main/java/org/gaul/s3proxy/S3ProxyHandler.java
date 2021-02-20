@@ -138,6 +138,8 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('.'))
                     .or(CharMatcher.is('_'))
                     .or(CharMatcher.is('-'));
+    private static final long MAX_MULTIPART_COPY_SIZE =
+            5L * 1024L * 1024L * 1024L;
     private static final Set<String> UNSUPPORTED_PARAMETERS = ImmutableSet.of(
             "accelerate",
             "analytics",
@@ -191,6 +193,7 @@ public class S3ProxyHandler {
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
     private final Optional<String> virtualHost;
+    private final long maxSinglePartObjectSize;
     private final long v4MaxNonChunkedRequestSize;
     private final boolean ignoreUnknownHeaders;
     private final CrossOriginResourceSharing corsRules;
@@ -216,9 +219,9 @@ public class S3ProxyHandler {
     public S3ProxyHandler(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
-            long v4MaxNonChunkedRequestSize, boolean ignoreUnknownHeaders,
-            CrossOriginResourceSharing corsRules, final String servicePath,
-            int maximumTimeSkew) {
+            long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
+            boolean ignoreUnknownHeaders, CrossOriginResourceSharing corsRules,
+            final String servicePath, int maximumTimeSkew) {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -246,6 +249,7 @@ public class S3ProxyHandler {
         }
         this.authenticationType = authenticationType;
         this.virtualHost = Optional.fromNullable(virtualHost);
+        this.maxSinglePartObjectSize = maxSinglePartObjectSize;
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
         this.corsRules = corsRules;
@@ -1653,8 +1657,9 @@ public class S3ProxyHandler {
             }
         }
 
-        response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsOrigin);
         response.addHeader(HttpHeaders.VARY, HttpHeaders.ORIGIN);
+        response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                corsRules.getAllowedOrigin(corsOrigin));
         response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                 corsRules.getAllowedMethods());
 
@@ -1904,6 +1909,9 @@ public class S3ProxyHandler {
         }
         if (contentLength < 0) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        if (contentLength > maxSinglePartObjectSize) {
+            throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE);
         }
 
         BlobAccess access;
@@ -2491,6 +2499,12 @@ public class S3ProxyHandler {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
                     expectedSize = end - start + 1;
+                    if (expectedSize > MAX_MULTIPART_COPY_SIZE) {
+                        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                                "The specified copy source is larger than" +
+                                " the maximum allowable size for a copy" +
+                                " source: " + MAX_MULTIPART_COPY_SIZE);
+                    }
                     options.range(start, end);
                 }
             } catch (NumberFormatException nfe) {
@@ -2899,9 +2913,9 @@ public class S3ProxyHandler {
         if (!Strings.isNullOrEmpty(corsOrigin) &&
                 corsRules.isOriginAllowed(corsOrigin)) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
-                    corsOrigin);
+                    corsRules.getAllowedOrigin(corsOrigin));
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
-                    request.getMethod());
+                    corsRules.getAllowedMethods());
         }
     }
 

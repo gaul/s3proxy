@@ -67,7 +67,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public final class CrossOriginResourceSharingResponseTest {
+public final class CrossOriginResourceSharingAllowAllResponseTest {
     static {
         System.setProperty(
                 SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
@@ -85,12 +85,11 @@ public final class CrossOriginResourceSharingResponseTest {
     private String servicePath;
     private CloseableHttpClient httpClient;
     private URI presignedGET;
-    private URI publicGET;
 
     @Before
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
-                "s3proxy-cors.conf");
+                "s3proxy-cors-allow-all.conf");
         awsCreds = new BasicAWSCredentials(info.getS3Identity(),
                 info.getS3Credential());
         context = info.getBlobStore().getContext();
@@ -122,8 +121,6 @@ public final class CrossOriginResourceSharingResponseTest {
                 TimeUnit.HOURS.toMillis(1));
         presignedGET = s3Client.generatePresignedUrl(containerName, blobName,
                 expiration, HttpMethod.GET).toURI();
-
-        publicGET = s3Client.getUrl(containerName, blobName).toURI();
     }
 
     @After
@@ -141,63 +138,13 @@ public final class CrossOriginResourceSharingResponseTest {
     }
 
     @Test
-    public void testCorsPreflightNegative() throws Exception {
-        // No CORS headers
-        HttpOptions request = new HttpOptions(presignedGET);
-        HttpResponse response = httpClient.execute(request);
-        /*
-         * For non presigned URLs that should give a 400, but the
-         * Access-Control-Request-Method header is needed for presigned URLs
-         * to calculate the same signature. If this is missing it fails already
-         * with 403 - Signature mismatch before processing the OPTIONS request
-         * See testCorsPreflightPublicRead for that cases
-         */
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_FORBIDDEN);
-
-        // Not allowed origin
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.org");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_FORBIDDEN);
-
-        // Not allowed method
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_FORBIDDEN);
-
-        // Not allowed header
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
-              "Accept-Encoding");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_FORBIDDEN);
-
-        // Not allowed header combination
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
-                "Accept, Accept-Encoding");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_FORBIDDEN);
-    }
-
-    @Test
     public void testCorsPreflight() throws Exception {
-        // Allowed origin and method
+        // Allowed origin, method and header combination
         HttpOptions request = new HttpOptions(presignedGET);
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
+        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                "Accept, Content-Type");
         HttpResponse response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
                 .isEqualTo(HttpStatus.SC_OK);
@@ -205,99 +152,12 @@ public final class CrossOriginResourceSharingResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
-                .isEqualTo("https://example.com");
+                .isEqualTo("*");
         assertThat(response.containsHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                .isEqualTo("GET, PUT");
-
-        // Allowed origin, method and header
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Accept");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_OK);
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
-                .isEqualTo("https://example.com");
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                .isEqualTo("GET, PUT");
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
-                .isEqualTo("Accept");
-
-        // Allowed origin, method and header combination
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
-                "Accept, Content-Type");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_OK);
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
-                .isEqualTo("https://example.com");
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                .isEqualTo("GET, PUT");
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
-                .isEqualTo("Accept, Content-Type");
-    }
-
-    @Test
-    public void testCorsPreflightPublicRead() throws Exception {
-        // No CORS headers
-        HttpOptions request = new HttpOptions(publicGET);
-        HttpResponse response = httpClient.execute(request);
-
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_BAD_REQUEST);
-
-        // Not allowed method
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_BAD_REQUEST);
-
-        // Allowed origin and method
-        request.reset();
-        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
-        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
-                "Accept, Content-Type");
-        response = httpClient.execute(request);
-        assertThat(response.getStatusLine().getStatusCode())
-                .isEqualTo(HttpStatus.SC_OK);
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
-                .isEqualTo("https://example.com");
-        assertThat(response.containsHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
-        assertThat(response.getFirstHeader(
-                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                .isEqualTo("GET, PUT");
+                .isEqualTo("GET, PUT, POST");
         assertThat(response.containsHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS)).isTrue();
         assertThat(response.getFirstHeader(
@@ -316,12 +176,12 @@ public final class CrossOriginResourceSharingResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
-                .isEqualTo("https://example.com");
+                .isEqualTo("*");
         assertThat(response.containsHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                    .isEqualTo("GET, PUT");
+                    .isEqualTo("GET, PUT, POST");
     }
 
     @Test

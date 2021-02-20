@@ -22,9 +22,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Collection;
 import java.util.Objects;
 import java.util.Properties;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -115,6 +117,7 @@ public final class S3Proxy {
         handler = new S3ProxyHandlerJetty(builder.blobStore,
                 builder.authenticationType, builder.identity,
                 builder.credential, builder.virtualHost,
+                builder.maxSinglePartObjectSize,
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsRules,
                 builder.servicePath, builder.maximumTimeSkew);
@@ -133,6 +136,7 @@ public final class S3Proxy {
         private String keyStorePath;
         private String keyStorePassword;
         private String virtualHost;
+        private long maxSinglePartObjectSize = 5L * 1024 * 1024 * 1024;
         private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
         private CrossOriginResourceSharing corsRules;
@@ -227,6 +231,13 @@ public final class S3Proxy {
                 builder.virtualHost(virtualHost);
             }
 
+            String maxSinglePartObjectSize = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_MAX_SINGLE_PART_OBJECT_SIZE);
+            if (maxSinglePartObjectSize != null) {
+                builder.maxSinglePartObjectSize(Long.parseLong(
+                        maxSinglePartObjectSize));
+            }
+
             String v4MaxNonChunkedRequestSize = properties.getProperty(
                     S3ProxyConstants.PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
             if (v4MaxNonChunkedRequestSize != null) {
@@ -255,6 +266,18 @@ public final class S3Proxy {
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
                 Splitter splitter = Splitter.on(" ").trimResults()
                         .omitEmptyStrings();
+
+                //Validate configured methods
+                Collection<String> allowedMethods = Lists.newArrayList(
+                        splitter.split(corsAllowMethods));
+                allowedMethods.removeAll(
+                        CrossOriginResourceSharing.SUPPORTED_METHODS);
+                if (!allowedMethods.isEmpty()) {
+                    throw new IllegalArgumentException(
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS +
+                        " contains not supported values: " + Joiner.on(" ")
+                        .join(allowedMethods));
+                }
 
                 builder.corsRules(new CrossOriginResourceSharing(
                         Lists.newArrayList(splitter.split(corsAllowOrigins)),
@@ -308,6 +331,16 @@ public final class S3Proxy {
 
         public Builder virtualHost(String virtualHost) {
             this.virtualHost = requireNonNull(virtualHost);
+            return this;
+        }
+
+        public Builder maxSinglePartObjectSize(long maxSinglePartObjectSize) {
+            if (maxSinglePartObjectSize <= 0) {
+                throw new IllegalArgumentException(
+                        "must be greater than zero, was: " +
+                        maxSinglePartObjectSize);
+            }
+            this.maxSinglePartObjectSize = maxSinglePartObjectSize;
             return this;
         }
 
@@ -392,6 +425,8 @@ public final class S3Proxy {
                             that.keyStorePassword) &&
                     Objects.equals(this.virtualHost, that.virtualHost) &&
                     Objects.equals(this.servicePath, that.servicePath) &&
+                    Objects.equals(this.maxSinglePartObjectSize,
+                            that.maxSinglePartObjectSize) &&
                     Objects.equals(this.v4MaxNonChunkedRequestSize,
                             that.v4MaxNonChunkedRequestSize) &&
                     Objects.equals(this.ignoreUnknownHeaders,
@@ -403,8 +438,8 @@ public final class S3Proxy {
         public int hashCode() {
             return Objects.hash(endpoint, secureEndpoint, keyStorePath,
                     keyStorePassword, virtualHost, servicePath,
-                    v4MaxNonChunkedRequestSize, ignoreUnknownHeaders,
-                    corsRules);
+                    maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,
+                    ignoreUnknownHeaders, corsRules);
         }
     }
 
