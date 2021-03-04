@@ -33,7 +33,7 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-final class CrossOriginResourceSharing {
+public class CrossOriginResourceSharing {
     protected static final Collection<String> SUPPORTED_METHODS =
             ImmutableList.of("GET", "PUT", "POST");
 
