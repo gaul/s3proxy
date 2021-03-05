@@ -220,7 +220,8 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
-            boolean ignoreUnknownHeaders, @Nullable CrossOriginResourceSharing corsRules,
+            boolean ignoreUnknownHeaders,
+            @Nullable CrossOriginResourceSharing corsRules,
             final String servicePath, int maximumTimeSkew) {
         if (corsRules != null) {
             this.corsRules = corsRules;
