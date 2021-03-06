@@ -33,9 +33,9 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-final class CrossOriginResourceSharing {
+final  class CrossOriginResourceSharing {
     protected static final Collection<String> SUPPORTED_METHODS =
-            ImmutableList.of("GET", "PUT", "POST");
+            ImmutableList.of("GET", "HEAD", "PUT", "POST");
 
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_ORIGIN = "*";
