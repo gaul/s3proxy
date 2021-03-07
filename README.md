@@ -23,7 +23,7 @@ and has instructions on how to run it.
 
 Users can [download releases](https://github.com/gaul/s3proxy/releases)
 from GitHub.  Developers can build the project by running `mvn package` which
-produces a binary at `target/s3proxy`.  S3Proxy requires Java 7 to run.
+produces a binary at `target/s3proxy`.  S3Proxy requires Java 8 or newer to run.
 
 Configure S3Proxy via a properties file.  An example using the local
 file system as the storage backend with anonymous access:
