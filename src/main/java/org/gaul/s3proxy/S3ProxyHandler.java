@@ -220,8 +220,14 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
-            boolean ignoreUnknownHeaders, CrossOriginResourceSharing corsRules,
+            boolean ignoreUnknownHeaders,
+            @Nullable CrossOriginResourceSharing corsRules,
             final String servicePath, int maximumTimeSkew) {
+        if (corsRules != null) {
+            this.corsRules = corsRules;
+        } else {
+            this.corsRules = new CrossOriginResourceSharing();
+        }
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -252,7 +258,6 @@ public class S3ProxyHandler {
         this.maxSinglePartObjectSize = maxSinglePartObjectSize;
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
-        this.corsRules = corsRules;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
