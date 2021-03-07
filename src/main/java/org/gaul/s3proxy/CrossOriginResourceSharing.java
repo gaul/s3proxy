@@ -33,7 +33,7 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-final  class CrossOriginResourceSharing {
+public final class CrossOriginResourceSharing {
     protected static final Collection<String> SUPPORTED_METHODS =
             ImmutableList.of("GET", "HEAD", "PUT", "POST");
 
@@ -51,13 +51,13 @@ final  class CrossOriginResourceSharing {
     private final Set<String> allowedMethods;
     private final Set<String> allowedHeaders;
 
-    protected CrossOriginResourceSharing() {
+    public CrossOriginResourceSharing() {
         // CORS Allow all
         this(Lists.newArrayList(ALLOW_ANY_ORIGIN), SUPPORTED_METHODS,
                 Lists.newArrayList(ALLOW_ANY_HEADER));
     }
 
-    protected CrossOriginResourceSharing(Collection<String> allowedOrigins,
+    public CrossOriginResourceSharing(Collection<String> allowedOrigins,
             Collection<String> allowedMethods,
             Collection<String> allowedHeaders) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
