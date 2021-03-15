@@ -1,0 +1,74 @@
+package org.gaul.s3proxy.junit;
+
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.Bucket;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+public class S3ProxyExtensionTest {
+
+    private static final String MY_TEST_BUCKET = "my-test-bucket";
+
+    @RegisterExtension
+    static S3ProxyExtension EXTENSION = S3ProxyExtension.builder()
+            .withCredentials("access", "secret")
+            .build();
+
+    private static AmazonS3 s3Client;
+
+    @BeforeAll
+    public static final void setUp() throws Exception {
+        s3Client = AmazonS3ClientBuilder
+                .standard()
+                .withCredentials(
+                        new AWSStaticCredentialsProvider(
+                                new BasicAWSCredentials(
+                                        EXTENSION.getAccessKey(), EXTENSION.getSecretKey())))
+                .withEndpointConfiguration(
+                        new AwsClientBuilder.EndpointConfiguration(
+                                EXTENSION.getUri().toString(), Regions.US_EAST_1.getName()))
+                .build();
+
+        s3Client.createBucket(MY_TEST_BUCKET);
+    }
+
+    @Test
+    public final void listBucket() {
+        List<Bucket> buckets = s3Client.listBuckets();
+        assertThat(buckets).hasSize(1);
+        assertThat(buckets.get(0).getName())
+                .isEqualTo(MY_TEST_BUCKET);
+    }
+
+    @Test
+    public final void uploadFile() throws Exception {
+        String testInput = "content";
+        s3Client.putObject(MY_TEST_BUCKET, "file.txt", testInput);
+
+        List<S3ObjectSummary> summaries = s3Client
+                .listObjects(MY_TEST_BUCKET)
+                .getObjectSummaries();
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0).getKey()).isEqualTo("file.txt");
+        assertThat(summaries.get(0).getSize()).isEqualTo(testInput.length());
+    }
+
+    @Test
+    public final void doesBucketExistV2() {
+        assertThat(s3Client.doesBucketExistV2(MY_TEST_BUCKET)).isTrue();
+
+        // Issue #299
+        assertThat(s3Client.doesBucketExistV2("nonexistingbucket")).isFalse();
+    }
+}
