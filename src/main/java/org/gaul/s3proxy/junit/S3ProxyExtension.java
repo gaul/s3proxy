@@ -1,4 +1,26 @@
+/*
+ * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.gaul.s3proxy.junit;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.util.Properties;
 
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
@@ -8,17 +30,15 @@ import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.StorageMetadata;
-import org.junit.jupiter.api.extension.*;
+import org.junit.jupiter.api.extension.AfterAllCallback;
+import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.URI;
-import java.nio.file.Files;
-import java.util.Properties;
 
-public class S3ProxyExtension implements AfterAllCallback, BeforeAllCallback {
+public final class S3ProxyExtension
+        implements AfterAllCallback, BeforeAllCallback {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyExtension.class);
 
@@ -46,7 +66,7 @@ public class S3ProxyExtension implements AfterAllCallback, BeforeAllCallback {
         private Builder() { }
 
         public Builder withCredentials(AuthenticationType authType,
-                                                   String accessKey, String secretKey) {
+                                       String accessKey, String secretKey) {
             this.authType = authType;
             this.accessKey = accessKey;
             this.secretKey = secretKey;
