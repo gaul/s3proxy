@@ -39,7 +39,7 @@ public class S3ProxyExtensionTest {
     private static final String MY_TEST_BUCKET = "my-test-bucket";
 
     @RegisterExtension
-    private static final S3ProxyExtension EXTENSION = S3ProxyExtension
+    static final S3ProxyExtension EXTENSION = S3ProxyExtension
             .builder()
             .withCredentials("access", "secret")
             .build();
