@@ -36,13 +36,13 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 public class S3ProxyExtensionTest {
 
-    private static final String MY_TEST_BUCKET = "my-test-bucket";
-
     @RegisterExtension
     static final S3ProxyExtension EXTENSION = S3ProxyExtension
             .builder()
             .withCredentials("access", "secret")
             .build();
+
+    private static final String MY_TEST_BUCKET = "my-test-bucket";
 
     private static AmazonS3 s3Client;
 
