@@ -62,7 +62,7 @@ public class S3ProxyJunitCore {
         Builder() { }
 
         public Builder withCredentials(AuthenticationType authType,
-                                                        String accessKey, String secretKey) {
+                                        String accessKey, String secretKey) {
             this.authType = authType;
             this.accessKey = accessKey;
             this.secretKey = secretKey;
@@ -138,7 +138,7 @@ public class S3ProxyJunitCore {
         s3Proxy = s3ProxyBuilder.build();
     }
 
-    public void beforeAll() throws Exception {
+    public final void beforeAll() throws Exception {
         logger.debug("S3 proxy is starting");
         s3Proxy.start();
         while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
@@ -149,7 +149,7 @@ public class S3ProxyJunitCore {
         logger.debug("S3 proxy is running");
     }
 
-    public void afterAll() {
+    public final void afterAll() {
         logger.debug("S3 proxy is stopping");
         try {
             s3Proxy.stop();
@@ -165,15 +165,15 @@ public class S3ProxyJunitCore {
         logger.debug("S3 proxy has stopped");
     }
 
-    public URI getUri() {
+    public final URI getUri() {
         return endpointUri;
     }
 
-    public String getAccessKey() {
+    public final String getAccessKey() {
         return accessKey;
     }
 
-    public String getSecretKey() {
+    public final String getSecretKey() {
         return secretKey;
     }
 }

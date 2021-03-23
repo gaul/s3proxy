@@ -24,8 +24,8 @@ import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
 /**
- * A JUnit 5 Extension that manages an S3Proxy instance which tests can use as an S3
- * API endpoint.
+ * A JUnit 5 Extension that manages an S3Proxy instance which tests
+ * can use as an S3 API endpoint.
  */
 public final class S3ProxyExtension
         implements AfterAllCallback, BeforeAllCallback {
@@ -34,7 +34,7 @@ public final class S3ProxyExtension
 
     public static final class Builder {
 
-        final S3ProxyJunitCore.Builder builder;
+        private final S3ProxyJunitCore.Builder builder;
 
         private Builder() {
             builder = new S3ProxyJunitCore.Builder();

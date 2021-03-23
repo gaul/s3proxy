@@ -18,11 +18,12 @@ package org.gaul.s3proxy.junit;
 
 import java.net.URI;
 
-import com.google.common.annotations.Beta;
 import org.gaul.s3proxy.AuthenticationType;
 import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.annotations.Beta;
 
 /**
  * A JUnit Rule that manages an S3Proxy instance which tests can use as an S3
@@ -37,7 +38,7 @@ public final class S3ProxyRule extends ExternalResource {
 
     public static final class Builder {
 
-        final S3ProxyJunitCore.Builder builder;
+        private final S3ProxyJunitCore.Builder builder;
 
         private Builder() {
             builder = new S3ProxyJunitCore.Builder();
@@ -94,7 +95,7 @@ public final class S3ProxyRule extends ExternalResource {
 
     @Override
     protected void after() {
-       core.afterAll();
+        core.afterAll();
     }
 
     public URI getUri() {
