@@ -34,6 +34,7 @@ final class ChunkedInputStream extends FilterInputStream {
     @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
             value = "URF_UNREAD_FIELD",
             justification = "https://github.com/gaul/s3proxy/issues/205")
+    @SuppressWarnings("UnusedVariable")
     private String currentSignature;
 
     ChunkedInputStream(InputStream is) {

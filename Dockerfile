@@ -1,5 +1,5 @@
 # Multistage - Builder
-FROM maven:3.5.0-jdk-8-alpine as s3proxy-builder
+FROM maven:3.6.3-jdk-11-slim as s3proxy-builder
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy

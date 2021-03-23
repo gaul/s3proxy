@@ -197,6 +197,7 @@ final class EventualBlobStore extends ForwardingBlobStore {
         return part;
     }
 
+    @SuppressWarnings("FutureReturnValueIgnored")
     private void schedule(Callable<?> callable) {
         if (random.nextDouble() < probability) {
             deque.add(callable);

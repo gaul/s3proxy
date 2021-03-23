@@ -94,30 +94,31 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.6.1</version>
+        <version>3.8.0</version>
         <configuration>
-          <compilerId>javac-with-errorprone</compilerId>
-          <forceJavacCompilerUse>true</forceJavacCompilerUse>
           <source>${java.version}</source>
           <target>${java.version}</target>
           <showDeprecation>true</showDeprecation>
           <showWarnings>true</showWarnings>
-          <compilerArguments>
-            <Xlint />
-          </compilerArguments>
+          <compilerArgs>
+            <arg>-Xlint</arg>
+            <arg>-XDcompilePolicy=simple</arg>
+            <arg>-Xplugin:ErrorProne
+                 -Xep:DefaultCharset:OFF
+                 -Xep:HidingField:OFF
+                 -Xep:JavaUtilDate:OFF
+                 -Xep:MutableConstantField:OFF
+                 -Xep:ProtectedMembersInFinalClass:OFF
+            </arg>
+          </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>com.google.errorprone</groupId>
+              <artifactId>error_prone_core</artifactId>
+              <version>2.5.1</version>
+            </path>
+          </annotationProcessorPaths>
         </configuration>
-        <dependencies>
-          <dependency>
-            <groupId>org.codehaus.plexus</groupId>
-            <artifactId>plexus-compiler-javac-errorprone</artifactId>
-            <version>2.6</version>
-          </dependency>
-          <dependency>
-            <groupId>com.google.errorprone</groupId>
-            <artifactId>error_prone_core</artifactId>
-            <version>2.0.5</version>
-          </dependency>
-        </dependencies>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -312,7 +313,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <java.version>1.7</java.version>
+    <java.version>1.8</java.version>
     <jclouds.version>2.3.0</jclouds.version>
     <slf4j.version>1.7.28</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>

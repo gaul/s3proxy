@@ -425,12 +425,11 @@ public final class S3Proxy {
                             that.keyStorePassword) &&
                     Objects.equals(this.virtualHost, that.virtualHost) &&
                     Objects.equals(this.servicePath, that.servicePath) &&
-                    Objects.equals(this.maxSinglePartObjectSize,
-                            that.maxSinglePartObjectSize) &&
-                    Objects.equals(this.v4MaxNonChunkedRequestSize,
-                            that.v4MaxNonChunkedRequestSize) &&
-                    Objects.equals(this.ignoreUnknownHeaders,
-                            that.ignoreUnknownHeaders) &&
+                    this.maxSinglePartObjectSize ==
+                            that.maxSinglePartObjectSize &&
+                    this.v4MaxNonChunkedRequestSize ==
+                            that.v4MaxNonChunkedRequestSize &&
+                    this.ignoreUnknownHeaders == that.ignoreUnknownHeaders &&
                     this.corsRules.equals(that.corsRules);
         }
 
