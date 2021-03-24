@@ -30,6 +30,7 @@ import com.amazonaws.services.s3.model.Bucket;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -46,8 +47,8 @@ public class S3ProxyExtensionTest {
 
     private static AmazonS3 s3Client;
 
-    @BeforeAll
-    public static final void setUp() throws Exception {
+    @BeforeEach
+    public static void setUp() throws Exception {
         s3Client = AmazonS3ClientBuilder
         .standard()
         .withCredentials(

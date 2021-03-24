@@ -19,16 +19,14 @@ package org.gaul.s3proxy.junit;
 import java.net.URI;
 
 import org.gaul.s3proxy.AuthenticationType;
-import org.junit.jupiter.api.extension.AfterAllCallback;
-import org.junit.jupiter.api.extension.BeforeAllCallback;
-import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.*;
 
 /**
  * A JUnit 5 Extension that manages an S3Proxy instance which tests
  * can use as an S3 API endpoint.
  */
 public final class S3ProxyExtension
-        implements AfterAllCallback, BeforeAllCallback {
+        implements AfterEachCallback, BeforeEachCallback {
 
     private final S3ProxyJunitCore core;
 
@@ -85,12 +83,12 @@ public final class S3ProxyExtension
     }
 
     @Override
-    public void beforeAll(ExtensionContext extensionContext) throws Exception {
+    public void beforeEach(ExtensionContext extensionContext) throws Exception {
         core.beforeAll();
     }
 
     @Override
-    public void afterAll(ExtensionContext extensionContext) {
+    public void afterEach(ExtensionContext extensionContext) {
         core.afterAll();
     }
 
