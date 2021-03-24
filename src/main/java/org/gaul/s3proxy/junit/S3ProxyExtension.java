@@ -45,8 +45,8 @@ public final class S3ProxyExtension
         }
 
         public Builder withCredentials(String accessKey, String secretKey) {
-            return withCredentials(AuthenticationType.AWS_V2_OR_V4, accessKey,
-                    secretKey);
+          builder.withCredentials(accessKey, secretKey);
+          return this;
         }
 
         public Builder withSecretStore(String path, String password) {
