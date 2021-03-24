@@ -19,7 +19,9 @@ package org.gaul.s3proxy.junit;
 import java.net.URI;
 
 import org.gaul.s3proxy.AuthenticationType;
-import org.junit.jupiter.api.extension.*;
+import org.junit.jupiter.api.extension.AfterEachCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 
 /**
  * A JUnit 5 Extension that manages an S3Proxy instance which tests
@@ -45,8 +47,8 @@ public final class S3ProxyExtension
         }
 
         public Builder withCredentials(String accessKey, String secretKey) {
-          builder.withCredentials(accessKey, secretKey);
-          return this;
+            builder.withCredentials(accessKey, secretKey);
+            return this;
         }
 
         public Builder withSecretStore(String path, String password) {
