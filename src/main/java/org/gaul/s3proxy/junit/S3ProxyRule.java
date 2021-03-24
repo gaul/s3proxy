@@ -53,7 +53,6 @@ public final class S3ProxyRule extends ExternalResource {
         public Builder withCredentials(String accessKey, String secretKey) {
           builder.withCredentials(accessKey, secretKey);
           return this;
-                    secretKey);
         }
 
         public Builder withSecretStore(String path, String password) {
