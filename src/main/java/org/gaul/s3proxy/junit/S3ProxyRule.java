@@ -51,7 +51,8 @@ public final class S3ProxyRule extends ExternalResource {
         }
 
         public Builder withCredentials(String accessKey, String secretKey) {
-            return withCredentials(AuthenticationType.AWS_V2_OR_V4, accessKey,
+          builder.withCredentials(accessKey, secretKey);
+          return this;
                     secretKey);
         }
 
