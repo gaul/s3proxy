@@ -34,12 +34,14 @@ import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TimeZone;
@@ -60,7 +62,6 @@ import javax.xml.stream.XMLStreamWriter;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
@@ -220,8 +221,14 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
-            boolean ignoreUnknownHeaders, CrossOriginResourceSharing corsRules,
+            boolean ignoreUnknownHeaders,
+            @Nullable CrossOriginResourceSharing corsRules,
             final String servicePath, int maximumTimeSkew) {
+        if (corsRules != null) {
+            this.corsRules = corsRules;
+        } else {
+            this.corsRules = new CrossOriginResourceSharing();
+        }
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
@@ -248,11 +255,10 @@ public class S3ProxyHandler {
             };
         }
         this.authenticationType = authenticationType;
-        this.virtualHost = Optional.fromNullable(virtualHost);
+        this.virtualHost = Optional.ofNullable(virtualHost);
         this.maxSinglePartObjectSize = maxSinglePartObjectSize;
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
-        this.corsRules = corsRules;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
                 Boolean.FALSE);
@@ -1889,7 +1895,7 @@ public class S3ProxyHandler {
         if (contentMD5String != null) {
             try {
                 contentMD5 = HashCode.fromBytes(
-                        BaseEncoding.base64().decode(contentMD5String));
+                        Base64.getDecoder().decode(contentMD5String));
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
             }
@@ -2102,7 +2108,7 @@ public class S3ProxyHandler {
                 return;
             }
         } else {
-            String expectedSignature = BaseEncoding.base64().encode(
+            String expectedSignature = Base64.getEncoder().encodeToString(
                     hmac("HmacSHA1", policy,
                             credential.getBytes(StandardCharsets.UTF_8)));
             if (!constantTimeEquals(signature, expectedSignature)) {
@@ -2192,20 +2198,20 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is,
             final BlobStore blobStore, String containerName, String blobName,
             String uploadId) throws IOException, S3Exception {
-        final MultipartUpload mpu;
+        BlobMetadata metadata;
+        PutOptions options;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            Blob stubBlob = blobStore.getBlob(containerName, uploadId);
+            metadata = blobStore.getBlob(containerName, uploadId).getMetadata();
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     uploadId);
-            mpu = MultipartUpload.create(containerName,
-                    blobName, uploadId, stubBlob.getMetadata(),
-                    new PutOptions().setBlobAccess(access));
+            options = new PutOptions().setBlobAccess(access);
         } else {
-            mpu = MultipartUpload.create(containerName,
-                    blobName, uploadId, new MutableBlobMetadataImpl(),
-                    new PutOptions());
+            metadata = new MutableBlobMetadataImpl();
+            options = new PutOptions();
         }
+        final MultipartUpload mpu = MultipartUpload.create(containerName,
+                blobName, uploadId, metadata, options);
 
         // List parts to get part sizes and to map multiple Azure parts
         // into single parts.
@@ -2214,7 +2220,6 @@ public class S3ProxyHandler {
         for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
             builder.put(part.partNumber(), part);
         }
-        ImmutableMap<Integer, MultipartPart> partsByListing = builder.build();
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
@@ -2222,6 +2227,28 @@ public class S3ProxyHandler {
             // TODO: how to sanity check parts?
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
                 parts.add(part);
+            }
+        } else if (blobStoreType.equals("google-cloud-storage")) {
+            // GCS only supports 32 parts but we can support up to 1024 by
+            // recursively combining objects.
+            for (int partNumber = 1;; ++partNumber) {
+                MultipartUpload mpu2 = MultipartUpload.create(
+                        containerName,
+                        String.format("%s_%08d", mpu.id(), partNumber),
+                        String.format("%s_%08d", mpu.id(), partNumber),
+                        metadata, options);
+                List<MultipartPart> subParts = blobStore.listMultipartUpload(
+                        mpu2);
+                if (subParts.isEmpty()) {
+                    break;
+                }
+                long partSize = 0;
+                for (MultipartPart part : subParts) {
+                    partSize += part.partSize();
+                }
+                String eTag = blobStore.completeMultipartUpload(mpu2, subParts);
+                parts.add(MultipartPart.create(
+                        partNumber, partSize, eTag, /*lastModified=*/ null));
             }
         } else {
             CompleteMultipartUploadRequest cmu;
@@ -2239,6 +2266,9 @@ public class S3ProxyHandler {
                     requestParts.put(part.partNumber, part.eTag);
                 }
             }
+
+            ImmutableMap<Integer, MultipartPart> partsByListing =
+                    builder.build();
             for (Iterator<Map.Entry<Integer, String>> it =
                     requestParts.entrySet().iterator(); it.hasNext();) {
                 Map.Entry<Integer, String> entry = it.next();
@@ -2673,7 +2703,7 @@ public class S3ProxyHandler {
         if (contentMD5String != null) {
             try {
                 contentMD5 = HashCode.fromBytes(
-                        BaseEncoding.base64().decode(contentMD5String));
+                        Base64.getDecoder().decode(contentMD5String));
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
             }
@@ -2715,6 +2745,15 @@ public class S3ProxyHandler {
                     ", inclusive", (Throwable) null, ImmutableMap.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
+        }
+
+        // GCS only supports 32 parts so partition MPU into 32-part chunks.
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (blobStoreType.equals("google-cloud-storage")) {
+            // fix up 1-based part numbers
+            uploadId = String.format(
+                    "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
+            partNumber = ((partNumber - 1) % 32) + 1;
         }
 
         // TODO: how to reconstruct original mpu?
