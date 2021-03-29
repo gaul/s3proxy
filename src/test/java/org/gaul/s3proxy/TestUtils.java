@@ -235,4 +235,12 @@ final class TestUtils {
 
         return info;
     }
+
+    static String createRandomContainerName() {
+        return "container-" + new Random().nextInt(Integer.MAX_VALUE);
+    }
+
+    static String createRandomBlobName() {
+        return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
+    }
 }
