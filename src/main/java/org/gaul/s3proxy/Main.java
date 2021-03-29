@@ -224,6 +224,16 @@ public final class Main {
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
         }
 
+        ImmutableMap<String, Integer> shards =
+                ShardedBlobStore.parseBucketShards(properties);
+        ImmutableMap<String, String> prefixes =
+                ShardedBlobStore.parsePrefixes(properties);
+        if (!shards.isEmpty()) {
+            System.err.println("Using sharded buckets backend");
+            blobStore = ShardedBlobStore.newShardedBlobStore(blobStore,
+                    shards, prefixes);
+        }
+
         return blobStore;
     }
 
