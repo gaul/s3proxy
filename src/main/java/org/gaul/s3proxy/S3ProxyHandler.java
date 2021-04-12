@@ -2352,7 +2352,7 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", blobName);
 
-            if (eTag != null) {
+            if (eTag.get() != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag.get()));
             }
 
