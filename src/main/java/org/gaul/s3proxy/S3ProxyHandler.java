@@ -407,7 +407,7 @@ public class S3ProxyHandler {
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
             }
-            requestIdentity = authHeader.identity;
+            requestIdentity = authHeader.getIdentity();
         }
 
         long dateSkew = 0; //date for timeskew check
@@ -420,12 +420,14 @@ public class S3ProxyHandler {
             boolean haveDate = true;
 
             AuthenticationType finalAuthType = null;
-            if (authHeader.authenticationType == AuthenticationType.AWS_V2 &&
+            if (authHeader.getAuthenticationType() ==
+                    AuthenticationType.AWS_V2 &&
                     (authenticationType == AuthenticationType.AWS_V2 ||
                     authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V2;
             } else if (
-                authHeader.authenticationType == AuthenticationType.AWS_V4 &&
+                authHeader.getAuthenticationType() ==
+                        AuthenticationType.AWS_V4 &&
                         (authenticationType == AuthenticationType.AWS_V4 ||
                     authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V4;
@@ -517,7 +519,7 @@ public class S3ProxyHandler {
                 }
             }
             // The aim ?
-            switch (authHeader.authenticationType) {
+            switch (authHeader.getAuthenticationType()) {
             case AWS_V2:
                 switch (authenticationType) {
                 case AWS_V2:
@@ -542,12 +544,12 @@ public class S3ProxyHandler {
                 break;
             default:
                 throw new IllegalArgumentException("Unhandled type: " +
-                        authHeader.authenticationType);
+                        authHeader.getAuthenticationType());
             }
 
             String expectedSignature = null;
 
-            if (authHeader.hmacAlgorithm == null) { //v2
+            if (authHeader.getHmacAlgorithm() == null) { //v2
                 // When presigned url is generated, it doesn't consider
                 // service path
                 String uriForSigning = presignedUrl ? uri : this.servicePath +
@@ -581,7 +583,7 @@ public class S3ProxyHandler {
                         // maybe we should check this when signing,
                         // a lot of dup code with aws sign code.
                         MessageDigest md = MessageDigest.getInstance(
-                            authHeader.hashAlgorithm);
+                            authHeader.getHashAlgorithm());
                         byte[] hash = md.digest(payload);
                         if  (!contentSha256.equals(
                               BaseEncoding.base16().lowerCase()
@@ -604,7 +606,8 @@ public class S3ProxyHandler {
                 }
             }
 
-            if (!constantTimeEquals(expectedSignature, authHeader.signature)) {
+            if (!constantTimeEquals(expectedSignature,
+                    authHeader.getSignature())) {
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
         }
@@ -2053,7 +2056,7 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
         }
 
-        switch (authHeader.authenticationType) {
+        switch (authHeader.getAuthenticationType()) {
         case AWS_V2:
             switch (authenticationType) {
             case AWS_V2:
@@ -2078,11 +2081,11 @@ public class S3ProxyHandler {
             break;
         default:
             throw new IllegalArgumentException("Unhandled type: " +
-                    authHeader.authenticationType);
+                    authHeader.getAuthenticationType());
         }
 
         Map.Entry<String, BlobStore> provider =
-                blobStoreLocator.locateBlobStore(authHeader.identity, null,
+                blobStoreLocator.locateBlobStore(authHeader.getIdentity(), null,
                         null);
         if (provider == null) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -2094,11 +2097,14 @@ public class S3ProxyHandler {
             byte[] kSecret = ("AWS4" + credential).getBytes(
                     StandardCharsets.UTF_8);
             byte[] kDate = hmac("HmacSHA256",
-                    authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
+                    authHeader.getDate().getBytes(StandardCharsets.UTF_8),
+                    kSecret);
             byte[] kRegion = hmac("HmacSHA256",
-                    authHeader.region.getBytes(StandardCharsets.UTF_8), kDate);
-            byte[] kService = hmac("HmacSHA256", authHeader.service.getBytes(
-                    StandardCharsets.UTF_8), kRegion);
+                    authHeader.getRegion().getBytes(StandardCharsets.UTF_8),
+                    kDate);
+            byte[] kService = hmac("HmacSHA256",
+                    authHeader.getService().getBytes(StandardCharsets.UTF_8),
+                    kRegion);
             byte[] kSigning = hmac("HmacSHA256",
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
             String expectedSignature = BaseEncoding.base16().lowerCase().encode(
