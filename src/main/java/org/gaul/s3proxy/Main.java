@@ -33,6 +33,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -222,6 +223,13 @@ public final class Main {
         if ("true".equalsIgnoreCase(readOnlyBlobStore)) {
             System.err.println("Using read-only storage backend");
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
+        }
+
+        ImmutableBiMap<String, String> aliases = AliasBlobStore.parseAliases(
+                properties);
+        if (!aliases.isEmpty()) {
+            System.err.println("Using alias backend");
+            blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
         }
 
         ImmutableMap<String, Integer> shards =

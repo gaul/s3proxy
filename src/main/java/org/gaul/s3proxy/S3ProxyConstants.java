@@ -78,6 +78,9 @@ public final class S3ProxyConstants {
     /** Probability of eventual consistency, between 0.0 and 1.0. */
     public static final String PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY =
             "s3proxy.eventual-consistency.probability";
+    /** Alias a backend bucket to an alternate name. */
+    public static final String PROPERTY_ALIAS_BLOBSTORE =
+            "s3proxy.alias-blobstore";
     /** Discard object data. */
     public static final String PROPERTY_NULL_BLOBSTORE =
             "s3proxy.null-blobstore";
