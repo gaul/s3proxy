@@ -2844,8 +2844,11 @@ public class S3ProxyHandler {
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_DISPOSITION, "response-content-disposition",
                 contentMetadata.getContentDisposition());
-        response.addHeader(HttpHeaders.CONTENT_LENGTH,
-                contentMetadata.getContentLength().toString());
+        Long contentLength = contentMetadata.getContentLength();
+        if (contentLength != null) {
+            response.addHeader(HttpHeaders.CONTENT_LENGTH,
+                    contentLength.toString());
+        }
         String overrideContentType = request.getParameter(
                 "response-content-type");
         response.setContentType(overrideContentType != null ?
