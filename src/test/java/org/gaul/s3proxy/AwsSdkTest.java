@@ -634,7 +634,7 @@ public final class AwsSdkTest {
         String contentDisposition = "attachment; filename=foo.html";
         String contentEncoding = "gzip";
         String contentLanguage = "en";
-        String contentType = "text/html; charset=UTF-8";
+        String contentType = "text/html;charset=utf-8";
         String expires = "Wed, 13 Jul 2016 21:23:51 GMT";
         long expiresTime = 1468445031000L;
 
