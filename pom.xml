@@ -406,7 +406,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
-      <version>9.2.28.v20190418</version>
+      <version>9.2.30.v20200428</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
