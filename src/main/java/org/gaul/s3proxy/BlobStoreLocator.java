@@ -20,6 +20,18 @@ import java.util.Map;
 
 import org.jclouds.blobstore.BlobStore;
 
+/**
+ * BlobStoreLocator is used to find relevant blobstore,
+ * and the EXPECTED AWS SIGNATURE for the current
+ * request. BolbStoreLocator gives out the credential
+ * during the process which then is used to construct
+ * the EXPECTED AWS SIGNATURE. Then the EXPECTED AWS SIGNATURE
+ * is compared with the one within the request,
+ * and only if they match the blobstore is used.
+ * The BlobStoreLocator uses the identity to find the
+ * relevant blobstore and the relevant credential for it.
+ */
+
 public interface BlobStoreLocator {
     Map.Entry<String, BlobStore> locateBlobStore(String identity,
             String container, String blob);

@@ -89,6 +89,15 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_MAXIMUM_TIME_SKEW =
             "s3proxy.maximum-timeskew";
 
+    public static final String PROPERTY_BLOBSTORE_LOCATOR_IMPL_ANON =
+            "s3proxy.blobstore.locator.impl_anon";
+
+    public static final String PROPERTY_BLOBSTORE_LOCATOR_IMPL_SINGLE =
+            "s3proxy.blobstore.locator.impl_single";
+
+    public static final String PROPERTY_BLOBSTORE_LOCATOR_IMPL_MULTI =
+            "s3proxy.blobstore.locator.impl_multi";
+
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {

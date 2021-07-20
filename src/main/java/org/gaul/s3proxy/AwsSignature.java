@@ -322,17 +322,17 @@ final class AwsSignature {
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
             S3Exception {
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
-                authHeader.hashAlgorithm);
-        String algorithm = authHeader.hmacAlgorithm;
+                authHeader.getHashAlgorithm());
+        String algorithm = authHeader.getHmacAlgorithm();
         byte[] dateKey = signMessage(
-                authHeader.date.getBytes(StandardCharsets.UTF_8),
+                authHeader.getDate().getBytes(StandardCharsets.UTF_8),
                 ("AWS4" + credential).getBytes(StandardCharsets.UTF_8),
                 algorithm);
         byte[] dateRegionKey = signMessage(
-                authHeader.region.getBytes(StandardCharsets.UTF_8), dateKey,
+                authHeader.getRegion().getBytes(StandardCharsets.UTF_8), dateKey,
                 algorithm);
         byte[] dateRegionServiceKey = signMessage(
-                authHeader.service.getBytes(StandardCharsets.UTF_8),
+                authHeader.getService().getBytes(StandardCharsets.UTF_8),
                 dateRegionKey, algorithm);
         byte[] signingKey = signMessage(
                 "aws4_request".getBytes(StandardCharsets.UTF_8),
@@ -343,7 +343,7 @@ final class AwsSignature {
         }
         String signatureString = "AWS4-HMAC-SHA256\n" +
                 date + "\n" +
-                authHeader.date + "/" + authHeader.region +
+                authHeader.getDate() + "/" + authHeader.getRegion() +
                 "/s3/aws4_request\n" +
                 canonicalRequest;
         byte[] signature = signMessage(

@@ -23,10 +23,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.sql.Blob;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -151,22 +149,9 @@ public final class Main {
         final Map<String, Map.Entry<String, BlobStore>> locator =
                 locators.build();
         if (!locator.isEmpty()) {
-            s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
-                @Override
-                public Map.Entry<String, BlobStore> locateBlobStore(
-                        String identity, String container, String blob) {
-                    if (identity == null) {
-                        if (locator.size() == 1) {
-                            return locator.entrySet().iterator().next()
-                                    .getValue();
-                        }
-                        throw new IllegalArgumentException(
-                            "cannot use anonymous access with multiple" +
-                            " backends");
-                    }
-                    return locator.get(identity);
-                }
-            });
+            s3Proxy.setBlobStoreLocator(
+                S3ProxyBlobStoreLocatorLoader.getMultiLocator(locator)
+            );
         }
 
         try {
