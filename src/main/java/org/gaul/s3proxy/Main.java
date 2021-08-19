@@ -23,10 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -40,6 +37,9 @@ import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Module;
 
+import org.gaul.s3proxy.extend.AccessSecretManager;
+import org.gaul.s3proxy.extend.AkSkPair;
+import org.gaul.s3proxy.extend.SqliteAKSKManager;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
@@ -102,6 +102,10 @@ public final class Main {
                 1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
+        // 加载用户数据库
+        AccessSecretManager accessSecretManager = new SqliteAKSKManager();
+        Map<String, AkSkPair> accessCache= accessSecretManager.getBucketAkSkList();
+
         for (File propertiesFile : options.propertiesFiles) {
             Properties properties = new Properties();
             try (InputStream is = new FileInputStream(propertiesFile)) {
@@ -124,6 +128,13 @@ public final class Main {
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
                 locators.put(localIdentity, Maps.immutableEntry(
                         localCredential, blobStore));
+                for (Map.Entry<String,  AkSkPair> entry : accessCache.entrySet()) {
+                    // 增加 sqlite中access key的 locators
+                    locators.put(entry.getValue().getAccess_key(), Maps.immutableEntry(
+                            entry.getValue().getSecret_key(), blobStore));
+                }
+
+
             }
 
             S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
@@ -138,6 +149,7 @@ public final class Main {
             }
             s3ProxyBuilder = s3ProxyBuilder2;
         }
+
 
         S3Proxy s3Proxy;
         try {
@@ -164,7 +176,16 @@ public final class Main {
                             "cannot use anonymous access with multiple" +
                             " backends");
                     }
-                    return locator.get(identity);
+                    // verify key
+                    Map.Entry<String, BlobStore> provider =  locator.get(identity);
+                    String  bucket = accessSecretManager.getBucketFromAccessKey(identity);
+                    if ( !bucket.equalsIgnoreCase("")) {
+                        // if bucket and access_key not match. [1:1 in db] return null
+                        if (!container.equalsIgnoreCase(bucket)){
+                            return null;
+                        }
+                    }
+                    return provider;
                 }
             });
         }

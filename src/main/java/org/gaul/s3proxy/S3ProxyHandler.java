@@ -608,6 +608,7 @@ public class S3ProxyHandler {
 
             if (!constantTimeEquals(expectedSignature,
                     authHeader.getSignature())) {
+                // 验证verify access key check
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
         }
