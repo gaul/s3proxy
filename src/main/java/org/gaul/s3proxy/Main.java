@@ -102,7 +102,7 @@ public final class Main {
                 1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
-        // 加载用户数据库
+        // load bucket access db
         AccessSecretManager accessSecretManager = new SqliteAKSKManager();
         Map<String, AkSkPair> accessCache= accessSecretManager.getBucketAkSkList();
 
@@ -129,7 +129,7 @@ public final class Main {
                 locators.put(localIdentity, Maps.immutableEntry(
                         localCredential, blobStore));
                 for (Map.Entry<String,  AkSkPair> entry : accessCache.entrySet()) {
-                    // 增加 sqlite中access key的 locators
+                    // add sqlite access key to locators
                     locators.put(entry.getValue().getAccess_key(), Maps.immutableEntry(
                             entry.getValue().getSecret_key(), blobStore));
                 }

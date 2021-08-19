@@ -134,9 +134,9 @@ public class SqliteAKSKManager extends AbStractAKSKManager {
 
     public void insertSomeUsers() {
         // SQL statement for creating a new table
-        this.createAKSKForBucket("ai-ctr", "helloworld1", "1234512345");
-        this.createAKSKForBucket("jianjiang", "helloworld2", "1234512345");
-        this.createAKSKForBucket("lhli3", "helloworld3", "1234512345");
+        this.createAKSKForBucket("test1", "helloworld1", "1234512345");
+        this.createAKSKForBucket("test2", "helloworld2", "1234512345");
+        this.createAKSKForBucket("test3", "helloworld3", "1234512345");
 
     }
 
