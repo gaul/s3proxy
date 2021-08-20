@@ -216,9 +216,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                                  String container) {
         Map<String, String> currentSuperblockMeta =
                 blob.getMetadata().getUserMetadata();
-        for (String key : expectedMeta.keySet()) {
-            String current = currentSuperblockMeta.get(key);
-            String expected = expectedMeta.get(key);
+        for (Map.Entry<String, String> entry : expectedMeta.entrySet()) {
+            String current = currentSuperblockMeta.get(entry.getKey());
+            String expected = entry.getValue();
             if (!expected.equalsIgnoreCase(current)) {
                 throw new RuntimeException(String.format(
                         "Superblock block for %s does not match: %s, %s",
