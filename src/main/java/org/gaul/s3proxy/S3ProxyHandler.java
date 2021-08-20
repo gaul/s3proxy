@@ -453,13 +453,12 @@ public class S3ProxyHandler {
                     dateSkew /= 1000;
                 } catch (IllegalArgumentException iae) {
                     try {
-                        dateSkew = parseIso8601(request.getHeader(HttpHeaders.DATE));
+                        dateSkew = parseIso8601(request.getHeader(
+                                HttpHeaders.DATE));
                     } catch (IllegalArgumentException iae2) {
                         throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
                     }
                 }
-
-
             } else {
                 haveDate = false;
             }
@@ -467,7 +466,6 @@ public class S3ProxyHandler {
                 isTimeSkewed(dateSkew);
             }
         }
-
 
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
