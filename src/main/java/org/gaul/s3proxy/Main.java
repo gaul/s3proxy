@@ -16,19 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import java.io.Console;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -36,10 +23,10 @@ import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Module;
-
-import org.gaul.s3proxy.extend.AccessSecretManager;
+import org.gaul.s3proxy.extend.AbStractAKSKManager;
 import org.gaul.s3proxy.extend.AkSkPair;
 import org.gaul.s3proxy.extend.SqliteAKSKManager;
+import org.gaul.s3proxy.extend.YamlAKSKManager;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
@@ -56,8 +43,17 @@ import org.kohsuke.args4j.Option;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
 public final class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
+
     private Main() {
         throw new AssertionError("intentionally not implemented");
     }
@@ -69,7 +65,26 @@ public final class Main {
 
         @Option(name = "--version", usage = "display version")
         private boolean version;
+
+        @Option(name = "--enable_bucket_ak_sk",
+                usage = "experimental feature to provide different ak/sk for per bucket"
+        )
+        private boolean enableBucketAkSk;
+
+        @Option(name = "--config_store",
+                usage = "yaml,sqlite.. etc."
+        )
+        private String configStoreType="yaml";
+
+
+        @Option(name = "--config_path",
+                usage = "config file path. for sqlite is db file path, and for yaml is local yml file absolute path."
+        )
+        private String configPath="";
+        ;
+
     }
+
 
     public static void main(String[] args) throws Exception {
         Console console = System.console();
@@ -100,11 +115,25 @@ public final class Main {
                 .build();
         ExecutorService executorService = DynamicExecutors.newScalingThreadPool(
                 1, 20, 60 * 1000, factory);
-        ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
-                ImmutableMap.builder();
+        Map<String, Map.Entry<String, BlobStore>> locators =
+                new LinkedHashMap<>();
         // load bucket access db
-        AccessSecretManager accessSecretManager = new SqliteAKSKManager();
-        Map<String, AkSkPair> accessCache= accessSecretManager.getBucketAkSkList();
+        AbStractAKSKManager accessSecretManager = null;
+        Map<String, AkSkPair> accessCache = null;
+        if (options.enableBucketAkSk) {
+            switch (options.configStoreType) {
+                case "sqlite":
+                    accessSecretManager = new SqliteAKSKManager(options.configPath);
+                    break;
+                case "yaml":
+                    accessSecretManager = new YamlAKSKManager(options.configPath);
+                    break;
+                default:
+                    accessSecretManager = new YamlAKSKManager(options.configPath);
+            }
+            accessCache = accessSecretManager.getBucketAkSkList();
+
+        }
 
         for (File propertiesFile : options.propertiesFiles) {
             Properties properties = new Properties();
@@ -114,6 +143,8 @@ public final class Main {
             properties.putAll(System.getProperties());
 
             BlobStore blobStore = createBlobStore(properties, executorService);
+
+
 
             blobStore = parseMiddlewareProperties(blobStore, executorService,
                     properties);
@@ -126,15 +157,20 @@ public final class Main {
                         S3ProxyConstants.PROPERTY_IDENTITY);
                 String localCredential = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
+                Map<String, Map.Entry<String, BlobStore>> save = new HashMap<>();
                 locators.put(localIdentity, Maps.immutableEntry(
                         localCredential, blobStore));
-                for (Map.Entry<String,  AkSkPair> entry : accessCache.entrySet()) {
-                    // add sqlite access key to locators
-                    locators.put(entry.getValue().getAccess_key(), Maps.immutableEntry(
-                            entry.getValue().getSecret_key(), blobStore));
+                // register blobStore to access manager
+                if (accessSecretManager!=null) {
+                    accessSecretManager.registerBlobStore(blobStore);
                 }
-
-
+                if (accessCache != null){
+                    for (Map.Entry<String, AkSkPair> entry : accessCache.entrySet()) {
+                        // add sqlite access key to locators
+                        locators.put(entry.getValue().getAccess_key(), Maps.immutableEntry(
+                                entry.getValue().getSecret_key(), blobStore));
+                    }
+                }
             }
 
             S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
@@ -161,8 +197,12 @@ public final class Main {
         }
 
         final Map<String, Map.Entry<String, BlobStore>> locator =
-                locators.build();
+                locators;
+        if (accessSecretManager!=null){
+            accessSecretManager.setLocator(locator);
+        }
         if (!locator.isEmpty()) {
+            AbStractAKSKManager finalAbStractAKSKManager = accessSecretManager;
             s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
                 @Override
                 public Map.Entry<String, BlobStore> locateBlobStore(
@@ -173,18 +213,21 @@ public final class Main {
                                     .getValue();
                         }
                         throw new IllegalArgumentException(
-                            "cannot use anonymous access with multiple" +
-                            " backends");
+                                "cannot use anonymous access with multiple" +
+                                        " backends");
                     }
                     // verify key
-                    Map.Entry<String, BlobStore> provider =  locator.get(identity);
-                    String  bucket = accessSecretManager.getBucketFromAccessKey(identity);
-                    if ( !bucket.equalsIgnoreCase("")) {
-                        // if bucket and access_key not match. [1:1 in db] return null
-                        if (!container.equalsIgnoreCase(bucket)){
-                            return null;
+                    Map.Entry<String, BlobStore> provider = locator.get(identity);
+                    if (finalAbStractAKSKManager != null){
+                        String bucket = finalAbStractAKSKManager.getBucketFromAccessKey(identity);
+                        if (!bucket.equalsIgnoreCase("")) {
+                            // if bucket and access_key not match. [1:1 in db] return null
+                            if (!container.equalsIgnoreCase(bucket)) {
+                                return null;
+                            }
                         }
                     }
+
                     return provider;
                 }
             });
@@ -199,7 +242,7 @@ public final class Main {
     }
 
     private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
-            ExecutorService executorService, Properties properties)
+                                                       ExecutorService executorService, Properties properties)
             throws IOException {
         Properties altProperties = new Properties();
         for (Map.Entry<Object, Object> entry : properties.entrySet()) {
@@ -287,7 +330,7 @@ public final class Main {
     }
 
     private static BlobStore createBlobStore(Properties properties,
-            ExecutorService executorService) throws IOException {
+                                             ExecutorService executorService) throws IOException {
         String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
         String credential = properties.getProperty(
@@ -300,7 +343,7 @@ public final class Main {
         if (provider == null) {
             System.err.println(
                     "Properties file must contain: " +
-                    Constants.PROPERTY_PROVIDER);
+                            Constants.PROPERTY_PROVIDER);
             System.exit(1);
         }
 
@@ -320,8 +363,8 @@ public final class Main {
         if (identity == null || credential == null) {
             System.err.println(
                     "Properties file must contain: " +
-                    Constants.PROPERTY_IDENTITY + " and " +
-                    Constants.PROPERTY_CREDENTIAL);
+                            Constants.PROPERTY_IDENTITY + " and " +
+                            Constants.PROPERTY_CREDENTIAL);
             System.exit(1);
         }
 

@@ -1,7 +1,9 @@
 package org.gaul.s3proxy.extend;
 
+import org.jclouds.blobstore.BlobStore;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -12,11 +14,25 @@ public class AbStractAKSKManager implements AccessSecretManager {
 
     public String cacheType = "memory";
 
+    static public List<BlobStore> blobStores = new ArrayList<>();
 
     public CacheManager cacheManager;
+    Map<String, Map.Entry<String, BlobStore>>  locator;
+
+    /** static variable save last config
+     *
+     */
+    public static Map<String, AkSkPair> save;
 
     public AbStractAKSKManager() {
         cacheManager = createCacheManager();
+    }
+    public Map<String, Map.Entry<String, BlobStore>> getLocator() {
+        return locator;
+    }
+
+    public void setLocator(Map<String, Map.Entry<String, BlobStore>> locator) {
+        this.locator = locator;
     }
 
     @Override
@@ -37,7 +53,7 @@ public class AbStractAKSKManager implements AccessSecretManager {
     }
 
     @Override
-    public void loads2Cache() {
+    public Map<String, AkSkPair> loads2Cache() {
         throw new NotImplementedException();
 
     }
@@ -52,8 +68,25 @@ public class AbStractAKSKManager implements AccessSecretManager {
         throw new NotImplementedException();
     }
 
+    @Override
+    public void registerBlobStore(BlobStore blobStore) {
+        blobStores.add(blobStore);
+    }
+
+    @Override
+    public List<BlobStore> listBlobStores() {
+        return blobStores;
+    }
+
     public CacheManager getCacheManager() {
         return cacheManager;
     }
 
+    public static Map<String, AkSkPair> getSave() {
+        return save;
+    }
+
+    public static void setSave(Map<String, AkSkPair> save) {
+        AbStractAKSKManager.save = save;
+    }
 }

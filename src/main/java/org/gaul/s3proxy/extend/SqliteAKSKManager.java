@@ -1,6 +1,8 @@
 package org.gaul.s3proxy.extend;
 
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+
+import com.google.common.collect.ImmutableMap;
+import org.jclouds.blobstore.BlobStore;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -12,12 +14,15 @@ import java.util.Map;
  * @author yangyanbo
  */
 public class SqliteAKSKManager extends AbStractAKSKManager {
-    String confPath = "src/main/resources/config.db";
+    String defaultConf = "src/main/resources/config.db";
     Connection conn = null;
 
-    public SqliteAKSKManager() throws SQLException {
+    public SqliteAKSKManager(String configPath) throws SQLException {
         super();
-        String dbUrl = "jdbc:sqlite:" + confPath;
+        if (configPath.equalsIgnoreCase("")) {
+            configPath = defaultConf;
+        }
+        String dbUrl = "jdbc:sqlite:" + configPath;
         conn = DriverManager.getConnection(dbUrl);
         if (conn != null) {
             DatabaseMetaData meta = conn.getMetaData();
@@ -45,16 +50,16 @@ public class SqliteAKSKManager extends AbStractAKSKManager {
     }
 
     @Override
-    public void loads2Cache() {
+    public Map<String, AkSkPair> loads2Cache() {
         try {
-            List<Map<String, AkSkPair>> bucketAkList = this.getBucketAkSKsFromDB();
-            for (Map<String, AkSkPair> m :bucketAkList ){
-               for (String key :m.keySet()){
-                   this.getCacheManager().setKey(key, m.get(key));
-               }
+            Map<String, AkSkPair> bucketAkList = this.getBucketAkSKsFromDB();
+            for (String key : bucketAkList.keySet()) {
+                this.getCacheManager().setKey(key, bucketAkList.get(key));
             }
-        }catch (Exception e) {
+            return bucketAkList;
+        } catch (Exception e) {
             System.out.println("Take record from db to cache fail.");
+            return null;
         }
 
     }
@@ -64,7 +69,7 @@ public class SqliteAKSKManager extends AbStractAKSKManager {
         // first take from cache. if not take from db
         Map<String, AkSkPair> map = new HashMap<>();
         Map<String, Object> m = this.getCacheManager().getAll();
-        for (String key: m.keySet()){
+        for (String key : m.keySet()) {
             map.put(key, (AkSkPair) m.get(key));
         }
         return map;
@@ -74,20 +79,20 @@ public class SqliteAKSKManager extends AbStractAKSKManager {
     public String getBucketFromAccessKey(String ak) {
         // ugly here but work
         String bucket = "";
-        try{
+        try {
             Map<String, Object> m = this.getCacheManager().getAll();
-            for (String k : m.keySet()){
+            for (String k : m.keySet()) {
                 AkSkPair akSkPair = (AkSkPair) m.get(k);
-                if (akSkPair.getAccess_key().equalsIgnoreCase(ak)){
+                if (akSkPair.getAccess_key().equalsIgnoreCase(ak)) {
                     bucket = k;
                     break;
                 }
             }
 
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
             return bucket;
-        }finally {
+        } finally {
             return bucket;
         }
     }
@@ -98,23 +103,23 @@ public class SqliteAKSKManager extends AbStractAKSKManager {
             String sql = "CREATE TABLE IF NOT EXISTS bucket_access_manage (\n"
                     + " id integer PRIMARY KEY,\n"
                     + " bucket text UNIQUE NOT NULL,\n"
-                    + " access_key text NOT NULL,\n"
+                    + " access_key text UNIQUE NOT NULL,\n"
                     + " secret_key text NOT NULL,\n"
                     + " enable integer\n"
                     + ");";
             Statement stmt = conn.createStatement();
             stmt.execute(sql);
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
     }
 
-    public List<Map<String, AkSkPair>> getBucketAkSKsFromDB() throws Exception {
+    public Map<String, AkSkPair> getBucketAkSKsFromDB() throws Exception {
         String sql = "SELECT id, bucket, access_key,secret_key FROM bucket_access_manage";
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql);
-        List<Map<String, AkSkPair>> rsl = new ArrayList<>();
+        Map<String, AkSkPair> rsl = new HashMap<>();
         // loop through the result set
         while (rs.next()) {
             System.out.println(rs.getInt("id") + "\t" +
@@ -122,21 +127,24 @@ public class SqliteAKSKManager extends AbStractAKSKManager {
                     rs.getString("access_key") + "\t" +
                     rs.getString("secret_key"));
 
-            Map<String, AkSkPair> m = new HashMap<>();
             AkSkPair akSkPair = new AkSkPair(rs.getString("access_key"),
                     rs.getString("secret_key"));
 
-            m.put(rs.getString("bucket"), akSkPair);
-            rsl.add(m);
+            rsl.put(rs.getString("bucket"), akSkPair);
         }
         return rsl;
     }
 
     public void insertSomeUsers() {
         // SQL statement for creating a new table
-        this.createAKSKForBucket("test1", "helloworld1", "1234512345");
-        this.createAKSKForBucket("test2", "helloworld2", "1234512345");
-        this.createAKSKForBucket("test3", "helloworld3", "1234512345");
+        try {
+            this.createAKSKForBucket("test1", "cccccc", "ZDU3NzI3M2ZmODg1YzNmODRkYWRiODU3OGJiNDEzOTkgIC0K");
+            this.createAKSKForBucket("test", "test", "NzIzZWU2ZmUyNjlkYjAzZDQ5YTllMjA0MTYwZGYzNGQgIC0K");
+            this.createAKSKForBucket("test3", "helloworld3", "1234512345");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
 
     }
 

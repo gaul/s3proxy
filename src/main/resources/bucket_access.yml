@@ -1,0 +1,15 @@
+ai_ctr:
+  access_key: "helloworld1"
+  secret_key: "cccccccccdddddddddddd"
+hellworld:
+  access_key: "helloworld2"
+  secret_key: "ccccccdcssdddddddddddd"
+hellworld2:
+  access_key: "hellowo2rld2"
+  secret_key: "ccccccdc2ssdddddddddddd"
+test3:
+  access_key: "helloworld3"
+  secret_key: "12345122345"
+test4:
+  access_key: "hello11world3"
+  secret_key: "1234511122345"
