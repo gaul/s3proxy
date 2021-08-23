@@ -120,7 +120,8 @@ public final class S3Proxy {
                 builder.maxSinglePartObjectSize,
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsRules,
-                builder.servicePath, builder.maximumTimeSkew);
+                builder.servicePath, builder.maximumTimeSkew,
+                builder.accessLogger);
         server.setHandler(handler);
     }
 
@@ -142,6 +143,7 @@ public final class S3Proxy {
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
+        private AccessLogger accessLogger = new S3ProxyAccessLogger();
 
         Builder() {
         }
@@ -372,6 +374,11 @@ public final class S3Proxy {
 
         public Builder maximumTimeSkew(int maximumTimeSkew) {
             this.maximumTimeSkew = maximumTimeSkew;
+            return this;
+        }
+
+        public Builder accessLogger (AccessLogger accessLogger) {
+            this.accessLogger = accessLogger;
             return this;
         }
 

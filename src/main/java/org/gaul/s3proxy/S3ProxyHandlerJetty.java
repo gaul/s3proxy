@@ -44,17 +44,21 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             S3ProxyHandlerJetty.class);
 
     private final S3ProxyHandler handler;
+    private final AccessLogger accessLogger;
 
     S3ProxyHandlerJetty(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
             boolean ignoreUnknownHeaders, CrossOriginResourceSharing corsRules,
-            String servicePath, int maximumTimeSkew) {
-        handler = new S3ProxyHandler(blobStore, authenticationType, identity,
-                credential, virtualHost, maxSinglePartObjectSize,
+            String servicePath, int maximumTimeSkew,
+                        AccessLogger accessLogger) {
+
+        this.handler = new S3ProxyHandler(blobStore, authenticationType,
+                identity, credential, virtualHost, maxSinglePartObjectSize,
                 v4MaxNonChunkedRequestSize, ignoreUnknownHeaders, corsRules,
                 servicePath, maximumTimeSkew);
+        this.accessLogger = accessLogger;
     }
 
     private void sendS3Exception(HttpServletRequest request,
@@ -68,6 +72,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
     public void handle(String target, Request baseRequest,
             HttpServletRequest request, HttpServletResponse response)
             throws IOException {
+        accessLogger.logRequest(target, baseRequest, request, response);
         try (InputStream is = request.getInputStream()) {
 
             // Set query encoding
@@ -153,6 +158,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 throw throwable;
             }
         }
+        accessLogger.logResponse(target, baseRequest, request, response);
     }
 
     public S3ProxyHandler getHandler() {
