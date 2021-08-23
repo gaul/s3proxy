@@ -22,7 +22,7 @@ public class YamlConfigReloadAdaptor extends FileAlterationListenerAdaptor {
     public void onFileChange(File file) {
         System.out.println("Yaml Config changed... config.....reload.....");
         super.onFileChange(file);
-        Map<String, AkSkPair>  last = AbStractAKSKManager.getSave();
+        Map<String, AkSkPair> last = AbStractAKSKManager.getSave();
         Map<String, AkSkPair> modify = this.accessSecretManager.loads2Cache();
         // compaire two map to find out which is update or delete.
         // two loop ugly.
@@ -36,7 +36,7 @@ public class YamlConfigReloadAdaptor extends FileAlterationListenerAdaptor {
                 }
                 // delete this time yaml delete
                 for (Map.Entry<String, AkSkPair> entry : last.entrySet()) {
-                    if (!modify.containsKey(entry.getKey())){
+                    if (!modify.containsKey(entry.getKey())) {
                         this.accessSecretManager.getLocator().remove(entry.getValue().access_key);
                     }
 

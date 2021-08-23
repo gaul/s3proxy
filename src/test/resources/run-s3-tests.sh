@@ -14,8 +14,8 @@ popd
 
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
-        < src/test/resources/s3proxy.conf | grep -v secure-endpoint > target/s3proxy.conf
-$S3PROXY_BIN --properties target/s3proxy.conf &
+        < src/test/resources/s3proxy-fs.conf | grep -v secure-endpoint > target/s3proxy-fs.conf
+$S3PROXY_BIN --properties target/s3proxy-fs.conf &
 S3PROXY_PID=$!
 
 function finish {

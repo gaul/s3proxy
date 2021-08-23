@@ -74,13 +74,13 @@ public final class Main {
         @Option(name = "--config_store",
                 usage = "yaml,sqlite.. etc."
         )
-        private String configStoreType="yaml";
+        private String configStoreType = "yaml";
 
 
         @Option(name = "--config_path",
                 usage = "config file path. for sqlite is db file path, and for yaml is local yml file absolute path."
         )
-        private String configPath="";
+        private String configPath = "";
         ;
 
     }
@@ -145,7 +145,6 @@ public final class Main {
             BlobStore blobStore = createBlobStore(properties, executorService);
 
 
-
             blobStore = parseMiddlewareProperties(blobStore, executorService,
                     properties);
 
@@ -161,10 +160,10 @@ public final class Main {
                 locators.put(localIdentity, Maps.immutableEntry(
                         localCredential, blobStore));
                 // register blobStore to access manager
-                if (accessSecretManager!=null) {
+                if (accessSecretManager != null) {
                     accessSecretManager.registerBlobStore(blobStore);
                 }
-                if (accessCache != null){
+                if (accessCache != null) {
                     for (Map.Entry<String, AkSkPair> entry : accessCache.entrySet()) {
                         // add sqlite access key to locators
                         locators.put(entry.getValue().getAccess_key(), Maps.immutableEntry(
@@ -198,7 +197,7 @@ public final class Main {
 
         final Map<String, Map.Entry<String, BlobStore>> locator =
                 locators;
-        if (accessSecretManager!=null){
+        if (accessSecretManager != null) {
             accessSecretManager.setLocator(locator);
         }
         if (!locator.isEmpty()) {
@@ -218,7 +217,7 @@ public final class Main {
                     }
                     // verify key
                     Map.Entry<String, BlobStore> provider = locator.get(identity);
-                    if (finalAbStractAKSKManager != null){
+                    if (finalAbStractAKSKManager != null) {
                         String bucket = finalAbStractAKSKManager.getBucketFromAccessKey(identity);
                         if (!bucket.equalsIgnoreCase("")) {
                             // if bucket and access_key not match. [1:1 in db] return null

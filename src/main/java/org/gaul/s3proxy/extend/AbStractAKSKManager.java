@@ -17,16 +17,17 @@ public class AbStractAKSKManager implements AccessSecretManager {
     static public List<BlobStore> blobStores = new ArrayList<>();
 
     public CacheManager cacheManager;
-    Map<String, Map.Entry<String, BlobStore>>  locator;
+    Map<String, Map.Entry<String, BlobStore>> locator;
 
-    /** static variable save last config
-     *
+    /**
+     * static variable save last config
      */
     public static Map<String, AkSkPair> save;
 
     public AbStractAKSKManager() {
         cacheManager = createCacheManager();
     }
+
     public Map<String, Map.Entry<String, BlobStore>> getLocator() {
         return locator;
     }

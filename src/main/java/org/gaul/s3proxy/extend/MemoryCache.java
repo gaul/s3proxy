@@ -6,8 +6,8 @@ import java.util.Map;
 /**
  * @author yangyanbo
  */
-public class MemoryCache implements CacheManager{
-    public static Map<String, Object > cache = new HashMap<>();
+public class MemoryCache implements CacheManager {
+    public static Map<String, Object> cache = new HashMap<>();
 
     @Override
     public int setKey(String key, Object o) {
@@ -15,7 +15,7 @@ public class MemoryCache implements CacheManager{
         try {
             cache.put(key, o);
             return ret;
-        }catch (Exception e){
+        } catch (Exception e) {
             System.out.println(e.getMessage());
             return -1;
         }

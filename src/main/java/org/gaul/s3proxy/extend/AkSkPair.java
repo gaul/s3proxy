@@ -15,10 +15,11 @@ public class AkSkPair {
         this.secret_key = secret_key;
     }
 
-    public AkSkPair(String ak, String sk){
+    public AkSkPair(String ak, String sk) {
         this.access_key = ak;
         this.secret_key = sk;
     }
+
     public String getAccess_key() {
         return access_key;
     }

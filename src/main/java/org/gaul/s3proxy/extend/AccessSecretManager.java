@@ -11,19 +11,19 @@ import java.util.Map;
 public interface AccessSecretManager {
 
 
-     CacheManager createCacheManager() throws Exception;
+    CacheManager createCacheManager() throws Exception;
 
-     void createAKSKForBucket(String bucket, String access_key, String secret_key) throws Exception;
+    void createAKSKForBucket(String bucket, String access_key, String secret_key) throws Exception;
 
-     Map<String, AkSkPair>   loads2Cache() throws Exception ;
+    Map<String, AkSkPair> loads2Cache() throws Exception;
 
-     Map<String, AkSkPair> getBucketAkSkList() throws Exception ;
+    Map<String, AkSkPair> getBucketAkSkList() throws Exception;
 
-     String getBucketFromAccessKey(String ak);
+    String getBucketFromAccessKey(String ak);
 
-     void registerBlobStore(BlobStore blobStore);
+    void registerBlobStore(BlobStore blobStore);
 
-     List<BlobStore> listBlobStores();
+    List<BlobStore> listBlobStores();
 
 
 }
