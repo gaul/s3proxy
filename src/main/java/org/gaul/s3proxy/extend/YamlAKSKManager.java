@@ -29,6 +29,8 @@ public class YamlAKSKManager extends AbStractAKSKManager {
         super();
         if (configPath.equalsIgnoreCase("")) {
             this.confPath = defaultBucketAccessYamlPath;
+        }else{
+            this.confPath = configPath;
         }
 
         this.loads2Cache();
