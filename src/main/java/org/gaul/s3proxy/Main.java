@@ -23,10 +23,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -103,6 +108,11 @@ public final class Main {
                 1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
+        ImmutableMap.Builder<String, List<Map.Entry<PathMatcher,
+                BlobStore>>> globLocators = ImmutableMap.builder();
+        Map<String, ImmutableList.Builder<Map.Entry<PathMatcher, BlobStore>>>
+                globBuilders = new HashMap<>();
+        Set<String> parsedIdentities = new HashSet<>();
         for (File propertiesFile : options.propertiesFiles) {
             Properties properties = new Properties();
             try (InputStream is = new FileInputStream(propertiesFile)) {
@@ -117,14 +127,35 @@ public final class Main {
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
+            ImmutableList.Builder<String> locatorBuckets =
+                    new ImmutableList.Builder<>();
+
+            String localIdentity = "";
             if (AuthenticationType.fromString(s3ProxyAuthorizationString) !=
                     AuthenticationType.NONE) {
-                String localIdentity = properties.getProperty(
+                localIdentity = properties.getProperty(
                         S3ProxyConstants.PROPERTY_IDENTITY);
                 String localCredential = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
-                locators.put(localIdentity, Maps.immutableEntry(
-                        localCredential, blobStore));
+                if (parsedIdentities.add(localIdentity)) {
+                    locators.put(localIdentity,
+                            Maps.immutableEntry(localCredential, blobStore));
+                }
+            }
+            ImmutableList.Builder<Map.Entry<PathMatcher, BlobStore>>
+                    globBuilder = globBuilders.get(localIdentity);
+            if (globBuilder == null) {
+                globBuilder = new ImmutableList.Builder<>();
+                globBuilders.put(localIdentity, globBuilder);
+            }
+            for (String key : properties.stringPropertyNames()) {
+                if (key.startsWith(S3ProxyConstants.PROPERTY_BUCKET_LOCATOR)) {
+                    locatorBuckets.add(properties.getProperty(key));
+                    globBuilder.add(Maps.immutableEntry(
+                            FileSystems.getDefault().getPathMatcher(
+                            "glob:" + properties.getProperty(key)),
+                            blobStore));
+                }
             }
 
             S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
@@ -149,21 +180,51 @@ public final class Main {
             throw e;
         }
 
+        for (Map.Entry<String, ImmutableList.Builder<Map.Entry<PathMatcher,
+                BlobStore>>> entry : globBuilders.entrySet()) {
+            globLocators.put(entry.getKey(), entry.getValue().build());
+        }
+
         final Map<String, Map.Entry<String, BlobStore>> locator =
                 locators.build();
+        final Map<String, List<Map.Entry<PathMatcher, BlobStore>>>
+                globLocator = globLocators.build();
         if (!locator.isEmpty()) {
             s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
                 @Override
                 public Map.Entry<String, BlobStore> locateBlobStore(
                         String identity, String container, String blob) {
-                    if (identity == null) {
-                        if (locator.size() == 1) {
-                            return locator.entrySet().iterator().next()
-                                    .getValue();
+                    Map.Entry<String, BlobStore> locatorEntry =
+                            locator.get(identity);
+                    List<Map.Entry<PathMatcher, BlobStore>> globEntries =
+                            globLocator.get(identity);
+                    if (globEntries != null) {
+                        for (Map.Entry<PathMatcher, BlobStore> entry :
+                                globLocator.get(identity)) {
+                            if (entry.getKey().matches(FileSystems.getDefault()
+                                    .getPath(container))) {
+                                return Maps.immutableEntry(
+                                        locatorEntry.getKey(),
+                                        entry.getValue());
+                            }
                         }
-                        throw new IllegalArgumentException(
-                            "cannot use anonymous access with multiple" +
-                            " backends");
+                    }
+                    // Check if the anonymous access globs were configured
+                    globEntries = globLocator.get("");
+                    if (globEntries != null) {
+                        for (Map.Entry<PathMatcher,
+                                BlobStore> entry :
+                                globEntries) {
+                            if (entry.getKey().matches(FileSystems.getDefault()
+                                    .getPath(container))) {
+                                return Maps.immutableEntry(
+                                        locatorEntry.getKey(),
+                                        entry.getValue());
+                            }
+                        }
+                    }
+                    if (identity == null) {
+                        return locator.entrySet().iterator().next().getValue();
                     }
                     return locator.get(identity);
                 }
