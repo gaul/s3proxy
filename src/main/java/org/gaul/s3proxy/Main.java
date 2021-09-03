@@ -142,7 +142,8 @@ public final class Main {
                     locators.put(localIdentity, Maps.immutableEntry(
                         "", blobStore));
                     identityCommMap.put(localIdentity, commConfig);
-                }            }
+                }
+            }
 
             S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
                     .fromProperties(properties)
