@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -102,6 +103,8 @@ public final class Main {
                 1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
+        ImmutableMap.Builder<String, Map<String, String>> identityCommMap =
+            ImmutableMap.builder();
         for (File propertiesFile : options.propertiesFiles) {
             Properties properties = new Properties();
             try (InputStream is = new FileInputStream(propertiesFile)) {
@@ -118,13 +121,28 @@ public final class Main {
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
             if (AuthenticationType.fromString(s3ProxyAuthorizationString) !=
                     AuthenticationType.NONE) {
-                String localIdentity = properties.getProperty(
+                String identityType = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_IDENTITY_TYPE);
+                if (null == identityType || identityType.trim().length() == 0) {
+                    String localIdentity = properties.getProperty(
                         S3ProxyConstants.PROPERTY_IDENTITY);
-                String localCredential = properties.getProperty(
+                    String localCredential = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
-                locators.put(localIdentity, Maps.immutableEntry(
+                    locators.put(localIdentity, Maps.immutableEntry(
                         localCredential, blobStore));
-            }
+                } else if (identityType.equalsIgnoreCase(
+                    S3ProxyConstants.PROPERTY_IDENTITY_TYPE_EXTERNAL)) {
+                    HashMap<String, String> commConfig =
+                        new HashMap<String, String>();
+                    commConfig.put(S3ProxyConstants.PROPERTY_IDENTITY_CALLBACK,
+                        properties.getProperty(
+                            S3ProxyConstants.PROPERTY_IDENTITY_CALLBACK));
+                    String localIdentity = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_IDENTITY);
+                    locators.put(localIdentity, Maps.immutableEntry(
+                        "", blobStore));
+                    identityCommMap.put(localIdentity, commConfig);
+                }            }
 
             S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
                     .fromProperties(properties)
@@ -150,23 +168,34 @@ public final class Main {
 
         final Map<String, Map.Entry<String, BlobStore>> locator =
                 locators.build();
+        final Map<String, Map<String, String>> identityCommunicationMap =
+            identityCommMap.build();
         if (!locator.isEmpty()) {
-            s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
-                @Override
-                public Map.Entry<String, BlobStore> locateBlobStore(
+            if (!identityCommunicationMap.isEmpty()) {
+                CustomMultiIdentityBlobStoreLocator blobStoreLocator =
+                    new CustomMultiIdentityBlobStoreLocator();
+                blobStoreLocator.setIdentityCommunicationMapping(
+                    identityCommunicationMap);
+                blobStoreLocator.setLocator(locator);
+                s3Proxy.setBlobStoreLocator(blobStoreLocator);
+            } else {
+                s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
+                    @Override
+                    public Map.Entry<String, BlobStore> locateBlobStore(
                         String identity, String container, String blob) {
-                    if (identity == null) {
-                        if (locator.size() == 1) {
-                            return locator.entrySet().iterator().next()
+                        if (identity == null) {
+                            if (locator.size() == 1) {
+                                return locator.entrySet().iterator().next()
                                     .getValue();
+                            }
+                            throw new IllegalArgumentException(
+                                "cannot use anonymous access with multiple" +
+                                    " backends");
                         }
-                        throw new IllegalArgumentException(
-                            "cannot use anonymous access with multiple" +
-                            " backends");
+                        return locator.get(identity);
                     }
-                    return locator.get(identity);
-                }
-            });
+                });
+            }
         }
 
         try {

@@ -94,6 +94,13 @@ public final class S3ProxyConstants {
 
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
+    static final String PROPERTY_IDENTITY_TYPE = "s3proxy.identity.type";
+
+    static final String PROPERTY_IDENTITY_CALLBACK =
+        "s3proxy.identity.callback";
+
+    static final String PROPERTY_IDENTITY_TYPE_EXTERNAL = "external";
+
     private S3ProxyConstants() {
         throw new AssertionError("Cannot instantiate utility constructor");
     }
