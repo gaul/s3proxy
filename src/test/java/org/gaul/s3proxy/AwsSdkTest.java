@@ -317,6 +317,8 @@ public final class AwsSdkTest {
         }
     }
 
+    // This randomly fails with SocketException: Broken pipe
+    @Ignore
     @Test
     public void testAwsV4SignatureBadCredential() throws Exception {
         client = AmazonS3ClientBuilder.standard()
