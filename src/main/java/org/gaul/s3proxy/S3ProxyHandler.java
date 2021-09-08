@@ -369,7 +369,7 @@ public class S3ProxyHandler {
         boolean presignedUrl = false;
 
         if (!anonymousIdentity) {
-            if (headerAuthorization == null) {
+            if (Strings.isNullOrEmpty(headerAuthorization)) {
                 String algorithm = request.getParameter("X-Amz-Algorithm");
                 if (algorithm == null) { //v2 query
                     String identity = request.getParameter("AWSAccessKeyId");
