@@ -87,6 +87,7 @@ See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wi
 
 S3Proxy can modify its behavior based on middlewares:
 
+* [bucket alisting](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
