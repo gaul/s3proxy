@@ -26,7 +26,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -108,10 +107,9 @@ public final class Main {
                 1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
-        ImmutableMap.Builder<String, List<Map.Entry<PathMatcher,
-                BlobStore>>> globLocators = ImmutableMap.builder();
-        Map<String, ImmutableList.Builder<Map.Entry<PathMatcher, BlobStore>>>
-                globBuilders = new HashMap<>();
+        ImmutableMap.Builder<PathMatcher, Map.Entry<String, BlobStore>>
+                globLocators = ImmutableMap.builder();
+        Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
         for (File propertiesFile : options.propertiesFiles) {
             Properties properties = new Properties();
@@ -127,10 +125,8 @@ public final class Main {
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
-            ImmutableList.Builder<String> locatorBuckets =
-                    new ImmutableList.Builder<>();
 
-            String localIdentity = "";
+            String localIdentity = null;
             if (AuthenticationType.fromString(s3ProxyAuthorizationString) !=
                     AuthenticationType.NONE) {
                 localIdentity = properties.getProperty(
@@ -142,19 +138,19 @@ public final class Main {
                             Maps.immutableEntry(localCredential, blobStore));
                 }
             }
-            ImmutableList.Builder<Map.Entry<PathMatcher, BlobStore>>
-                    globBuilder = globBuilders.get(localIdentity);
-            if (globBuilder == null) {
-                globBuilder = new ImmutableList.Builder<>();
-                globBuilders.put(localIdentity, globBuilder);
-            }
             for (String key : properties.stringPropertyNames()) {
                 if (key.startsWith(S3ProxyConstants.PROPERTY_BUCKET_LOCATOR)) {
-                    locatorBuckets.add(properties.getProperty(key));
-                    globBuilder.add(Maps.immutableEntry(
-                            FileSystems.getDefault().getPathMatcher(
-                            "glob:" + properties.getProperty(key)),
-                            blobStore));
+                    String bucketLocator = properties.getProperty(key);
+                    if (locatorGlobs.add(bucketLocator)) {
+                        globLocators.put(
+                                FileSystems.getDefault().getPathMatcher(
+                                        "glob:" + bucketLocator),
+                                Maps.immutableEntry(localIdentity, blobStore));
+                    } else {
+                        System.err.println("Multiple definitions of the " +
+                                "bucket locator: " + bucketLocator);
+                        System.exit(1);
+                    }
                 }
             }
 
@@ -180,55 +176,13 @@ public final class Main {
             throw e;
         }
 
-        for (Map.Entry<String, ImmutableList.Builder<Map.Entry<PathMatcher,
-                BlobStore>>> entry : globBuilders.entrySet()) {
-            globLocators.put(entry.getKey(), entry.getValue().build());
-        }
-
         final Map<String, Map.Entry<String, BlobStore>> locator =
                 locators.build();
-        final Map<String, List<Map.Entry<PathMatcher, BlobStore>>>
+        final Map<PathMatcher, Map.Entry<String, BlobStore>>
                 globLocator = globLocators.build();
-        if (!locator.isEmpty()) {
-            s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
-                @Override
-                public Map.Entry<String, BlobStore> locateBlobStore(
-                        String identity, String container, String blob) {
-                    Map.Entry<String, BlobStore> locatorEntry =
-                            locator.get(identity);
-                    List<Map.Entry<PathMatcher, BlobStore>> globEntries =
-                            globLocator.get(identity);
-                    if (globEntries != null) {
-                        for (Map.Entry<PathMatcher, BlobStore> entry :
-                                globLocator.get(identity)) {
-                            if (entry.getKey().matches(FileSystems.getDefault()
-                                    .getPath(container))) {
-                                return Maps.immutableEntry(
-                                        locatorEntry.getKey(),
-                                        entry.getValue());
-                            }
-                        }
-                    }
-                    // Check if the anonymous access globs were configured
-                    globEntries = globLocator.get("");
-                    if (globEntries != null) {
-                        for (Map.Entry<PathMatcher,
-                                BlobStore> entry :
-                                globEntries) {
-                            if (entry.getKey().matches(FileSystems.getDefault()
-                                    .getPath(container))) {
-                                return Maps.immutableEntry(
-                                        locatorEntry.getKey(),
-                                        entry.getValue());
-                            }
-                        }
-                    }
-                    if (identity == null) {
-                        return locator.entrySet().iterator().next().getValue();
-                    }
-                    return locator.get(identity);
-                }
-            });
+        if (!locator.isEmpty() || !globLocator.isEmpty()) {
+            s3Proxy.setBlobStoreLocator(
+                    new GlobBlobStoreLocator(locator, globLocator));
         }
 
         try {
