@@ -83,11 +83,25 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 
+## Assigning buckets to backends
+
+S3Proxy can be configured to assign buckets to different backends with the same
+credentials. The configuration in the properties file is as follows:
+```
+s3proxy.bucket-locator.1=bucket
+s3proxy.bucket-locator.2=another-bucket
+```
+
+In addition to the explicit names, [glob syntax](https://docs.oracle.com/javase/tutorial/essential/io/fileOps.html#glob) can be used to configure many
+buckets for a given backend.
+
+A bucket (or a glob) cannot be assigned cannot be assigned to multiple backends.
+
 ## Middlewares
 
 S3Proxy can modify its behavior based on middlewares:
 
-* [bucket alisting](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
+* [bucket aliasing](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
