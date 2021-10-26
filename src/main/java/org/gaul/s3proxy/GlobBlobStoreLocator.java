@@ -41,17 +41,24 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
         Map.Entry<String, BlobStore> locatorEntry =
                 locator.get(identity);
         Map.Entry<String, BlobStore> globEntry = null;
-        for (Map.Entry<PathMatcher, Map.Entry<String, BlobStore>>
-                entry : globLocator.entrySet()) {
-            if (entry.getKey().matches(FileSystems.getDefault()
-                    .getPath(container))) {
-                globEntry = entry.getValue();
+        if (container != null) {
+            for (Map.Entry<PathMatcher, Map.Entry<String, BlobStore>>
+                    entry : globLocator.entrySet()) {
+                if (entry.getKey().matches(FileSystems.getDefault()
+                        .getPath(container))) {
+                    globEntry = entry.getValue();
+                }
             }
         }
         if (globEntry == null) {
             if (identity == null) {
-                return locator.entrySet().iterator().next()
-                        .getValue();
+                if (!locator.isEmpty()) {
+                    return locator.entrySet().iterator().next()
+                            .getValue();
+                }
+                return Maps.immutableEntry(null,
+                        globLocator.entrySet().iterator().next().getValue()
+                                .getValue());
             }
             return locatorEntry;
         }
