@@ -128,4 +128,26 @@ public final class GlobBlobStoreLocatorTest {
         assertThat(locator.locateBlobStore("id2", "cont5X.extra", null)
                 .getValue()).isSameAs(blobStoreTwo);
     }
+
+    @Test
+    public void testGlobLocatorAnonymous() {
+        ImmutableMap<PathMatcher, Map.Entry<String, BlobStore>> globMap =
+                ImmutableMap.of(
+                        FileSystems.getDefault().getPathMatcher(
+                                "glob:one"),
+                        Maps.immutableEntry(null, blobStoreOne),
+                        FileSystems.getDefault().getPathMatcher(
+                                "glob:two"),
+                        Maps.immutableEntry(null, blobStoreTwo)
+                );
+        GlobBlobStoreLocator locator = new GlobBlobStoreLocator(
+                ImmutableMap.of(), globMap);
+
+        assertThat(locator.locateBlobStore(null, null, null)
+                .getValue()).isSameAs(blobStoreOne);
+        assertThat(locator.locateBlobStore(null, "one", null)
+                .getValue()).isSameAs(blobStoreOne);
+        assertThat(locator.locateBlobStore(null, "two", null)
+                .getValue()).isSameAs(blobStoreTwo);
+    }
 }
