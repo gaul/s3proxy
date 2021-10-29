@@ -23,7 +23,7 @@ script:
  # Work around Travis environment failure: https://github.com/travis-ci/travis-ci/issues/7940
  - export BOTO_CONFIG=/dev/null
  - ./src/test/resources/run-s3-tests.sh
- - docker build -f Dockerfile -t $REPO:$COMMIT .
+ - docker buildx build --platform linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x -f Dockerfile -t $REPO:$COMMIT .
 
 after_success:
   - if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then $TRAVIS_BUILD_DIR/publish_img.sh; fi
