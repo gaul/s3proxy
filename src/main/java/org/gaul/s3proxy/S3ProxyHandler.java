@@ -200,6 +200,7 @@ public class S3ProxyHandler {
     private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
     private final int maximumTimeSkew;
+    private final XmlMapper mapper = new XmlMapper();
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -930,7 +931,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleSetContainerAcl(HttpServletRequest request,
+    private void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         ContainerAccess access;
@@ -951,7 +952,7 @@ public class S3ProxyHandler {
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
-            AccessControlPolicy policy = new XmlMapper().readValue(
+            AccessControlPolicy policy = mapper.readValue(
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
@@ -1028,7 +1029,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleSetBlobAcl(HttpServletRequest request,
+    private void handleSetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1050,7 +1051,7 @@ public class S3ProxyHandler {
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
-            AccessControlPolicy policy = new XmlMapper().readValue(
+            AccessControlPolicy policy = mapper.readValue(
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
@@ -1241,7 +1242,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleContainerCreate(HttpServletRequest request,
+    private void handleContainerCreate(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
@@ -1270,7 +1271,7 @@ public class S3ProxyHandler {
                 locationString = null;
             } else {
                 pis.unread(ch);
-                CreateBucketRequest cbr = new XmlMapper().readValue(
+                CreateBucketRequest cbr = mapper.readValue(
                         pis, CreateBucketRequest.class);
                 locationString = cbr.locationConstraint;
             }
@@ -1547,7 +1548,7 @@ public class S3ProxyHandler {
     private void handleMultiBlobRemove(HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
-        DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
+        DeleteMultipleObjectsRequest dmor = mapper.readValue(
                 is, DeleteMultipleObjectsRequest.class);
         if (dmor.objects == null) {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
@@ -2262,7 +2263,7 @@ public class S3ProxyHandler {
         } else {
             CompleteMultipartUploadRequest cmu;
             try {
-                cmu = new XmlMapper().readValue(
+                cmu = mapper.readValue(
                         is, CompleteMultipartUploadRequest.class);
             } catch (JsonParseException jpe) {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
