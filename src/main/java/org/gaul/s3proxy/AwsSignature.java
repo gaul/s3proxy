@@ -29,6 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
 import javax.crypto.Mac;
@@ -77,6 +78,7 @@ final class AwsSignature {
             "versions",
             "website"
     );
+    private static final Pattern REPEATING_WHITESPACE = Pattern.compile("\\s+");
 
     private AwsSignature() { }
 
@@ -237,7 +239,7 @@ final class AwsSignature {
                 }
                 value = value.trim();
                 if (!value.startsWith("\"")) {
-                    value = value.replaceAll("\\s+", " ");
+                    value = REPEATING_WHITESPACE.matcher(value).replaceAll(" ");
                 }
                 headersWithValues.append(value);
             }
