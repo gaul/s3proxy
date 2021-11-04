@@ -1,7 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-docker login -u $DOCKER_USER -p $DOCKER_PASS
-export TAG=`if [ "$TRAVIS_BRANCH" == "master" ]; then echo "latest"; else echo $TRAVIS_BRANCH ; fi`
-docker tag $REPO:$COMMIT $REPO:$TAG
-docker tag $REPO:$COMMIT $REPO:travis-$TRAVIS_BUILD_NUMBER
-docker push $REPO
+docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"
+docker buildx build --platform linux/amd64 -t $GITHUB_REPOSITORY:latest .
+
+if [[ "$GITHUB_EVENT_NAME" == "push" && $GITHUB_REF == refs/heads/master ]]; then
+  docker tag $REPO:latest $GITHUB_REPOSITORY:${GITHUB_SHA::8}
+  docker push --all-tags $GITHUB_REPOSITORY
+elif [[ "$GITHUB_EVENT_NAME" == "create" && $GITHUB_REF == refs/tags/* ]]; then
+  docker tag $REPO:latest $GITHUB_REPOSITORY:${GITHUB_REF#refs/tags/}
+  docker push --all-tags $GITHUB_REPOSITORY
+fi
