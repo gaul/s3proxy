@@ -99,6 +99,9 @@ public final class S3ProxyConstants {
     /** Prevent mutations. */
     public static final String PROPERTY_READ_ONLY_BLOBSTORE =
             "s3proxy.read-only-blobstore";
+    /** Require Content-MD5 header when creating objects. */
+    public static final String PROPERTY_REQUIRED_CONTENT_MD5_BLOBSTORE =
+            "s3proxy.required-content-md5-blobstore";
     /** Shard objects across a specified number of buckets. */
     public static final String PROPERTY_SHARDED_BLOBSTORE =
             "s3proxy.sharded-blobstore";

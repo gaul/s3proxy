@@ -240,6 +240,13 @@ public final class Main {
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
         }
 
+        String requiredContentMD5BlobStore = properties.getProperty(
+                S3ProxyConstants.PROPERTY_REQUIRED_CONTENT_MD5_BLOBSTORE);
+        if ("true".equalsIgnoreCase(requiredContentMD5BlobStore)) {
+            System.err.println("Using required Content-MD5 storage backend");
+            blobStore = RequiredMD5BlobStore.newRequiredMD5BlobStore(blobStore);
+        }
+
         ImmutableBiMap<String, String> aliases = AliasBlobStore.parseAliases(
                 properties);
         if (!aliases.isEmpty()) {

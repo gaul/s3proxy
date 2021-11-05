@@ -2178,8 +2178,11 @@ public class S3ProxyHandler {
 
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            blobStore.putBlob(containerName, builder.name(mpu.id()).build(),
-                    options);
+            byte[] stubPayload = new byte[0];
+            blobStore.putBlob(containerName, builder.name(mpu.id())
+                    .payload(stubPayload)
+                    .contentMD5(Hashing.md5().hashBytes(stubPayload))
+                    .build(), options);
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -2654,6 +2657,7 @@ public class S3ProxyHandler {
                         his.hash().asBytes());
             } else {
                 Payload payload = Payloads.newInputStreamPayload(is);
+                // TODO: Content-MD5
                 payload.getContentMetadata().setContentLength(contentLength);
 
                 MultipartPart part = blobStore.uploadMultipartPart(mpu,
