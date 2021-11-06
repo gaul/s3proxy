@@ -9,7 +9,7 @@
 
   <groupId>org.gaul</groupId>
   <artifactId>s3proxy</artifactId>
-  <version>1.8.1-SNAPSHOT</version>
+  <version>1.9.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>S3Proxy</name>
@@ -115,7 +115,7 @@
             <path>
               <groupId>com.google.errorprone</groupId>
               <artifactId>error_prone_core</artifactId>
-              <version>2.5.1</version>
+              <version>2.9.0</version>
             </path>
           </annotationProcessorPaths>
         </configuration>
@@ -251,7 +251,14 @@
       <plugin>
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-maven-plugin</artifactId>
-        <version>4.0.5</version>
+        <version>4.2.0</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs</artifactId>
+            <version>4.4.0</version>
+          </dependency>
+        </dependencies>
         <configuration>
           <effort>Max</effort>
           <omitVisitors>CrossSiteScripting,DefaultEncodingDetector,FindNullDeref</omitVisitors>
@@ -314,7 +321,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>1.8</java.version>
-    <jclouds.version>2.3.0</jclouds.version>
+    <jclouds.version>2.4.0</jclouds.version>
     <slf4j.version>1.7.28</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>2.22.2</surefire.version>
@@ -334,7 +341,7 @@
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-s3</artifactId>
-      <version>1.11.655</version>
+      <version>1.12.63</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
@@ -361,7 +368,7 @@
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>4.12</version>
+      <version>4.13.1</version>
       <!-- Required for S3ProxyRule -->
       <scope>provided</scope>
     </dependency>
@@ -375,7 +382,7 @@
     <dependency>
       <groupId>com.fasterxml.jackson.dataformat</groupId>
       <artifactId>jackson-dataformat-xml</artifactId>
-      <version>2.10.0</version>
+      <version>2.12.3</version>
     </dependency>
     <dependency>
       <groupId>com.github.spotbugs</groupId>
@@ -418,7 +425,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
-      <version>9.2.28.v20190418</version>
+      <version>9.4.41.v20210516</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>

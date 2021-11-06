@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2021 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,17 +33,14 @@ final class S3AuthorizationHeader {
     private static final String SIGNATURE_FIELD = "Signature=";
     private static final String CREDENTIAL_FIELD = "Credential=";
 
-    // TODO: these fields should have accessors
-    // CHECKSTYLE:OFF
-    final AuthenticationType authenticationType;
-    @Nullable final String hmacAlgorithm;
-    @Nullable final String hashAlgorithm;
-    @Nullable final String region;
-    @Nullable final String date;
-    @Nullable final String service;
-    final String identity;
-    final String signature;
-    // CHECKSTYLE:ON
+    private final AuthenticationType authenticationType;
+    @Nullable private final String hmacAlgorithm;
+    @Nullable private final String hashAlgorithm;
+    @Nullable private final String region;
+    @Nullable private final String date;
+    @Nullable private final String service;
+    private final String identity;
+    private final String signature;
 
     S3AuthorizationHeader(String header) {
         if (header.startsWith("AWS ")) {
@@ -121,5 +118,37 @@ final class S3AuthorizationHeader {
         } else {
             return header.substring(signatureIndex, signatureEnd);
         }
+    }
+
+    public AuthenticationType getAuthenticationType() {
+        return authenticationType;
+    }
+
+    public String getHmacAlgorithm() {
+        return hmacAlgorithm;
+    }
+
+    public String getHashAlgorithm() {
+        return hashAlgorithm;
+    }
+
+    public String getRegion() {
+        return region;
+    }
+
+    public String getDate() {
+        return date;
+    }
+
+    public String getService() {
+        return service;
+    }
+
+    public String getIdentity() {
+        return identity;
+    }
+
+    public String getSignature() {
+        return signature;
     }
 }

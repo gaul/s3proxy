@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2021 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,18 @@ public final class S3ProxyConstants {
             "s3proxy.max-single-part-object-size";
     public static final String PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE =
             "s3proxy.v4-max-non-chunked-request-size";
+    /** Used to locate blobstores by specified bucket names. Each property
+     * file should contain a list of buckets associated with it, e.g.
+     *     s3proxy.bucket-locator.1 = data
+     *     s3proxy.bucket-locator.2 = metadata
+     *     s3proxy.bucket-locator.3 = other
+     * When a request is made for the specified bucket, the backend defined
+     * in that properties file is used. This allows using the same
+     * credentials in multiple properties file and select the backend based
+     * on the bucket names.
+     */
+    public static final String PROPERTY_BUCKET_LOCATOR =
+            "s3proxy.bucket-locator";
     /** When true, model eventual consistency using two storage backends. */
     public static final String PROPERTY_EVENTUAL_CONSISTENCY =
             "s3proxy.eventual-consistency";
@@ -78,12 +90,18 @@ public final class S3ProxyConstants {
     /** Probability of eventual consistency, between 0.0 and 1.0. */
     public static final String PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY =
             "s3proxy.eventual-consistency.probability";
+    /** Alias a backend bucket to an alternate name. */
+    public static final String PROPERTY_ALIAS_BLOBSTORE =
+            "s3proxy.alias-blobstore";
     /** Discard object data. */
     public static final String PROPERTY_NULL_BLOBSTORE =
             "s3proxy.null-blobstore";
     /** Prevent mutations. */
     public static final String PROPERTY_READ_ONLY_BLOBSTORE =
             "s3proxy.read-only-blobstore";
+    /** Shard objects across a specified number of buckets. */
+    public static final String PROPERTY_SHARDED_BLOBSTORE =
+            "s3proxy.sharded-blobstore";
 
     /** Maximum time skew allowed in signed requests. */
     public static final String PROPERTY_MAXIMUM_TIME_SKEW =

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2021 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -234,5 +234,13 @@ final class TestUtils {
         }
 
         return info;
+    }
+
+    static String createRandomContainerName() {
+        return "container-" + new Random().nextInt(Integer.MAX_VALUE);
+    }
+
+    static String createRandomBlobName() {
+        return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 }

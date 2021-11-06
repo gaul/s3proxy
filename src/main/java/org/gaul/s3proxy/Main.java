@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2021 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,16 +23,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -102,6 +107,10 @@ public final class Main {
                 1, 20, 60 * 1000, factory);
         ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
                 ImmutableMap.builder();
+        ImmutableMap.Builder<PathMatcher, Map.Entry<String, BlobStore>>
+                globLocators = ImmutableMap.builder();
+        Set<String> locatorGlobs = new HashSet<>();
+        Set<String> parsedIdentities = new HashSet<>();
         for (File propertiesFile : options.propertiesFiles) {
             Properties properties = new Properties();
             try (InputStream is = new FileInputStream(propertiesFile)) {
@@ -116,14 +125,33 @@ public final class Main {
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
+
+            String localIdentity = null;
             if (AuthenticationType.fromString(s3ProxyAuthorizationString) !=
                     AuthenticationType.NONE) {
-                String localIdentity = properties.getProperty(
+                localIdentity = properties.getProperty(
                         S3ProxyConstants.PROPERTY_IDENTITY);
                 String localCredential = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
-                locators.put(localIdentity, Maps.immutableEntry(
-                        localCredential, blobStore));
+                if (parsedIdentities.add(localIdentity)) {
+                    locators.put(localIdentity,
+                            Maps.immutableEntry(localCredential, blobStore));
+                }
+            }
+            for (String key : properties.stringPropertyNames()) {
+                if (key.startsWith(S3ProxyConstants.PROPERTY_BUCKET_LOCATOR)) {
+                    String bucketLocator = properties.getProperty(key);
+                    if (locatorGlobs.add(bucketLocator)) {
+                        globLocators.put(
+                                FileSystems.getDefault().getPathMatcher(
+                                        "glob:" + bucketLocator),
+                                Maps.immutableEntry(localIdentity, blobStore));
+                    } else {
+                        System.err.println("Multiple definitions of the " +
+                                "bucket locator: " + bucketLocator);
+                        System.exit(1);
+                    }
+                }
             }
 
             S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
@@ -150,23 +178,11 @@ public final class Main {
 
         final Map<String, Map.Entry<String, BlobStore>> locator =
                 locators.build();
-        if (!locator.isEmpty()) {
-            s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
-                @Override
-                public Map.Entry<String, BlobStore> locateBlobStore(
-                        String identity, String container, String blob) {
-                    if (identity == null) {
-                        if (locator.size() == 1) {
-                            return locator.entrySet().iterator().next()
-                                    .getValue();
-                        }
-                        throw new IllegalArgumentException(
-                            "cannot use anonymous access with multiple" +
-                            " backends");
-                    }
-                    return locator.get(identity);
-                }
-            });
+        final Map<PathMatcher, Map.Entry<String, BlobStore>>
+                globLocator = globLocators.build();
+        if (!locator.isEmpty() || !globLocator.isEmpty()) {
+            s3Proxy.setBlobStoreLocator(
+                    new GlobBlobStoreLocator(locator, globLocator));
         }
 
         try {
@@ -222,6 +238,23 @@ public final class Main {
         if ("true".equalsIgnoreCase(readOnlyBlobStore)) {
             System.err.println("Using read-only storage backend");
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
+        }
+
+        ImmutableBiMap<String, String> aliases = AliasBlobStore.parseAliases(
+                properties);
+        if (!aliases.isEmpty()) {
+            System.err.println("Using alias backend");
+            blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
+        }
+
+        ImmutableMap<String, Integer> shards =
+                ShardedBlobStore.parseBucketShards(properties);
+        ImmutableMap<String, String> prefixes =
+                ShardedBlobStore.parsePrefixes(properties);
+        if (!shards.isEmpty()) {
+            System.err.println("Using sharded buckets backend");
+            blobStore = ShardedBlobStore.newShardedBlobStore(blobStore,
+                    shards, prefixes);
         }
 
         return blobStore;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2021 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -200,6 +200,7 @@ public class S3ProxyHandler {
     private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
     private final int maximumTimeSkew;
+    private final XmlMapper mapper = new XmlMapper();
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -369,7 +370,7 @@ public class S3ProxyHandler {
         boolean presignedUrl = false;
 
         if (!anonymousIdentity) {
-            if (headerAuthorization == null) {
+            if (Strings.isNullOrEmpty(headerAuthorization)) {
                 String algorithm = request.getParameter("X-Amz-Algorithm");
                 if (algorithm == null) { //v2 query
                     String identity = request.getParameter("AWSAccessKeyId");
@@ -407,7 +408,7 @@ public class S3ProxyHandler {
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
             }
-            requestIdentity = authHeader.identity;
+            requestIdentity = authHeader.getIdentity();
         }
 
         long dateSkew = 0; //date for timeskew check
@@ -420,12 +421,14 @@ public class S3ProxyHandler {
             boolean haveDate = true;
 
             AuthenticationType finalAuthType = null;
-            if (authHeader.authenticationType == AuthenticationType.AWS_V2 &&
+            if (authHeader.getAuthenticationType() ==
+                    AuthenticationType.AWS_V2 &&
                     (authenticationType == AuthenticationType.AWS_V2 ||
                     authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V2;
             } else if (
-                authHeader.authenticationType == AuthenticationType.AWS_V4 &&
+                authHeader.getAuthenticationType() ==
+                        AuthenticationType.AWS_V4 &&
                         (authenticationType == AuthenticationType.AWS_V4 ||
                     authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V4;
@@ -448,11 +451,15 @@ public class S3ProxyHandler {
             } else if (hasDateHeader) {
                 try {
                     dateSkew = request.getDateHeader(HttpHeaders.DATE);
+                    dateSkew /= 1000;
                 } catch (IllegalArgumentException iae) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+                    try {
+                        dateSkew = parseIso8601(request.getHeader(
+                                HttpHeaders.DATE));
+                    } catch (IllegalArgumentException iae2) {
+                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+                    }
                 }
-                dateSkew /= 1000;
-
             } else {
                 haveDate = false;
             }
@@ -460,7 +467,6 @@ public class S3ProxyHandler {
                 isTimeSkewed(dateSkew);
             }
         }
-
 
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
@@ -517,7 +523,7 @@ public class S3ProxyHandler {
                 }
             }
             // The aim ?
-            switch (authHeader.authenticationType) {
+            switch (authHeader.getAuthenticationType()) {
             case AWS_V2:
                 switch (authenticationType) {
                 case AWS_V2:
@@ -542,12 +548,12 @@ public class S3ProxyHandler {
                 break;
             default:
                 throw new IllegalArgumentException("Unhandled type: " +
-                        authHeader.authenticationType);
+                        authHeader.getAuthenticationType());
             }
 
             String expectedSignature = null;
 
-            if (authHeader.hmacAlgorithm == null) { //v2
+            if (authHeader.getHmacAlgorithm() == null) { //v2
                 // When presigned url is generated, it doesn't consider
                 // service path
                 String uriForSigning = presignedUrl ? uri : this.servicePath +
@@ -581,7 +587,7 @@ public class S3ProxyHandler {
                         // maybe we should check this when signing,
                         // a lot of dup code with aws sign code.
                         MessageDigest md = MessageDigest.getInstance(
-                            authHeader.hashAlgorithm);
+                            authHeader.getHashAlgorithm());
                         byte[] hash = md.digest(payload);
                         if  (!contentSha256.equals(
                               BaseEncoding.base16().lowerCase()
@@ -604,7 +610,8 @@ public class S3ProxyHandler {
                 }
             }
 
-            if (!constantTimeEquals(expectedSignature, authHeader.signature)) {
+            if (!constantTimeEquals(expectedSignature,
+                    authHeader.getSignature())) {
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
         }
@@ -924,7 +931,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleSetContainerAcl(HttpServletRequest request,
+    private void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         ContainerAccess access;
@@ -945,7 +952,7 @@ public class S3ProxyHandler {
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
-            AccessControlPolicy policy = new XmlMapper().readValue(
+            AccessControlPolicy policy = mapper.readValue(
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
@@ -1022,7 +1029,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleSetBlobAcl(HttpServletRequest request,
+    private void handleSetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
@@ -1044,7 +1051,7 @@ public class S3ProxyHandler {
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
-            AccessControlPolicy policy = new XmlMapper().readValue(
+            AccessControlPolicy policy = mapper.readValue(
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
@@ -1235,7 +1242,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleContainerCreate(HttpServletRequest request,
+    private void handleContainerCreate(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
@@ -1264,7 +1271,7 @@ public class S3ProxyHandler {
                 locationString = null;
             } else {
                 pis.unread(ch);
-                CreateBucketRequest cbr = new XmlMapper().readValue(
+                CreateBucketRequest cbr = mapper.readValue(
                         pis, CreateBucketRequest.class);
                 locationString = cbr.locationConstraint;
             }
@@ -1541,7 +1548,7 @@ public class S3ProxyHandler {
     private void handleMultiBlobRemove(HttpServletResponse response,
             InputStream is, BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
-        DeleteMultipleObjectsRequest dmor = new XmlMapper().readValue(
+        DeleteMultipleObjectsRequest dmor = mapper.readValue(
                 is, DeleteMultipleObjectsRequest.class);
         if (dmor.objects == null) {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
@@ -2053,7 +2060,7 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
         }
 
-        switch (authHeader.authenticationType) {
+        switch (authHeader.getAuthenticationType()) {
         case AWS_V2:
             switch (authenticationType) {
             case AWS_V2:
@@ -2078,11 +2085,11 @@ public class S3ProxyHandler {
             break;
         default:
             throw new IllegalArgumentException("Unhandled type: " +
-                    authHeader.authenticationType);
+                    authHeader.getAuthenticationType());
         }
 
         Map.Entry<String, BlobStore> provider =
-                blobStoreLocator.locateBlobStore(authHeader.identity, null,
+                blobStoreLocator.locateBlobStore(authHeader.getIdentity(), null,
                         null);
         if (provider == null) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -2094,11 +2101,14 @@ public class S3ProxyHandler {
             byte[] kSecret = ("AWS4" + credential).getBytes(
                     StandardCharsets.UTF_8);
             byte[] kDate = hmac("HmacSHA256",
-                    authHeader.date.getBytes(StandardCharsets.UTF_8), kSecret);
+                    authHeader.getDate().getBytes(StandardCharsets.UTF_8),
+                    kSecret);
             byte[] kRegion = hmac("HmacSHA256",
-                    authHeader.region.getBytes(StandardCharsets.UTF_8), kDate);
-            byte[] kService = hmac("HmacSHA256", authHeader.service.getBytes(
-                    StandardCharsets.UTF_8), kRegion);
+                    authHeader.getRegion().getBytes(StandardCharsets.UTF_8),
+                    kDate);
+            byte[] kService = hmac("HmacSHA256",
+                    authHeader.getService().getBytes(StandardCharsets.UTF_8),
+                    kRegion);
             byte[] kSigning = hmac("HmacSHA256",
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
             String expectedSignature = BaseEncoding.base16().lowerCase().encode(
@@ -2253,7 +2263,7 @@ public class S3ProxyHandler {
         } else {
             CompleteMultipartUploadRequest cmu;
             try {
-                cmu = new XmlMapper().readValue(
+                cmu = mapper.readValue(
                         is, CompleteMultipartUploadRequest.class);
             } catch (JsonParseException jpe) {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
@@ -2352,7 +2362,7 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", blobName);
 
-            if (eTag != null) {
+            if (eTag.get() != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag.get()));
             }
 
@@ -2838,8 +2848,11 @@ public class S3ProxyHandler {
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_DISPOSITION, "response-content-disposition",
                 contentMetadata.getContentDisposition());
-        response.addHeader(HttpHeaders.CONTENT_LENGTH,
-                contentMetadata.getContentLength().toString());
+        Long contentLength = contentMetadata.getContentLength();
+        if (contentLength != null) {
+            response.addHeader(HttpHeaders.CONTENT_LENGTH,
+                    contentLength.toString());
+        }
         String overrideContentType = request.getParameter(
                 "response-content-type");
         response.setContentType(overrideContentType != null ?
