@@ -47,7 +47,7 @@ public class S3ProxyExtensionTest {
     private static AmazonS3 s3Client;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public final void setUp() throws Exception {
         s3Client = AmazonS3ClientBuilder
         .standard()
         .withCredentials(

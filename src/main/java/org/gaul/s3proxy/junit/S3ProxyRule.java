@@ -22,9 +22,6 @@ import com.google.common.annotations.Beta;
 
 import org.gaul.s3proxy.AuthenticationType;
 import org.junit.rules.ExternalResource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 
 /**
  * A JUnit Rule that manages an S3Proxy instance which tests can use as an S3
