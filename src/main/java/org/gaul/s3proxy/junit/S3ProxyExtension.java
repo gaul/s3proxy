@@ -86,12 +86,12 @@ public final class S3ProxyExtension
 
     @Override
     public void beforeEach(ExtensionContext extensionContext) throws Exception {
-        core.beforeAll();
+        core.beforeEach();
     }
 
     @Override
     public void afterEach(ExtensionContext extensionContext) {
-        core.afterAll();
+        core.afterEach();
     }
 
     public URI getUri() {

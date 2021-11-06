@@ -32,8 +32,6 @@ import org.slf4j.LoggerFactory;
  */
 @Beta
 public final class S3ProxyRule extends ExternalResource {
-    private static final Logger logger = LoggerFactory.getLogger(
-        S3ProxyRule.class);
 
     private final S3ProxyJunitCore core;
 
@@ -91,12 +89,12 @@ public final class S3ProxyRule extends ExternalResource {
 
     @Override
     protected void before() throws Throwable {
-        core.beforeAll();
+        core.beforeEach();
     }
 
     @Override
     protected void after() {
-        core.afterAll();
+        core.afterEach();
     }
 
     public URI getUri() {

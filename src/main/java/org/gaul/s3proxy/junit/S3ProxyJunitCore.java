@@ -36,7 +36,7 @@ import org.slf4j.LoggerFactory;
 public class S3ProxyJunitCore {
 
     private static final Logger logger = LoggerFactory.getLogger(
-            S3ProxyExtension.class);
+            S3ProxyJunitCore.class);
 
     private static final String LOCALHOST = "127.0.0.1";
 
@@ -58,8 +58,6 @@ public class S3ProxyJunitCore {
         private int port = -1;
         private boolean ignoreUnknownHeaders;
         private String blobStoreProvider = "filesystem";
-
-        Builder() { }
 
         public Builder withCredentials(AuthenticationType authType,
                                         String accessKey, String secretKey) {
@@ -130,7 +128,7 @@ public class S3ProxyJunitCore {
                     builder.secretStorePassword);
         }
 
-        int port = builder.port < 0 ? 0 : builder.port;
+        int port = Math.max(builder.port, 0);
         endpointFormat = "http://%s:%d";
         String endpoint = String.format(endpointFormat, LOCALHOST, port);
         s3ProxyBuilder.endpoint(URI.create(endpoint));
@@ -138,7 +136,7 @@ public class S3ProxyJunitCore {
         s3Proxy = s3ProxyBuilder.build();
     }
 
-    public final void beforeAll() throws Exception {
+    public final void beforeEach() throws Exception {
         logger.debug("S3 proxy is starting");
         s3Proxy.start();
         while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
@@ -149,7 +147,7 @@ public class S3ProxyJunitCore {
         logger.debug("S3 proxy is running");
     }
 
-    public final void afterAll() {
+    public final void afterEach() {
         logger.debug("S3 proxy is stopping");
         try {
             s3Proxy.stop();
