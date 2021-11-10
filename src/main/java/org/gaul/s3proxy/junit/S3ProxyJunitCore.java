@@ -104,7 +104,7 @@ public class S3ProxyJunitCore {
 
         Properties properties = new Properties();
         try {
-            blobStoreLocation = Files.createTempDirectory("S3ProxyRule")
+            blobStoreLocation = Files.createTempDirectory("S3Proxy")
                     .toFile();
             properties.setProperty("jclouds.filesystem.basedir",
                     blobStoreLocation.getCanonicalPath());
