@@ -375,7 +375,7 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>5.7.0</version>
+      <version>5.8.1</version>
       <!-- Required for S3ProxyExtension -->
       <scope>provided</scope>
     </dependency>
