@@ -44,7 +44,7 @@ public class S3ProxyExtensionTest {
 
     private static final String MY_TEST_BUCKET = "my-test-bucket";
 
-    private static AmazonS3 s3Client;
+    private AmazonS3 s3Client;
 
     @BeforeEach
     public final void setUp() throws Exception {
