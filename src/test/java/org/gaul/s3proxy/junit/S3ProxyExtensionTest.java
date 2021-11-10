@@ -33,7 +33,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-
+/**
+ * This is an example of how one would use the S3Proxy JUnit extension in a unit
+ * test as opposed to a proper test of the S3ProxyExtension class.
+ */
 public class S3ProxyExtensionTest {
 
     @RegisterExtension
