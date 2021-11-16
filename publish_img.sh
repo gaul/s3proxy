@@ -6,7 +6,7 @@ set -o pipefail
 
 REPO=andrewgaul/s3proxy
 
-docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"
+docker login -u "$DOCKER_USER" -p "$DOCKER_PASS" docker.io
 docker buildx build --platform linux/amd64 -t $REPO:latest .
 
 if [[ "$GITHUB_EVENT_NAME" == "push" && $GITHUB_REF == refs/heads/master ]]; then
