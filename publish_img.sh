@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+set -o errexit
+set -o nounset
+set -o pipefail
+
 docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"
 docker buildx build --platform linux/amd64 -t $GITHUB_REPOSITORY:latest .
 
