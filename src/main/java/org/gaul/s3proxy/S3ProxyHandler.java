@@ -68,8 +68,8 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
@@ -1472,7 +1472,7 @@ public class S3ProxyHandler {
                         isListV2 ? "NextContinuationToken" : "NextMarker",
                         encodeBlob(encodingType, nextMarker));
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
-                    StorageMetadata sm = Iterables.getLast(set, null);
+                    StorageMetadata sm = Streams.findLast(set.stream()).orElse(null);
                     if (sm != null) {
                         lastKeyToMarker.put(Maps.immutableEntry(containerName,
                                 sm.getName()), nextMarker);
