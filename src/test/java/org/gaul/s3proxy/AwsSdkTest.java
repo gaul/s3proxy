@@ -1004,6 +1004,27 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testSinglepartUploadJettyCachedHeader() throws Exception {
+        String blobName = "singlepart-upload-jetty-cached";
+        String contentType = "text/plain;charset=utf-8";
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        metadata.setContentType(contentType);
+
+        client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
+            metadata);
+
+        S3Object object = client.getObject(containerName, blobName);
+        try (InputStream actual = object.getObjectContent();
+             InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ObjectMetadata newContentMetadata = object.getObjectMetadata();
+        assertThat(newContentMetadata.getContentType()).isEqualTo(
+            contentType);
+    }
+
+    @Test
     public void testSinglepartUpload() throws Exception {
         String blobName = "singlepart-upload";
         String cacheControl = "max-age=3600";
