@@ -9,10 +9,10 @@
     <metadata name="net.sf.eclipsecs.core.lastEnabledSeverity" value="inherit"/>
   </module>
   <module name="NewlineAtEndOfFile"/>
-  <module name="SuppressionCommentFilter"/>
   <module name="Translation"/>
+  <module name="LineLength"/>
   <module name="TreeWalker">
-    <property name="cacheFile" value="target/cachefile"/>
+    <module name="SuppressionCommentFilter"/>
     <module name="AbbreviationAsWordInName"/>
     <module name="AbstractClassName"/>
     <module name="AnnotationLocation"/>
@@ -38,7 +38,6 @@
     <module name="EqualsHashCode"/>
     <module name="ExplicitInitialization"/>
     <module name="FallThrough"/>
-    <module name="FileContentsHolder"/>
     <module name="FinalClass"/>
     <module name="GenericWhitespace"/>
 <!--
@@ -67,7 +66,6 @@
     <module name="InterfaceIsType"/>
     <module name="JavadocStyle"/>
     <module name="LeftCurly"/>
-    <module name="LineLength"/>
     <module name="LocalFinalVariableName"/>
     <module name="LocalVariableName"/>
     <module name="MagicNumber">
