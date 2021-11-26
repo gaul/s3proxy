@@ -19,10 +19,12 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assume.assumeTrue;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
@@ -1001,6 +1003,28 @@ public final class AwsSdkTest {
         }
 
         client.deleteObject(containerName, blobName);
+    }
+
+    @Test
+    public void testSinglepartUploadJettyCachedHeader() throws Exception {
+        String blobName = "singlepart-upload";
+        String contentType = "text/plain;charset=utf-8";
+        byte[] data = "data".getBytes(StandardCharsets.UTF_8);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(data.length);
+        metadata.setContentType(contentType);
+
+        client.putObject(containerName, blobName, new ByteArrayInputStream(data),
+            metadata);
+
+        S3Object object = client.getObject(containerName, blobName);
+        try (InputStream actual = object.getObjectContent();
+             InputStream expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasContentEqualTo(expected);
+        }
+        ObjectMetadata newContentMetadata = object.getObjectMetadata();
+        assertThat(newContentMetadata.getContentType()).isEqualTo(
+            contentType);
     }
 
     @Test
