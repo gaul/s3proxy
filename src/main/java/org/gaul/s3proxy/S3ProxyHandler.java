@@ -1176,12 +1176,14 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String container) throws IOException, S3Exception {
         if (request.getParameter("delimiter") != null ||
-                request.getParameter("prefix") != null ||
                 request.getParameter("max-uploads") != null ||
                 request.getParameter("key-marker") != null ||
                 request.getParameter("upload-id-marker") != null) {
             throw new UnsupportedOperationException();
         }
+
+        String encodingType = request.getParameter("encoding-type");
+        String prefix = request.getParameter("prefix");
 
         List<MultipartUpload> uploads = blobStore.listMultipartUploads(
                 container);
@@ -1203,11 +1205,23 @@ public class S3ProxyHandler {
             xml.writeEmptyElement("NextKeyMarker");
             xml.writeEmptyElement("NextUploadIdMarker");
             xml.writeEmptyElement("Delimiter");
-            xml.writeEmptyElement("Prefix");
+
+            if (prefix == null || prefix.isEmpty()) {
+                xml.writeEmptyElement("Prefix");
+            } else {
+                writeSimpleElement(xml, "Prefix", encodeBlob(
+                        encodingType, prefix));
+            }
+
             writeSimpleElement(xml, "MaxUploads", "1000");
             writeSimpleElement(xml, "IsTruncated", "false");
 
             for (MultipartUpload upload : uploads) {
+                if (prefix != null &&
+                    !upload.blobName().startsWith(prefix)) {
+                    continue;
+                }
+
                 xml.writeStartElement("Upload");
 
                 writeSimpleElement(xml, "Key", upload.blobName());
@@ -2578,6 +2592,15 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
+        // GCS only supports 32 parts so partition MPU into 32-part chunks.
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (blobStoreType.equals("google-cloud-storage")) {
+            // fix up 1-based part numbers
+            uploadId = String.format(
+                    "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
+            partNumber = ((partNumber - 1) % 32) + 1;
+        }
+
         // TODO: how to reconstruct original mpu?
         MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
@@ -2629,7 +2652,6 @@ public class S3ProxyHandler {
         long contentLength =
                 blobMetadata.getContentMetadata().getContentLength();
 
-        String blobStoreType = getBlobStoreType(blobStore);
         try (InputStream is = blob.getPayload().openStream()) {
             if (blobStoreType.equals("azureblob")) {
                 // Azure has a smaller maximum part size than S3.  Split a

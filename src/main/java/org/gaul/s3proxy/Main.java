@@ -257,6 +257,14 @@ public final class Main {
                     shards, prefixes);
         }
 
+        String encryptedBlobStore = properties.getProperty(
+            S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE);
+        if ("true".equalsIgnoreCase(encryptedBlobStore)) {
+            System.err.println("Using encrypted storage backend");
+            blobStore = EncryptedBlobStore.newEncryptedBlobStore(blobStore,
+                properties);
+        }
+
         return blobStore;
     }
 

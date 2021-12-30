@@ -188,6 +188,14 @@ final class TestUtils {
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         info.blobStore = context.getBlobStore();
 
+        String encrypted = info.getProperties().getProperty(
+                S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE);
+        if (encrypted != null && encrypted.equals("true")) {
+            info.blobStore =
+                EncryptedBlobStore.newEncryptedBlobStore(info.blobStore,
+                    info.getProperties());
+        }
+
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.Builder.fromProperties(
                 info.getProperties());
         s3ProxyBuilder.blobStore(info.blobStore);

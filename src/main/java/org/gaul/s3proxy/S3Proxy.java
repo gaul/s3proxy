@@ -102,7 +102,8 @@ public final class S3Proxy {
         }
 
         if (builder.secureEndpoint != null) {
-            SslContextFactory sslContextFactory = new SslContextFactory();
+            SslContextFactory sslContextFactory =
+                new SslContextFactory.Server();
             sslContextFactory.setKeyStorePath(builder.keyStorePath);
             sslContextFactory.setKeyStorePassword(builder.keyStorePassword);
             connector = new ServerConnector(server, sslContextFactory,
