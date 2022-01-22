@@ -31,6 +31,8 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
+import org.eclipse.jetty.http.HttpCompliance;
+import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
@@ -50,12 +52,6 @@ public final class S3Proxy {
     private final S3ProxyHandlerJetty handler;
     private final boolean listenHTTP;
     private final boolean listenHTTPS;
-
-    static {
-        // Prevent Jetty from rewriting headers:
-        // https://bugs.eclipse.org/bugs/show_bug.cgi?id=414449
-        System.setProperty("org.eclipse.jetty.http.HttpParser.STRICT", "true");
-    }
 
     S3Proxy(Builder builder) {
         checkArgument(builder.endpoint != null ||
@@ -89,7 +85,8 @@ public final class S3Proxy {
         }
 
         HttpConnectionFactory httpConnectionFactory =
-                new HttpConnectionFactory();
+                new HttpConnectionFactory(
+                        new HttpConfiguration(), HttpCompliance.LEGACY);
         ServerConnector connector;
         if (builder.endpoint != null) {
             connector = new ServerConnector(server, httpConnectionFactory);
