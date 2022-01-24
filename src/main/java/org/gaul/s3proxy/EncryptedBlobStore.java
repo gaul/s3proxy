@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
@@ -65,22 +66,30 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         LoggerFactory.getLogger(EncryptedBlobStore.class);
     private SecretKeySpec secretKey;
 
-    private EncryptedBlobStore(BlobStore blobStore, Properties properties) {
+    private EncryptedBlobStore(BlobStore blobStore, Properties properties)
+        throws IOException {
         super(blobStore);
 
         String password = properties.getProperty(
             S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_PASSWORD);
+        if (password == null || password.isEmpty()) {
+            throw new IOException(
+                "Password for encrypted blobstore is not set");
+        }
         String salt = properties.getProperty(
             S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_SALT);
+        if (salt == null || salt.isEmpty()) {
+            throw new IOException("Salt for encrypted blobstore is not set");
+        }
         initStore(password, salt);
     }
 
     static BlobStore newEncryptedBlobStore(BlobStore blobStore,
-        Properties properties) {
+        Properties properties) throws IOException {
         return new EncryptedBlobStore(blobStore, properties);
     }
 
-    private void initStore(String password, String salt) {
+    private void initStore(String password, String salt) throws IOException {
         try {
             SecretKeyFactory factory =
                 SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
@@ -90,7 +99,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             SecretKey tmp = factory.generateSecret(spec);
             secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new IOException(e);
         }
     }
 
