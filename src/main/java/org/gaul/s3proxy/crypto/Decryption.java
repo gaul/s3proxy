@@ -42,6 +42,7 @@ public class Decryption {
     private long outputLength;
     private boolean skipFirstBlock;
     private long unencryptedSize;
+    private long encryptedSize;
     private long startAt;
     private int skipParts;
     private long skipPartBytes;
@@ -86,7 +87,7 @@ public class Decryption {
             meta.getSize() >
                 (lastPartPadding.getSize() + Constants.PADDING_BLOCK_SIZE)) {
             unencryptedSize = lastPartPadding.getSize();
-            long encryptedSize =
+            encryptedSize =
                 lastPartPadding.getSize() + Constants.PADDING_BLOCK_SIZE;
 
             // note that parts are in reversed order
@@ -129,6 +130,9 @@ public class Decryption {
 
             // update the unencrypted size
             unencryptedSize = meta.getSize() - Constants.PADDING_BLOCK_SIZE;
+
+            // update the encrypted size
+            encryptedSize = meta.getSize();
         }
 
         // calculate the offset
@@ -152,6 +156,10 @@ public class Decryption {
         calculateOffset(offset);
 
         return startAt;
+    }
+
+    public final long getEncryptedSize() {
+        return encryptedSize;
     }
 
     public final long calculateEndAt(long endAt) {
