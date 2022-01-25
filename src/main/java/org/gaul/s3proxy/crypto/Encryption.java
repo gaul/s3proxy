@@ -16,10 +16,8 @@
 
 package org.gaul.s3proxy.crypto;
 
+import java.io.IOException;
 import java.io.InputStream;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
-import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -28,23 +26,15 @@ import javax.crypto.CipherInputStream;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.apache.commons.io.IOUtils;
-
 @ThreadSafe
-public class Encryption extends Thread {
+public class Encryption {
     private final InputStream cis;
     private final IvParameterSpec iv;
-    private final PipedInputStream pipeIn;
-    private final PipedOutputStream pipeOut;
     private final int part;
 
     public Encryption(SecretKeySpec key, InputStream isRaw, int partNumber)
         throws Exception {
-        this.setName(Encryption.class.getSimpleName() + "-" + this.getId());
-        this.setPriority(Thread.MIN_PRIORITY);
         iv = generateIV();
-        pipeIn = new PipedInputStream();
-        pipeOut = new PipedOutputStream(pipeIn);
 
         Cipher cipher = Cipher.getInstance(Constants.AES_CIPHER);
         cipher.init(Cipher.ENCRYPT_MODE, key, iv);
@@ -52,21 +42,8 @@ public class Encryption extends Thread {
         part = partNumber;
     }
 
-    @Override
-    public final void run() {
-        try {
-            long size = IOUtils.copyLarge(cis, pipeOut);
-            pipeOut.write(padding(iv, part, size));
-            pipeOut.flush();
-            pipeOut.close();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public final InputStream openStream() {
-        this.start();
-        return pipeIn;
+    public final InputStream openStream() throws IOException {
+        return new EncryptionInputStream(cis, part, iv);
     }
 
     private IvParameterSpec generateIV() {
@@ -75,23 +52,5 @@ public class Encryption extends Thread {
         randomSecureRandom.nextBytes(iv);
 
         return new IvParameterSpec(iv);
-    }
-
-    // Padding (64 byte)
-    // Delimiter (8 byte)
-    // IV (16 byte)
-    // Part (4 byte)
-    // Size (8 byte)
-    // Version (2 byte)
-    // Reserved (26 byte)
-    private byte[] padding(IvParameterSpec iv, int part, long size) {
-        ByteBuffer bb = ByteBuffer.allocate(Constants.PADDING_BLOCK_SIZE);
-        bb.put(Constants.DELIMITER);
-        bb.put(iv.getIV());
-        bb.putInt(part);
-        bb.putLong(size);
-        bb.putShort(Constants.VERSION);
-
-        return bb.array();
     }
 }
