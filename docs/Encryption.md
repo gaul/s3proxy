@@ -51,11 +51,11 @@ The decryption is way more complex than the encryption. Decryption process needs
 - decryption of all previous situation by considering a underlying multipart ```Blob```
 
 ### Single blob decryption 
-First the ```BlobMetadata``` is requested to get the encrypted ```Blob``` size. The last 64 bytes of ```PartPedding``` are fetched and inspected to detect if a decryption is necessary.
+First the ```BlobMetadata``` is requested to get the encrypted ```Blob``` size. The last 64 bytes of ```PartPadding``` are fetched and inspected to detect if a decryption is necessary.
 The cipher is than initialized with the IV and the key.
 
 ### Multipart blob decryption 
-The process is similar to the single ```Blob``` decryption but with the difference that a list of parts is computed by fetching all ```PartPedding``` from end to the beginning.
+The process is similar to the single ```Blob``` decryption but with the difference that a list of parts is computed by fetching all ```PartPadding``` from end to the beginning.
 
 ## Blob suffix
 Each stored ```Blob``` will get a suffix named ```.s3enc``` this helps to determine if a ```Blob``` is encrypted. For the s3 client the ```.s3enc``` suffix is not visible and the ```Blob``` size will always show the unencrypted size.  
@@ -72,5 +72,5 @@ Each stored ```Blob``` will get a suffix named ```.s3enc``` this helps to determ
 ## Limitation 
 - All blobs are encrypted with the same key that is derived from a given password 
 - No support for re-encryption
-- Get ```Blob``` will always return the eTag of the encrypted content
+- Returned eTag always differs therefore clients should not verify it
 - Decryption of a ```Blob``` will always result in multiple calls against the backend for instance a GET will result in a HEAD + GET because the size of the blob needs to be determined 

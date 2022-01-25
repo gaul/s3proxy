@@ -89,7 +89,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return new EncryptedBlobStore(blobStore, properties);
     }
 
-    private void initStore(String password, String salt) throws IOException {
+    private void initStore(String password, String salt)
+        throws IllegalArgumentException {
         try {
             SecretKeyFactory factory =
                 SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
@@ -99,7 +100,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             SecretKey tmp = factory.generateSecret(spec);
             secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
         } catch (Exception e) {
-            throw new IOException(e);
+            throw new IllegalArgumentException(e);
         }
     }
 
@@ -401,10 +402,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     long endAt = decryption.getEncryptedSize();
 
                     if (offset == 0 && end > 0 && length == end) {
-                        // handle to read from the end a specific amount of bytes
+                        // handle to read from the end
                         startAt = decryption.calculateTail();
-                    } if (offset > 0 && end > 0) {
-                        // handle to read from an offset a specific amount of bytes
+                    } else if (offset > 0 && end > 0) {
+                        // handle to read from an offset
                         endAt = decryption.calculateEndAt(end);
                     }
 
