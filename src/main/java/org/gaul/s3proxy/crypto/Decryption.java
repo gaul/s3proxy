@@ -49,14 +49,11 @@ public class Decryption {
     private boolean isEncrypted;
 
     public Decryption(SecretKeySpec key, BlobStore blobStore,
-        String containerName, String blobName,
+        BlobMetadata meta,
         long offset, long length) throws IOException {
         encryptionKey = key;
         outputLength = length;
         isEncrypted = true;
-
-        // get the metadata to determine the blob size
-        BlobMetadata meta = blobStore.blobMetadata(containerName, blobName);
 
         // if blob does not exist or size is smaller than the part padding
         // then the file is considered not encrypted
@@ -69,7 +66,8 @@ public class Decryption {
         GetOptions options = new GetOptions();
         options.range(meta.getSize() - Constants.PADDING_BLOCK_SIZE,
             meta.getSize());
-        Blob blob = blobStore.getBlob(containerName, blobName, options);
+        Blob blob =
+            blobStore.getBlob(meta.getContainer(), meta.getName(), options);
 
         // read the padding structure
         PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
@@ -107,7 +105,8 @@ public class Decryption {
                     Constants.PADDING_BLOCK_SIZE;
                 long endAt = meta.getSize() - encryptedSize - 1;
                 options.range(startAt, endAt);
-                blob = blobStore.getBlob(containerName, blobName, options);
+                blob = blobStore.getBlob(meta.getContainer(), meta.getName(),
+                    options);
 
                 part++;
 

@@ -72,4 +72,5 @@ Each stored ```Blob``` will get a suffix named ```.s3enc``` this helps to determ
 ## Limitation 
 - All blobs are encrypted with the same key that is derived from a given password 
 - No support for re-encryption
-- eTag always differs
+- Get ```Blob``` will always return the eTag of the encrypted content
+- Decryption of a ```Blob``` will always result in multiple calls against the backend for instance a GET will result in a HEAD + GET because the size of the blob needs to be determined 

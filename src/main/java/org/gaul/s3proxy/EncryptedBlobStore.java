@@ -375,61 +375,74 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public Blob getBlob(String containerName, String blobName,
         GetOptions getOptions) {
 
+        // adjust the blob name
+        blobName = blobNameWithSuffix(blobName);
+
+        // get the metadata to determine the blob size
+        BlobMetadata meta = delegate().blobMetadata(containerName, blobName);
+
         try {
-            // adjust name if a blob with the .s3enc suffix exists
-            blobName = blobNameWithSuffix(containerName, blobName);
+            // we have a blob that ends with .s3enc
+            if (meta != null) {
+                // init defaults
+                long offset = 0;
+                long end = 0;
+                long length = -1;
 
-            // init defaults
-            long offset = 0;
-            long end = 0;
-            long length = -1;
-            if (getOptions.getRanges().size() > 0) {
+                if (getOptions.getRanges().size() > 0) {
+                    // S3 doesn't allow multiple ranges
+                    String range = getOptions.getRanges().get(0);
+                    String[] ranges = range.split("-", 2);
 
-                // S3 doesn't allow multiple ranges
-                String range = getOptions.getRanges().get(0);
-                String[] ranges = range.split("-", 2);
-
-                if (ranges[0].isEmpty()) {
-                    // handle to read from the end a specific amount of bytes
-                    end = Long.parseLong(ranges[1]);
-                    length = end;
-                } else if (ranges[1].isEmpty()) {
-                    // handle to read from an offset till the end
-                    offset = Long.parseLong(ranges[0]);
-                } else {
-                    // handle to read from an offset a specific amount of bytes
-                    offset = Long.parseLong(ranges[0]);
-                    end = Long.parseLong(ranges[1]);
-                    length = end - offset + 1;
+                    if (ranges[0].isEmpty()) {
+                        // handle to read from the end
+                        end = Long.parseLong(ranges[1]);
+                        length = end;
+                    } else if (ranges[1].isEmpty()) {
+                        // handle to read from an offset till the end
+                        offset = Long.parseLong(ranges[0]);
+                    } else {
+                        // handle to read from an offset
+                        offset = Long.parseLong(ranges[0]);
+                        end = Long.parseLong(ranges[1]);
+                        length = end - offset + 1;
+                    }
                 }
+
+                // init decryption
+                Decryption decryption =
+                    new Decryption(secretKey, delegate(), meta, offset, length);
+
+                if (decryption.isEncrypted() &&
+                    getOptions.getRanges().size() > 0) {
+                    // clear current ranges to avoid multiple ranges
+                    getOptions.getRanges().clear();
+
+                    long startAt = decryption.getStartAt();
+                    long endAt = decryption.getEncryptedSize();
+
+                    if (offset == 0 && end > 0 && length == end) {
+                        // handle to read from the end
+                        startAt = decryption.calculateTail();
+                    }
+                    if (offset > 0 && end > 0) {
+                        // handle to read from an offset
+                        endAt = decryption.calculateEndAt(end);
+                    }
+
+                    getOptions.range(startAt, endAt);
+                }
+
+                Blob blob =
+                    delegate().getBlob(containerName, blobName, getOptions);
+                return decryptBlob(decryption, containerName, blob);
+            } else {
+                // we suppose to return a unencrypted blob
+                // since no metadata was found
+                blobName = removeEncryptedSuffix(blobName);
+                return delegate().getBlob(containerName, blobName, getOptions);
             }
 
-            // init decryption
-            Decryption decryption =
-                new Decryption(secretKey, delegate(), containerName,
-                    blobName, offset, length);
-
-            if (decryption.isEncrypted() && getOptions.getRanges().size() > 0) {
-                // clear current ranges to avoid multiple ranges
-                getOptions.getRanges().clear();
-
-                long startAt = decryption.getStartAt();
-                long endAt = decryption.getEncryptedSize();
-
-                if (offset == 0 && end > 0 && length == end) {
-                    // handle to read from the end
-                    startAt = decryption.calculateTail();
-                }
-                if (offset > 0 && end > 0) {
-                    // handle to read from an offset
-                    endAt = decryption.calculateEndAt(end);
-                }
-
-                getOptions.range(startAt, endAt);
-            }
-
-            return decryptBlob(decryption, containerName,
-                delegate().getBlob(containerName, blobName, getOptions));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
