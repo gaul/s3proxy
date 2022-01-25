@@ -32,8 +32,6 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingInputStream;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.gaul.s3proxy.crypto.Constants;
@@ -347,25 +345,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return DigestUtils.sha256Hex(path);
     }
 
-    private HashingInputStream blobHashing(Blob blob) {
-        Payload payload = blob.getPayload();
-        try {
-            InputStream is = payload.openStream();
-            @SuppressWarnings("deprecation")
-            HashingInputStream his = new HashingInputStream(Hashing.md5(), is);
-
-            Payload newPayload = Payloads.newInputStreamPayload(his);
-            newPayload.setContentMetadata(payload.getContentMetadata());
-            newPayload.setSensitive(payload.isSensitive());
-
-            blob.setPayload(newPayload);
-
-            return his;
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
     @Override
     public Blob getBlob(String containerName, String blobName) {
         return getBlob(containerName, blobName, new GetOptions());
@@ -422,11 +401,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     long endAt = decryption.getEncryptedSize();
 
                     if (offset == 0 && end > 0 && length == end) {
-                        // handle to read from the end
+                        // handle to read from the end a specific amount of bytes
                         startAt = decryption.calculateTail();
-                    }
-                    if (offset > 0 && end > 0) {
-                        // handle to read from an offset
+                    } if (offset > 0 && end > 0) {
+                        // handle to read from an offset a specific amount of bytes
                         endAt = decryption.calculateEndAt(end);
                     }
 
@@ -450,22 +428,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob) {
-        // pass the stream through a md5 hashing to have a proper eTag
-        HashingInputStream his = blobHashing(blob);
-        delegate().putBlob(containerName, encryptBlob(containerName, blob));
-
-        return his != null ? his.hash().toString() : null;
+        return delegate().putBlob(containerName,
+            encryptBlob(containerName, blob));
     }
 
     @Override
     public String putBlob(String containerName, Blob blob,
         PutOptions putOptions) {
-        // pass the stream through a md5 hashing to have a proper eTag
-        HashingInputStream his = blobHashing(blob);
-        delegate().putBlob(containerName,
+        return delegate().putBlob(containerName,
             encryptBlob(containerName, blob), putOptions);
-
-        return his != null ? his.hash().toString() : null;
     }
 
     @Override

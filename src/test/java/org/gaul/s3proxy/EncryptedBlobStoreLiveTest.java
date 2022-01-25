@@ -279,9 +279,4 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
     public void testUpdateObjectCannedACL() {
         throw new SkipException("blob access control not supported");
     }
-
-    @Override
-    public void testCopyIfMatch() {
-        throw new SkipException("copy if match not supported");
-    }
 }
