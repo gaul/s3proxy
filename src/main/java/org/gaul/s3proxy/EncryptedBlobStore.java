@@ -35,6 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.gaul.s3proxy.crypto.Constants;
@@ -58,6 +59,7 @@ import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.jclouds.io.ContentMetadata;
+import org.jclouds.io.MutableContentMetadata;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.slf4j.Logger;
@@ -183,6 +185,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             InputStream is = encryption.openStream();
 
             Payload cipheredPayload = Payloads.newInputStreamPayload(is);
+            MutableContentMetadata contentMetadata = payload.getContentMetadata();
+            HashCode md5 = null;
+            contentMetadata.setContentMD5(md5);
             cipheredPayload.setContentMetadata(payload.getContentMetadata());
             cipheredPayload.setSensitive(payload.isSensitive());
 
