@@ -22,6 +22,7 @@ public final class Constants {
     public static final short VERSION = 1;
     public static final String AES_CIPHER = "AES/CFB/NoPadding";
     public static final String S3_ENC_SUFFIX = ".s3enc";
+    public static final String MPU_FOLDER = ".mpu/";
     public static final String METADATA_ENCRYPTION_PARTS =
         "s3proxy_encryption_parts";
     public static final String METADATA_IS_ENCRYPTED_MULTIPART =

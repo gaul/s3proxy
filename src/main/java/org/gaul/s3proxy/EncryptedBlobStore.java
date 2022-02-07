@@ -552,7 +552,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 // to emulate later the list of multipart uploads
                 // we create a placeholer
                 BlobBuilder builder =
-                    blobBuilder(".mpu/" + uploadId)
+                    blobBuilder(Constants.MPU_FOLDER + uploadId)
                         .payload("")
                         .userMetadata(mbm.getUserMetadata());
                 delegate().putBlob(container, builder.build(), options);
@@ -574,7 +574,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         if (getBlobStoreType().equals("google-cloud-storage")) {
             ListContainerOptions options = new ListContainerOptions();
             PageSet<? extends StorageMetadata> mpuList =
-                delegate().list(container, options.prefix(".mpu/"));
+                delegate().list(container, options.prefix(Constants.MPU_FOLDER));
 
             // find all blobs in .mpu folder and build the list
             for (StorageMetadata blob : mpuList) {
@@ -734,7 +734,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // cleanup mpu placeholder on gcp
         if (getBlobStoreType().equals("google-cloud-storage")) {
-            delegate().removeBlob(mpu.containerName(), ".mpu/" + mpu.id());
+            delegate().removeBlob(mpu.containerName(), Constants.MPU_FOLDER + mpu.id());
         }
 
         return eTag;
