@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.spec.KeySpec;
@@ -31,6 +33,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 
 import org.apache.commons.codec.digest.DigestUtils;
@@ -67,20 +70,18 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     private SecretKeySpec secretKey;
 
     private EncryptedBlobStore(BlobStore blobStore, Properties properties)
-        throws IOException {
+        throws IllegalArgumentException {
         super(blobStore);
 
         String password = properties.getProperty(
             S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_PASSWORD);
-        if (password == null || password.isEmpty()) {
-            throw new IOException(
-                "Password for encrypted blobstore is not set");
-        }
+        checkArgument(Strings.isNullOrEmpty(password),
+            "Password for encrypted blobstore is not set");
+
         String salt = properties.getProperty(
             S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_SALT);
-        if (salt == null || salt.isEmpty()) {
-            throw new IOException("Salt for encrypted blobstore is not set");
-        }
+        checkArgument(Strings.isNullOrEmpty(salt),
+            "Salt for encrypted blobstore is not set");
         initStore(password, salt);
     }
 
@@ -574,7 +575,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         if (getBlobStoreType().equals("google-cloud-storage")) {
             ListContainerOptions options = new ListContainerOptions();
             PageSet<? extends StorageMetadata> mpuList =
-                delegate().list(container, options.prefix(Constants.MPU_FOLDER));
+                delegate().list(container,
+                    options.prefix(Constants.MPU_FOLDER));
 
             // find all blobs in .mpu folder and build the list
             for (StorageMetadata blob : mpuList) {
@@ -734,7 +736,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // cleanup mpu placeholder on gcp
         if (getBlobStoreType().equals("google-cloud-storage")) {
-            delegate().removeBlob(mpu.containerName(), Constants.MPU_FOLDER + mpu.id());
+            delegate().removeBlob(mpu.containerName(),
+                Constants.MPU_FOLDER + mpu.id());
         }
 
         return eTag;
