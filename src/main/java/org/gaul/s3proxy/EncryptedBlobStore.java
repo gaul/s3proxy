@@ -77,12 +77,12 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         String password = properties.getProperty(
             S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_PASSWORD);
-        checkArgument(Strings.isNullOrEmpty(password),
+        checkArgument(!Strings.isNullOrEmpty(password),
             "Password for encrypted blobstore is not set");
 
         String salt = properties.getProperty(
             S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_SALT);
-        checkArgument(Strings.isNullOrEmpty(salt),
+        checkArgument(!Strings.isNullOrEmpty(salt),
             "Salt for encrypted blobstore is not set");
         initStore(password, salt);
     }
