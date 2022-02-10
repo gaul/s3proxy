@@ -673,16 +673,16 @@ public class S3ProxyHandler {
                 handleContainerList(response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
-                if ("".equals(request.getParameter("acl"))) {
+                if (request.getParameter("acl") != null) {
                     handleGetContainerAcl(response, blobStore, path[1]);
                     return;
-                } else if ("".equals(request.getParameter("location"))) {
+                } else if (request.getParameter("location") != null) {
                     handleContainerLocation(response);
                     return;
-                } else if ("".equals(request.getParameter("policy"))) {
+                } else if (request.getParameter("policy") != null) {
                     handleBucketPolicy(blobStore, path[1]);
                     return;
-                } else if ("".equals(request.getParameter("uploads"))) {
+                } else if (request.getParameter("uploads") != null) {
                     handleListMultipartUploads(request, response, blobStore,
                             path[1]);
                     return;
@@ -690,7 +690,7 @@ public class S3ProxyHandler {
                 handleBlobList(request, response, blobStore, path[1]);
                 return;
             } else {
-                if ("".equals(request.getParameter("acl"))) {
+                if (request.getParameter("acl") != null) {
                     handleGetBlobAcl(response, blobStore, path[1],
                             path[2]);
                     return;
@@ -713,10 +713,10 @@ public class S3ProxyHandler {
                 return;
             }
         case "POST":
-            if ("".equals(request.getParameter("delete"))) {
+            if (request.getParameter("delete") != null) {
                 handleMultiBlobRemove(response, is, blobStore, path[1]);
                 return;
-            } else if ("".equals(request.getParameter("uploads"))) {
+            } else if (request.getParameter("uploads") != null) {
                 handleInitiateMultipartUpload(request, response, blobStore,
                         path[1], path[2]);
                 return;
@@ -729,7 +729,7 @@ public class S3ProxyHandler {
             break;
         case "PUT":
             if (path.length <= 2 || path[2].isEmpty()) {
-                if ("".equals(request.getParameter("acl"))) {
+                if (request.getParameter("acl") != null) {
                     handleSetContainerAcl(request, response, is, blobStore,
                             path[1]);
                     return;
@@ -751,7 +751,7 @@ public class S3ProxyHandler {
                         path[2]);
                 return;
             } else {
-                if ("".equals(request.getParameter("acl"))) {
+                if (request.getParameter("acl") != null) {
                     handleSetBlobAcl(request, response, is, blobStore, path[1],
                             path[2]);
                     return;
