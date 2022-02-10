@@ -21,6 +21,6 @@ exec java \
     -Djclouds.keystone.version="${JCLOUDS_KEYSTONE_VERSION}" \
     -Djclouds.keystone.scope="${JCLOUDS_KEYSTONE_SCOPE}" \
     -Djclouds.keystone.project-domain-name="${JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME}" \
-    -Djclouds.filesystem.basedir="/data" \
+    -Djclouds.filesystem.basedir="${JCLOUDS_FILESYSTEM_BASEDIR}" \
     -jar /opt/s3proxy/s3proxy \
     --properties /dev/null
