@@ -1206,7 +1206,7 @@ public class S3ProxyHandler {
             xml.writeEmptyElement("NextUploadIdMarker");
             xml.writeEmptyElement("Delimiter");
 
-            if (prefix == null || prefix.isEmpty()) {
+            if (Strings.isNullOrEmpty(prefix)) {
                 xml.writeEmptyElement("Prefix");
             } else {
                 writeSimpleElement(xml, "Prefix", encodeBlob(

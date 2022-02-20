@@ -40,9 +40,6 @@ public class DecryptionInputStream extends FilterInputStream {
     // the list of parts we expect in the stream
     private final TreeMap<Integer, PartPadding> parts;
 
-    // the underlying input stream
-    private final InputStream input;
-
     /* the buffer holding data that have been read in from the
        underlying stream, but have not been processed by the cipher
        engine. */
@@ -84,7 +81,7 @@ public class DecryptionInputStream extends FilterInputStream {
         long skipPartBytes)
         throws IOException {
         super(is);
-        input = is;
+        in = is;
         this.parts = parts;
         this.key = key;
 
@@ -153,7 +150,7 @@ public class DecryptionInputStream extends FilterInputStream {
         if (partBytesRemain == 0) {
             readin = -1;
         } else {
-            readin = input.read(ibuffer, 0, readLimit);
+            readin = in.read(ibuffer, 0, readLimit);
         }
 
         if (readin == -1) {
@@ -180,7 +177,7 @@ public class DecryptionInputStream extends FilterInputStream {
                 // update the remaining bytes of the next part
                 partBytesRemain = parts.get(nextPart).getSize();
 
-                IOUtils.skip(input, Constants.PADDING_BLOCK_SIZE);
+                IOUtils.skip(in, Constants.PADDING_BLOCK_SIZE);
 
                 return ofinish;
             } else {
@@ -353,7 +350,7 @@ public class DecryptionInputStream extends FilterInputStream {
             return;
         }
         closed = true;
-        input.close();
+        in.close();
 
         // Throw away the unprocessed data and throw no crypto exceptions.
         // AEAD ciphers are fully readed before closing.  Any authentication

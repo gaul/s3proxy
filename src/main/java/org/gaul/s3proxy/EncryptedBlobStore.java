@@ -307,9 +307,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             mbm.getContentMetadata().setContentLength(size);
         } else {
             // on s3 backends like aws or minio we rely on the eTag suffix
-            String regex = ".*-([0-9]+)";
-            Pattern pattern = Pattern.compile(regex);
-            Matcher matcher = pattern.matcher(blobMeta.getETag());
+            Matcher matcher = Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(blobMeta.getETag());
             if (matcher.find()) {
                 int parts = Integer.parseInt(matcher.group(1));
                 int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
