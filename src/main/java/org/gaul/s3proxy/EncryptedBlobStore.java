@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
@@ -185,7 +184,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             InputStream is = encryption.openStream();
 
             Payload cipheredPayload = Payloads.newInputStreamPayload(is);
-            MutableContentMetadata contentMetadata = payload.getContentMetadata();
+            MutableContentMetadata contentMetadata =
+                payload.getContentMetadata();
             HashCode md5 = null;
             contentMetadata.setContentMD5(md5);
             cipheredPayload.setContentMetadata(payload.getContentMetadata());
@@ -307,7 +307,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             mbm.getContentMetadata().setContentLength(size);
         } else {
             // on s3 backends like aws or minio we rely on the eTag suffix
-            Matcher matcher = Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(blobMeta.getETag());
+            Matcher matcher =
+                Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(blobMeta.getETag());
             if (matcher.find()) {
                 int parts = Integer.parseInt(matcher.group(1));
                 int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
