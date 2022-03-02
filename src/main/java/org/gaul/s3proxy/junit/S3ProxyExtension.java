@@ -18,17 +18,17 @@ package org.gaul.s3proxy.junit;
 
 import java.net.URI;
 
-import com.google.common.annotations.Beta;
-
 import org.gaul.s3proxy.AuthenticationType;
-import org.junit.rules.ExternalResource;
+import org.junit.jupiter.api.extension.AfterEachCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 
 /**
- * A JUnit Rule that manages an S3Proxy instance which tests can use as an S3
- * API endpoint.
+ * A JUnit 5 Extension that manages an S3Proxy instance which tests
+ * can use as an S3 API endpoint.
  */
-@Beta
-public final class S3ProxyRule extends ExternalResource {
+public final class S3ProxyExtension
+        implements AfterEachCallback, BeforeEachCallback {
 
     private final S3ProxyJunitCore core;
 
@@ -41,7 +41,7 @@ public final class S3ProxyRule extends ExternalResource {
         }
 
         public Builder withCredentials(AuthenticationType authType,
-                                         String accessKey, String secretKey) {
+                                       String accessKey, String secretKey) {
             builder.withCredentials(authType, accessKey, secretKey);
             return this;
         }
@@ -71,12 +71,12 @@ public final class S3ProxyRule extends ExternalResource {
             return this;
         }
 
-        public S3ProxyRule build() {
-            return new S3ProxyRule(this);
+        public S3ProxyExtension build() {
+            return new S3ProxyExtension(this);
         }
     }
 
-    private S3ProxyRule(Builder builder) {
+    private S3ProxyExtension(Builder builder) {
         core = new S3ProxyJunitCore(builder.builder);
     }
 
@@ -85,12 +85,12 @@ public final class S3ProxyRule extends ExternalResource {
     }
 
     @Override
-    protected void before() throws Throwable {
+    public void beforeEach(ExtensionContext extensionContext) throws Exception {
         core.beforeEach();
     }
 
     @Override
-    protected void after() {
+    public void afterEach(ExtensionContext extensionContext) {
         core.afterEach();
     }
 

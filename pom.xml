@@ -233,7 +233,7 @@
             </configuration>
           </execution>
         </executions>
-      </plugin>      
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
@@ -285,6 +285,11 @@
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
             <artifactId>surefire-testng</artifactId>
+            <version>${surefire.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-junit-platform</artifactId>
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
@@ -381,8 +386,6 @@
     <slf4j.version>1.7.28</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>2.22.2</surefire.version>
-    <!-- Reproducible build: timestamp to use wherever needed -->
-    <project.build.outputTimestamp>2021-11-26T09:00:00Z</project.build.outputTimestamp>
   </properties>
 
   <repositories>
@@ -428,6 +431,13 @@
       <artifactId>junit</artifactId>
       <version>4.13.1</version>
       <!-- Required for S3ProxyRule -->
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.8.1</version>
+      <!-- Required for S3ProxyExtension -->
       <scope>provided</scope>
     </dependency>
     <dependency>
