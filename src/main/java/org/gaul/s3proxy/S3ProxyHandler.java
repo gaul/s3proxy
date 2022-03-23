@@ -612,8 +612,9 @@ public class S3ProxyHandler {
                 }
             }
 
-            if (!constantTimeEquals(expectedSignature,
-                    authHeader.getSignature())) {
+            // AWS does not check signatures with OPTIONS verb
+            if (!method.equals("OPTIONS") && !constantTimeEquals(
+                    expectedSignature, authHeader.getSignature())) {
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
             }
         }
