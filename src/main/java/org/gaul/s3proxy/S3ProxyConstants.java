@@ -107,6 +107,13 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_MAXIMUM_TIME_SKEW =
             "s3proxy.maximum-timeskew";
 
+    public static final String PROPERTY_ENCRYPTED_BLOBSTORE =
+            "s3proxy.encrypted-blobstore";
+    public static final String PROPERTY_ENCRYPTED_BLOBSTORE_PASSWORD =
+            "s3proxy.encrypted-blobstore-password";
+    public static final String PROPERTY_ENCRYPTED_BLOBSTORE_SALT =
+            "s3proxy.encrypted-blobstore-salt";
+
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
