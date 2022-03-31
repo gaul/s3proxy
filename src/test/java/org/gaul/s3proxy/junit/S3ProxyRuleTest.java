@@ -95,4 +95,13 @@ public class S3ProxyRuleTest {
         assertThat(s3Client.doesBucketExistV2("nonexistingbucket")).isFalse();
     }
 
+    @Test
+    public final void createExtentionWithoutCredentials() {
+        S3ProxyRule extension = S3ProxyRule
+                .builder()
+                .build();
+        assertThat(extension.getAccessKey()).isNull();
+        assertThat(extension.getSecretKey()).isNull();
+        assertThat(extension.getUri()).isNull();
+    }
 }

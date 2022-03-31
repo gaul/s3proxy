@@ -93,4 +93,14 @@ public class S3ProxyExtensionTest {
         // Issue #299
         assertThat(s3Client.doesBucketExistV2("nonexistingbucket")).isFalse();
     }
+
+    @Test
+    public final void createExtentionWithoutCredentials() {
+        S3ProxyExtension extension = S3ProxyExtension
+                .builder()
+                .build();
+        assertThat(extension.getAccessKey()).isNull();
+        assertThat(extension.getSecretKey()).isNull();
+        assertThat(extension.getUri()).isNull();
+    }
 }

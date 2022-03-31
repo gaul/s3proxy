@@ -316,8 +316,10 @@ public final class S3Proxy {
         public Builder awsAuthentication(AuthenticationType authenticationType,
                 String identity, String credential) {
             this.authenticationType = authenticationType;
-            this.identity = requireNonNull(identity);
-            this.credential = requireNonNull(credential);
+            if (!AuthenticationType.NONE.equals(authenticationType)) {
+                this.identity = requireNonNull(identity);
+                this.credential = requireNonNull(credential);
+            }
             return this;
         }
 

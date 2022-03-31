@@ -112,10 +112,13 @@ public class S3ProxyJunitCore {
             throw new RuntimeException("Unable to initialize Blob Store", e);
         }
 
-        blobStoreContext = ContextBuilder.newBuilder(
+        ContextBuilder blobStoreContextBuilder = ContextBuilder.newBuilder(
                 builder.blobStoreProvider)
-                .credentials(accessKey, secretKey)
-                .overrides(properties).build(BlobStoreContext.class);
+                .overrides(properties);
+        if (!AuthenticationType.NONE.equals(builder.authType)) {
+            blobStoreContextBuilder = blobStoreContextBuilder.credentials(accessKey, secretKey);
+        }
+        blobStoreContext = blobStoreContextBuilder.build(BlobStoreContext.class);
 
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                 .blobStore(blobStoreContext.getBlobStore())
