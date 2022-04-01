@@ -491,7 +491,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
-      <version>9.4.41.v20210516</version>
+      <version>9.4.45.v20220203</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
