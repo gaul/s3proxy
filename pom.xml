@@ -351,7 +351,7 @@
       <plugin>
         <groupId>org.gaul</groupId>
         <artifactId>modernizer-maven-plugin</artifactId>
-        <version>2.3.0</version>
+        <version>2.4.0</version>
         <executions>
           <execution>
             <id>modernizer</id>
