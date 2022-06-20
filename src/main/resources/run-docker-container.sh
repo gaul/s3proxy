@@ -25,5 +25,8 @@ exec java \
     -Djclouds.keystone.scope="${JCLOUDS_KEYSTONE_SCOPE}" \
     -Djclouds.keystone.project-domain-name="${JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME}" \
     -Djclouds.filesystem.basedir="${JCLOUDS_FILESYSTEM_BASEDIR}" \
+    -Djclouds.azureblob.tenantId="${JCLOUDS_AZUREBLOB_TENANTID}" \
+    -Djclouds.azureblob.auth="${JCLOUDS_AZUREBLOB_AUTH}" \
+    -Djclouds.azureblob.account="${JCLOUDS_AZUREBLOB_ACCOUNT}" \
     -jar /opt/s3proxy/s3proxy \
     --properties /dev/null
