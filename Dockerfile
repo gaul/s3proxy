@@ -1,6 +1,8 @@
 FROM openjdk:11-jre-slim
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
+RUN mkdir /data ;\
+    useradd -rm -d /opt/s3proxy -s /bin/sh -u 1001 -U javauser
 WORKDIR /opt/s3proxy
 
 COPY \
@@ -11,7 +13,7 @@ COPY \
 ENV \
     LOG_LEVEL="info" \
     S3PROXY_AUTHORIZATION="aws-v2-or-v4" \
-    S3PROXY_ENDPOINT="http://0.0.0.0:80" \
+    S3PROXY_ENDPOINT="http://0.0.0.0:8000" \
     S3PROXY_IDENTITY="local-identity" \
     S3PROXY_CREDENTIAL="local-credential" \
     S3PROXY_VIRTUALHOST="" \
@@ -34,5 +36,7 @@ ENV \
     JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME="" \
     JCLOUDS_FILESYSTEM_BASEDIR="/data"
 
-EXPOSE 80
+EXPOSE 8000
+RUN chown -R javauser:javauser /opt/s3proxy ; chown -R javauser:javauser /opt/s3proxy
+USER javauser
 ENTRYPOINT ["/opt/s3proxy/run-docker-container.sh"]
