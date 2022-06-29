@@ -1,0 +1,206 @@
+name: Main CI
+on:
+  push:
+    branches:
+      - "master"
+      - "develop"
+  pull_request:
+    branches:
+      - "*"
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      dockerhub-publish: ${{ steps.dockerhub-publish.outputs.defined }}
+      registry: ghcr.io/${{ github.repository }}/container:${{ fromJSON(steps.docker_action_meta.outputs.json).labels['org.opencontainers.image.version'] }}
+      container_tags: ${{ steps.docker_action_meta.outputs.tags }}
+      container_labels: ${{ steps.docker_action_meta.outputs.labels }}
+      container_buildtime: ${{ fromJSON(steps.docker_action_meta.outputs.json).labels['org.opencontainers.image.created'] }}
+      container_version: ${{ fromJSON(steps.docker_action_meta.outputs.json).labels['org.opencontainers.image.version'] }}
+      container_revision: ${{ fromJSON(steps.docker_action_meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+      container_base: ${{ fromJSON(steps.docker_action_meta.outputs.json).tags[0] }}
+      new_release_version: ${{ steps.version.outputs.new_release_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: false
+          persist-credentials: false
+      - id: dockerhub-publish
+        if: "${{ env.MY_KEY != '' }}"
+        run: echo "::set-output name=defined::true"
+        env:
+          MY_KEY: ${{ secrets.DOCKER_PASS }}
+      - uses: actions/setup-node@v2
+        with:
+          node-version: "14"
+      - name: Semantic Release
+        id: version
+        uses: cycjimmy/semantic-release-action@v3.0.0
+        with:
+          semantic_version: 17
+          extra_plugins: |
+            @semantic-release/exec
+            @semantic-release/git
+            @google/semantic-release-replace-plugin
+            conventional-changelog-conventionalcommits
+          dry_run: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker meta
+        id: docker_action_meta
+        uses: docker/metadata-action@v4.0.1
+        with:
+          images: ghcr.io/${{ github.repository }}/container
+          flavor: |
+            latest=false
+          tags: |
+            type=sha,format=long
+            type=sha
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.new_release_version }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.new_release_version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.new_release_version }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.licenses=Apache-2.0
+  runTests:
+    runs-on: ubuntu-latest
+    needs: [meta]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      # These steps are quick and will work or if fail only because of external issues
+      - uses: actions/setup-java@v2
+        with:
+          distribution: "temurin"
+          java-version: "11"
+          cache: "maven"
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.8"
+          cache: "pip"
+
+      #Run tests
+      - name: Maven Set version
+        run: |
+          mvn versions:set -DnewVersion=${{ needs.meta.outputs.new_release_version }}
+      - name: Maven Package
+        run: |
+          mvn package -DskipTests
+      - name: Maven Test
+        run: |
+          mvn test
+      - name: Other Test
+        run: |
+          ./src/test/resources/run-s3-tests.sh
+
+      #Store the target
+      - uses: actions/upload-artifact@v2
+        with:
+          name: s3proxy
+          path: target/s3proxy
+      - uses: actions/upload-artifact@v2
+        with:
+          name: pom
+          path: pom.xml
+
+  Containerize:
+    runs-on: ubuntu-latest
+    needs: [runTests, meta]
+    steps:
+      #Yes we need code
+      - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v2
+        with:
+          name: s3proxy
+          path: target
+      - uses: actions/download-artifact@v2
+        with:
+          name: pom
+          path: .
+      # These steps are quick and will work or if fail only because of external issues
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2.0.0
+        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2.0.0
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      #Generate Meta
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ needs.meta.outputs.container_base }}
+          labels: ${{ needs.meta.outputs.container_labels }}
+          build-args: |
+            BUILDTIME=${{ needs.meta.outputs.container_buildtime }}
+            VERSION=${{ needs.meta.outputs.container_version }}
+            REVISION=${{ needs.meta.outputs.container_revision }}
+          cache-from: type=registry,ref=${{ needs.meta.outputs.container_base }}
+          cache-to: type=inline
+      - uses: actions/setup-node@v2
+        with:
+          node-version: "14"
+      - name: Semantic Release
+        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
+        id: version
+        uses: cycjimmy/semantic-release-action@v3.0.0
+        with:
+          semantic_version: 17
+          extra_plugins: |
+            @semantic-release/exec
+            @semantic-release/git
+            conventional-changelog-conventionalcommits
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup regctl
+        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
+        run: |
+          curl -L https://github.com/regclient/regclient/releases/download/v0.3.5/regctl-linux-amd64 >/tmp/regctl
+          chmod 755 /tmp/regctl
+
+      - name: Docker meta
+        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
+        id: docker_action_meta
+        uses: docker/metadata-action@v4.0.1
+        with:
+          images: andrewgaul/s3proxy
+          flavor: |
+            latest=false
+          tags: |
+            type=sha
+            type=semver,pattern={{version}},value=${{ needs.meta.outputs.new_release_version }}
+            type=semver,pattern={{major}},value=${{ needs.meta.outputs.new_release_version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.meta.outputs.new_release_version }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.licenses=Apache-2.0
+      - name: Publish to Docker
+        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
+        run: |
+          for line in $CONTAINER_DEST_TAGS; do echo working on "$line"; /tmp/regctl image copy $SOURCE_CONTAINER $line; done
+        env:
+          SOURCE_CONTAINER: ${{ needs.meta.outputs.new_release_version }}
+          CONTAINER_DEST_TAGS: ${{ steps.docker_action_meta.outputs.tags }}
