@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "s3proxy.fullname" . }}-test-connection"
+  labels:
+    {{- include "s3proxy.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: s3cmd
+      image: d3fk/s3cmd:latest
+      command: ['s3cmd']
+      args: 
+        - --access_key=$(AWS_ACCESS_KEY_ID)
+        - --secret_key=$(AWS_SECRET_ACCESS_KEY)
+        - --host={{ include "s3proxy.fullname" . }}:{{ .Values.service.port }}
+        - --region=us-east-1
+        - --no-ssl
+        - ls
+      env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+{{- if empty .Values.existingSecretName }}
+            name: "{{ include "s3proxy.fullname" . }}-secret"
+{{- else }}
+            name: {{ .Values.existingSecretName }}
+{{- end }}
+            key: AWS_ACCESS_KEY_ID
+            optional: false 
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+{{- if empty .Values.existingSecretName }}
+            name: "{{ include "s3proxy.fullname" . }}-secret"
+{{- else }}
+            name: {{ .Values.existingSecretName }}
+{{- end }}
+            key: AWS_SECRET_ACCESS_KEY
+            optional: false       
+  restartPolicy: Never

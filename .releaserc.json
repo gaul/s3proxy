@@ -1,0 +1,57 @@
+{
+    "tagFormat": "s3proxy-${version}",
+    "branches": [
+        {
+            "name": "main",
+            "prerelease": false
+        },
+        {
+            "name": "releases/+([0-9])?(\\.\\d+)(\\.\\d+|z|$)",
+            "prerelease": false
+        },
+        {
+            "name": "next",
+            "prerelease": true
+        },
+        {
+            "name": "next-major",
+            "prerelease": true
+        }
+    ],
+    "plugins": [
+        [
+            "@semantic-release/commit-analyzer",
+            {
+                "preset": "conventionalcommits",
+                "presetConfig": "conventional-changelog-conventionalcommits"
+            }
+        ],
+        "@semantic-release/release-notes-generator",
+        [
+            "@semantic-release/exec",
+            {
+                "prepareCmd": "./.github/workflows/scripts/prepareHelm.sh ${nextRelease.version}",
+                "publishCmd": "./.github/workflows/scripts/publishHelm.sh ${nextRelease.version}"
+            }
+        ],
+        [
+            "@semantic-release/git",
+            {
+                "assets": [
+                    "chart/Chart.yaml"
+                ],
+                "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}"
+            }
+        ],
+        [
+            "@semantic-release/github",
+            {
+                "assets": [
+                    {
+                        "path": "*.tgz"
+                    }
+                ]
+            }
+        ]
+    ]
+}

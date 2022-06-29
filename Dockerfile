@@ -1,6 +1,8 @@
 FROM openjdk:11-jre-slim
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
+RUN mkdir /data ;\
+    useradd -rm -d /opt/s3proxy -s /bin/sh -u 10001 -U javauser
 WORKDIR /opt/s3proxy
 
 COPY \
@@ -35,4 +37,5 @@ ENV \
     JCLOUDS_FILESYSTEM_BASEDIR="/data"
 
 EXPOSE 80
+RUN chown -R javauser:javauser /opt/s3proxy ; chown -R javauser:javauser /opt/s3proxy
 ENTRYPOINT ["/opt/s3proxy/run-docker-container.sh"]

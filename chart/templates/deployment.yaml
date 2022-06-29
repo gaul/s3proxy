@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "s3proxy.fullname" . }}
+  labels:
+    {{- include "s3proxy.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2        # how many pods we can add at a time
+      maxUnavailable: 0   
+  selector:
+    matchLabels:
+      {{- include "s3proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "s3proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "s3proxy.serviceAccountName" . }}
+      securityContext:
+        runAsUser: {{ .Values.podSecurityContext.runAsUser  }}
+        runAsGroup: {{ .Values.podSecurityContext.runAsGroup  }}
+        fsGroup: {{ .Values.podSecurityContext.fsGroup  }}
+        {{- if semverCompare ">=1.23-0" .Capabilities.KubeVersion.GitVersion }}
+        fsGroupChangePolicy: {{ .Values.podSecurityContext.fsGroupChangePolicy  }}
+        {{- end }}
+      containers:       
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          # Note in general use these would fail tracking request for health probe https://github.com/gaul/s3proxy/issues/427
+          # livenessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          env:
+            - name: S3PROXY_ENDPOINT
+              value: http://0.0.0.0:8000
+            - name: S3PROXY_IDENTITY
+              valueFrom:
+                secretKeyRef:
+      {{- if empty .Values.existingSecretName }}
+                  name: "{{ include "s3proxy.fullname" . }}-secret"
+      {{- else }}
+                  name: {{ .Values.existingSecretName }}
+      {{- end }}
+                  key: AWS_ACCESS_KEY_ID
+                  optional: false 
+            - name: S3PROXY_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+      {{- if empty .Values.existingSecretName }}
+                  name: "{{ include "s3proxy.fullname" . }}-secret"
+      {{- else }}
+                  name: {{ .Values.existingSecretName }}
+      {{- end }}
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: false       
+      {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+      {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

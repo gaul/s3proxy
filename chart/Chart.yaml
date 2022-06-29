@@ -1,0 +1,8 @@
+apiVersion: v2
+name: s3proxy
+description: S3 Proxy Chart
+sources:
+  - https://github.com/gaul/s3proxy/s3proxy.git
+type: application
+version: 3.0.0-helm-chart.11
+appVersion: "3.0.0-helm-chart.11"
