@@ -1,22 +1,11 @@
-# Multistage - Builder
-FROM maven:3.6.3-jdk-11-slim as s3proxy-builder
-LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
-
-WORKDIR /opt/s3proxy
-COPY . /opt/s3proxy/
-
-RUN mvn package -DskipTests
-
-# Multistage - Image
 FROM openjdk:11-jre-slim
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
 
 COPY \
-    --from=s3proxy-builder \
-    /opt/s3proxy/target/s3proxy \
-    /opt/s3proxy/src/main/resources/run-docker-container.sh \
+    target/s3proxy \
+    src/main/resources/run-docker-container.sh \
     /opt/s3proxy/
 
 ENV \
