@@ -34,19 +34,6 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: "14"
-      - name: Semantic Release
-        id: version
-        uses: cycjimmy/semantic-release-action@v3.0.0
-        with:
-          semantic_version: 17
-          extra_plugins: |
-            @semantic-release/exec
-            @semantic-release/git
-            @google/semantic-release-replace-plugin
-            conventional-changelog-conventionalcommits
-          dry_run: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Docker meta
         id: docker_action_meta
         uses: docker/metadata-action@v4.0.1
@@ -161,18 +148,6 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: "14"
-      - name: Semantic Release
-        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
-        id: version
-        uses: cycjimmy/semantic-release-action@v3.0.0
-        with:
-          semantic_version: 17
-          extra_plugins: |
-            @semantic-release/exec
-            @semantic-release/git
-            conventional-changelog-conventionalcommits
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup regctl
         if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
         run: |
