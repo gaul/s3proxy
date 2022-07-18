@@ -486,7 +486,7 @@
       <artifactId>assertj-core</artifactId>
       <scope>test</scope>
       <!-- we need to use the same version as in jclouds because we pull in their tests -->
-      <version>1.7.1</version>
+      <version>3.23.1</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
