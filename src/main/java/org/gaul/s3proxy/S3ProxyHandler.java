@@ -53,8 +53,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
@@ -81,6 +79,9 @@ import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.commons.fileupload.MultipartStream;
 import org.jclouds.blobstore.BlobStore;
