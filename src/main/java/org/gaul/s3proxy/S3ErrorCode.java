@@ -18,9 +18,9 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
-import javax.servlet.http.HttpServletResponse;
-
 import com.google.common.base.CaseFormat;
+
+import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * List of S3 error codes.  Reference:

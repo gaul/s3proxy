@@ -34,6 +34,7 @@ import com.google.common.collect.Lists;
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.ContextHandler;
@@ -84,9 +85,13 @@ public final class S3Proxy {
             context.setContextPath(builder.servicePath);
         }
 
+        HttpConfiguration httpConfiguration = new HttpConfiguration();
+        httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
+        SecureRequestCustomizer src = new SecureRequestCustomizer();
+        src.setSniHostCheck(false);
+        httpConfiguration.addCustomizer(src);
         HttpConnectionFactory httpConnectionFactory =
-                new HttpConnectionFactory(
-                        new HttpConfiguration(), HttpCompliance.LEGACY);
+                new HttpConnectionFactory(httpConfiguration);
         ServerConnector connector;
         if (builder.endpoint != null) {
             connector = new ServerConnector(server, httpConnectionFactory);
@@ -99,7 +104,7 @@ public final class S3Proxy {
         }
 
         if (builder.secureEndpoint != null) {
-            SslContextFactory sslContextFactory =
+            SslContextFactory.Server sslContextFactory =
                 new SslContextFactory.Server();
             sslContextFactory.setKeyStorePath(builder.keyStorePath);
             sslContextFactory.setKeyStorePassword(builder.keyStorePassword);

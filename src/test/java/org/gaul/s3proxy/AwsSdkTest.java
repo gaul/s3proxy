@@ -1006,7 +1006,7 @@ public final class AwsSdkTest {
     @Test
     public void testSinglepartUploadJettyCachedHeader() throws Exception {
         String blobName = "singlepart-upload-jetty-cached";
-        String contentType = "text/plain;charset=utf-8";
+        String contentType = "text/plain";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         metadata.setContentType(contentType);

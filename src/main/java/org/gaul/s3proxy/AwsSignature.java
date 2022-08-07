@@ -34,7 +34,6 @@ import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import javax.servlet.http.HttpServletRequest;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
@@ -45,6 +44,8 @@ import com.google.common.collect.TreeMultimap;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
