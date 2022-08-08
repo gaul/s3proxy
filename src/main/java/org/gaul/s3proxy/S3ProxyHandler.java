@@ -471,7 +471,7 @@ public class S3ProxyHandler {
 
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
-            path[i] = URLDecoder.decode(path[i], UTF_8);
+            path[i] = URLDecoder.decode(path[i], StandardCharsets.UTF_8);
         }
 
         Map.Entry<String, BlobStore> provider =
@@ -1762,7 +1762,7 @@ public class S3ProxyHandler {
 
         try (InputStream is = blob.getPayload().openStream();
              OutputStream os = response.getOutputStream()) {
-            ByteStreams.copy(is, os);
+            is.transferTo(os);
             os.flush();
         }
     }
@@ -1772,7 +1772,8 @@ public class S3ProxyHandler {
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
         String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
-        copySourceHeader = URLDecoder.decode(copySourceHeader, UTF_8);
+        copySourceHeader = URLDecoder.decode(
+                copySourceHeader, StandardCharsets.UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -2520,7 +2521,8 @@ public class S3ProxyHandler {
             throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
         String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
-        copySourceHeader = URLDecoder.decode(copySourceHeader, UTF_8);
+        copySourceHeader = URLDecoder.decode(
+                copySourceHeader, StandardCharsets.UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
