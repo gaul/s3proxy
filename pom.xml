@@ -381,7 +381,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <java.version>1.8</java.version>
+    <java.version>11</java.version>
     <jclouds.version>2.5.0</jclouds.version>
     <slf4j.version>1.7.36</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>

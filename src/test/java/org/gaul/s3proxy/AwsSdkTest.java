@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
@@ -93,7 +94,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.io.ByteSource;
-import com.google.common.io.ByteStreams;
 
 import org.assertj.core.api.Fail;
 
@@ -653,7 +653,7 @@ public final class AwsSdkTest {
         S3Object object = client.getObject(getObjectRequest);
         try (InputStream is = object.getObjectContent()) {
             assertThat(is).isNotNull();
-            ByteStreams.copy(is, ByteStreams.nullOutputStream());
+            is.transferTo(OutputStream.nullOutputStream());
         }
 
         ObjectMetadata reponseMetadata = object.getObjectMetadata();
@@ -1446,7 +1446,7 @@ public final class AwsSdkTest {
                         .withMatchingETagConstraint(result.getETag()));
         try (InputStream is = object.getObjectContent()) {
             assertThat(is).isNotNull();
-            ByteStreams.copy(is, ByteStreams.nullOutputStream());
+            is.transferTo(OutputStream.nullOutputStream());
         }
 
         object = client.getObject(

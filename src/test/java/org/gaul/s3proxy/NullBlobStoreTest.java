@@ -20,13 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.List;
 import java.util.Random;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
-import com.google.common.io.ByteStreams;
 import com.google.common.net.MediaType;
 import com.google.inject.Module;
 
@@ -91,10 +91,10 @@ public final class NullBlobStoreTest {
         // content differs, only compare length
         try (InputStream actual = blob.getPayload().openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            long actualLength = ByteStreams.copy(actual,
-                    ByteStreams.nullOutputStream());
-            long expectedLength = ByteStreams.copy(expected,
-                    ByteStreams.nullOutputStream());
+            long actualLength = actual.transferTo(
+                    OutputStream.nullOutputStream());
+            long expectedLength = expected.transferTo(
+                    OutputStream.nullOutputStream());
             assertThat(actualLength).isEqualTo(expectedLength);
         }
 
@@ -157,10 +157,10 @@ public final class NullBlobStoreTest {
         // content differs, only compare length
         try (InputStream actual = newBlob.getPayload().openStream();
                 InputStream expected = byteSource.openStream()) {
-            long actualLength = ByteStreams.copy(actual,
-                    ByteStreams.nullOutputStream());
-            long expectedLength = ByteStreams.copy(expected,
-                    ByteStreams.nullOutputStream());
+            long actualLength = actual.transferTo(
+                    OutputStream.nullOutputStream());
+            long expectedLength = expected.transferTo(
+                    OutputStream.nullOutputStream());
             assertThat(actualLength).isEqualTo(expectedLength);
         }
 

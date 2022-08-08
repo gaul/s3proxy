@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 
@@ -119,7 +120,7 @@ final class NullBlobStore extends ForwardingBlobStore {
             PutOptions options) {
         long length;
         try (InputStream is = blob.getPayload().openStream()) {
-            length = ByteStreams.copy(is, ByteStreams.nullOutputStream());
+            length = is.transferTo(OutputStream.nullOutputStream());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -175,7 +176,7 @@ final class NullBlobStore extends ForwardingBlobStore {
             int partNumber, Payload payload) {
         long length;
         try (InputStream is = payload.openStream()) {
-            length = ByteStreams.copy(is, ByteStreams.nullOutputStream());
+            length = is.transferTo(OutputStream.nullOutputStream());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
