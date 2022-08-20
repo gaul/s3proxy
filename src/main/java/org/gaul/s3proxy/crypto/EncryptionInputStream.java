@@ -65,6 +65,7 @@ public class EncryptionInputStream extends InputStream {
         }
     }
 
+    @Override
     public final int available() throws IOException {
         if (in == null) {
             return 0; // no way to signal EOF from available()
@@ -72,6 +73,7 @@ public class EncryptionInputStream extends InputStream {
         return in.available();
     }
 
+    @Override
     public final int read() throws IOException {
         while (in != null) {
             int c = in.read();
@@ -84,6 +86,7 @@ public class EncryptionInputStream extends InputStream {
         return -1;
     }
 
+    @Override
     public final int read(byte[] b, int off, int len) throws IOException {
         if (in == null) {
             return -1;
@@ -105,6 +108,7 @@ public class EncryptionInputStream extends InputStream {
         return -1;
     }
 
+    @Override
     public final void close() throws IOException {
         IOException ioe = null;
         while (in != null) {
