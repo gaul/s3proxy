@@ -154,10 +154,10 @@
             <arg>-Xlint</arg>
             <arg>-XDcompilePolicy=simple</arg>
             <arg>-Xplugin:ErrorProne
+                 -Xep:CanIgnoreReturnValueSuggester:OFF
                  -Xep:DefaultCharset:OFF
                  -Xep:HidingField:OFF
                  -Xep:JavaUtilDate:OFF
-                 -Xep:MutableConstantField:OFF
                  -Xep:ProtectedMembersInFinalClass:OFF
             </arg>
           </compilerArgs>
@@ -165,7 +165,7 @@
             <path>
               <groupId>com.google.errorprone</groupId>
               <artifactId>error_prone_core</artifactId>
-              <version>2.10.0</version>
+              <version>2.15.0</version>
             </path>
           </annotationProcessorPaths>
         </configuration>
