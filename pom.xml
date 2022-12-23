@@ -312,14 +312,7 @@
       <plugin>
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-maven-plugin</artifactId>
-        <version>4.7.1.1</version>
-        <dependencies>
-          <dependency>
-            <groupId>com.github.spotbugs</groupId>
-            <artifactId>spotbugs</artifactId>
-            <version>4.7.1</version>
-          </dependency>
-        </dependencies>
+        <version>4.7.3.0</version>
         <configuration>
           <effort>Max</effort>
           <omitVisitors>CrossSiteScripting,DefaultEncodingDetector,FindNullDeref</omitVisitors>
