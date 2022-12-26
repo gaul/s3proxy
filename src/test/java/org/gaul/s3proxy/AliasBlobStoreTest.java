@@ -123,6 +123,7 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
+        @SuppressWarnings("deprecation")
         String contentMD5 = Hashing.md5().hashBytes(content.read()).toString();
         Blob blob = aliasBlobStore.blobBuilder(blobName).payload(content)
                 .build();
@@ -143,6 +144,7 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
+        @SuppressWarnings("deprecation")
         HashCode contentHash = Hashing.md5().hashBytes(content.read());
         Blob blob = aliasBlobStore.blobBuilder(blobName).build();
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
@@ -156,9 +158,10 @@ public final class AliasBlobStoreTest {
         parts.add(part);
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
                 parts.build());
+        @SuppressWarnings("deprecation")
+        HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(
-                String.format("\"%s-1\"",
-                        Hashing.md5().hashBytes(contentHash.asBytes())));
+                String.format("\"%s-1\"", contentHash2));
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
