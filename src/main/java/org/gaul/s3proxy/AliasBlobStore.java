@@ -194,21 +194,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean directoryExists(String container, String directory) {
-        return delegate().directoryExists(getContainer(container), directory);
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        delegate().createDirectory(getContainer(container), directory);
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
-        delegate().deleteDirectory(getContainer(container), directory);
-    }
-
-    @Override
     public boolean blobExists(String container, String name) {
         return delegate().blobExists(getContainer(container), name);
     }
