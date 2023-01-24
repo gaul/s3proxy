@@ -25,7 +25,7 @@ import org.jclouds.Constants;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.s3.blobstore.integration.S3BlobSignerLiveTest;
 import org.jclouds.s3.reference.S3Constants;
-import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterSuite;
 import org.testng.annotations.Test;
 
 @Test(testName = "JcloudsS3BlobSignerLiveTest")
@@ -38,10 +38,11 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
 
-    @AfterClass
-    public void tearDown() throws Exception {
-        s3Proxy.stop();
+    @AfterSuite
+    @Override
+    public void destroyResources() throws Exception {
         context.close();
+        s3Proxy.stop();
     }
 
     @Override

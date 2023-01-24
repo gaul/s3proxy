@@ -153,21 +153,7 @@
           <compilerArgs>
             <arg>-Xlint</arg>
             <arg>-XDcompilePolicy=simple</arg>
-            <arg>-Xplugin:ErrorProne
-                 -Xep:CanIgnoreReturnValueSuggester:OFF
-                 -Xep:DefaultCharset:OFF
-                 -Xep:HidingField:OFF
-                 -Xep:JavaUtilDate:OFF
-                 -Xep:ProtectedMembersInFinalClass:OFF
-            </arg>
           </compilerArgs>
-          <annotationProcessorPaths>
-            <path>
-              <groupId>com.google.errorprone</groupId>
-              <artifactId>error_prone_core</artifactId>
-              <version>2.16</version>
-            </path>
-          </annotationProcessorPaths>
         </configuration>
       </plugin>
       <plugin>
@@ -294,7 +280,7 @@
           </dependency>
         </dependencies>
         <configuration>
-          <parallel>all</parallel>
+          <parallel>classes</parallel>
           <threadCount>1</threadCount>
           <argLine>-Xmx512m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
@@ -375,10 +361,10 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>11</java.version>
-    <jclouds.version>2.5.0</jclouds.version>
+    <jclouds.version>2.6.0-SNAPSHOT</jclouds.version>
     <slf4j.version>2.0.6</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
-    <surefire.version>2.22.2</surefire.version>
+    <surefire.version>3.0.0-M8</surefire.version>
   </properties>
 
   <repositories>
@@ -479,7 +465,7 @@
       <artifactId>assertj-core</artifactId>
       <scope>test</scope>
       <!-- we need to use the same version as in jclouds because we pull in their tests -->
-      <version>1.7.1</version>
+      <version>3.23.1</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -522,7 +508,7 @@
     <dependency>
       <groupId>org.testng</groupId>
       <artifactId>testng</artifactId>
-      <version>6.8.21</version>
+      <version>7.5</version>
       <scope>test</scope>
     </dependency>
     <dependency>

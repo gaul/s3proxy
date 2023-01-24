@@ -36,7 +36,7 @@ import org.jclouds.s3.S3ClientLiveTest;
 import org.jclouds.s3.domain.S3Object;
 import org.jclouds.s3.reference.S3Constants;
 import org.testng.SkipException;
-import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterSuite;
 import org.testng.annotations.Test;
 
 @Test(testName = "JcloudsS3ClientLiveTest")
@@ -50,10 +50,11 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     private BlobStoreContext context;
     private String blobStoreType;
 
-    @AfterClass
-    public void tearDown() throws Exception {
-        s3Proxy.stop();
+    @AfterSuite
+    @Override
+    public void destroyResources() throws Exception {
         context.close();
+        s3Proxy.stop();
     }
 
     @Override
