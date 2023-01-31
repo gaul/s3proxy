@@ -35,6 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
@@ -245,6 +246,13 @@ public final class Main {
         if (!aliases.isEmpty()) {
             System.err.println("Using alias backend");
             blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
+        }
+
+        ImmutableList<Map.Entry<Pattern, String>> regexs = RegexBlobStore.parseRegexs(
+                properties);
+        if (!regexs.isEmpty()){
+            System.err.println("Using regex backend");
+            blobStore = RegexBlobStore.newRegexBlobStore(blobStore, regexs);
         }
 
         ImmutableMap<String, Integer> shards =
