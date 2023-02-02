@@ -102,6 +102,15 @@ public final class S3ProxyConstants {
     /** Shard objects across a specified number of buckets. */
     public static final String PROPERTY_SHARDED_BLOBSTORE =
             "s3proxy.sharded-blobstore";
+    /** "Overlay" the backend with a transient BlobStore. */
+    public static final String PROPERTY_OVERLAY_BLOBSTORE =
+            "s3proxy.overlay-blobstore";
+    /** The path to store overlay and local files in. */
+    public static final String PROPERTY_OVERLAY_BLOBSTORE_PATH =
+            "s3proxy.overlay-blobstore.path";
+    /** The suffix to append to existing blob names when creating mask files. */
+    public static final String PROPERTY_OVERLAY_BLOBSTORE_MASK_SUFFIX =
+            "s3proxy.overlay-blobstore.mask-suffix";
 
     /** Maximum time skew allowed in signed requests. */
     public static final String PROPERTY_MAXIMUM_TIME_SKEW =

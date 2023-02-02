@@ -107,6 +107,7 @@ S3Proxy can modify its behavior based on middlewares:
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
 * [sharded backend containers](https://github.com/gaul/s3proxy/wiki/Middleware-sharded-backend)
+* [overlay blobstore]()
 
 ## Limitations
 

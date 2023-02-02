@@ -1,3 +1,12 @@
+# Multistage - Builder
+FROM maven:3.6.3-jdk-11-slim as s3proxy-builder
+LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
+
+COPY . /opt/s3proxy/
+WORKDIR /opt/s3proxy
+RUN  mvn package -DskipTests
+
+# Multistage - Image
 FROM openjdk:11-jre-slim
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
@@ -20,6 +29,9 @@ ENV \
     S3PROXY_CORS_ALLOW_METHODS="" \
     S3PROXY_CORS_ALLOW_HEADERS="" \
     S3PROXY_IGNORE_UNKNOWN_HEADERS="false" \
+    S3PROXY_OVERLAY_BLOBSTORE="false" \
+    S3PROXY_OVERLAY_BLOBSTORE_MASK_SUFFIX="__deleted" \
+    S3PROXY_OVERLAY_BLOBSTORE_PATH="/tmp" \
     S3PROXY_ENCRYPTED_BLOBSTORE="" \
     S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD="" \
     S3PROXY_ENCRYPTED_BLOBSTORE_SALT="" \

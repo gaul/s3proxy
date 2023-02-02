@@ -12,6 +12,9 @@ exec java \
     -Ds3proxy.cors-allow-methods="${S3PROXY_CORS_ALLOW_METHODS}" \
     -Ds3proxy.cors-allow-headers="${S3PROXY_CORS_ALLOW_HEADERS}" \
     -Ds3proxy.ignore-unknown-headers="${S3PROXY_IGNORE_UNKNOWN_HEADERS}" \
+    -Ds3proxy.overlay-blobstore="${S3PROXY_OVERLAY_BLOBSTORE}" \
+    -Ds3proxy.overlay-blobstore.mask-suffix="${S3PROXY_OVERLAY_BLOBSTORE_MASK_SUFFIX}" \
+    -Ds3proxy.overlay-blobstore.path="${S3PROXY_OVERLAY_BLOBSTORE_PATH}" \
     -Ds3proxy.encrypted-blobstore="${S3PROXY_ENCRYPTED_BLOBSTORE}" \
     -Ds3proxy.encrypted-blobstore-password="${S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD}" \
     -Ds3proxy.encrypted-blobstore-salt="${S3PROXY_ENCRYPTED_BLOBSTORE_SALT}" \
