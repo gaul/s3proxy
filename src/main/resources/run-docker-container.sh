@@ -1,6 +1,7 @@
 #!/bin/sh
 
 exec java \
+    $S3PROXY_JAVA_OPTS \
     -DLOG_LEVEL="${LOG_LEVEL}" \
     -Ds3proxy.endpoint="${S3PROXY_ENDPOINT}" \
     -Ds3proxy.virtual-host="${S3PROXY_VIRTUALHOST}" \
