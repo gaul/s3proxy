@@ -364,7 +364,7 @@
     <jclouds.version>2.6.0-SNAPSHOT</jclouds.version>
     <slf4j.version>2.0.6</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
-    <surefire.version>3.0.0-M9</surefire.version>
+    <surefire.version>3.0.0</surefire.version>
   </properties>
 
   <repositories>
