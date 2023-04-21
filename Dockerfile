@@ -36,5 +36,5 @@ ENV \
     JCLOUDS_KEYSTONE_PROJECT_DOMAIN_NAME="" \
     JCLOUDS_FILESYSTEM_BASEDIR="/data"
 
-EXPOSE 80
+EXPOSE 80 443
 ENTRYPOINT ["/opt/s3proxy/run-docker-container.sh"]
