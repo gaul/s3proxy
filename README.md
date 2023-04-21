@@ -108,9 +108,9 @@ S3Proxy can modify its behavior based on middlewares:
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
 * [sharded backend containers](https://github.com/gaul/s3proxy/wiki/Middleware-sharded-backend)
 
-## TLS Support
+## SSL Support
 
-S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool). You can read more about how configure S3Proxy for TLS Support in [the dedicated wiki page](https://github.com/gaul/s3proxy/wiki/SSL-support) with Docker, Kubernetes or simply Java.
+S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool). You can read more about how configure S3Proxy for SSL Support in [the dedicated wiki page](https://github.com/gaul/s3proxy/wiki/SSL-support) with Docker, Kubernetes or simply Java.
 
 ## Limitations
 
