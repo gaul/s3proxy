@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 final class AwsHttpHeaders {
     static final String ACL = "x-amz-acl";
+    static final String API_VERSION = "x-amz-api-version";
     static final String CONTENT_SHA256 = "x-amz-content-sha256";
     static final String COPY_SOURCE = "x-amz-copy-source";
     static final String COPY_SOURCE_IF_MATCH = "x-amz-copy-source-if-match";

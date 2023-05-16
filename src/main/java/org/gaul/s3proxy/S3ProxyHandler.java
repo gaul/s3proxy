@@ -163,6 +163,7 @@ public class S3ProxyHandler {
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
             AwsHttpHeaders.ACL,
+            AwsHttpHeaders.API_VERSION,
             AwsHttpHeaders.CONTENT_SHA256,
             AwsHttpHeaders.COPY_SOURCE,
             AwsHttpHeaders.COPY_SOURCE_IF_MATCH,
