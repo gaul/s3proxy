@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
       - id: dockerhub-publish
         if: "${{ env.MY_KEY != '' }}"
-        run: echo "::set-output name=defined::true"
+        run: echo "defined=true" >> "$GITHUB_OUTPUT"
         env:
           MY_KEY: ${{ secrets.DOCKER_PASS }}
       - name: Docker meta
@@ -106,14 +106,13 @@ jobs:
         uses: docker/setup-buildx-action@v2
 
       - name: Login to DockerHub
-        uses: docker/login-action@v2.0.0
-        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
+        uses: docker/login-action@v2.1.0
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASS }}
 
       - name: Login to GHCR
-        uses: docker/login-action@v2.0.0
+        uses: docker/login-action@v2.1.0
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
@@ -135,8 +134,25 @@ jobs:
           cache-from: type=registry,ref=${{ needs.meta.outputs.container_base }}
           cache-to: type=inline
 
+      - name: Docker meta
+        id: docker_action_meta
+        uses: docker/metadata-action@v4.0.1
+        with:
+          images: andrewgaul/s3proxy
+          flavor: |
+            latest=false
+          tags: |
+            type=sha
+            type=semver,pattern={{version}},value=${{ needs.meta.outputs.new_release_version }}
+            type=semver,pattern={{major}},value=${{ needs.meta.outputs.new_release_version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.meta.outputs.new_release_version }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.licenses=Apache-2.0
+
       - name: Publish to Docker
-        if: github.event_name != 'pull_request' && needs.meta.outputs.dockerhub-publish == 'true'
         run: |
           curl -L https://github.com/regclient/regclient/releases/download/v0.3.5/regctl-linux-amd64 >/tmp/regctl
           chmod 755 /tmp/regctl
