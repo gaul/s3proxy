@@ -1491,7 +1491,7 @@ public class S3ProxyHandler {
                     StorageMetadata sm = Streams.findLast(set.stream()).orElse(null);
                     if (sm != null) {
                         lastKeyToMarker.put(Maps.immutableEntry(containerName,
-                                sm.getName()), nextMarker);
+                                encodeBlob(encodingType, nextMarker)), nextMarker);
                     }
                 }
             } else {
