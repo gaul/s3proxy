@@ -39,6 +39,7 @@ import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+
 /** Jetty-specific handler for S3 requests. */
 final class S3ProxyHandlerJetty extends AbstractHandler {
     private static final Logger logger = LoggerFactory.getLogger(
@@ -109,12 +110,14 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     new S3Exception(S3ErrorCode.BAD_DIGEST));
                 break;
             default:
+                logger.debug("HttpResponseException:", hre);
                 response.sendError(status, hre.getContent());
                 break;
             }
             baseRequest.setHandled(true);
             return;
         } catch (IllegalArgumentException iae) {
+            logger.debug("IllegalArgumentException:", iae);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
                     iae.getMessage());
             baseRequest.setHandled(true);
@@ -130,6 +133,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (UnsupportedOperationException uoe) {
+            logger.debug("UnsupportedOperationException:", uoe);
             response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED,
                     uoe.getMessage());
             baseRequest.setHandled(true);
