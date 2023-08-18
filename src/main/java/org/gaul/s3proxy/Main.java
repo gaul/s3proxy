@@ -326,7 +326,7 @@ public final class Main {
             }
             properties.remove(Constants.PROPERTY_CREDENTIAL);
             // We also need to clear the system property, otherwise the
-            // credential will overridden by the system property.
+            // credential will be overridden by the system property.
             System.clearProperty(Constants.PROPERTY_CREDENTIAL);
         }
 
