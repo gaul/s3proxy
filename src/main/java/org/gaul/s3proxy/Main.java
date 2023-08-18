@@ -325,6 +325,9 @@ public final class Main {
                         StandardCharsets.UTF_8).read();
             }
             properties.remove(Constants.PROPERTY_CREDENTIAL);
+            // We also need to clear the system property, otherwise the
+            // credential will overridden by the system property.
+            System.clearProperty(Constants.PROPERTY_CREDENTIAL);
         }
 
         if (identity == null || credential == null) {
