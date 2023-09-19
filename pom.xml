@@ -280,7 +280,7 @@
           </dependency>
         </dependencies>
         <configuration>
-          <parallel>classes</parallel>
+          <parallel>all</parallel>
           <threadCount>1</threadCount>
           <argLine>-Xmx512m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
@@ -361,7 +361,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>11</java.version>
-    <jclouds.version>2.6.0-SNAPSHOT</jclouds.version>
+    <jclouds.version>2.5.0</jclouds.version>
     <slf4j.version>2.0.7</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>3.0.0</surefire.version>
@@ -465,7 +465,7 @@
       <artifactId>assertj-core</artifactId>
       <scope>test</scope>
       <!-- we need to use the same version as in jclouds because we pull in their tests -->
-      <version>3.24.2</version>
+      <version>1.7.1</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -508,7 +508,7 @@
     <dependency>
       <groupId>org.testng</groupId>
       <artifactId>testng</artifactId>
-      <version>7.5</version>
+      <version>6.8.21</version>
       <scope>test</scope>
     </dependency>
     <dependency>
