@@ -303,6 +303,9 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
                 .isEqualTo("Accept, Content-Type");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS))
+                .isNull();
     }
 
     @Test

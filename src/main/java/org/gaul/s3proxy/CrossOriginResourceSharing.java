@@ -40,6 +40,7 @@ public final class CrossOriginResourceSharing {
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_ORIGIN = "*";
     private static final String ALLOW_ANY_HEADER = "*";
+    private static final String ALLOW_CREDENTIALS = "true";
 
     private static final Logger logger = LoggerFactory.getLogger(
             CrossOriginResourceSharing.class);
@@ -50,16 +51,18 @@ public final class CrossOriginResourceSharing {
     private final Set<Pattern> allowedOrigins;
     private final Set<String> allowedMethods;
     private final Set<String> allowedHeaders;
+    private final String allowCredentials;
 
     public CrossOriginResourceSharing() {
         // CORS Allow all
         this(Lists.newArrayList(ALLOW_ANY_ORIGIN), SUPPORTED_METHODS,
-                Lists.newArrayList(ALLOW_ANY_HEADER));
+                Lists.newArrayList(ALLOW_ANY_HEADER), "");
     }
 
     public CrossOriginResourceSharing(Collection<String> allowedOrigins,
             Collection<String> allowedMethods,
-            Collection<String> allowedHeaders) {
+            Collection<String> allowedHeaders,
+            String allowCredentials) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
         boolean anyOriginAllowed = false;
 
@@ -92,9 +95,12 @@ public final class CrossOriginResourceSharing {
         this.allowedHeadersRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedHeaders);
 
+        this.allowCredentials = allowCredentials;
+
         logger.info("CORS allowed origins: {}", allowedOrigins);
         logger.info("CORS allowed methods: {}", allowedMethods);
         logger.info("CORS allowed headers: {}", allowedHeaders);
+        logger.info("CORS allow credentials: {}", allowCredentials);
     }
 
     public String getAllowedMethods() {
@@ -164,6 +170,10 @@ public final class CrossOriginResourceSharing {
         }
 
         return result;
+    }
+
+    public boolean isAllowCredentials() {
+        return ALLOW_CREDENTIALS.equals(allowCredentials);
     }
 
     @Override

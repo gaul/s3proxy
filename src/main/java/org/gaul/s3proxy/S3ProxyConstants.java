@@ -40,6 +40,8 @@ public final class S3ProxyConstants {
             "s3proxy.cors-allow-methods";
     public static final String PROPERTY_CORS_ALLOW_HEADERS =
             "s3proxy.cors-allow-headers";
+    public static final String PROPERTY_CORS_ALLOW_CREDENTIAL =
+            "s3proxy.cors-allow-credential";
     public static final String PROPERTY_CREDENTIAL =
             "s3proxy.credential";
     public static final String PROPERTY_IGNORE_UNKNOWN_HEADERS =

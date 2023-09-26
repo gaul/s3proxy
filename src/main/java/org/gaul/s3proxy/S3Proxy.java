@@ -267,6 +267,9 @@ public final class S3Proxy {
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS, "");
                 String corsAllowHeaders = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
+                String allowCredentials = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_CORS_ALLOW_CREDENTIAL, "");
+
                 Splitter splitter = Splitter.on(" ").trimResults()
                         .omitEmptyStrings();
 
@@ -285,7 +288,8 @@ public final class S3Proxy {
                 builder.corsRules(new CrossOriginResourceSharing(
                         Lists.newArrayList(splitter.split(corsAllowOrigins)),
                         Lists.newArrayList(splitter.split(corsAllowMethods)),
-                        Lists.newArrayList(splitter.split(corsAllowHeaders))));
+                        Lists.newArrayList(splitter.split(corsAllowHeaders)),
+                        allowCredentials));
             }
 
             String jettyMaxThreads = properties.getProperty(

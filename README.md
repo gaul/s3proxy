@@ -140,6 +140,7 @@ file (and corresponding ENV variables for Docker):
 s3proxy.cors-allow-origins=https://example\.com https://.+\.example\.com https://example\.cloud
 s3proxy.cors-allow-methods=GET PUT
 s3proxy.cors-allow-headers=Accept Content-Type
+s3proxy.cors-allow-credential=true
 ```
 
 CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.

@@ -38,9 +38,10 @@ public final class CrossOriginResourceSharingRuleTest {
                         "https://.+\\.example\\.com",
                         "https://example\\.cloud"),
                 Lists.newArrayList("GET", "PUT"),
-                Lists.newArrayList("Accept", "Content-Type"));
+                Lists.newArrayList("Accept", "Content-Type"),
+                "true");
         // CORS disabled
-        corsOff = new CrossOriginResourceSharing(null, null, null);
+        corsOff = new CrossOriginResourceSharing(null, null, null, null);
     }
 
     @Test
@@ -173,5 +174,11 @@ public final class CrossOriginResourceSharingRuleTest {
         probe = "Accept, Content-Type";
         assertThat(corsCfg.isEveryHeaderAllowed(probe))
                 .as("check '%s' as header", probe).isTrue();
+    }
+
+    @Test
+    public void testAllowCredentials() {
+        assertThat(corsOff.isAllowCredentials()).isFalse();
+        assertThat(corsCfg.isAllowCredentials()).isTrue();
     }
 }
