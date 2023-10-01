@@ -31,6 +31,9 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -53,8 +56,11 @@ public final class S3Proxy {
     private final S3ProxyHandlerJetty handler;
     private final boolean listenHTTP;
     private final boolean listenHTTPS;
-
+    private static final Logger logger = LoggerFactory.getLogger(
+        S3Proxy.class);
+    
     S3Proxy(Builder builder) {
+
         checkArgument(builder.endpoint != null ||
                         builder.secureEndpoint != null,
                 "Must provide endpoint or secure-endpoint");
@@ -145,6 +151,8 @@ public final class S3Proxy {
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
+        private static final Logger logger = LoggerFactory.getLogger(
+            Builder.class);
 
         Builder() {
         }
@@ -167,10 +175,12 @@ public final class S3Proxy {
                         S3ProxyConstants.PROPERTY_ENDPOINT + " or " +
                         S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
             }
-            if (endpoint != null) {
+            if (endpoint != null && !endpoint.isEmpty()) {
+                logger.info("property endpoint: '{}'", endpoint);
                 builder.endpoint(new URI(endpoint));
             }
-            if (secureEndpoint != null) {
+            if (secureEndpoint != null && !secureEndpoint.isEmpty()) {
+                logger.info("property secureEndpoint: '{}'", secureEndpoint);
                 builder.secureEndpoint(new URI(secureEndpoint));
             }
 
