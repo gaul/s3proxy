@@ -240,6 +240,17 @@ public final class Main {
             blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
         }
 
+        String overlayBlobStore = properties.getProperty(
+                S3ProxyConstants.PROPERTY_OVERLAY_BLOBSTORE);
+        if("true".equalsIgnoreCase(overlayBlobStore))  {
+            System.err.println("Overlaying storage backend with local BlobStore");
+            String overlayPath = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_OVERLAY_BLOBSTORE_PATH);
+            String overlayMaskSuffix = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_OVERLAY_BLOBSTORE_MASK_SUFFIX);
+            blobStore = OverlayBlobStore.newOverlayBlobStore(blobStore, overlayPath, overlayMaskSuffix);
+        }
+
         ImmutableBiMap<String, String> aliases = AliasBlobStore.parseAliases(
                 properties);
         if (!aliases.isEmpty()) {
