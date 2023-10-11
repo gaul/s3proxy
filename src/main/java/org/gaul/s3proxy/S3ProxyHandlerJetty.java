@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import java.nio.file.NoSuchFileException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeoutException;
@@ -153,6 +154,13 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                         code.getMessage(), ImmutableMap.<String, String>of());
                 baseRequest.setHandled(true);
                 return;
+            } else if (Throwables2.getFirstThrowableOfType(throwable,
+                    NoSuchFileException.class) != null) {
+                // jcloud.blobstore does not check file exists in getContainerAccess when using filesystem
+                S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
+                handler.sendSimpleErrorResponse(request, response, code,
+                        code.getMessage(), ImmutableMap.<String, String>of());
+                baseRequest.setHandled(true);
             } else {
                 logger.debug("Unknown exception:", throwable);
                 throw throwable;
