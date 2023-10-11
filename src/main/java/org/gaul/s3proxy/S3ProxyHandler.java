@@ -302,8 +302,8 @@ public class S3ProxyHandler {
         String hostHeader = request.getHeader(HttpHeaders.HOST);
         if (hostHeader != null && virtualHost.isPresent()) {
             hostHeader = HostAndPort.fromString(hostHeader).getHost();
-            String virtualHostSuffix = "." + virtualHost.get();
-            if (!hostHeader.equals(virtualHost.get())) {
+            String virtualHostSuffix = "." + virtualHost.orElseThrow();
+            if (!hostHeader.equals(virtualHost.orElseThrow())) {
                 if (hostHeader.endsWith(virtualHostSuffix)) {
                     String bucket = hostHeader.substring(0,
                             hostHeader.length() - virtualHostSuffix.length());
@@ -323,7 +323,7 @@ public class S3ProxyHandler {
         for (String headerName : Collections.list(request.getHeaderNames())) {
             for (String headerValue : Collections.list(request.getHeaders(
                     headerName))) {
-                logger.debug("header: {}: {}", headerName,
+                logger.trace("header: {}: {}", headerName,
                         Strings.nullToEmpty(headerValue));
             }
             if (headerName.equalsIgnoreCase(HttpHeaders.DATE)) {
@@ -2994,6 +2994,9 @@ public class S3ProxyHandler {
                     corsRules.getAllowedOrigin(corsOrigin));
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                     corsRules.getAllowedMethods());
+            if (corsRules.isAllowCredentials()) {
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
+            }
         }
     }
 

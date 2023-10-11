@@ -27,7 +27,7 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.s3.blobstore.integration.S3BlobIntegrationLiveTest;
 import org.jclouds.s3.reference.S3Constants;
 import org.testng.SkipException;
-import org.testng.annotations.AfterSuite;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
 @Test(testName = "JcloudsS3BlobIntegrationLiveTest")
@@ -42,11 +42,10 @@ public final class JcloudsS3BlobIntegrationLiveTest
     private BlobStoreContext context;
     private String blobStoreType;
 
-    @AfterSuite
-    @Override
-    public void destroyResources() throws Exception {
-        context.close();
+    @AfterClass
+    public void tearDown() throws Exception {
         s3Proxy.stop();
+        context.close();
     }
 
     @Override

@@ -40,6 +40,8 @@ public final class S3ProxyConstants {
             "s3proxy.cors-allow-methods";
     public static final String PROPERTY_CORS_ALLOW_HEADERS =
             "s3proxy.cors-allow-headers";
+    public static final String PROPERTY_CORS_ALLOW_CREDENTIAL =
+            "s3proxy.cors-allow-credential";
     public static final String PROPERTY_CREDENTIAL =
             "s3proxy.credential";
     public static final String PROPERTY_IGNORE_UNKNOWN_HEADERS =
@@ -93,6 +95,13 @@ public final class S3ProxyConstants {
     /** Alias a backend bucket to an alternate name. */
     public static final String PROPERTY_ALIAS_BLOBSTORE =
             "s3proxy.alias-blobstore";
+    /** Alias a backend bucket to an alternate name. */
+    public static final String PROPERTY_REGEX_BLOBSTORE =
+            "s3proxy.regex-blobstore";
+    public static final String PROPERTY_REGEX_BLOBSTORE_MATCH =
+            "match";
+    public static final String PROPERTY_REGEX_BLOBSTORE_REPLACE =
+            "replace";
     /** Discard object data. */
     public static final String PROPERTY_NULL_BLOBSTORE =
             "s3proxy.null-blobstore";

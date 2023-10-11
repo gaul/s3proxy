@@ -35,6 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
@@ -247,6 +248,13 @@ public final class Main {
             blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
         }
 
+        ImmutableList<Map.Entry<Pattern, String>> regexs = RegexBlobStore.parseRegexs(
+                properties);
+        if (!regexs.isEmpty()){
+            System.err.println("Using regex backend");
+            blobStore = RegexBlobStore.newRegexBlobStore(blobStore, regexs);
+        }
+
         ImmutableMap<String, Integer> shards =
                 ShardedBlobStore.parseBucketShards(properties);
         ImmutableMap<String, String> prefixes =
@@ -325,6 +333,9 @@ public final class Main {
                         StandardCharsets.UTF_8).read();
             }
             properties.remove(Constants.PROPERTY_CREDENTIAL);
+            // We also need to clear the system property, otherwise the
+            // credential will be overridden by the system property.
+            System.clearProperty(Constants.PROPERTY_CREDENTIAL);
         }
 
         if (identity == null || credential == null) {
