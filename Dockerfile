@@ -1,6 +1,12 @@
 FROM openjdk:11-jre-slim
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/s3proxy
 
 COPY \
