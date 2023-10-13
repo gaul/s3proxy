@@ -157,7 +157,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                .isEqualTo("GET, HEAD, PUT, POST");
+                .isEqualTo("GET, HEAD, PUT, POST, DELETE");
         assertThat(response.containsHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS)).isTrue();
         assertThat(response.getFirstHeader(
@@ -181,7 +181,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isTrue();
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
-                    .isEqualTo("GET, HEAD, PUT, POST");
+                    .isEqualTo("GET, HEAD, PUT, POST, DELETE");
     }
 
     @Test
