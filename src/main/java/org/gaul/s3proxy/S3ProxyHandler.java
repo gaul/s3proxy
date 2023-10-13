@@ -877,6 +877,7 @@ public class S3ProxyHandler {
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -931,7 +932,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private void handleSetContainerAcl(HttpServletRequest request,
@@ -977,6 +977,7 @@ public class S3ProxyHandler {
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1031,7 +1032,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private void handleSetBlobAcl(HttpServletRequest request,
@@ -1114,6 +1114,7 @@ public class S3ProxyHandler {
         PageSet<? extends StorageMetadata> buckets = blobStore.list();
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1150,12 +1151,12 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private void handleContainerLocation(HttpServletRequest request,
             HttpServletResponse response) throws IOException {
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1169,7 +1170,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private static void handleBucketPolicy(BlobStore blobStore,
@@ -1197,6 +1197,7 @@ public class S3ProxyHandler {
                 container);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1255,7 +1256,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private void handleContainerExists(HttpServletRequest request,
@@ -1593,6 +1593,7 @@ public class S3ProxyHandler {
         blobStore.removeBlobs(containerName, blobNames);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1617,7 +1618,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private void handleBlobMetadata(HttpServletRequest request,
@@ -1887,6 +1887,7 @@ public class S3ProxyHandler {
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
                 destBlobName);
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1904,7 +1905,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-        addCorsResponseHeader(request, response);
     }
 
     private void handlePutBlob(HttpServletRequest request,
@@ -2217,6 +2217,7 @@ public class S3ProxyHandler {
         }
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2234,8 +2235,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleCompleteMultipartUpload(HttpServletRequest request,
@@ -2342,6 +2341,7 @@ public class S3ProxyHandler {
         }
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(XML_CONTENT_TYPE);
@@ -2405,8 +2405,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleAbortMultipartUpload(HttpServletRequest request,
@@ -2472,6 +2470,7 @@ public class S3ProxyHandler {
         String encodingType = request.getParameter("encoding-type");
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2529,8 +2528,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleCopyPart(HttpServletRequest request,
@@ -2706,6 +2703,7 @@ public class S3ProxyHandler {
         }
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2724,8 +2722,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleUploadPart(HttpServletRequest request,
