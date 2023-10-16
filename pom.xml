@@ -362,6 +362,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>11</java.version>
     <jclouds.version>2.5.0</jclouds.version>
+    <jetty.version>11.0.17</jetty.version>
     <slf4j.version>2.0.9</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>3.0.0</surefire.version>
@@ -470,7 +471,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
-      <version>11.0.16</version>
+      <version>${jetty.version}</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
