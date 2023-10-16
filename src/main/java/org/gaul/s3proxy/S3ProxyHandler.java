@@ -848,15 +848,6 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             } else {
                 String containerName = path[1];
-                /*
-                 * Only check access on bucket level. The preflight request
-                 * might be for a PUT, so the object is not yet there.
-                 */
-                ContainerAccess access = blobStore.getContainerAccess(
-                        containerName);
-                if (access == ContainerAccess.PRIVATE) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-                }
                 handleOptionsBlob(request, response, blobStore, containerName);
                 return;
             }
