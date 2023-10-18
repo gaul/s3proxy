@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
 
 public final class CrossOriginResourceSharing {
     protected static final Collection<String> SUPPORTED_METHODS =
-            ImmutableList.of("GET", "HEAD", "PUT", "POST");
+            ImmutableList.of("GET", "HEAD", "PUT", "POST", "DELETE");
 
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_ORIGIN = "*";

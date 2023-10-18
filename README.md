@@ -145,7 +145,7 @@ s3proxy.cors-allow-credential=true
 ```
 
 CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
-Actual CORS requests are supported for GET, PUT and POST methods.
+Actual CORS requests are supported for GET, PUT, POST, HEAD and DELETE methods.
 
 The wiki collects
 [compatibility notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)

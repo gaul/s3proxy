@@ -660,26 +660,26 @@ public class S3ProxyHandler {
         switch (method) {
         case "DELETE":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerDelete(response, blobStore, path[1]);
+                handleContainerDelete(request, response, blobStore, path[1]);
                 return;
             } else if (uploadId != null) {
                 handleAbortMultipartUpload(request, response, blobStore,
                         path[1], path[2], uploadId);
                 return;
             } else {
-                handleBlobRemove(response, blobStore, path[1], path[2]);
+                handleBlobRemove(request, response, blobStore, path[1], path[2]);
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
-                handleContainerList(response, blobStore);
+                handleContainerList(request, response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
-                    handleGetContainerAcl(response, blobStore, path[1]);
+                    handleGetContainerAcl(request, response, blobStore, path[1]);
                     return;
                 } else if (request.getParameter("location") != null) {
-                    handleContainerLocation(response);
+                    handleContainerLocation(request, response);
                     return;
                 } else if (request.getParameter("policy") != null) {
                     handleBucketPolicy(blobStore, path[1]);
@@ -693,7 +693,7 @@ public class S3ProxyHandler {
                 return;
             } else {
                 if (request.getParameter("acl") != null) {
-                    handleGetBlobAcl(response, blobStore, path[1],
+                    handleGetBlobAcl(request, response, blobStore, path[1],
                             path[2]);
                     return;
                 } else if (uploadId != null) {
@@ -707,7 +707,7 @@ public class S3ProxyHandler {
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
-                handleContainerExists(blobStore, path[1]);
+                handleContainerExists(request, response, blobStore, path[1]);
                 return;
             } else {
                 handleBlobMetadata(request, response, blobStore, path[1],
@@ -716,7 +716,7 @@ public class S3ProxyHandler {
             }
         case "POST":
             if (request.getParameter("delete") != null) {
-                handleMultiBlobRemove(response, is, blobStore, path[1]);
+                handleMultiBlobRemove(request, response, is, blobStore, path[1]);
                 return;
             } else if (request.getParameter("uploads") != null) {
                 handleInitiateMultipartUpload(request, response, blobStore,
@@ -848,15 +848,6 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             } else {
                 String containerName = path[1];
-                /*
-                 * Only check access on bucket level. The preflight request
-                 * might be for a PUT, so the object is not yet there.
-                 */
-                ContainerAccess access = blobStore.getContainerAccess(
-                        containerName);
-                if (access == ContainerAccess.PRIVATE) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-                }
                 handleOptionsBlob(request, response, blobStore, containerName);
                 return;
             }
@@ -868,15 +859,16 @@ public class S3ProxyHandler {
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
-    private void handleGetContainerAcl(HttpServletResponse response,
-            BlobStore blobStore, String containerName)
-            throws IOException, S3Exception {
+    private void handleGetContainerAcl(HttpServletRequest request, 
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -967,14 +959,16 @@ public class S3ProxyHandler {
         }
 
         blobStore.setContainerAccess(containerName, access);
+        addCorsResponseHeader(request, response);
     }
 
-    private void handleGetBlobAcl(HttpServletResponse response,
-            BlobStore blobStore, String containerName,
-            String blobName) throws IOException {
+    private void handleGetBlobAcl(HttpServletRequest request, 
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName) throws IOException {
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1066,6 +1060,7 @@ public class S3ProxyHandler {
         }
 
         blobStore.setBlobAccess(containerName, blobName, access);
+        addCorsResponseHeader(request, response);
     }
 
     /** Map XML ACLs to a canned policy if an exact tranformation exists. */
@@ -1105,11 +1100,12 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerList(HttpServletResponse response,
-            BlobStore blobStore) throws IOException {
+    private void handleContainerList(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore) throws IOException {
         PageSet<? extends StorageMetadata> buckets = blobStore.list();
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1148,9 +1144,10 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleContainerLocation(HttpServletResponse response)
-            throws IOException {
+    private void handleContainerLocation(HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1191,6 +1188,7 @@ public class S3ProxyHandler {
                 container);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1251,11 +1249,13 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleContainerExists(BlobStore blobStore,
+    private void handleContainerExists(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
+        addCorsResponseHeader(request, response);
     }
 
     private void handleContainerCreate(HttpServletRequest request,
@@ -1331,11 +1331,12 @@ public class S3ProxyHandler {
         }
 
         response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
+        addCorsResponseHeader(request, response);
     }
 
-    private static void handleContainerDelete(HttpServletResponse response,
-            BlobStore blobStore, String containerName)
-            throws IOException, S3Exception {
+    private void handleContainerDelete(HttpServletRequest request, 
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
@@ -1354,6 +1355,7 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.BUCKET_NOT_EMPTY);
         }
 
+        addCorsResponseHeader(request, response);
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
@@ -1554,15 +1556,18 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleBlobRemove(HttpServletResponse response,
-            BlobStore blobStore, String containerName,
-            String blobName) throws IOException, S3Exception {
+    private void handleBlobRemove(HttpServletRequest request, 
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName)
+            throws IOException, S3Exception {
         blobStore.removeBlob(containerName, blobName);
+        addCorsResponseHeader(request, response);
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
-    private void handleMultiBlobRemove(HttpServletResponse response,
-            InputStream is, BlobStore blobStore, String containerName)
+    private void handleMultiBlobRemove(HttpServletRequest request,
+            HttpServletResponse response, InputStream is,
+            BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
         DeleteMultipleObjectsRequest dmor = mapper.readValue(
                 is, DeleteMultipleObjectsRequest.class);
@@ -1579,6 +1584,7 @@ public class S3ProxyHandler {
         blobStore.removeBlobs(containerName, blobNames);
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1605,7 +1611,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void handleBlobMetadata(HttpServletRequest request,
+    private void handleBlobMetadata(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
@@ -1650,6 +1656,7 @@ public class S3ProxyHandler {
 
         response.setStatus(HttpServletResponse.SC_OK);
         addMetadataToResponse(request, response, metadata);
+        addCorsResponseHeader(request, response);
     }
 
     private void handleOptionsBlob(HttpServletRequest request,
@@ -1871,6 +1878,7 @@ public class S3ProxyHandler {
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
                 destBlobName);
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2200,6 +2208,7 @@ public class S3ProxyHandler {
         }
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2217,8 +2226,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleCompleteMultipartUpload(HttpServletRequest request,
@@ -2325,6 +2332,7 @@ public class S3ProxyHandler {
         }
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(XML_CONTENT_TYPE);
@@ -2388,8 +2396,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleAbortMultipartUpload(HttpServletRequest request,
@@ -2455,6 +2461,7 @@ public class S3ProxyHandler {
         String encodingType = request.getParameter("encoding-type");
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2512,8 +2519,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleCopyPart(HttpServletRequest request,
@@ -2689,6 +2694,7 @@ public class S3ProxyHandler {
         }
 
         response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -2707,8 +2713,6 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
-
-        addCorsResponseHeader(request, response);
     }
 
     private void handleUploadPart(HttpServletRequest request,
