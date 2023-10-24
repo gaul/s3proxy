@@ -161,16 +161,18 @@ public final class S3Proxy {
                     S3ProxyConstants.PROPERTY_ENDPOINT);
             String secureEndpoint = properties.getProperty(
                     S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
-            if (endpoint == null && secureEndpoint == null) {
+            boolean hasEndpoint = !Strings.isNullOrEmpty(endpoint);
+            boolean hasSecureEndpoint = !Strings.isNullOrEmpty(secureEndpoint);
+            if (!hasEndpoint && !hasSecureEndpoint) {
                 throw new IllegalArgumentException(
                         "Properties file must contain: " +
                         S3ProxyConstants.PROPERTY_ENDPOINT + " or " +
                         S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
             }
-            if (endpoint != null) {
+            if (hasEndpoint) {
                 builder.endpoint(new URI(endpoint));
             }
-            if (secureEndpoint != null) {
+            if (hasSecureEndpoint) {
                 builder.secureEndpoint(new URI(secureEndpoint));
             }
 
