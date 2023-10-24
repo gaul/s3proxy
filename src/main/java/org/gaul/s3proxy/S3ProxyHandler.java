@@ -1490,8 +1490,12 @@ public class S3ProxyHandler {
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                     StorageMetadata sm = Streams.findLast(set.stream()).orElse(null);
                     if (sm != null) {
-                        lastKeyToMarker.put(Maps.immutableEntry(containerName,
-                                encodeBlob(encodingType, nextMarker)), nextMarker);
+                        // TODO: verify if we need this handling at all for V2
+                        String lastKey = isListV2 ? encodeBlob(encodingType, nextMarker) : sm.getName();
+                        lastKeyToMarker.put(
+                                Maps.immutableEntry(containerName, lastKey),
+                                nextMarker
+                        );
                     }
                 }
             } else {
