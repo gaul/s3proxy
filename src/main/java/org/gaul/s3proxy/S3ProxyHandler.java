@@ -1506,8 +1506,11 @@ public class S3ProxyHandler {
                 case FOLDER:
                     // fallthrough
                 case RELATIVE_PATH:
-                    commonPrefixes.add(metadata.getName());
-                    continue;
+                    if (delimiter != null) {
+                        commonPrefixes.add(metadata.getName());
+                        continue;
+                    }
+                    break;
                 default:
                     break;
                 }
@@ -1528,10 +1531,15 @@ public class S3ProxyHandler {
                     writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
-                writeSimpleElement(xml, "Size",
-                        String.valueOf(metadata.getSize()));
-                writeSimpleElement(xml, "StorageClass",
-                        StorageClass.fromTier(metadata.getTier()).toString());
+                Long size = metadata.getSize();
+                if (size != null) {
+                    writeSimpleElement(xml, "Size", String.valueOf(size));
+                }
+
+                Tier tier = metadata.getTier();
+                if (tier != null) {
+                    writeSimpleElement(xml, "StorageClass", StorageClass.fromTier(tier).toString());
+                }
 
                 if (fetchOwner) {
                     writeOwnerStanza(xml);
