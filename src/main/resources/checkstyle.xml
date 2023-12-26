@@ -54,7 +54,7 @@
       <property name="classes" value="java.lang.Boolean,java.lang.Short,java.lang.Integer,java.lang.Long"/>
     </module>
     <module name="ImportOrder">
-      <property name="groups" value="java,javax,com,org"/>
+      <property name="groups" value="java,javax,com,jakarta,org"/>
       <property name="separated" value="true"/>
       <property name="option" value="top"/>
     </module>
