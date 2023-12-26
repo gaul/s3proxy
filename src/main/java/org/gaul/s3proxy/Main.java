@@ -248,8 +248,8 @@ public final class Main {
             blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
         }
 
-        ImmutableList<Map.Entry<Pattern, String>> regexs = RegexBlobStore.parseRegexs(
-                properties);
+        ImmutableList<Map.Entry<Pattern, String>> regexs =
+                RegexBlobStore.parseRegexs(properties);
         if (!regexs.isEmpty()) {
             System.err.println("Using regex backend");
             blobStore = RegexBlobStore.newRegexBlobStore(blobStore, regexs);

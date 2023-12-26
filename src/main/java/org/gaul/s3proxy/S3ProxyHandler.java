@@ -667,7 +667,8 @@ public class S3ProxyHandler {
                         path[1], path[2], uploadId);
                 return;
             } else {
-                handleBlobRemove(request, response, blobStore, path[1], path[2]);
+                handleBlobRemove(request, response, blobStore, path[1],
+                        path[2]);
                 return;
             }
         case "GET":
@@ -676,7 +677,8 @@ public class S3ProxyHandler {
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
-                    handleGetContainerAcl(request, response, blobStore, path[1]);
+                    handleGetContainerAcl(request, response, blobStore,
+                            path[1]);
                     return;
                 } else if (request.getParameter("location") != null) {
                     handleContainerLocation(request, response);
@@ -716,7 +718,8 @@ public class S3ProxyHandler {
             }
         case "POST":
             if (request.getParameter("delete") != null) {
-                handleMultiBlobRemove(request, response, is, blobStore, path[1]);
+                handleMultiBlobRemove(request, response, is, blobStore,
+                        path[1]);
                 return;
             } else if (request.getParameter("uploads") != null) {
                 handleInitiateMultipartUpload(request, response, blobStore,
@@ -1101,7 +1104,8 @@ public class S3ProxyHandler {
     }
 
     private void handleContainerList(HttpServletRequest request,
-            HttpServletResponse response, BlobStore blobStore) throws IOException {
+            HttpServletResponse response, BlobStore blobStore)
+            throws IOException {
         PageSet<? extends StorageMetadata> buckets = blobStore.list();
 
         response.setCharacterEncoding(UTF_8);
@@ -1490,10 +1494,13 @@ public class S3ProxyHandler {
                         isListV2 ? "NextContinuationToken" : "NextMarker",
                         encodeBlob(encodingType, nextMarker));
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
-                    StorageMetadata sm = Streams.findLast(set.stream()).orElse(null);
+                    StorageMetadata sm = Streams.findLast(
+                            set.stream()).orElse(null);
                     if (sm != null) {
-                        lastKeyToMarker.put(Maps.immutableEntry(containerName,
-                                encodeBlob(encodingType, nextMarker)), nextMarker);
+                        lastKeyToMarker.put(Maps.immutableEntry(
+                                containerName,
+                                encodeBlob(encodingType, nextMarker)),
+                                nextMarker);
                     }
                 }
             } else {
@@ -1538,7 +1545,8 @@ public class S3ProxyHandler {
 
                 Tier tier = metadata.getTier();
                 if (tier != null) {
-                    writeSimpleElement(xml, "StorageClass", StorageClass.fromTier(tier).toString());
+                    writeSimpleElement(xml, "StorageClass",
+                            StorageClass.fromTier(tier).toString());
                 }
 
                 if (fetchOwner) {
@@ -3007,7 +3015,8 @@ public class S3ProxyHandler {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                     corsRules.getAllowedMethods());
             if (corsRules.isAllowCredentials()) {
-                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
+                response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                        "true");
             }
         }
     }

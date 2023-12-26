@@ -56,27 +56,31 @@ import org.slf4j.LoggerFactory;
  * stopping as soon as the first regex matches.
  */
 public final class RegexBlobStore extends ForwardingBlobStore {
-    private static final Logger logger = LoggerFactory.getLogger(RegexBlobStore.class);
+    private static final Logger logger = LoggerFactory.getLogger(
+            RegexBlobStore.class);
 
     private final ImmutableList<Entry<Pattern, String>> regexs;
 
-    private RegexBlobStore(BlobStore blobStore, ImmutableList<Entry<Pattern, String>> regexs) {
+    private RegexBlobStore(BlobStore blobStore,
+            ImmutableList<Entry<Pattern, String>> regexs) {
         super(blobStore);
         this.regexs = requireNonNull(regexs);
     }
 
-    static BlobStore newRegexBlobStore(BlobStore delegate, ImmutableList<Entry<Pattern, String>> regexs) {
+    static BlobStore newRegexBlobStore(BlobStore delegate,
+            ImmutableList<Entry<Pattern, String>> regexs) {
         return new RegexBlobStore(delegate, regexs);
     }
 
-    public static ImmutableList<Map.Entry<Pattern, String>> parseRegexs(Properties properties) {
-
+    public static ImmutableList<Map.Entry<Pattern, String>> parseRegexs(
+            Properties properties) {
         List<Entry<String, String>> configRegex = new ArrayList<>();
         List<Entry<Pattern, String>> regexs = new ArrayList<>();
 
         for (String key : properties.stringPropertyNames()) {
             if (key.startsWith(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE)) {
-                String propKey = key.substring(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE.length() + 1);
+                String propKey = key.substring(
+                        S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE.length() + 1);
                 String value = properties.getProperty(key);
 
                 configRegex.add(new SimpleEntry<>(propKey, value));
@@ -85,24 +89,26 @@ public final class RegexBlobStore extends ForwardingBlobStore {
 
         for (Entry<String, String> entry : configRegex) {
             String key = entry.getKey();
-            if (key.startsWith(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH)) {
-                String regexName = key.substring(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH.length() + 1);
+            if (key.startsWith(
+                    S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH)) {
+                String regexName = key.substring(S3ProxyConstants
+                        .PROPERTY_REGEX_BLOBSTORE_MATCH.length() + 1);
                 String regex = entry.getValue();
                 Pattern pattern = Pattern.compile(regex);
 
-                String replace = properties.getProperty(
-                        String.join(
-                                ".",
-                                S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,
-                                S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_REPLACE,
-                                regexName));
+                String replace = properties.getProperty(String.join(
+                        ".", S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,
+                        S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_REPLACE,
+                        regexName));
 
                 checkArgument(
                         replace != null,
                         "Regex %s has no replace property associated",
                         regexName);
 
-                logger.info("Adding new regex with name {} replaces with {} to {}", regexName, regex, replace);
+                logger.info(
+                        "Adding new regex with name {} replaces with {} to {}",
+                        regexName, regex, replace);
 
                 regexs.add(new SimpleEntry<>(pattern, replace));
             }
@@ -143,7 +149,8 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
+    public String putBlob(String containerName, Blob blob,
+            PutOptions putOptions) {
         String name = blob.getMetadata().getName();
         String newName = replaceBlobName(name);
         blob.getMetadata().setName(newName);
@@ -154,9 +161,10 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName, String toContainer, String toName,
-            CopyOptions options) {
-        return super.copyBlob(fromContainer, replaceBlobName(fromName), toContainer, replaceBlobName(toName), options);
+    public String copyBlob(String fromContainer, String fromName,
+            String toContainer, String toName, CopyOptions options) {
+        return super.copyBlob(fromContainer, replaceBlobName(fromName),
+                toContainer, replaceBlobName(toName), options);
     }
 
     @Override
@@ -189,7 +197,8 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void setBlobAccess(String container, String name, BlobAccess access) {
+    public void setBlobAccess(String container, String name,
+            BlobAccess access) {
         super.setBlobAccess(container, replaceBlobName(name), access);
     }
 
@@ -199,8 +208,10 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void downloadBlob(String container, String name, File destination, ExecutorService executor) {
-        super.downloadBlob(container, replaceBlobName(name), destination, executor);
+    public void downloadBlob(String container, String name, File destination,
+            ExecutorService executor) {
+        super.downloadBlob(container, replaceBlobName(name), destination,
+                executor);
     }
 
     @Override
@@ -209,7 +220,8 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public InputStream streamBlob(String container, String name, ExecutorService executor) {
+    public InputStream streamBlob(String container, String name,
+            ExecutorService executor) {
         return super.streamBlob(container, replaceBlobName(name), executor);
     }
 

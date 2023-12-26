@@ -116,9 +116,11 @@ public class S3ProxyJunitCore {
                 builder.blobStoreProvider)
                 .overrides(properties);
         if (!AuthenticationType.NONE.equals(builder.authType)) {
-            blobStoreContextBuilder = blobStoreContextBuilder.credentials(accessKey, secretKey);
+            blobStoreContextBuilder = blobStoreContextBuilder.credentials(
+                    accessKey, secretKey);
         }
-        blobStoreContext = blobStoreContextBuilder.build(BlobStoreContext.class);
+        blobStoreContext = blobStoreContextBuilder.build(
+                BlobStoreContext.class);
 
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                 .blobStore(blobStoreContext.getBlobStore())
