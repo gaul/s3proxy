@@ -118,7 +118,6 @@
     </module>
     <module name="TypecastParenPad"/>
     <module name="TypeName"/>
-    <module name="UnnecessaryParentheses"/>
     <module name="UnusedImports"/>
     <module name="UpperEll"/>
     <module name="VisibilityModifier">

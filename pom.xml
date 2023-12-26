@@ -125,8 +125,7 @@
           <headerLocation>src/main/resources/copyright_header.txt</headerLocation>
           <includeTestSourceDirectory>true</includeTestSourceDirectory>
           <violationSeverity>warning</violationSeverity>
-          <!-- TODO: remove once source fixed -->
-          <failOnViolation>false</failOnViolation>
+          <failOnViolation>true</failOnViolation>
         </configuration>
         <dependencies>
           <dependency>
