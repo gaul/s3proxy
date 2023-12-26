@@ -250,7 +250,7 @@ public final class Main {
 
         ImmutableList<Map.Entry<Pattern, String>> regexs = RegexBlobStore.parseRegexs(
                 properties);
-        if (!regexs.isEmpty()){
+        if (!regexs.isEmpty()) {
             System.err.println("Using regex backend");
             blobStore = RegexBlobStore.newRegexBlobStore(blobStore, regexs);
         }

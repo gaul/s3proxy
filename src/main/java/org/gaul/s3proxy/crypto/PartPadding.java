@@ -40,7 +40,7 @@ public class PartPadding {
     private short version;
 
     public static PartPadding readPartPaddingFromBlob(Blob blob)
-        throws IOException {
+            throws IOException {
         PartPadding partPadding = new PartPadding();
 
         InputStream is = blob.getPayload().openStream();

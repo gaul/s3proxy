@@ -859,7 +859,7 @@ public class S3ProxyHandler {
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
-    private void handleGetContainerAcl(HttpServletRequest request, 
+    private void handleGetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
@@ -962,7 +962,7 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
     }
 
-    private void handleGetBlobAcl(HttpServletRequest request, 
+    private void handleGetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName) throws IOException {
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
@@ -1334,7 +1334,7 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
     }
 
-    private void handleContainerDelete(HttpServletRequest request, 
+    private void handleContainerDelete(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         if (!blobStore.containerExists(containerName)) {
@@ -1564,7 +1564,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private void handleBlobRemove(HttpServletRequest request, 
+    private void handleBlobRemove(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {

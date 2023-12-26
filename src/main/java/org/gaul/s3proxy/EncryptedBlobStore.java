@@ -71,7 +71,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     private SecretKeySpec secretKey;
 
     private EncryptedBlobStore(BlobStore blobStore, Properties properties)
-        throws IllegalArgumentException {
+            throws IllegalArgumentException {
         super(blobStore);
 
         String password = properties.getProperty(
@@ -92,7 +92,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private void initStore(String password, String salt)
-        throws IllegalArgumentException {
+            throws IllegalArgumentException {
         try {
             SecretKeyFactory factory =
                 SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");

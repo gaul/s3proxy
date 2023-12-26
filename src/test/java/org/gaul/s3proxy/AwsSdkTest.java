@@ -96,12 +96,10 @@ import com.google.common.collect.Maps;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
-
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.rest.HttpClient;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;

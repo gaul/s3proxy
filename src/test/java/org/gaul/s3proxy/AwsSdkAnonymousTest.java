@@ -35,7 +35,6 @@ import com.amazonaws.services.s3.model.S3Object;
 import com.google.common.io.ByteSource;
 
 import org.jclouds.blobstore.BlobStoreContext;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

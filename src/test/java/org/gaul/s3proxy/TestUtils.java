@@ -34,7 +34,6 @@ import com.google.common.io.Resources;
 import com.google.inject.Module;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
-
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;

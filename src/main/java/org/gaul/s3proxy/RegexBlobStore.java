@@ -1,3 +1,19 @@
+/*
+ * Copyright 2014-2021 Andrew Gaul <andrew@gaul.org>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -15,6 +31,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.google.common.collect.ImmutableList;
+
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -24,8 +42,6 @@ import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.ImmutableList;
 
 /**
  * This class implements a middleware to apply regex to blob names.
@@ -39,37 +55,38 @@ import com.google.common.collect.ImmutableList;
  * end,
  * stopping as soon as the first regex matches.
  */
-public class RegexBlobStore extends ForwardingBlobStore {
-    private final ImmutableList<Entry<Pattern, String>> regexs;
+public final class RegexBlobStore extends ForwardingBlobStore {
     private static final Logger logger = LoggerFactory.getLogger(RegexBlobStore.class);
 
-    static BlobStore newRegexBlobStore(BlobStore delegate, ImmutableList<Entry<Pattern, String>> regexs) {
-        return new RegexBlobStore(delegate, regexs);
-    }
+    private final ImmutableList<Entry<Pattern, String>> regexs;
 
     private RegexBlobStore(BlobStore blobStore, ImmutableList<Entry<Pattern, String>> regexs) {
         super(blobStore);
         this.regexs = requireNonNull(regexs);
     }
 
+    static BlobStore newRegexBlobStore(BlobStore delegate, ImmutableList<Entry<Pattern, String>> regexs) {
+        return new RegexBlobStore(delegate, regexs);
+    }
+
     public static ImmutableList<Map.Entry<Pattern, String>> parseRegexs(Properties properties) {
 
-        List<Entry<String, String>> config_regex = new ArrayList<>();
+        List<Entry<String, String>> configRegex = new ArrayList<>();
         List<Entry<Pattern, String>> regexs = new ArrayList<>();
 
         for (String key : properties.stringPropertyNames()) {
             if (key.startsWith(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE)) {
-                String prop_key = key.substring(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE.length() + 1);
+                String propKey = key.substring(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE.length() + 1);
                 String value = properties.getProperty(key);
 
-                config_regex.add(new SimpleEntry<>(prop_key, value));
+                configRegex.add(new SimpleEntry<>(propKey, value));
             }
         }
 
-        for (Entry<String, String> entry : config_regex) {
+        for (Entry<String, String> entry : configRegex) {
             String key = entry.getKey();
             if (key.startsWith(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH)) {
-                String regex_name = key.substring(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH.length() + 1);
+                String regexName = key.substring(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH.length() + 1);
                 String regex = entry.getValue();
                 Pattern pattern = Pattern.compile(regex);
 
@@ -78,14 +95,14 @@ public class RegexBlobStore extends ForwardingBlobStore {
                                 ".",
                                 S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,
                                 S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_REPLACE,
-                                regex_name));
+                                regexName));
 
                 checkArgument(
                         replace != null,
                         "Regex %s has no replace property associated",
-                        regex_name);
+                        regexName);
 
-                logger.info("Adding new regex with name {} replaces with {} to {}", regex_name, regex, replace);
+                logger.info("Adding new regex with name {} replaces with {} to {}", regexName, regex, replace);
 
                 regexs.add(new SimpleEntry<>(pattern, replace));
             }

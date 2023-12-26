@@ -20,22 +20,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.AbstractMap.SimpleEntry;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.regex.Pattern;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 import com.google.inject.Module;
-
-import java.util.AbstractMap.SimpleEntry;
 
 import org.assertj.core.api.Assertions;
 import org.jclouds.ContextBuilder;
@@ -44,6 +38,9 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 public final class RegexBlobStoreTest {
     private BlobStoreContext context;

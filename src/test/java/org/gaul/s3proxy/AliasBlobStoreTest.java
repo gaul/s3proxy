@@ -44,7 +44,6 @@ import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

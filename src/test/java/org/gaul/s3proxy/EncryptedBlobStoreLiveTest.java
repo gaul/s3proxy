@@ -242,7 +242,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
     @Override
     @Test
     public void testUpdateObjectACL() throws InterruptedException,
-        ExecutionException, TimeoutException, IOException {
+            ExecutionException, TimeoutException, IOException {
         try {
             super.testUpdateObjectACL();
             Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);
@@ -255,7 +255,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
     @Override
     @Test
     public void testPublicWriteOnObject() throws InterruptedException,
-        ExecutionException, TimeoutException, IOException {
+            ExecutionException, TimeoutException, IOException {
         try {
             super.testPublicWriteOnObject();
             Fail.failBecauseExceptionWasNotThrown(AWSResponseException.class);

@@ -33,7 +33,7 @@ public class Encryption {
     private final int part;
 
     public Encryption(SecretKeySpec key, InputStream isRaw, int partNumber)
-        throws Exception {
+            throws Exception {
         iv = generateIV();
 
         Cipher cipher = Cipher.getInstance(Constants.AES_CIPHER);
