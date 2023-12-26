@@ -17,7 +17,6 @@
 package org.gaul.s3proxy;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -249,8 +248,8 @@ final class AwsSignature {
         return headersWithValues.toString();
     }
 
-    private static String buildCanonicalQueryString(HttpServletRequest request)
-            throws UnsupportedEncodingException {
+    private static String buildCanonicalQueryString(
+            HttpServletRequest request) {
         // The parameters are required to be sorted
         List<String> parameters = Collections.list(request.getParameterNames());
         Collections.sort(parameters);
