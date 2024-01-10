@@ -131,3 +131,5 @@ jobs:
             BUILDTIME=${{ needs.meta.outputs.container_buildtime }}
             VERSION=${{ needs.meta.outputs.container_version }}
             REVISION=${{ needs.meta.outputs.container_revision }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
