@@ -30,7 +30,7 @@ jobs:
         id: docker_action_meta
         uses: docker/metadata-action@v4.0.1
         with:
-          images:
+          images: |
             name=ghcr.io/${{ github.repository }}/container
             name=andrewgaul/s3proxy,enable=${{ env.dockerhub_publish }}
           flavor: |
