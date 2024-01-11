@@ -139,7 +139,7 @@ public final class S3Proxy {
         private String keyStorePassword;
         private String virtualHost;
         private long maxSinglePartObjectSize = 5L * 1024 * 1024 * 1024;
-        private long v4MaxNonChunkedRequestSize = 32 * 1024 * 1024;
+        private long v4MaxNonChunkedRequestSize = 128 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
