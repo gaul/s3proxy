@@ -315,6 +315,7 @@
         <artifactId>really-executable-jar-maven-plugin</artifactId>
         <version>1.5.0</version>
         <configuration>
+          <inputFile>target/s3proxy-${version}-jar-with-dependencies.jar</inputFile>
           <programFile>s3proxy</programFile>
         </configuration>
         <executions>
