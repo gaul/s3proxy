@@ -313,7 +313,7 @@
       <plugin>
         <groupId>org.skife.maven</groupId>
         <artifactId>really-executable-jar-maven-plugin</artifactId>
-        <version>1.5.0</version>
+        <version>2.1.1</version>
         <configuration>
           <inputFile>target/s3proxy-${version}-jar-with-dependencies.jar</inputFile>
           <programFile>s3proxy</programFile>
