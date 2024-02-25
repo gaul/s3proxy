@@ -31,6 +31,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import org.eclipse.jetty.http.HttpCompliance;
+import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
@@ -86,6 +87,7 @@ public final class S3Proxy {
 
         HttpConfiguration httpConfiguration = new HttpConfiguration();
         httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
+        httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
         SecureRequestCustomizer src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
         httpConfiguration.addCustomizer(src);
