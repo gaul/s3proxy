@@ -48,7 +48,7 @@ import org.jclouds.s3.domain.ObjectMetadataBuilder;
 import org.jclouds.s3.domain.S3Object;
 import org.jclouds.s3.reference.S3Constants;
 import org.testng.SkipException;
-import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterSuite;
 import org.testng.annotations.Test;
 
 @SuppressWarnings("UnstableApiUsage")
@@ -64,10 +64,11 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
 
-    @AfterClass
-    public void tearDown() throws Exception {
-        s3Proxy.stop();
+    @AfterSuite
+    @Override
+    public void destroyResources() throws Exception {
         context.close();
+        s3Proxy.stop();
     }
 
     @Override
