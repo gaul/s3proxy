@@ -363,7 +363,7 @@
     <java.version>11</java.version>
     <jclouds.version>2.6.0-SNAPSHOT</jclouds.version>
     <jetty.version>11.0.20</jetty.version>
-    <slf4j.version>2.0.11</slf4j.version>
+    <slf4j.version>2.0.12</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>3.0.0</surefire.version>
   </properties>
