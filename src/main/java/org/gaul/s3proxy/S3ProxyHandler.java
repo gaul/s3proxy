@@ -2253,7 +2253,7 @@ public class S3ProxyHandler {
         PutOptions options;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            metadata = blobStore.getBlob(containerName, uploadId).getMetadata();
+            metadata = blobStore.blobMetadata(containerName, uploadId);
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     uploadId);
             options = new PutOptions().setBlobAccess(access);
@@ -2632,6 +2632,7 @@ public class S3ProxyHandler {
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
                 new PutOptions());
 
+        // TODO: Blob can leak on precondition failures.
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 options);
         if (blob == null) {
