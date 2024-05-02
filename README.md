@@ -96,7 +96,7 @@ s3proxy.bucket-locator.2=another-bucket
 In addition to the explicit names, [glob syntax](https://docs.oracle.com/javase/tutorial/essential/io/fileOps.html#glob) can be used to configure many
 buckets for a given backend.
 
-A bucket (or a glob) cannot be assigned cannot be assigned to multiple backends.
+A bucket (or a glob) cannot be assigned to multiple backends.
 
 ## Middlewares
 
