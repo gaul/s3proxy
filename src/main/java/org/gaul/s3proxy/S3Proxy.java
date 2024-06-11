@@ -303,7 +303,7 @@ public final class S3Proxy {
 
             String maximumTimeSkew = properties.getProperty(
                     S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
-            if (maximumTimeSkew != null) {
+            if (maximumTimeSkew != null && !maximumTimeSkew.trim().isEmpty()) {
                 builder.maximumTimeSkew(Integer.parseInt(maximumTimeSkew));
             }
 
