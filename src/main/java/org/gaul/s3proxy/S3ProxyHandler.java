@@ -466,7 +466,7 @@ public class S3ProxyHandler {
                 haveDate = false;
             }
             if (haveDate) {
-                isTimeSkewed(dateSkew);
+                isTimeSkewed(dateSkew, presignedUrl);
             }
         }
 
@@ -2944,14 +2944,22 @@ public class S3ProxyHandler {
         }
     }
 
-    private void isTimeSkewed(long date) throws S3Exception  {
+    private void isTimeSkewed(
+            long date, boolean isPresigned) throws S3Exception  {
         if (date < 0) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
         long now = System.currentTimeMillis() / 1000;
-        if (now + maximumTimeSkew < date || now - maximumTimeSkew > date) {
-            logger.debug("time skewed {} {}", date, now);
-            throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
+        if (isPresigned) {
+            if (now + maximumTimeSkew < date) {
+                logger.debug("request is not valid yet {} {}", date, now);
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+        } else {
+            if (now + maximumTimeSkew < date || now - maximumTimeSkew > date) {
+                logger.debug("time skewed {} {}", date, now);
+                throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
+            }
         }
     }
 
