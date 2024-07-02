@@ -447,9 +447,6 @@ public class S3ProxyHandler {
                     dateSkew = parseIso8601(request.getHeader(
                             AwsHttpHeaders.DATE));
                 }
-            } else if (request.getParameter("X-Amz-Date") != null) { // v4 query
-                String dateString = request.getParameter("X-Amz-Date");
-                dateSkew = parseIso8601(dateString);
             } else if (hasDateHeader) {
                 try {
                     dateSkew = request.getDateHeader(HttpHeaders.DATE);
