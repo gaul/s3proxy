@@ -1775,9 +1775,12 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
 
         addMetadataToResponse(request, response, blob.getMetadata());
+
         // TODO: handles only a single range due to jclouds limitations
+        var headers = new CaseInsensitiveImmutableMultimap(
+                blob.getAllHeaders());
         Collection<String> contentRanges =
-                blob.getAllHeaders().get(HttpHeaders.CONTENT_RANGE);
+                headers.get(HttpHeaders.CONTENT_RANGE);
         if (!contentRanges.isEmpty()) {
             response.addHeader(HttpHeaders.CONTENT_RANGE,
                     contentRanges.iterator().next());
