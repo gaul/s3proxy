@@ -107,8 +107,9 @@ S3Proxy can modify its behavior based on middlewares:
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
-* [sharded backend containers](https://github.com/gaul/s3proxy/wiki/Middleware-sharded-backend)
 * [regex rename blobs](https://github.com/gaul/s3proxy/wiki/Middleware-regex)
+* [sharded backend containers](https://github.com/gaul/s3proxy/wiki/Middleware-sharded-backend)
+* [storage class override](https://github.com/gaul/s3proxy/wiki/Middleware-storage-class-override)
 
 ## SSL Support
 

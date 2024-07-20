@@ -111,6 +111,9 @@ public final class S3ProxyConstants {
     /** Shard objects across a specified number of buckets. */
     public static final String PROPERTY_SHARDED_BLOBSTORE =
             "s3proxy.sharded-blobstore";
+    /** Override tier when creating blobs. */
+    public static final String PROPERTY_STORAGE_CLASS_BLOBSTORE =
+            "s3proxy.storage-class-blobstore";
 
     /** Maximum time skew allowed in signed requests. */
     public static final String PROPERTY_MAXIMUM_TIME_SKEW =
