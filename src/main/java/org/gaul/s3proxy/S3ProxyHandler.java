@@ -38,7 +38,6 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -2323,9 +2322,8 @@ public class S3ProxyHandler {
 
             ImmutableMap<Integer, MultipartPart> partsByListing =
                     builder.build();
-            for (Iterator<Map.Entry<Integer, String>> it =
-                    requestParts.entrySet().iterator(); it.hasNext();) {
-                Map.Entry<Integer, String> entry = it.next();
+            for (var it = requestParts.entrySet().iterator(); it.hasNext();) {
+                var entry = it.next();
                 MultipartPart part = partsByListing.get(entry.getKey());
                 if (part == null) {
                     throw new S3Exception(S3ErrorCode.INVALID_PART);
@@ -2468,7 +2466,7 @@ public class S3ProxyHandler {
                         (size == null ? 0L : (long) size) + part.partSize());
             }
             parts = new ArrayList<>();
-            for (Map.Entry<Integer, Long> entry : map.entrySet()) {
+            for (var entry : map.entrySet()) {
                 String eTag = "";  // TODO: bogus value
                 Date lastModified = null;  // TODO: bogus value
                 parts.add(MultipartPart.create(entry.getKey(),
@@ -2928,8 +2926,7 @@ public class S3ProxyHandler {
             response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
                     StorageClass.fromTier(tier).toString());
         }
-        for (Map.Entry<String, String> entry :
-                metadata.getUserMetadata().entrySet()) {
+        for (var entry : metadata.getUserMetadata().entrySet()) {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
                     entry.getValue());
         }
@@ -2997,7 +2994,7 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Code", code.getErrorCode());
             writeSimpleElement(xml, "Message", message);
 
-            for (Map.Entry<String, String> entry : elements.entrySet()) {
+            for (var entry : elements.entrySet()) {
                 writeSimpleElement(xml, entry.getKey(), entry.getValue());
             }
 

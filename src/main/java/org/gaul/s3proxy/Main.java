@@ -198,7 +198,7 @@ public final class Main {
             ExecutorService executorService, Properties properties)
             throws IOException {
         Properties altProperties = new Properties();
-        for (Map.Entry<Object, Object> entry : properties.entrySet()) {
+        for (var entry : properties.entrySet()) {
             String key = (String) entry.getKey();
             if (key.startsWith(S3ProxyConstants.PROPERTY_ALT_JCLOUDS_PREFIX)) {
                 key = key.substring(

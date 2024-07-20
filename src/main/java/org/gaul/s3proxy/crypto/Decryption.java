@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.TreeMap;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -173,9 +172,7 @@ public class Decryption {
             int partCounter = 1;
 
             // we need the map in reversed order
-            for (Map.Entry<Integer, PartPadding> part : partList.descendingMap()
-                .entrySet()) {
-
+            for (var part : partList.descendingMap().entrySet()) {
                 // check the parts that are between offset and end
                 plaintextSize = plaintextSize + part.getValue().getSize();
                 if (endAt > plaintextSize) {
@@ -234,9 +231,7 @@ public class Decryption {
             long partStartAt = 0;
 
             // we need the map in reversed order
-            for (Map.Entry<Integer, PartPadding> part : partList.descendingMap()
-                .entrySet()) {
-
+            for (var part : partList.descendingMap().entrySet()) {
                 // compute the plaintext size of the current part
                 plaintextSize = plaintextSize + part.getValue().getSize();
 

@@ -228,7 +228,7 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     private String replaceBlobName(String name) {
         String newName = name;
 
-        for (Map.Entry<Pattern, String> entry : this.regexs) {
+        for (var entry : this.regexs) {
             Pattern pattern = entry.getKey();
             Matcher match = pattern.matcher(name);
 

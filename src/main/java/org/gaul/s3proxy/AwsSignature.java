@@ -26,7 +26,6 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -143,7 +142,7 @@ final class AwsSignature {
         }
 
         builder.append('\n');
-        for (Map.Entry<String, String> entry : canonicalizedHeaders.entries()) {
+        for (var entry : canonicalizedHeaders.entries()) {
             builder.append(entry.getKey()).append(':')
                     .append(entry.getValue()).append('\n');
         }

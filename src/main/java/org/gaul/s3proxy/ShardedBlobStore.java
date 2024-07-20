@@ -216,7 +216,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                                  String container) {
         Map<String, String> currentSuperblockMeta =
                 blob.getMetadata().getUserMetadata();
-        for (Map.Entry<String, String> entry : expectedMeta.entrySet()) {
+        for (var entry : expectedMeta.entrySet()) {
             String current = currentSuperblockMeta.get(entry.getKey());
             String expected = entry.getValue();
             if (!expected.equalsIgnoreCase(current)) {
@@ -532,7 +532,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             shardBlobs.add(blob);
         }
 
-        for (Map.Entry<String, List<String>> entry : shardMap.entrySet()) {
+        for (var entry : shardMap.entrySet()) {
             this.delegate().removeBlobs(entry.getKey(), entry.getValue());
         }
     }

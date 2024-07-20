@@ -17,7 +17,6 @@
 package org.gaul.s3proxy;
 
 import java.util.Collection;
-import java.util.Map;
 
 import com.google.common.collect.ForwardingMultimap;
 import com.google.common.collect.ImmutableMultimap;
@@ -29,7 +28,7 @@ final class CaseInsensitiveImmutableMultimap
 
     CaseInsensitiveImmutableMultimap(Multimap<String, String> map) {
         var builder = ImmutableMultimap.<String, String>builder();
-        for (Map.Entry<String, String> entry : map.entries()) {
+        for (var entry : map.entries()) {
             builder.put(lower(entry.getKey()), entry.getValue());
         }
         this.inner = builder.build();
