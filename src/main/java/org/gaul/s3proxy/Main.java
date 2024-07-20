@@ -56,6 +56,7 @@ import org.jclouds.concurrent.config.ExecutorServiceModule;
 import org.jclouds.location.reference.LocationConstants;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
+import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -269,6 +270,20 @@ public final class Main {
             System.err.println("Using encrypted storage backend");
             blobStore = EncryptedBlobStore.newEncryptedBlobStore(blobStore,
                 properties);
+        }
+
+        var storageClass = properties.getProperty(
+                S3ProxyConstants.PROPERTY_STORAGE_CLASS_BLOBSTORE);
+        if (!Strings.isNullOrEmpty(storageClass)) {
+            System.err.println("Using storage class override backend");
+            var storageClassBlobStore =
+                    StorageClassBlobStore.newStorageClassBlobStore(
+                            blobStore, storageClass);
+            blobStore = storageClassBlobStore;
+            System.err.println("Configuration storage class: " + storageClass);
+            // TODO: This only makes sense for S3 backends.
+            System.err.println("Mapping storage storage class to: " +
+                    StorageClass.fromTier(storageClassBlobStore.getTier()));
         }
 
         return blobStore;
