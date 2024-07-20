@@ -100,7 +100,7 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     public PageSet<? extends StorageMetadata> list(String container) {
-        ImmutableSet.Builder<StorageMetadata> builder = ImmutableSet.builder();
+        var builder = ImmutableSet.<StorageMetadata>builder();
         PageSet<? extends StorageMetadata> pageSet = super.list(container);
         for (StorageMetadata sm : pageSet) {
             MutableStorageMetadata msm = new MutableStorageMetadataImpl(sm);
@@ -203,7 +203,7 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
-        ImmutableList.Builder<MultipartPart> builder = ImmutableList.builder();
+        var builder = ImmutableList.<MultipartPart>builder();
         for (MultipartPart part : super.listMultipartUpload(mpu)) {
             // get real blob size from stub blob
             Blob blob = getBlob(mpu.containerName(),

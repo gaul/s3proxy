@@ -126,8 +126,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                             "Number of shards unset for sharded buckets: %s",
                             allMissingShards));
         }
-        ImmutableMap.Builder<String, ShardedBucket> bucketsBuilder =
-                new ImmutableMap.Builder<>();
+        var bucketsBuilder = new ImmutableMap.Builder<String, ShardedBucket>();
         for (String bucket : shards.keySet()) {
             String prefix = prefixes.get(bucket);
             if (prefix == null) {
@@ -138,8 +137,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
         this.buckets = bucketsBuilder.build();
 
-        ImmutableMap.Builder<String, String> prefixMapBuilder =
-                new ImmutableMap.Builder<>();
+        var prefixMapBuilder = new ImmutableMap.Builder<String, String>();
         for (String virtualBucket : buckets.keySet()) {
             String prefix = buckets.get(virtualBucket).prefix;
             prefixMapBuilder.put(prefix, virtualBucket);
@@ -149,8 +147,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     public static ImmutableMap<String, Integer> parseBucketShards(
             Properties properties) {
-        ImmutableMap.Builder<String, Integer> shardsMap =
-                new ImmutableMap.Builder<>();
+        var shardsMap = new ImmutableMap.Builder<String, Integer>();
         for (String key : properties.stringPropertyNames()) {
             Matcher matcher = PROPERTIES_SHARDS_RE.matcher(key);
             if (!matcher.matches()) {
@@ -168,8 +165,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     public static ImmutableMap<String, String> parsePrefixes(
             Properties properties) {
-        ImmutableMap.Builder<String, String> prefixesMap =
-                new ImmutableMap.Builder<>();
+        var prefixesMap = new ImmutableMap.Builder<String, String>();
         for (String key : properties.stringPropertyNames()) {
             Matcher matcher = PROPERTIES_PREFIX_RE.matcher(key);
             if (!matcher.matches()) {
@@ -189,8 +185,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     private Map<String, String> createSuperblockMeta(ShardedBucket bucket) {
-        ImmutableMap.Builder<String, String> meta =
-                new ImmutableMap.Builder<>();
+        var meta = new ImmutableMap.Builder<String, String>();
         meta.put("s3proxy-sharded-superblock-version", SUPERBLOCK_VERSION);
         meta.put("s3proxy-sharded-superblock-prefix", bucket.prefix);
         meta.put("s3proxy-sharded-superblock-shards",
@@ -229,8 +224,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     private boolean createShards(ShardedBucket bucket, Location location,
                                  CreateContainerOptions options) {
-        ImmutableList.Builder<Future<Boolean>> futuresBuilder =
-                new ImmutableList.Builder<>();
+        var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.min(bucket.shards, MAX_SHARD_THREADS));
         BlobStore blobStore = this.delegate();
@@ -241,7 +235,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 () -> blobStore.createContainerInLocation(
                         location, shardContainer, options)));
         }
-        ImmutableList<Future<Boolean>> futures = futuresBuilder.build();
+        var futures = futuresBuilder.build();
         executor.shutdown();
         boolean ret = true;
         for (Future<Boolean> future : futures) {
@@ -304,8 +298,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     @Override
     public PageSet<? extends StorageMetadata> list() {
         PageSet<? extends StorageMetadata> upstream = this.delegate().list();
-        ImmutableList.Builder<StorageMetadata> results =
-                new ImmutableList.Builder<>();
+        var results = new ImmutableList.Builder<StorageMetadata>();
         Set<String> virtualBuckets = new HashSet<>();
         for (StorageMetadata sm : upstream) {
             Matcher matcher = SHARD_RE.matcher(sm.getName());
@@ -403,8 +396,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     private boolean deleteShards(ShardedBucket bucket) {
-        ImmutableList.Builder<Future<Boolean>> futuresBuilder =
-                new ImmutableList.Builder<>();
+        var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.min(bucket.shards, MAX_SHARD_THREADS));
         for (int n = 0; n < bucket.shards; ++n) {
@@ -413,7 +405,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 () -> this.delegate().deleteContainerIfEmpty(shard)));
         }
         executor.shutdown();
-        ImmutableList<Future<Boolean>> futures = futuresBuilder.build();
+        var futures = futuresBuilder.build();
         boolean ret = true;
         for (Future<Boolean> future : futures) {
             try {

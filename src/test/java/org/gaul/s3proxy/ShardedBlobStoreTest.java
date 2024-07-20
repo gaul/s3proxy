@@ -60,11 +60,8 @@ public final class ShardedBlobStoreTest {
                 .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
-        ImmutableMap<String, Integer> shardsMap =
-                new ImmutableMap.Builder<String, Integer>()
-                        .put(containerName, shards).build();
-        prefixesMap = new ImmutableMap.Builder<String, String>()
-                .put(containerName, prefix).build();
+        var shardsMap = ImmutableMap.of(containerName, shards);
+        prefixesMap = ImmutableMap.of(containerName, prefix);
         shardedBlobStore = ShardedBlobStore.newShardedBlobStore(
                 blobStore, shardsMap, prefixesMap);
         createdContainers = new ArrayList<>();

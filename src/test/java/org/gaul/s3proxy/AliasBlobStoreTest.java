@@ -66,8 +66,7 @@ public final class AliasBlobStoreTest {
                 .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
-        ImmutableBiMap.Builder<String, String> aliasesBuilder =
-                new ImmutableBiMap.Builder<>();
+        var aliasesBuilder = new ImmutableBiMap.Builder<String, String>();
         aliasesBuilder.put(aliasContainerName, containerName);
         aliasBlobStore = AliasBlobStore.newAliasBlobStore(
                 blobStore, aliasesBuilder.build());
@@ -152,8 +151,7 @@ public final class AliasBlobStoreTest {
         MultipartPart part = aliasBlobStore.uploadMultipartPart(
                 mpu, 1, Payloads.newPayload(content));
         assertThat(part.partETag()).isEqualTo(contentHash.toString());
-        ImmutableList.Builder<MultipartPart> parts =
-                new ImmutableList.Builder<>();
+        var parts = new ImmutableList.Builder<MultipartPart>();
         parts.add(part);
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
                 parts.build());

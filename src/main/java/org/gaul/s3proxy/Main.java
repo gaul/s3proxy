@@ -106,10 +106,10 @@ public final class Main {
                 .build();
         ExecutorService executorService = DynamicExecutors.newScalingThreadPool(
                 1, 20, 60 * 1000, factory);
-        ImmutableMap.Builder<String, Map.Entry<String, BlobStore>> locators =
-                ImmutableMap.builder();
-        ImmutableMap.Builder<PathMatcher, Map.Entry<String, BlobStore>>
-                globLocators = ImmutableMap.builder();
+        var locators = ImmutableMap
+                .<String, Map.Entry<String, BlobStore>>builder();
+        var globLocators = ImmutableMap
+                .<PathMatcher, Map.Entry<String, BlobStore>>builder();
         Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
         for (File propertiesFile : options.propertiesFiles) {
@@ -177,10 +177,8 @@ public final class Main {
             throw e;
         }
 
-        final Map<String, Map.Entry<String, BlobStore>> locator =
-                locators.build();
-        final Map<PathMatcher, Map.Entry<String, BlobStore>>
-                globLocator = globLocators.build();
+        var locator = locators.build();
+        var globLocator = globLocators.build();
         if (!locator.isEmpty() || !globLocator.isEmpty()) {
             s3Proxy.setBlobStoreLocator(
                     new GlobBlobStoreLocator(locator, globLocator));

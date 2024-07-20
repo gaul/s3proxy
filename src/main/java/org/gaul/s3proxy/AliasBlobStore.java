@@ -135,8 +135,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     @Override
     public PageSet<? extends StorageMetadata> list() {
         PageSet<? extends StorageMetadata> upstream = this.delegate().list();
-        ImmutableList.Builder<StorageMetadata> results =
-                new ImmutableList.Builder<>();
+        var results = new ImmutableList.Builder<StorageMetadata>();
         for (StorageMetadata sm : upstream) {
             if (aliases.containsValue(sm.getName())) {
                 MutableStorageMetadata bucketAlias =

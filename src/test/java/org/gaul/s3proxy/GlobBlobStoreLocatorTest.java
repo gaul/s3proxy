@@ -56,10 +56,9 @@ public final class GlobBlobStoreLocatorTest {
 
     @Test
     public void testLocateIdentity() {
-        ImmutableMap<String, Map.Entry<String, BlobStore>> credsMap =
-                ImmutableSortedMap.of(
-                        "id1", Maps.immutableEntry("one", blobStoreOne),
-                        "id2", Maps.immutableEntry("two", blobStoreTwo));
+        var credsMap = ImmutableSortedMap.of(
+                "id1", Maps.immutableEntry("one", blobStoreOne),
+                "id2", Maps.immutableEntry("two", blobStoreTwo));
         GlobBlobStoreLocator locator = new GlobBlobStoreLocator(
                 credsMap, ImmutableMap.of());
         assertThat(locator.locateBlobStore("id2", null, null).getKey())
@@ -71,19 +70,14 @@ public final class GlobBlobStoreLocatorTest {
 
     @Test
     public void testLocateContainer() {
-        ImmutableMap<String, Map.Entry<String, BlobStore>> credsMap =
-                ImmutableMap.of(
-                        "id1", Maps.immutableEntry("one", blobStoreOne),
-                        "id2", Maps.immutableEntry("two", blobStoreTwo));
-        ImmutableMap<PathMatcher, Map.Entry<String, BlobStore>> globMap =
-                ImmutableMap.of(
-                        FileSystems.getDefault().getPathMatcher(
-                                "glob:container1"),
-                        Maps.immutableEntry("id1", blobStoreOne),
-                        FileSystems.getDefault().getPathMatcher(
-                                "glob:container2"),
-                        Maps.immutableEntry("id2", blobStoreTwo)
-                );
+        var credsMap = ImmutableMap.of(
+                "id1", Maps.immutableEntry("one", blobStoreOne),
+                "id2", Maps.immutableEntry("two", blobStoreTwo));
+        var globMap = ImmutableMap.of(
+                FileSystems.getDefault().getPathMatcher("glob:container1"),
+                Maps.immutableEntry("id1", blobStoreOne),
+                FileSystems.getDefault().getPathMatcher("glob:container2"),
+                Maps.immutableEntry("id2", blobStoreTwo));
         GlobBlobStoreLocator locator = new GlobBlobStoreLocator(credsMap,
                 globMap);
 
@@ -103,20 +97,18 @@ public final class GlobBlobStoreLocatorTest {
 
     @Test
     public void testLocateGlob() {
-        ImmutableMap<String, Map.Entry<String, BlobStore>> credsMap =
-                ImmutableSortedMap.of(
-                        "id0", Maps.immutableEntry("zero", null),
-                        "id1", Maps.immutableEntry("one", blobStoreOne),
-                        "id2", Maps.immutableEntry("two", blobStoreTwo));
-        ImmutableMap<PathMatcher, Map.Entry<String, BlobStore>> globMap =
-                ImmutableMap.of(
+        var credsMap =
+                ImmutableSortedMap.<String, Map.Entry<String, BlobStore>>of(
+                    "id0", Maps.immutableEntry("zero", null),
+                    "id1", Maps.immutableEntry("one", blobStoreOne),
+                    "id2", Maps.immutableEntry("two", blobStoreTwo));
+        var globMap =
+                ImmutableMap.<PathMatcher, Map.Entry<String, BlobStore>>of(
                         FileSystems.getDefault().getPathMatcher(
                                 "glob:{one,two}"),
                         Maps.immutableEntry("id1", blobStoreOne),
-                        FileSystems.getDefault().getPathMatcher(
-                                "glob:cont?X*"),
-                        Maps.immutableEntry("id2", blobStoreTwo)
-                );
+                        FileSystems.getDefault().getPathMatcher("glob:cont?X*"),
+                        Maps.immutableEntry("id2", blobStoreTwo));
         GlobBlobStoreLocator locator = new GlobBlobStoreLocator(credsMap,
                 globMap);
 
@@ -130,15 +122,12 @@ public final class GlobBlobStoreLocatorTest {
 
     @Test
     public void testGlobLocatorAnonymous() {
-        ImmutableMap<PathMatcher, Map.Entry<String, BlobStore>> globMap =
-                ImmutableMap.of(
-                        FileSystems.getDefault().getPathMatcher(
-                                "glob:one"),
+        var globMap =
+                ImmutableMap.<PathMatcher, Map.Entry<String, BlobStore>>of(
+                        FileSystems.getDefault().getPathMatcher("glob:one"),
                         Maps.immutableEntry(null, blobStoreOne),
-                        FileSystems.getDefault().getPathMatcher(
-                                "glob:two"),
-                        Maps.immutableEntry(null, blobStoreTwo)
-                );
+                        FileSystems.getDefault().getPathMatcher("glob:two"),
+                        Maps.immutableEntry(null, blobStoreTwo));
         GlobBlobStoreLocator locator = new GlobBlobStoreLocator(
                 ImmutableMap.of(), globMap);
 

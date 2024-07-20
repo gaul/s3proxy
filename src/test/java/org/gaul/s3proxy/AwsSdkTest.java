@@ -755,7 +755,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testListBuckets() throws Exception {
-        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        var builder = ImmutableList.<String>builder();
         for (Bucket bucket : client.listBuckets()) {
             builder.add(bucket.getName());
         }
@@ -841,7 +841,7 @@ public final class AwsSdkTest {
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
-        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        var builder = ImmutableList.<String>builder();
         client.putObject(containerName, "blob1", BYTE_SOURCE.openStream(),
                 metadata);
         listing = client.listObjects(containerName);
@@ -872,7 +872,7 @@ public final class AwsSdkTest {
         client.putObject(containerName, "prefix/blob2",
                 BYTE_SOURCE.openStream(), metadata);
 
-        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        var builder = ImmutableList.<String>builder();
         listing = client.listObjects(new ListObjectsRequest()
                 .withBucketName(containerName)
                 .withDelimiter("/"));
@@ -1030,7 +1030,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
-        Map<String, String> userMetadata = ImmutableMap.of(
+        var userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1092,7 +1092,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
-        Map<String, String> userMetadata = ImmutableMap.of(
+        var userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1185,7 +1185,7 @@ public final class AwsSdkTest {
 
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
-        ImmutableList.Builder<PartETag> parts = ImmutableList.builder();
+        var parts = ImmutableList.<PartETag>builder();
 
         for (int i = 0; i < numParts; ++i) {
             ByteSource partByteSource = byteSource.slice(
@@ -1286,7 +1286,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "en";
         String contentType = "audio/ogg";
-        Map<String, String> userMetadata = ImmutableMap.of(
+        var userMetadata = ImmutableMap.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1390,7 +1390,7 @@ public final class AwsSdkTest {
         }
         contentMetadata.setContentType(contentType);
         // TODO: expires
-        Map<String, String> userMetadata = ImmutableMap.of(
+        var userMetadata = ImmutableMap.of(
                 "key3", "value3",
                 "key4", "value4");
         contentMetadata.setUserMetadata(userMetadata);

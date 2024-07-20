@@ -71,12 +71,11 @@ public final class RegexBlobStoreTest {
 
     @Test
     public void testRemoveSomeCharsFromName() throws IOException {
-        ImmutableList.Builder<Map.Entry<Pattern, String>> regexBuilder =
-                new ImmutableList.Builder<>();
-        regexBuilder.add(new SimpleEntry<Pattern, String>(Pattern.compile(
-                "[^a-zA-Z0-9/_.]"), "_"));
+        var regexes = ImmutableList.<Map.Entry<Pattern, String>>of(
+                new SimpleEntry<Pattern, String>(
+                        Pattern.compile("[^a-zA-Z0-9/_.]"), "_"));
         BlobStore regexBlobStore = RegexBlobStore.newRegexBlobStore(delegate,
-                regexBuilder.build());
+                regexes);
 
         String initialBlobName = "test/remove:badchars-folder/blob.txt";
         String targetBlobName = "test/remove_badchars_folder/blob.txt";

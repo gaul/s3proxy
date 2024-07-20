@@ -1845,8 +1845,7 @@ public class S3ProxyHandler {
         if (replaceMetadata) {
             ContentMetadataBuilder contentMetadata =
                     ContentMetadataBuilder.create();
-            ImmutableMap.Builder<String, String> userMetadata =
-                    ImmutableMap.builder();
+            var userMetadata = ImmutableMap.<String, String>builder();
             for (String headerName : Collections.list(
                     request.getHeaderNames())) {
                 String headerValue = Strings.nullToEmpty(request.getHeader(
@@ -2268,8 +2267,7 @@ public class S3ProxyHandler {
 
         // List parts to get part sizes and to map multiple Azure parts
         // into single parts.
-        ImmutableMap.Builder<Integer, MultipartPart> builder =
-                ImmutableMap.builder();
+        var builder = ImmutableMap.<Integer, MultipartPart>builder();
         for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
             builder.put(part.partNumber(), part);
         }
@@ -3026,8 +3024,7 @@ public class S3ProxyHandler {
     private static void addContentMetdataFromHttpRequest(
             BlobBuilder.PayloadBlobBuilder builder,
             HttpServletRequest request) {
-        ImmutableMap.Builder<String, String> userMetadata =
-                ImmutableMap.builder();
+        var userMetadata = ImmutableMap.<String, String>builder();
         for (String headerName : Collections.list(request.getHeaderNames())) {
             if (startsWithIgnoreCase(headerName, USER_METADATA_PREFIX)) {
                 userMetadata.put(

@@ -233,7 +233,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     // filter the list by showing the unencrypted blob size
     private PageSet<? extends StorageMetadata> filteredList(
         PageSet<? extends StorageMetadata> pageSet) {
-        ImmutableSet.Builder<StorageMetadata> builder = ImmutableSet.builder();
+        var builder = ImmutableSet.<StorageMetadata>builder();
         for (StorageMetadata sm : pageSet) {
             if (sm instanceof BlobMetadata) {
                 MutableBlobMetadata mbm =
