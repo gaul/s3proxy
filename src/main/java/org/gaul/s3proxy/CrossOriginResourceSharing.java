@@ -41,6 +41,7 @@ public final class CrossOriginResourceSharing {
     private static final String ALLOW_ANY_ORIGIN = "*";
     private static final String ALLOW_ANY_HEADER = "*";
     private static final String ALLOW_CREDENTIALS = "true";
+    private static final String EXPOSED_HEADERS = "ETag";
 
     private static final Logger logger = LoggerFactory.getLogger(
             CrossOriginResourceSharing.class);
@@ -101,6 +102,10 @@ public final class CrossOriginResourceSharing {
         logger.info("CORS allowed methods: {}", allowedMethods);
         logger.info("CORS allowed headers: {}", allowedHeaders);
         logger.info("CORS allow credentials: {}", allowCredentials);
+    }
+    
+    public String getExposedHeaders() {
+        return EXPOSED_HEADERS;
     }
 
     public String getAllowedMethods() {

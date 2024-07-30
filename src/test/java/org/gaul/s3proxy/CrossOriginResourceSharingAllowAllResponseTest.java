@@ -179,6 +179,9 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
                     .isEqualTo("GET, HEAD, PUT, POST, DELETE");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
+                .isEqualTo("ETag");
     }
 
     @Test
