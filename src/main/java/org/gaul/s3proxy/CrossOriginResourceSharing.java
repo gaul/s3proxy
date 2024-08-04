@@ -103,7 +103,7 @@ public final class CrossOriginResourceSharing {
         logger.info("CORS allowed headers: {}", allowedHeaders);
         logger.info("CORS allow credentials: {}", allowCredentials);
     }
-    
+
     public String getExposedHeaders() {
         return EXPOSED_HEADERS;
     }
