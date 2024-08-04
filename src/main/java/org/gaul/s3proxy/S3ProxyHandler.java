@@ -3013,7 +3013,7 @@ public class S3ProxyHandler {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsRules.getAllowedOrigin(corsOrigin));
             response.addHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, 
-                corsRules.getExposedHeaders());
+                    corsRules.getExposedHeaders());
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                     corsRules.getAllowedMethods());
             if (corsRules.isAllowCredentials()) {
