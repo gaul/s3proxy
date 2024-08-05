@@ -156,6 +156,9 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
                 .isEqualTo("GET, PUT");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
+                .isEqualTo("ETag");
 
         // Allowed origin, method and header
         request.reset();
@@ -180,6 +183,9 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
                 .isEqualTo("Accept");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
+                .isEqualTo("ETag");
 
         // Allowed origin, method and header combination
         request.reset();
@@ -205,6 +211,9 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
                 .isEqualTo("Accept, Content-Type");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
+                .isEqualTo("ETag");
     }
 
     @Test
@@ -249,6 +258,9 @@ public final class CrossOriginResourceSharingResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS).getValue())
                 .isEqualTo("Accept, Content-Type");
         assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
+                .isEqualTo("ETag");
+        assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS))
                 .isNull();
     }
@@ -270,6 +282,9 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
                     .isEqualTo("GET, PUT");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
+                .isEqualTo("ETag");
     }
 
     @Test
@@ -280,6 +295,8 @@ public final class CrossOriginResourceSharingResponseTest {
                 .isEqualTo(HttpStatus.SC_OK);
         assertThat(response.containsHeader(
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS)).isFalse();
     }
 
     private static String createRandomContainerName() {
