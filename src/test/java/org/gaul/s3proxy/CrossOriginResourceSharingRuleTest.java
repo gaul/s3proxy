@@ -39,9 +39,10 @@ public final class CrossOriginResourceSharingRuleTest {
                         "https://example\\.cloud"),
                 Lists.newArrayList("GET", "PUT"),
                 Lists.newArrayList("Accept", "Content-Type"),
+                Lists.newArrayList(),
                 "true");
         // CORS disabled
-        corsOff = new CrossOriginResourceSharing(null, null, null, null);
+        corsOff = new CrossOriginResourceSharing(null, null, null, null, null);
     }
 
     @Test
