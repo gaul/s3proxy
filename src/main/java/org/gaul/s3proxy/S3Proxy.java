@@ -270,6 +270,8 @@ public final class S3Proxy {
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS, "");
                 String corsAllowHeaders = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
+                String corsExposedHeaders = properties.getProperty(
+                        S3ProxyConstants.PROPERTY_CORS_EXPOSED_HEADERS, "");
                 String allowCredentials = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_CREDENTIAL, "");
 
@@ -292,6 +294,7 @@ public final class S3Proxy {
                         Lists.newArrayList(splitter.split(corsAllowOrigins)),
                         Lists.newArrayList(splitter.split(corsAllowMethods)),
                         Lists.newArrayList(splitter.split(corsAllowHeaders)),
+                        Lists.newArrayList(splitter.split(corsExposedHeaders)),
                         allowCredentials));
             }
 

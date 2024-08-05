@@ -1715,6 +1715,11 @@ public class S3ProxyHandler {
         response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                 corsRules.getAllowedMethods());
 
+        String exposedHeaders = corsRules.getExposedHeaders();
+        if (!Strings.isNullOrEmpty(exposedHeaders)) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, exposedHeaders);
+        }
+
         response.setStatus(HttpServletResponse.SC_OK);
     }
 
@@ -3014,6 +3019,8 @@ public class S3ProxyHandler {
                     corsRules.getAllowedOrigin(corsOrigin));
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
                     corsRules.getAllowedMethods());
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
+                    corsRules.getExposedHeaders());
             if (corsRules.isAllowCredentials()) {
                 response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS,
                         "true");
