@@ -1717,7 +1717,8 @@ public class S3ProxyHandler {
 
         String exposedHeaders = corsRules.getExposedHeaders();
         if (!Strings.isNullOrEmpty(exposedHeaders)) {
-            response.addHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, exposedHeaders);
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
+                exposedHeaders);
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
