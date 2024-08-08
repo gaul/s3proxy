@@ -158,7 +158,7 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         MultipartPart part = super.uploadMultipartPart(mpu2, 1, payload);
 
-        return super.completeMultipartUpload(mpu2, ImmutableList.of(part));
+        return super.completeMultipartUpload(mpu2, List.of(part));
     }
 
     @Override

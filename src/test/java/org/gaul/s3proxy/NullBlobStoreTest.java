@@ -22,13 +22,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
-import com.google.inject.Module;
 
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -63,7 +61,7 @@ public final class NullBlobStoreTest {
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(List.of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
         blobStore.createContainerInLocation(null, containerName);
@@ -185,7 +183,7 @@ public final class NullBlobStoreTest {
                 .contentLength(BYTE_SOURCE.size())
                 .contentType(MediaType.MP4_AUDIO)
                 .contentMD5(BYTE_SOURCE.hash(TestUtils.MD5))
-                .userMetadata(ImmutableMap.of("key", "value"))
+                .userMetadata(Map.of("key", "value"))
                 .build();
     }
 
@@ -202,6 +200,6 @@ public final class NullBlobStoreTest {
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
         assertThat(metadata.getUserMetadata())
-                .isEqualTo(ImmutableMap.of("key", "value"));
+                .isEqualTo(Map.of("key", "value"));
     }
 }

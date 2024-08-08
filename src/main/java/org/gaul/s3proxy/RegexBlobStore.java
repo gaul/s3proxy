@@ -31,8 +31,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.google.common.collect.ImmutableList;
-
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -59,20 +57,20 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
             RegexBlobStore.class);
 
-    private final ImmutableList<Entry<Pattern, String>> regexs;
+    private final List<Entry<Pattern, String>> regexs;
 
     private RegexBlobStore(BlobStore blobStore,
-            ImmutableList<Entry<Pattern, String>> regexs) {
+            List<Entry<Pattern, String>> regexs) {
         super(blobStore);
         this.regexs = requireNonNull(regexs);
     }
 
     static BlobStore newRegexBlobStore(BlobStore delegate,
-            ImmutableList<Entry<Pattern, String>> regexs) {
+            List<Entry<Pattern, String>> regexs) {
         return new RegexBlobStore(delegate, regexs);
     }
 
-    public static ImmutableList<Map.Entry<Pattern, String>> parseRegexs(
+    public static List<Map.Entry<Pattern, String>> parseRegexs(
             Properties properties) {
         List<Entry<String, String>> configRegex = new ArrayList<>();
         List<Entry<Pattern, String>> regexs = new ArrayList<>();
@@ -114,7 +112,7 @@ public final class RegexBlobStore extends ForwardingBlobStore {
             }
         }
 
-        return ImmutableList.copyOf(regexs);
+        return List.copyOf(regexs);
     }
 
     @Override

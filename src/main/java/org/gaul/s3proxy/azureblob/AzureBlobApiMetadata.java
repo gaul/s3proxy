@@ -18,9 +18,7 @@ package org.gaul.s3proxy.azureblob;
 
 import java.net.URI;
 import java.util.Properties;
-
-import com.google.common.collect.ImmutableSet;
-import com.google.inject.Module;
+import java.util.Set;
 
 import org.jclouds.azure.storage.config.AuthType;
 import org.jclouds.azure.storage.config.AzureStorageProperties;
@@ -80,8 +78,7 @@ public final class AzureBlobApiMetadata extends BaseHttpApiMetadata {
                         "storageservices/Blob-Service-REST-API"))
                 .defaultProperties(AzureBlobApiMetadata.defaultProperties())
                 .view(Reflection2.typeToken(BlobStoreContext.class))
-                .defaultModules(ImmutableSet.<Class<? extends Module>>of(
-                        AzureBlobStoreContextModule.class));
+                .defaultModules(Set.of(AzureBlobStoreContextModule.class));
         }
 
         @Override

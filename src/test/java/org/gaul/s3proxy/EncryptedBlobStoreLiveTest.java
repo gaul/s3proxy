@@ -22,13 +22,13 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 import com.google.common.util.concurrent.Uninterruptibles;
 
@@ -212,7 +212,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
             .uploadPart(containerName, blobName, 3, uploadId, part3);
 
         this.getApi().completeMultipartUpload(containerName, blobName, uploadId,
-            ImmutableMap.of(1, eTagOf1, 2, eTagOf2, 3, eTagOf3));
+            Map.of(1, eTagOf1, 2, eTagOf2, 3, eTagOf3));
         S3Object object = this.getApi().getObject(containerName, blobName);
 
         try (InputStream actual = object.getPayload().openStream();

@@ -24,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,7 +36,6 @@ import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.models.BlobListDetails;
 import com.azure.storage.blob.models.BlobProperties;
-import com.azure.storage.blob.models.BlobSignedIdentifier;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
@@ -44,7 +44,6 @@ import com.azure.storage.blob.options.BlobContainerCreateOptions;
 import com.azure.storage.blob.options.BlockBlobSimpleUploadOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
 
@@ -109,7 +108,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                     container.getName(), /*location=*/ null, /*uri=*/ null,
                     /*eTag=*/ null, /*creationDate=*/ null,
                     toDate(container.getProperties().getLastModified()),
-                    ImmutableMap.<String, String>of(), /*size=*/ null,
+                    Map.of(), /*size=*/ null,
                     Tier.STANDARD));
         }
         return new PageSetImpl<StorageMetadata>(set.build(), null);
@@ -138,7 +137,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                         /*uri=*/ null, /*eTag=*/ null,
                         /*creationDate=*/ null,
                         /*lastModified=*/ null,
-                        ImmutableMap.<String, String>of(),
+                        Map.of(),
                         /*size=*/ null,
                         toTier(properties.getAccessTier())));
             } else {
@@ -147,7 +146,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                         /*uri=*/ null, properties.getETag(),
                         toDate(properties.getCreationTime()),
                         toDate(properties.getLastModified()),
-                        ImmutableMap.<String, String>of(),
+                        Map.of(),
                         properties.getContentLength(),
                         toTier(properties.getAccessTier())));
             }
@@ -315,8 +314,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         var client = blobServiceClient.getBlobContainerClient(container);
         var publicAccess = access == ContainerAccess.PUBLIC_READ ?
                 PublicAccessType.CONTAINER : PublicAccessType.BLOB;
-        client.setAccessPolicy(publicAccess,
-                ImmutableList.<BlobSignedIdentifier>of());
+        client.setAccessPolicy(publicAccess, List.of());
     }
 
     @Override

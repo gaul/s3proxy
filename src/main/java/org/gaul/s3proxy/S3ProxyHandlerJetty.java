@@ -18,12 +18,12 @@ package org.gaul.s3proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 import javax.annotation.Nullable;
 
 import com.azure.storage.blob.models.BlobStorageException;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HttpHeaders;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -84,13 +84,13 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
         } catch (BlobStorageException bse) {
             S3ErrorCode code = AzureBlobStore.toS3ErrorCode(bse.getErrorCode());
             handler.sendSimpleErrorResponse(request, response, code,
-                    code.getMessage(), ImmutableMap.<String, String>of());
+                    code.getMessage(), Map.of());
             baseRequest.setHandled(true);
             return;
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
             handler.sendSimpleErrorResponse(request, response, code,
-                    code.getMessage(), ImmutableMap.<String, String>of());
+                    code.getMessage(), Map.of());
             baseRequest.setHandled(true);
             return;
         } catch (HttpResponseException hre) {
@@ -140,7 +140,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
         } catch (KeyNotFoundException knfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
             handler.sendSimpleErrorResponse(request, response, code,
-                    code.getMessage(), ImmutableMap.<String, String>of());
+                    code.getMessage(), Map.of());
             baseRequest.setHandled(true);
             return;
         } catch (S3Exception se) {
@@ -158,14 +158,14 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     AuthorizationException.class) != null) {
                 S3ErrorCode code = S3ErrorCode.ACCESS_DENIED;
                 handler.sendSimpleErrorResponse(request, response, code,
-                        code.getMessage(), ImmutableMap.<String, String>of());
+                        code.getMessage(), Map.of());
                 baseRequest.setHandled(true);
                 return;
             } else if (Throwables2.getFirstThrowableOfType(throwable,
                     TimeoutException.class) != null) {
                 S3ErrorCode code = S3ErrorCode.REQUEST_TIMEOUT;
                 handler.sendSimpleErrorResponse(request, response, code,
-                        code.getMessage(), ImmutableMap.<String, String>of());
+                        code.getMessage(), Map.of());
                 baseRequest.setHandled(true);
                 return;
             } else {

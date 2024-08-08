@@ -99,8 +99,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     private static final String SUPERBLOCK_BLOB_NAME =
             ".s3proxy-sharded-superblock";
     private static final int MAX_SHARDS = 1000;
-    private final ImmutableMap<String, ShardedBucket> buckets;
-    private final ImmutableMap<String, String> prefixMap;
+    private final Map<String, ShardedBucket> buckets;
+    private final Map<String, String> prefixMap;
 
     private static final class ShardedBucket {
         private final String prefix;
@@ -113,8 +113,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     private ShardedBlobStore(BlobStore blobStore,
-                             ImmutableMap<String, Integer> shards,
-                             ImmutableMap<String, String> prefixes) {
+                             Map<String, Integer> shards,
+                             Map<String, String> prefixes) {
         super(blobStore);
         Set<String> missingShards = Sets.difference(
                 prefixes.keySet(), shards.keySet());
@@ -137,15 +137,12 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
         this.buckets = bucketsBuilder.build();
 
-        var prefixMapBuilder = new ImmutableMap.Builder<String, String>();
-        for (String virtualBucket : buckets.keySet()) {
-            String prefix = buckets.get(virtualBucket).prefix;
-            prefixMapBuilder.put(prefix, virtualBucket);
-        }
-        this.prefixMap = prefixMapBuilder.build();
+        this.prefixMap = buckets.keySet().stream().collect(Collectors.toMap(
+                virtualBucket -> buckets.get(virtualBucket).prefix,
+                virtualBucket -> virtualBucket));
     }
 
-    public static ImmutableMap<String, Integer> parseBucketShards(
+    public static Map<String, Integer> parseBucketShards(
             Properties properties) {
         var shardsMap = new ImmutableMap.Builder<String, Integer>();
         for (String key : properties.stringPropertyNames()) {
@@ -163,8 +160,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         return shardsMap.build();
     }
 
-    public static ImmutableMap<String, String> parsePrefixes(
-            Properties properties) {
+    public static Map<String, String> parsePrefixes(Properties properties) {
         var prefixesMap = new ImmutableMap.Builder<String, String>();
         for (String key : properties.stringPropertyNames()) {
             Matcher matcher = PROPERTIES_PREFIX_RE.matcher(key);
@@ -179,18 +175,17 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     static ShardedBlobStore newShardedBlobStore(
             BlobStore blobStore,
-            ImmutableMap<String, Integer> shards,
-            ImmutableMap<String, String> prefixes) {
+            Map<String, Integer> shards,
+            Map<String, String> prefixes) {
         return new ShardedBlobStore(blobStore, shards, prefixes);
     }
 
     private Map<String, String> createSuperblockMeta(ShardedBucket bucket) {
-        var meta = new ImmutableMap.Builder<String, String>();
-        meta.put("s3proxy-sharded-superblock-version", SUPERBLOCK_VERSION);
-        meta.put("s3proxy-sharded-superblock-prefix", bucket.prefix);
-        meta.put("s3proxy-sharded-superblock-shards",
+        return Map.of(
+                "s3proxy-sharded-superblock-version", SUPERBLOCK_VERSION,
+                "s3proxy-sharded-superblock-prefix", bucket.prefix,
+                "s3proxy-sharded-superblock-shards",
                 Integer.toString(bucket.shards));
-        return meta.build();
     }
 
     private static String getShardContainer(ShardedBucket bucket, int shard) {

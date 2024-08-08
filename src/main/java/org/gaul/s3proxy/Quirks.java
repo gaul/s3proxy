@@ -18,11 +18,9 @@ package org.gaul.s3proxy;
 
 import java.util.Set;
 
-import com.google.common.collect.ImmutableSet;
-
 final class Quirks {
     /** Blobstores which do not support blob-level access control. */
-    static final Set<String> NO_BLOB_ACCESS_CONTROL = ImmutableSet.of(
+    static final Set<String> NO_BLOB_ACCESS_CONTROL = Set.of(
             "azureblob",
             "b2",
             "rackspace-cloudfiles-uk",
@@ -31,7 +29,7 @@ final class Quirks {
     );
 
     /** Blobstores which do not support the Cache-Control header. */
-    static final Set<String> NO_CACHE_CONTROL_SUPPORT = ImmutableSet.of(
+    static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
             "atmos",
             "b2",
             "google-cloud-storage",
@@ -41,18 +39,18 @@ final class Quirks {
     );
 
     /** Blobstores which do not support the Cache-Control header. */
-    static final Set<String> NO_CONTENT_DISPOSITION = ImmutableSet.of(
+    static final Set<String> NO_CONTENT_DISPOSITION = Set.of(
             "b2"
     );
 
     /** Blobstores which do not support the Content-Encoding header. */
-    static final Set<String> NO_CONTENT_ENCODING = ImmutableSet.of(
+    static final Set<String> NO_CONTENT_ENCODING = Set.of(
             "b2",
             "google-cloud-storage"
     );
 
     /** Blobstores which do not support the Content-Language header. */
-    static final Set<String> NO_CONTENT_LANGUAGE = ImmutableSet.of(
+    static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
             "b2",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
@@ -60,17 +58,17 @@ final class Quirks {
     );
 
     /** Blobstores which do not support the If-None-Match header during copy. */
-    static final Set<String> NO_COPY_IF_NONE_MATCH = ImmutableSet.of(
+    static final Set<String> NO_COPY_IF_NONE_MATCH = Set.of(
             "openstack-swift",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us"
     );
 
-    static final Set<String> NO_EXPIRES = ImmutableSet.of(
+    static final Set<String> NO_EXPIRES = Set.of(
             "azureblob"
     );
 
-    static final Set<String> NO_LIST_MULTIPART_UPLOADS = ImmutableSet.of(
+    static final Set<String> NO_LIST_MULTIPART_UPLOADS = Set.of(
             "atmos",
             "filesystem",
             "google-cloud-storage",
@@ -81,7 +79,7 @@ final class Quirks {
     );
 
     /** Blobstores which do not allow listing zero keys. */
-    static final Set<String> NO_LIST_ZERO_KEYS = ImmutableSet.of(
+    static final Set<String> NO_LIST_ZERO_KEYS = Set.of(
             "atmos",
             "azureblob"
     );
@@ -91,7 +89,7 @@ final class Quirks {
      * require it during complete multipart.  Emulate the former in the latter
      * by storing and retrieving a stub object.
      */
-    static final Set<String> MULTIPART_REQUIRES_STUB = ImmutableSet.of(
+    static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "azureblob",
             "filesystem",
             "google-cloud-storage",
@@ -100,14 +98,14 @@ final class Quirks {
     );
 
     /** Blobstores with opaque ETags. */
-    static final Set<String> OPAQUE_ETAG = ImmutableSet.of(
+    static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob",
             "b2",
             "google-cloud-storage"
     );
 
     /** Blobstores with opaque markers. */
-    static final Set<String> OPAQUE_MARKERS = ImmutableSet.of(
+    static final Set<String> OPAQUE_MARKERS = Set.of(
             "azureblob",
             // S3 marker means one past this token while B2 means this token
             "b2",

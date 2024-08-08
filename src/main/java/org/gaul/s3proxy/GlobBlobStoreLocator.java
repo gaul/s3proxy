@@ -20,6 +20,8 @@ import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.util.Map;
 
+import javax.annotation.Nullable;
+
 import com.google.common.collect.Maps;
 
 import org.jclouds.blobstore.BlobStore;
@@ -37,7 +39,7 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
 
     @Override
     public Map.Entry<String, BlobStore> locateBlobStore(
-            String identity, String container, String blob) {
+            @Nullable String identity, String container, String blob) {
         Map.Entry<String, BlobStore> locatorEntry =
                 locator.get(identity);
         Map.Entry<String, BlobStore> globEntry = null;

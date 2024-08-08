@@ -20,37 +20,32 @@ import static java.util.Objects.requireNonNull;
 
 import java.util.Map;
 
-import com.google.common.collect.ImmutableMap;
-
 @SuppressWarnings("serial")
 public final class S3Exception extends Exception {
     private final S3ErrorCode error;
     private final Map<String, String> elements;
 
     S3Exception(S3ErrorCode error) {
-        this(error, error.getMessage(), (Throwable) null,
-                ImmutableMap.<String, String>of());
+        this(error, error.getMessage(), (Throwable) null, Map.of());
     }
 
     S3Exception(S3ErrorCode error, String message) {
-        this(error, message, (Throwable) null,
-                ImmutableMap.<String, String>of());
+        this(error, message, (Throwable) null, Map.of());
     }
 
     S3Exception(S3ErrorCode error, Throwable cause) {
-        this(error, error.getMessage(), cause,
-                ImmutableMap.<String, String>of());
+        this(error, error.getMessage(), cause, Map.of());
     }
 
     S3Exception(S3ErrorCode error, String message, Throwable cause) {
-        this(error, message, cause, ImmutableMap.<String, String>of());
+        this(error, message, cause, Map.of());
     }
 
     S3Exception(S3ErrorCode error, String message, Throwable cause,
                 Map<String, String> elements) {
         super(requireNonNull(message), cause);
         this.error = requireNonNull(error);
-        this.elements = ImmutableMap.copyOf(elements);
+        this.elements = Map.copyOf(elements);
     }
 
     S3ErrorCode getError() {

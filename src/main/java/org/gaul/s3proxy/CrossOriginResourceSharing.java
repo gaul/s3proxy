@@ -16,7 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -27,15 +26,13 @@ import java.util.regex.Pattern;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class CrossOriginResourceSharing {
-    protected static final Collection<String> SUPPORTED_METHODS =
-            ImmutableList.of("GET", "HEAD", "PUT", "POST", "DELETE");
+    protected static final List<String> SUPPORTED_METHODS =
+            List.of("GET", "HEAD", "PUT", "POST", "DELETE");
 
     private static final String HEADER_VALUE_SEPARATOR = ", ";
     private static final String ALLOW_ANY_ORIGIN = "*";
@@ -50,10 +47,11 @@ public final class CrossOriginResourceSharing {
     private final String allowedHeadersRaw;
     private final String exposedHeadersRaw;
     private final boolean anyOriginAllowed;
-    private final Set<Pattern> allowedOrigins;
-    private final Set<String> allowedMethods;
-    private final Set<String> allowedHeaders;
-    private final Set<String> exposedHeaders;
+    // Enforce ordering of values
+    private final List<Pattern> allowedOrigins;
+    private final List<String> allowedMethods;
+    private final List<String> allowedHeaders;
+    private final List<String> exposedHeaders;
     private final String allowCredentials;
 
     public CrossOriginResourceSharing() {
@@ -63,10 +61,10 @@ public final class CrossOriginResourceSharing {
             List.of(EXPOSE_ALL_HEADERS), "");
     }
 
-    public CrossOriginResourceSharing(Collection<String> allowedOrigins,
-            Collection<String> allowedMethods,
-            Collection<String> allowedHeaders,
-            Collection<String> exposedHeaders,
+    public CrossOriginResourceSharing(List<String> allowedOrigins,
+            List<String> allowedMethods,
+            List<String> allowedHeaders,
+            List<String> exposedHeaders,
             String allowCredentials) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
         boolean anyOriginAllowed = false;
@@ -82,28 +80,28 @@ public final class CrossOriginResourceSharing {
             }
         }
         this.anyOriginAllowed = anyOriginAllowed;
-        this.allowedOrigins = ImmutableSet.copyOf(allowedPattern);
+        this.allowedOrigins = List.copyOf(allowedPattern);
 
         if (allowedMethods == null) {
-            this.allowedMethods = ImmutableSet.of();
+            this.allowedMethods = List.of();
         } else {
-            this.allowedMethods = ImmutableSet.copyOf(allowedMethods);
+            this.allowedMethods = List.copyOf(allowedMethods);
         }
         this.allowedMethodsRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedMethods);
 
         if (allowedHeaders == null) {
-            this.allowedHeaders = ImmutableSet.of();
+            this.allowedHeaders = List.of();
         } else {
-            this.allowedHeaders = ImmutableSet.copyOf(allowedHeaders);
+            this.allowedHeaders = List.copyOf(allowedHeaders);
         }
         this.allowedHeadersRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.allowedHeaders);
 
         if (exposedHeaders == null) {
-            this.exposedHeaders = ImmutableSet.of();
+            this.exposedHeaders = List.of();
         } else {
-            this.exposedHeaders = ImmutableSet.copyOf(exposedHeaders);
+            this.exposedHeaders = List.copyOf(exposedHeaders);
         }
         this.exposedHeadersRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
                 this.exposedHeaders);

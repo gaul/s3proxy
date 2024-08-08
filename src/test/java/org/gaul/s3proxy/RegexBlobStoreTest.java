@@ -21,15 +21,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.AbstractMap.SimpleEntry;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.regex.Pattern;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
-import com.google.inject.Module;
 
 import org.assertj.core.api.Assertions;
 import org.jclouds.ContextBuilder;
@@ -54,7 +53,7 @@ public final class RegexBlobStoreTest {
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(List.of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         delegate = context.getBlobStore();
         delegate.createContainerInLocation(null, containerName);
@@ -71,7 +70,7 @@ public final class RegexBlobStoreTest {
 
     @Test
     public void testRemoveSomeCharsFromName() throws IOException {
-        var regexes = ImmutableList.<Map.Entry<Pattern, String>>of(
+        var regexes = List.<Map.Entry<Pattern, String>>of(
                 new SimpleEntry<Pattern, String>(
                         Pattern.compile("[^a-zA-Z0-9/_.]"), "_"));
         BlobStore regexBlobStore = RegexBlobStore.newRegexBlobStore(delegate,

@@ -18,8 +18,7 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.google.common.collect.ImmutableList;
-import com.google.inject.Module;
+import java.util.List;
 
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -53,7 +52,7 @@ public final class TierBlobStoreTest {
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(List.of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
         blobStore.createContainerInLocation(null, containerName);

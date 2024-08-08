@@ -36,7 +36,6 @@ import javax.crypto.spec.SecretKeySpec;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.io.BaseEncoding;
@@ -53,7 +52,7 @@ final class AwsSignature {
             AwsSignature.class);
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
             new PercentEscaper("-_.~", false);
-    private static final Set<String> SIGNED_SUBRESOURCES = ImmutableSet.of(
+    private static final Set<String> SIGNED_SUBRESOURCES = Set.of(
             "acl",
             "delete",
             "lifecycle",

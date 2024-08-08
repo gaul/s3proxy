@@ -87,11 +87,9 @@ import com.amazonaws.services.s3.model.ResponseHeaderOverrides;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.SetBucketLoggingConfigurationRequest;
-import com.amazonaws.services.s3.model.Tag;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
@@ -456,7 +454,7 @@ public final class AwsSdkTest {
         CompleteMultipartUploadRequest completeRequest =
                 new CompleteMultipartUploadRequest(
                         containerName, targetBlobName, uploadId,
-                        ImmutableList.of(copyPartResult.getPartETag()));
+                        List.of(copyPartResult.getPartETag()));
         client.completeMultipartUpload(completeRequest);
 
         S3Object object = client.getObject(containerName, targetBlobName);
@@ -508,7 +506,7 @@ public final class AwsSdkTest {
         CompleteMultipartUploadRequest completeRequest =
                 new CompleteMultipartUploadRequest(
                         containerName, key, uploadId,
-                        ImmutableList.of(
+                        List.of(
                                 uploadPartResult1.getPartETag(),
                                 uploadPartResult2.getPartETag()));
         client.completeMultipartUpload(completeRequest);
@@ -1029,7 +1027,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
-        var userMetadata = ImmutableMap.of(
+        var userMetadata = Map.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1091,7 +1089,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
-        var userMetadata = ImmutableMap.of(
+        var userMetadata = Map.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1135,7 +1133,7 @@ public final class AwsSdkTest {
 
         client.completeMultipartUpload(new CompleteMultipartUploadRequest(
                 containerName, blobName, result.getUploadId(),
-                ImmutableList.of(part1.getPartETag(), part2.getPartETag())));
+                List.of(part1.getPartETag(), part2.getPartETag())));
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).hasSize(1);
 
@@ -1285,7 +1283,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "en";
         String contentType = "audio/ogg";
-        var userMetadata = ImmutableMap.of(
+        var userMetadata = Map.of(
                 "key1", "value1",
                 "key2", "value2");
         ObjectMetadata metadata = new ObjectMetadata();
@@ -1363,7 +1361,7 @@ public final class AwsSdkTest {
         }
         metadata.setContentType("audio/ogg");
         // TODO: expires
-        metadata.setUserMetadata(ImmutableMap.of(
+        metadata.setUserMetadata(Map.of(
                         "key1", "value1",
                         "key2", "value2"));
         client.putObject(containerName, fromName, BYTE_SOURCE.openStream(),
@@ -1389,7 +1387,7 @@ public final class AwsSdkTest {
         }
         contentMetadata.setContentType(contentType);
         // TODO: expires
-        var userMetadata = ImmutableMap.of(
+        var userMetadata = Map.of(
                 "key3", "value3",
                 "key4", "value4");
         contentMetadata.setUserMetadata(userMetadata);
@@ -1472,7 +1470,7 @@ public final class AwsSdkTest {
         metadata.setContentLength(BYTE_SOURCE.size());
         PutObjectRequest request = new PutObjectRequest(
                 containerName, blobName, BYTE_SOURCE.openStream(), metadata)
-                .withTagging(new ObjectTagging(ImmutableList.<Tag>of()));
+                .withTagging(new ObjectTagging(List.of()));
         try {
             client.putObject(request);
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);

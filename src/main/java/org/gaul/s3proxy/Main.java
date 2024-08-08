@@ -39,11 +39,9 @@ import java.util.regex.Pattern;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.google.inject.Module;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -246,16 +244,16 @@ public final class Main {
             blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
         }
 
-        ImmutableList<Map.Entry<Pattern, String>> regexs =
+        List<Map.Entry<Pattern, String>> regexs =
                 RegexBlobStore.parseRegexs(properties);
         if (!regexs.isEmpty()) {
             System.err.println("Using regex backend");
             blobStore = RegexBlobStore.newRegexBlobStore(blobStore, regexs);
         }
 
-        ImmutableMap<String, Integer> shards =
+        Map<String, Integer> shards =
                 ShardedBlobStore.parseBucketShards(properties);
-        ImmutableMap<String, String> prefixes =
+        Map<String, String> prefixes =
                 ShardedBlobStore.parsePrefixes(properties);
         if (!shards.isEmpty()) {
             System.err.println("Using sharded buckets backend");
@@ -367,7 +365,7 @@ public final class Main {
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(
+                .modules(List.of(
                         new SLF4JLoggingModule(),
                         new ExecutorServiceModule(executorService)))
                 .overrides(properties);

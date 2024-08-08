@@ -48,6 +48,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 import javax.crypto.Mac;
@@ -64,7 +65,6 @@ import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
@@ -141,7 +141,7 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('-'));
     private static final long MAX_MULTIPART_COPY_SIZE =
             5L * 1024L * 1024L * 1024L;
-    private static final Set<String> UNSUPPORTED_PARAMETERS = ImmutableSet.of(
+    private static final Set<String> UNSUPPORTED_PARAMETERS = Set.of(
             "accelerate",
             "analytics",
             "cors",
@@ -160,7 +160,7 @@ public class S3ProxyHandler {
             "website"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
-    private static final Set<String> SUPPORTED_X_AMZ_HEADERS = ImmutableSet.of(
+    private static final Set<String> SUPPORTED_X_AMZ_HEADERS = Set.of(
             AwsHttpHeaders.ACL,
             AwsHttpHeaders.API_VERSION,
             AwsHttpHeaders.CONTENT_SHA256,
@@ -176,7 +176,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.USER_AGENT
     );
-    private static final Set<String> CANNED_ACLS = ImmutableSet.of(
+    private static final Set<String> CANNED_ACLS = Set.of(
             "private",
             "public-read",
             "public-read-write",
@@ -1329,7 +1329,7 @@ public class S3ProxyHandler {
         if (!created) {
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU.getMessage(),
-                    null, ImmutableMap.of("BucketName", containerName));
+                    null, Map.of("BucketName", containerName));
         }
 
         response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
@@ -2275,10 +2275,11 @@ public class S3ProxyHandler {
 
         // List parts to get part sizes and to map multiple Azure parts
         // into single parts.
-        var builder = ImmutableMap.<Integer, MultipartPart>builder();
-        for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
-            builder.put(part.partNumber(), part);
-        }
+        var partsByListing =
+                blobStore.listMultipartUpload(mpu).stream().collect(
+                        Collectors.toMap(
+                                part -> part.partNumber(),
+                                part -> part));
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
@@ -2326,8 +2327,6 @@ public class S3ProxyHandler {
                 }
             }
 
-            ImmutableMap<Integer, MultipartPart> partsByListing =
-                    builder.build();
             for (var it = requestParts.entrySet().iterator(); it.hasNext();) {
                 var entry = it.next();
                 MultipartPart part = partsByListing.get(entry.getKey());
@@ -2613,14 +2612,14 @@ public class S3ProxyHandler {
         } catch (NumberFormatException nfe) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", nfe, ImmutableMap.of(
+                    ", inclusive", nfe, Map.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
         if (partNumber < 1 || partNumber > 10_000) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", (Throwable) null, ImmutableMap.of(
+                    ", inclusive", (Throwable) null, Map.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
@@ -2800,14 +2799,14 @@ public class S3ProxyHandler {
         } catch (NumberFormatException nfe) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", nfe, ImmutableMap.of(
+                    ", inclusive", nfe, Map.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
         if (partNumber < 1 || partNumber > 10_000) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", (Throwable) null, ImmutableMap.of(
+                    ", inclusive", (Throwable) null, Map.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }

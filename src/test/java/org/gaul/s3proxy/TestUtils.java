@@ -21,17 +21,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Properties;
 import java.util.Random;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
-import com.google.inject.Module;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.jclouds.Constants;
@@ -179,7 +178,7 @@ final class TestUtils {
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
                 .credentials(identity, credential)
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(List.of(new SLF4JLoggingModule()))
                 .overrides(info.getProperties());
         if (!Strings.isNullOrEmpty(endpoint)) {
             builder.endpoint(endpoint);

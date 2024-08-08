@@ -21,11 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
-import com.google.inject.Module;
 
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
@@ -47,7 +45,7 @@ public final class ShardedBlobStoreTest {
     private BlobStore blobStore;
     private BlobStore shardedBlobStore;
     private List<String> createdContainers;
-    private ImmutableMap<String, String> prefixesMap;
+    private Map<String, String> prefixesMap;
 
     @Before
     public void setUp() {
@@ -57,11 +55,11 @@ public final class ShardedBlobStoreTest {
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(List.of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
-        var shardsMap = ImmutableMap.of(containerName, shards);
-        prefixesMap = ImmutableMap.of(containerName, prefix);
+        var shardsMap = Map.of(containerName, shards);
+        prefixesMap = Map.of(containerName, prefix);
         shardedBlobStore = ShardedBlobStore.newShardedBlobStore(
                 blobStore, shardsMap, prefixesMap);
         createdContainers = new ArrayList<>();

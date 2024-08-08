@@ -29,7 +29,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
-import com.google.inject.Module;
 
 import org.assertj.core.api.Assertions;
 import org.jclouds.ContextBuilder;
@@ -63,7 +62,7 @@ public final class AliasBlobStoreTest {
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
-                .modules(ImmutableList.<Module>of(new SLF4JLoggingModule()))
+                .modules(List.of(new SLF4JLoggingModule()))
                 .build(BlobStoreContext.class);
         blobStore = context.getBlobStore();
         var aliasesBuilder = new ImmutableBiMap.Builder<String, String>();
