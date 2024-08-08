@@ -28,6 +28,7 @@ import java.util.Properties;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import org.eclipse.jetty.http.HttpCompliance;
@@ -291,10 +292,11 @@ public final class S3Proxy {
                 }
 
                 builder.corsRules(new CrossOriginResourceSharing(
-                        Lists.newArrayList(splitter.split(corsAllowOrigins)),
-                        Lists.newArrayList(splitter.split(corsAllowMethods)),
-                        Lists.newArrayList(splitter.split(corsAllowHeaders)),
-                        Lists.newArrayList(splitter.split(corsExposedHeaders)),
+                        ImmutableList.copyOf(splitter.split(corsAllowOrigins)),
+                        ImmutableList.copyOf(splitter.split(corsAllowMethods)),
+                        ImmutableList.copyOf(splitter.split(corsAllowHeaders)),
+                        ImmutableList.copyOf(splitter.split(
+                                corsExposedHeaders)),
                         allowCredentials));
             }
 

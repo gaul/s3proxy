@@ -20,8 +20,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
-import com.google.common.collect.Lists;
-
 import org.junit.Before;
 import org.junit.Test;
 
@@ -36,11 +34,11 @@ public final class CrossOriginResourceSharingRuleTest {
         corsAll = new CrossOriginResourceSharing();
         // CORS Configured
         corsCfg = new CrossOriginResourceSharing(
-                Lists.newArrayList("https://example\\.com",
+                List.of("https://example\\.com",
                         "https://.+\\.example\\.com",
                         "https://example\\.cloud"),
-                Lists.newArrayList("GET", "PUT"),
-                Lists.newArrayList("Accept", "Content-Type"),
+                List.of("GET", "PUT"),
+                List.of("Accept", "Content-Type"),
                 List.of(),
                 "true");
         // CORS disabled

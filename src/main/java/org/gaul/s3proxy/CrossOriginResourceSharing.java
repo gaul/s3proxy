@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -28,7 +29,6 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,9 +58,9 @@ public final class CrossOriginResourceSharing {
 
     public CrossOriginResourceSharing() {
         // CORS Allow all
-        this(Lists.newArrayList(ALLOW_ANY_ORIGIN), SUPPORTED_METHODS,
-            Lists.newArrayList(ALLOW_ANY_HEADER),
-            Lists.newArrayList(EXPOSE_ALL_HEADERS), "");
+        this(List.of(ALLOW_ANY_ORIGIN), SUPPORTED_METHODS,
+            List.of(ALLOW_ANY_HEADER),
+            List.of(EXPOSE_ALL_HEADERS), "");
     }
 
     public CrossOriginResourceSharing(Collection<String> allowedOrigins,
