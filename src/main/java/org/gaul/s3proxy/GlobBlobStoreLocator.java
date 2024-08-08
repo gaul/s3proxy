@@ -70,7 +70,6 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
         if (locatorEntry == null) {
             return null;
         }
-        return Maps.immutableEntry(locatorEntry.getKey(),
-                globEntry.getValue());
+        return Map.entry(locatorEntry.getKey(), globEntry.getValue());
     }
 }

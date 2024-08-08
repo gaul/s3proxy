@@ -92,7 +92,6 @@ import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
@@ -1518,10 +1517,9 @@ public final class AwsSdkTest {
             public Map.Entry<String, BlobStore> locateBlobStore(
                     String identity, String container, String blob) {
                 if (identity.equals(awsCreds.getAWSAccessKeyId())) {
-                    return Maps.immutableEntry(awsCreds.getAWSSecretKey(),
-                            blobStore1);
+                    return Map.entry(awsCreds.getAWSSecretKey(), blobStore1);
                 } else if (identity.equals("other-identity")) {
-                    return Maps.immutableEntry("credential", blobStore2);
+                    return Map.entry("credential", blobStore2);
                 } else {
                     return null;
                 }

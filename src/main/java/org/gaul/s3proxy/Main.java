@@ -41,7 +41,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Module;
@@ -137,7 +136,7 @@ public final class Main {
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
                 if (parsedIdentities.add(localIdentity)) {
                     locators.put(localIdentity,
-                            Maps.immutableEntry(localCredential, blobStore));
+                            Map.entry(localCredential, blobStore));
                 }
             }
             for (String key : properties.stringPropertyNames()) {
@@ -147,7 +146,7 @@ public final class Main {
                         globLocators.put(
                                 FileSystems.getDefault().getPathMatcher(
                                         "glob:" + bucketLocator),
-                                Maps.immutableEntry(localIdentity, blobStore));
+                                Map.entry(localIdentity, blobStore));
                     } else {
                         System.err.println("Multiple definitions of the " +
                                 "bucket locator: " + bucketLocator);

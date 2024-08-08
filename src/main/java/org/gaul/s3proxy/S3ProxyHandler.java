@@ -241,7 +241,7 @@ public class S3ProxyHandler {
                     if (!identity.equals(identityArg)) {
                         return null;
                     }
-                    return Maps.immutableEntry(credential, blobStore);
+                    return Map.entry(credential, blobStore);
                 }
             };
         } else {
@@ -1400,7 +1400,7 @@ public class S3ProxyHandler {
         if (marker != null) {
             if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                 String realMarker = lastKeyToMarker.getIfPresent(
-                        Maps.immutableEntry(containerName, marker));
+                        Map.entry(containerName, marker));
                 if (realMarker != null) {
                     marker = realMarker;
                 }
@@ -1494,7 +1494,7 @@ public class S3ProxyHandler {
                     StorageMetadata sm = Streams.findLast(
                             set.stream()).orElse(null);
                     if (sm != null) {
-                        lastKeyToMarker.put(Maps.immutableEntry(
+                        lastKeyToMarker.put(Map.entry(
                                 containerName,
                                 encodeBlob(encodingType, nextMarker)),
                                 nextMarker);
