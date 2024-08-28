@@ -173,7 +173,8 @@ public class S3ProxyHandler {
             AwsHttpHeaders.DATE,
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
             AwsHttpHeaders.METADATA_DIRECTIVE,
-            AwsHttpHeaders.STORAGE_CLASS
+            AwsHttpHeaders.STORAGE_CLASS,
+            AwsHttpHeaders.USER_AGENT
     );
     private static final Set<String> CANNED_ACLS = ImmutableSet.of(
             "private",
