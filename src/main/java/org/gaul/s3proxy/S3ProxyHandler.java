@@ -366,13 +366,27 @@ public class S3ProxyHandler {
 
         BlobStore blobStore;
         String requestIdentity = null;
-        String headerAuthorization = request.getHeader(
-                HttpHeaders.AUTHORIZATION);
         S3AuthorizationHeader authHeader = null;
         boolean presignedUrl = false;
+        boolean headerAuth = true;
 
         if (!anonymousIdentity) {
+            //try login with auth header
+            String headerAuthorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+            
             if (Strings.isNullOrEmpty(headerAuthorization)) {
+                headerAuth = false;
+            } else {
+                try {
+                    authHeader = new S3AuthorizationHeader(headerAuthorization);
+                    //whether v2 or v4 (normal header and query)
+                } catch (IllegalArgumentException iae) {
+                    headerAuth = false;
+                }
+            }
+
+            //try login as pre signed url if header failed
+            if (!headerAuth) {
                 String algorithm = request.getParameter("X-Amz-Algorithm");
                 if (algorithm == null) { //v2 query
                     String identity = request.getParameter("AWSAccessKeyId");
@@ -402,14 +416,15 @@ public class S3ProxyHandler {
                     throw new IllegalArgumentException("unknown algorithm: " +
                             algorithm);
                 }
+
+                try {
+                    authHeader = new S3AuthorizationHeader(headerAuthorization);
+                    //whether v2 or v4 (normal header and query)
+                } catch (IllegalArgumentException iae) {
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+                }
             }
 
-            try {
-                authHeader = new S3AuthorizationHeader(headerAuthorization);
-                //whether v2 or v4 (normal header and query)
-            } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
-            }
             requestIdentity = authHeader.getIdentity();
         }
 
