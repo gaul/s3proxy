@@ -1589,6 +1589,10 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
 
+        if (dmor.objects.size() > 1_000) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+
         Collection<String> blobNames = new ArrayList<>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects) {
