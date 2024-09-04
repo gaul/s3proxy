@@ -23,6 +23,7 @@ import java.util.concurrent.TimeoutException;
 import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.net.HttpHeaders;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -94,6 +95,12 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                         hre.getMessage());
                 return;
             }
+
+            String eTag = hr.getFirstHeaderOrNull(HttpHeaders.ETAG);
+            if (eTag != null) {
+                response.setHeader(HttpHeaders.ETAG, eTag);
+            }
+
             int status = hr.getStatusCode();
             switch (status) {
             case 412:
@@ -111,7 +118,7 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 break;
             default:
                 logger.debug("HttpResponseException:", hre);
-                response.sendError(status, hre.getContent());
+                response.setStatus(status);
                 break;
             }
             baseRequest.setHandled(true);
