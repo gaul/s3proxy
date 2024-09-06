@@ -59,7 +59,7 @@ jobs:
           cache: "maven"
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.8"
+          python-version: "3.11"
           cache: "pip"
 
       #Run tests
@@ -72,7 +72,11 @@ jobs:
       - name: Maven Test
         run: |
           mvn test
-      - name: Other Test
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install tox tox-gh-actions
+      - name: Run s3-tests
         run: |
           ./src/test/resources/run-s3-tests.sh
 
