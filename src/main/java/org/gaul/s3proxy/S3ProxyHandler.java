@@ -2925,8 +2925,11 @@ public class S3ProxyHandler {
                 response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
             }
         }
-        response.addDateHeader(HttpHeaders.LAST_MODIFIED,
-                metadata.getLastModified().getTime());
+        Date lastModified = metadata.getLastModified();
+        if (lastModified != null) {
+            response.addDateHeader(HttpHeaders.LAST_MODIFIED,
+                    lastModified.getTime());
+        }
         Tier tier = metadata.getTier();
         if (tier != null) {
             response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
