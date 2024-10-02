@@ -26,7 +26,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * List of S3 error codes.  Reference:
  * http://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
  */
-enum S3ErrorCode {
+public enum S3ErrorCode {
     ACCESS_DENIED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     BAD_DIGEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     BUCKET_ALREADY_EXISTS(HttpServletResponse.SC_FORBIDDEN,
@@ -44,6 +44,8 @@ enum S3ErrorCode {
             "Your proposed upload is smaller than the minimum allowed object" +
             " size. Each part must be at least 5 MB in size, except the last" +
             " part."),
+    INTERNAL_ERROR(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+            "An internal error occurred. Try again."),
     INVALID_ACCESS_KEY_ID(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     INVALID_ARGUMENT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST,

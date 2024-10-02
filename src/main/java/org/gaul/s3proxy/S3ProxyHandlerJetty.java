@@ -22,6 +22,7 @@ import java.util.concurrent.TimeoutException;
 
 import javax.annotation.Nullable;
 
+import com.azure.storage.blob.models.BlobStorageException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HttpHeaders;
 
@@ -30,6 +31,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.gaul.s3proxy.azureblob.AzureBlobStore;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
@@ -79,6 +81,12 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
 
             handler.doHandle(baseRequest, request, response, is);
             baseRequest.setHandled(true);
+        } catch (BlobStorageException bse) {
+            S3ErrorCode code = AzureBlobStore.toS3ErrorCode(bse.getErrorCode());
+            handler.sendSimpleErrorResponse(request, response, code,
+                    code.getMessage(), ImmutableMap.<String, String>of());
+            baseRequest.setHandled(true);
+            return;
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
             handler.sendSimpleErrorResponse(request, response, code,
