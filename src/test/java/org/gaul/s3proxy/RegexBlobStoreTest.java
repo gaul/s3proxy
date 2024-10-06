@@ -95,13 +95,13 @@ public final class RegexBlobStoreTest {
         blob = regexBlobStore.getBlob(containerName, targetBlobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
 
         blob = regexBlobStore.getBlob(containerName, initialBlobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 

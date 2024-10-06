@@ -133,7 +133,7 @@ public final class AliasBlobStoreTest {
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -162,7 +162,7 @@ public final class AliasBlobStoreTest {
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 

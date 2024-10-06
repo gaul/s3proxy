@@ -219,7 +219,7 @@ public final class EventualBlobStoreTest {
 
         try (InputStream actual = blob.getPayload().openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 

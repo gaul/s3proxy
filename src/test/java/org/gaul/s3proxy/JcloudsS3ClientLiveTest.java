@@ -117,8 +117,8 @@ public final class JcloudsS3ClientLiveTest extends S3ClientLiveTest {
     @Override
     protected URL getObjectURL(String containerName, String key)
             throws Exception {
-        return new URL(String.format("%s/%s/%s", URI.create(endpoint),
-                containerName, key));
+        return URI.create(String.format("%s/%s/%s", URI.create(endpoint),
+                containerName, key)).toURL();
     }
 
     @Override

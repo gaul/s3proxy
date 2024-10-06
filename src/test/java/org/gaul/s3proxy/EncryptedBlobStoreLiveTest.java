@@ -217,7 +217,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
 
         try (InputStream actual = object.getPayload().openStream();
              InputStream expected = byteSource.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
 
         // get a 5mb slice that overlap parts
@@ -231,7 +231,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
 
         try (InputStream actual = object.getPayload().openStream();
              InputStream expected = partialContent.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 

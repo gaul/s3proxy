@@ -136,12 +136,12 @@ public final class ShardedBlobStoreTest {
         blob = shardedBlobStore.getBlob(containerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
         blob2 = shardedBlobStore.getBlob(containerName, blobName2);
         try (InputStream actual = blob2.getPayload().openStream();
              InputStream expected = content2.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
 
         String blobContainer = null;
@@ -189,7 +189,7 @@ public final class ShardedBlobStoreTest {
         blob = blobStore.getBlob(unshardedContainer, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -208,7 +208,7 @@ public final class ShardedBlobStoreTest {
         blob = shardedBlobStore.getBlob(containerName, copyBlobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -228,7 +228,7 @@ public final class ShardedBlobStoreTest {
         blob = shardedBlobStore.getBlob(containerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -248,7 +248,7 @@ public final class ShardedBlobStoreTest {
         blob = shardedBlobStore.getBlob(unshardedContainer, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 }

@@ -124,7 +124,7 @@ public final class AwsSdkAnonymousTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
             InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 

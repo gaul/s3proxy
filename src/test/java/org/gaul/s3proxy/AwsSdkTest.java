@@ -189,7 +189,7 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -228,7 +228,7 @@ public final class AwsSdkTest {
                 expectedContentType);
         try (InputStream actual = object.getObjectContent();
              InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -244,7 +244,7 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -266,7 +266,7 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -289,7 +289,7 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -358,7 +358,7 @@ public final class AwsSdkTest {
                 expiration, HttpMethod.GET);
         try (InputStream actual = url.openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -400,7 +400,7 @@ public final class AwsSdkTest {
             value = connection.getHeaderField("Content-Type");
             assertThat(value).isEqualTo(headerOverride.getContentType());
 
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -418,7 +418,7 @@ public final class AwsSdkTest {
                 expiration, HttpMethod.GET);
         try (InputStream actual = url.openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -464,7 +464,7 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -518,7 +518,7 @@ public final class AwsSdkTest {
                 size);
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = byteSource.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -617,7 +617,7 @@ public final class AwsSdkTest {
                 BYTE_SOURCE.size());
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -748,7 +748,7 @@ public final class AwsSdkTest {
                 /*query=*/ null, /*fragment=*/ null);
         try (InputStream actual = httpClient.get(uri);
              InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -808,7 +808,7 @@ public final class AwsSdkTest {
         S3Object object = client.getObject(containerName, blobName);
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -1014,7 +1014,7 @@ public final class AwsSdkTest {
         S3Object object = client.getObject(containerName, blobName);
         try (InputStream actual = object.getObjectContent();
              InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
         ObjectMetadata newContentMetadata = object.getObjectMetadata();
         assertThat(newContentMetadata.getContentType()).isEqualTo(
@@ -1056,7 +1056,7 @@ public final class AwsSdkTest {
         S3Object object = client.getObject(containerName, blobName);
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
         ObjectMetadata newContentMetadata = object.getObjectMetadata();
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
@@ -1142,7 +1142,7 @@ public final class AwsSdkTest {
         S3Object object = client.getObject(containerName, blobName);
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = byteSource.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
         ObjectMetadata newContentMetadata = object.getObjectMetadata();
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
@@ -1212,7 +1212,7 @@ public final class AwsSdkTest {
 
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = byteSource.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
     }
 
@@ -1314,7 +1314,7 @@ public final class AwsSdkTest {
 
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
 
         ObjectMetadata contentMetadata = object.getObjectMetadata();
@@ -1401,7 +1401,7 @@ public final class AwsSdkTest {
 
         try (InputStream actual = object.getObjectContent();
                 InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasContentEqualTo(expected);
+            assertThat(actual).hasSameContentAs(expected);
         }
 
         ObjectMetadata toContentMetadata = object.getObjectMetadata();
