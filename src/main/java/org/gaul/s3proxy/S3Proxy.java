@@ -25,6 +25,8 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.Properties;
 
+import javax.net.ssl.SSLContext;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -67,10 +69,12 @@ public final class S3Proxy {
             checkArgument(builder.secureEndpoint.getPath().isEmpty(),
                     "secure-endpoint path must be empty, was: %s",
                     builder.secureEndpoint.getPath());
-            requireNonNull(builder.keyStorePath,
-                    "Must provide keyStorePath with HTTPS endpoint");
-            requireNonNull(builder.keyStorePassword,
-                    "Must provide keyStorePassword with HTTPS endpoint");
+            if (builder.sslContext == null) {
+                requireNonNull(builder.keyStorePath,
+                        "Must provide keyStorePath with HTTPS endpoint");
+                requireNonNull(builder.keyStorePassword,
+                        "Must provide keyStorePassword with HTTPS endpoint");
+            }
         }
         checkArgument(Strings.isNullOrEmpty(builder.identity) ^
                 !Strings.isNullOrEmpty(builder.credential),
@@ -107,8 +111,12 @@ public final class S3Proxy {
         if (builder.secureEndpoint != null) {
             SslContextFactory.Server sslContextFactory =
                 new SslContextFactory.Server();
-            sslContextFactory.setKeyStorePath(builder.keyStorePath);
-            sslContextFactory.setKeyStorePassword(builder.keyStorePassword);
+            if (builder.sslContext != null) {
+                sslContextFactory.setSslContext(builder.sslContext);
+            } else {
+                sslContextFactory.setKeyStorePath(builder.keyStorePath);
+                sslContextFactory.setKeyStorePassword(builder.keyStorePassword);
+            }
             connector = new ServerConnector(server, sslContextFactory,
                     httpConnectionFactory);
             connector.setHost(builder.secureEndpoint.getHost());
@@ -137,6 +145,7 @@ public final class S3Proxy {
                 AuthenticationType.NONE;
         private String identity;
         private String credential;
+        private SSLContext sslContext;
         private String keyStorePath;
         private String keyStorePassword;
         private String virtualHost;
@@ -338,9 +347,17 @@ public final class S3Proxy {
             return this;
         }
 
+        public Builder sslContext(SSLContext sslContext) {
+            this.sslContext = requireNonNull(sslContext);
+            this.keyStorePath = null;
+            this.keyStorePassword = null;
+            return this;
+        }
+
         public Builder keyStore(String keyStorePath, String keyStorePassword) {
             this.keyStorePath = requireNonNull(keyStorePath);
             this.keyStorePassword = requireNonNull(keyStorePassword);
+            this.sslContext = null;
             return this;
         }
 
@@ -435,6 +452,7 @@ public final class S3Proxy {
             // do not check credentials or storage backend fields
             return Objects.equals(this.endpoint, that.endpoint) &&
                     Objects.equals(this.secureEndpoint, that.secureEndpoint) &&
+                    Objects.equals(this.sslContext, that.sslContext) &&
                     Objects.equals(this.keyStorePath, that.keyStorePath) &&
                     Objects.equals(this.keyStorePassword,
                             that.keyStorePassword) &&
@@ -450,8 +468,8 @@ public final class S3Proxy {
 
         @Override
         public int hashCode() {
-            return Objects.hash(endpoint, secureEndpoint, keyStorePath,
-                    keyStorePassword, virtualHost, servicePath,
+            return Objects.hash(endpoint, secureEndpoint, sslContext,
+                    keyStorePath, keyStorePassword, virtualHost, servicePath,
                     maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,
                     ignoreUnknownHeaders, corsRules);
         }
