@@ -17,7 +17,6 @@
 package org.gaul.s3proxy.crypto;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -47,7 +46,8 @@ public class PartPadding {
             byte[] paddingBytes = IOUtils.toByteArray(is);
             ByteBuffer bb = ByteBuffer.wrap(paddingBytes);
 
-            byte[] delimiterBytes = new byte[Constants.PADDING_DELIMITER_LENGTH];
+            byte[] delimiterBytes =
+                new byte[Constants.PADDING_DELIMITER_LENGTH];
             bb.get(delimiterBytes);
             partPadding.delimiter =
                 new String(delimiterBytes, StandardCharsets.UTF_8);
