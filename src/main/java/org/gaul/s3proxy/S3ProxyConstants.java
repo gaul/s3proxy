@@ -128,6 +128,13 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_ENCRYPTED_BLOBSTORE_SALT =
             "s3proxy.encrypted-blobstore-salt";
 
+    public static final String PROPERTY_USER_METADATA_REPLACER =
+            "s3proxy.user-metadata-replacer-blobstore";
+    public static final String PROPERTY_USER_METADATA_REPLACER_FROM_CHARS =
+            "s3proxy.user-metadata-replacer-blobstore.from-chars";
+    public static final String PROPERTY_USER_METADATA_REPLACER_TO_CHARS =
+            "s3proxy.user-metadata-replacer-blobstore.to-chars";
+
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
