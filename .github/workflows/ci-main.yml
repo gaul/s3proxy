@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - "master"
+    tags:
+      - "*"
   pull_request:
     branches:
       - "*"
@@ -34,7 +36,7 @@ jobs:
             name=ghcr.io/${{ github.repository }}/container
             name=andrewgaul/s3proxy,enable=${{ env.dockerhub_publish }}
           flavor: |
-            latest=false
+            latest=auto
           tags: |
             type=sha,format=long
             type=sha
