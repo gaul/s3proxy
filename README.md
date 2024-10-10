@@ -82,6 +82,7 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3 (all implementations)
 * transient (in-memory storage)
+* transient-nio2 (in-memory storage, preview)
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 

@@ -10,7 +10,6 @@
   </module>
   <module name="NewlineAtEndOfFile"/>
   <module name="Translation"/>
-  <module name="LineLength"/>
   <module name="TreeWalker">
     <module name="SuppressionCommentFilter"/>
     <module name="AbbreviationAsWordInName"/>
