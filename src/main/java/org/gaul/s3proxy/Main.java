@@ -283,6 +283,19 @@ public final class Main {
                     StorageClass.fromTier(storageClassBlobStore.getTier()));
         }
 
+        String userMetadataReplacerBlobStore = properties.getProperty(
+                S3ProxyConstants.PROPERTY_USER_METADATA_REPLACER);
+        if ("true".equalsIgnoreCase(userMetadataReplacerBlobStore)) {
+            System.err.println("Using user metadata replacers storage backend");
+            String fromChars = properties.getProperty(S3ProxyConstants
+                    .PROPERTY_USER_METADATA_REPLACER_FROM_CHARS);
+            String toChars = properties.getProperty(S3ProxyConstants
+                    .PROPERTY_USER_METADATA_REPLACER_TO_CHARS);
+            blobStore = UserMetadataReplacerBlobStore
+                    .newUserMetadataReplacerBlobStore(
+                            blobStore, fromChars, toChars);
+        }
+
         return blobStore;
     }
 
