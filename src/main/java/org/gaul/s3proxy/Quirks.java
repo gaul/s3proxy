@@ -98,7 +98,8 @@ final class Quirks {
             "filesystem",
             "google-cloud-storage",
             "openstack-swift",
-            "transient"
+            "transient",
+            "transient-nio2"
     );
 
     /** Blobstores with opaque ETags. */
