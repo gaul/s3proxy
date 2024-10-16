@@ -159,12 +159,16 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
         options.range(0, 19);
         object = this.getApi().getObject(containerName, blobName, options);
 
-        InputStreamReader r =
-            new InputStreamReader(object.getPayload().openStream());
+        InputStreamReader r = new InputStreamReader(
+                object.getPayload().openStream());
         BufferedReader reader = new BufferedReader(r);
-        String partialContent = reader.lines().collect(Collectors.joining());
-        assertThat(partialContent).isEqualTo(content.substring(0, 20));
-        assertThat((long) partialContent.length()).isEqualTo(object.getMetadata().getContentMetadata().getContentLength());
+        String partialContent = reader.lines()
+                .collect(Collectors.joining());
+
+        assertThat(partialContent).isEqualTo(
+                content.substring(0, 20));
+        assertThat((long) partialContent.length()).isEqualTo(
+                object.getMetadata().getContentMetadata().getContentLength());
 
         // open ended range request
         options = new GetOptions();
@@ -174,8 +178,10 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
         r = new InputStreamReader(object.getPayload().openStream());
         reader = new BufferedReader(r);
         partialContent = reader.lines().collect(Collectors.joining());
+
         assertThat(partialContent).isEqualTo(content.substring(10));
-        assertThat((long) partialContent.length()).isEqualTo(object.getMetadata().getContentMetadata().getContentLength());
+        assertThat((long) partialContent.length()).isEqualTo(
+                object.getMetadata().getContentMetadata().getContentLength());
     }
 
     @Test
