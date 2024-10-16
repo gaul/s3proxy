@@ -136,8 +136,8 @@ public class Decryption {
         // calculate the offset
         calculateOffset(offset);
 
-        // if there is a offset and a length set the output length
-        if (offset > 0 && length == 0) {
+        // if there is a offset and no length set the output length
+        if (offset > 0 && length <= 0) {
             outputLength = unencryptedSize - offset;
         }
     }
