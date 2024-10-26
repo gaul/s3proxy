@@ -365,8 +365,9 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .getBlockBlobClient();
         var blockId = makeBlockId(partNumber);
         var length = payload.getContentMetadata().getContentLength();
-        try (var is = payload.openStream()) {
-            client.stageBlock(blockId, is, length);
+        try (var is = payload.openStream();
+             var os = client.getBlobOutputStream()) {
+            is.transferTo(os);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
