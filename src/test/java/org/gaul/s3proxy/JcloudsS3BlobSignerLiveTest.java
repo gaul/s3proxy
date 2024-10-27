@@ -55,7 +55,8 @@ public final class JcloudsS3BlobSignerLiveTest extends S3BlobSignerLiveTest {
     protected Properties setupProperties() {
         TestUtils.S3ProxyLaunchInfo info;
         try {
-            info = TestUtils.startS3Proxy("s3proxy.conf");
+            info = TestUtils.startS3Proxy(
+                    System.getProperty("s3proxy.test.conf", "s3proxy.conf"));
             s3Proxy = info.getS3Proxy();
             context = info.getBlobStore().getContext();
         } catch (Exception e) {
