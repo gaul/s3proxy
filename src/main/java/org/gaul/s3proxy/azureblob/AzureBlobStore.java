@@ -80,6 +80,7 @@ import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
+import org.jclouds.providers.ProviderMetadata;
 
 @Singleton
 public final class AzureBlobStore extends BaseBlobStore {
@@ -90,13 +91,14 @@ public final class AzureBlobStore extends BaseBlobStore {
             Supplier<Location> defaultLocation,
             @Memoized Supplier<Set<? extends Location>> locations,
             PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds) {
+            @org.jclouds.location.Provider Supplier<Credentials> creds,
+            ProviderMetadata provider) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         var cred = creds.get();
         blobServiceClient = new BlobServiceClientBuilder()
                 .credential(new AzureNamedKeyCredential(
                         cred.identity, cred.credential))
-                .endpoint("https://" + cred.identity + ".blob.core.windows.net")
+                .endpoint(provider.getEndpoint())
                 .buildClient();
     }
 
