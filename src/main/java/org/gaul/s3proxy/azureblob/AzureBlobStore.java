@@ -190,7 +190,13 @@ public final class AzureBlobStore extends BaseBlobStore {
 
     @Override
     public void deleteContainer(String container) {
-        blobServiceClient.deleteBlobContainer(container);
+        try {
+            blobServiceClient.deleteBlobContainer(container);
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() != BlobErrorCode.CONTAINER_NOT_FOUND) {
+                throw bse;
+            }
+        }
     }
 
     @Override
