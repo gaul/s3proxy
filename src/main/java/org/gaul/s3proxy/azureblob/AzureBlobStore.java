@@ -172,20 +172,17 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public boolean createContainerInLocation(Location location,
             String container, CreateContainerOptions options) {
-        try {
-            var azureOptions = new BlobContainerCreateOptions();
-            if (options.isPublicRead()) {
-                azureOptions.setPublicAccessType(PublicAccessType.CONTAINER);
-            }
-            blobServiceClient.createBlobContainerIfNotExistsWithResponse(
-                    container, azureOptions, /*context=*/ null);
-        } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() == BlobErrorCode.CONTAINER_ALREADY_EXISTS) {
-                return false;
-            }
-            throw bse;
+        var azureOptions = new BlobContainerCreateOptions();
+        if (options.isPublicRead()) {
+            azureOptions.setPublicAccessType(PublicAccessType.CONTAINER);
         }
-        return true;
+        var response = blobServiceClient.createBlobContainerIfNotExistsWithResponse(
+                container, azureOptions, /*context=*/ null);
+        switch (response.getStatusCode()) {
+        case 201: return true;
+        case 409: return false;
+        default: return false;
+        }
     }
 
     @Override
