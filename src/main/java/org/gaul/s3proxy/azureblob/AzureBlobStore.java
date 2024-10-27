@@ -139,7 +139,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                         /*lastModified=*/ null,
                         Map.of(),
                         /*size=*/ null,
-                        toTier(properties.getAccessTier())));
+                        Tier.STANDARD));
             } else {
                 set.add(new StorageMetadataImpl(StorageType.BLOB,
                         /*id=*/ null, blob.getName(), /*location=*/ null,
