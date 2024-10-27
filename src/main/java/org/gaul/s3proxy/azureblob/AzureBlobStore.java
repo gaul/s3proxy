@@ -41,7 +41,7 @@ import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
 import com.azure.storage.blob.options.BlobContainerCreateOptions;
-import com.azure.storage.blob.options.BlockBlobSimpleUploadOptions;
+import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -232,8 +232,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .getBlobClient(blob.getMetadata().getName())
                 .getBlockBlobClient();
         try (var is = blob.getPayload().openStream()) {
-            var azureOptions = new BlockBlobSimpleUploadOptions(is,
-                    blob.getMetadata().getContentMetadata().getContentLength());
+            var azureOptions = new BlockBlobOutputStreamOptions();
             azureOptions.setMetadata(blob.getMetadata().getUserMetadata());
 
             // TODO: Expires?
@@ -253,9 +252,11 @@ public final class AzureBlobStore extends BaseBlobStore {
                         blob.getMetadata().getTier()));
             }
 
-            var blockBlobItem = client.uploadWithResponse(
-                    azureOptions, /*timeout=*/ null, /*context=*/ null);
-            return blockBlobItem.getValue().getETag();
+            try (var os = client.getBlobOutputStream(
+                    azureOptions, /*context=*/ null)) {
+                is.transferTo(os);
+            }
+            return "";  // TODO: how to get ETag?
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
