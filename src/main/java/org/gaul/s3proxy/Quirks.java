@@ -22,6 +22,7 @@ final class Quirks {
     /** Blobstores which do not support blob-level access control. */
     static final Set<String> NO_BLOB_ACCESS_CONTROL = Set.of(
             "azureblob",
+            "azureblob-sdk",
             "b2",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
@@ -65,7 +66,8 @@ final class Quirks {
     );
 
     static final Set<String> NO_EXPIRES = Set.of(
-            "azureblob"
+            "azureblob",
+            "azureblob-sdk"
     );
 
     static final Set<String> NO_LIST_MULTIPART_UPLOADS = Set.of(
@@ -81,7 +83,8 @@ final class Quirks {
     /** Blobstores which do not allow listing zero keys. */
     static final Set<String> NO_LIST_ZERO_KEYS = Set.of(
             "atmos",
-            "azureblob"
+            "azureblob",
+            "azureblob-sdk"
     );
 
     /**
@@ -91,6 +94,7 @@ final class Quirks {
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "azureblob",
+            "azureblob-sdk",
             "filesystem",
             "google-cloud-storage",
             "openstack-swift",
@@ -100,6 +104,7 @@ final class Quirks {
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob",
+            "azureblob-sdk",
             "b2",
             "google-cloud-storage"
     );
@@ -107,6 +112,7 @@ final class Quirks {
     /** Blobstores with opaque markers. */
     static final Set<String> OPAQUE_MARKERS = Set.of(
             "azureblob",
+            "azureblob-sdk",
             // S3 marker means one past this token while B2 means this token
             "b2",
             "google-cloud-storage"
