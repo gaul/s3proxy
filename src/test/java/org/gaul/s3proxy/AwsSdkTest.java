@@ -112,7 +112,9 @@ public final class AwsSdkTest {
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
     private static final ClientConfiguration V2_SIGNER_CONFIG =
-            new ClientConfiguration().withSignerOverride("S3SignerType");
+            new ClientConfiguration()
+                    .withMaxErrorRetry(0)
+                    .withSignerOverride("S3SignerType");
     private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
 
     private URI s3Endpoint;
@@ -138,6 +140,8 @@ public final class AwsSdkTest {
         s3EndpointConfig = new EndpointConfiguration(
                 s3Endpoint.toString() + servicePath, "us-east-1");
         client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(
+                        new ClientConfiguration().withMaxErrorRetry(0))
                 .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
