@@ -443,7 +443,9 @@ public final class AzureBlobStore extends BaseBlobStore {
 
     // TODO: handle more error codes
     public static S3ErrorCode toS3ErrorCode(BlobErrorCode code) {
-        if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
+        if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
+            return S3ErrorCode.NO_SUCH_KEY;
+        } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
             return S3ErrorCode.NO_SUCH_BUCKET;
         } else {
             return S3ErrorCode.INTERNAL_ERROR;
