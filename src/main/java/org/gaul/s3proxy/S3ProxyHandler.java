@@ -2283,7 +2283,8 @@ public class S3ProxyHandler {
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("azureblob")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // TODO: how to sanity check parts?
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
                 parts.add(part);
@@ -2461,7 +2462,9 @@ public class S3ProxyHandler {
                 new PutOptions());
 
         List<MultipartPart> parts;
-        if (getBlobStoreType(blobStore).equals("azureblob")) {
+        var blobStoreType = getBlobStoreType(blobStore);
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // map Azure subparts back into S3 parts
             SortedMap<Integer, Long> map = new TreeMap<>();
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
