@@ -317,7 +317,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         if (contentMetadata != null) {
             var cacheControl = contentMetadata.getCacheControl();
             if (cacheControl != null) {
-               headers.setCacheControl(cacheControl);
+                headers.setCacheControl(cacheControl);
             }
 
             var contentDisposition = contentMetadata.getContentDisposition();
@@ -342,7 +342,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
         azureOptions.setHeaders(headers);
 
-        // TODO: setSourceRequestConditions(BlobRequestConditions sourceRequestConditions)
+        // TODO: setSourceRequestConditions(BlobRequestConditions)
         var response = client.uploadFromUrlWithResponse(
                 azureOptions, /*timeout=*/ null, /*context=*/ null);
 

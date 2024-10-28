@@ -577,13 +577,13 @@ public final class AwsSdkTest {
     @Test
     public void testSpecialCharacters() throws Exception {
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
-        if (blobStoreType.equals("azureblob")
-                || blobStoreType.equals("azureblob-sdk")
-                || blobStoreType.equals("b2")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk") ||
+                blobStoreType.equals("b2")) {
             prefix = prefix.replace("\\", "");
         }
-        if (blobStoreType.equals("azureblob")
-                || blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // Avoid blob names that end with a dot (.), a forward slash (/), or
             // a sequence or combination of the two.
             prefix = prefix.replace("./", "/") + ".";
@@ -1237,8 +1237,8 @@ public final class AwsSdkTest {
         // uploads
         MultipartUploadListing multipartListing = client.listMultipartUploads(
                 new ListMultipartUploadsRequest(containerName));
-        if (blobStoreType.equals("azureblob")
-                || blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // Azure does not create a manifest during initiate multi-part
             // upload.  Instead the first part creates this.
             assertThat(multipartListing.getMultipartUploads()).isEmpty();
@@ -1271,8 +1271,8 @@ public final class AwsSdkTest {
 
         multipartListing = client.listMultipartUploads(
                 new ListMultipartUploadsRequest(containerName));
-        if (blobStoreType.equals("azureblob")
-                || blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // Azure does not support explicit abort.  It automatically
             // removes incomplete multi-part uploads after 7 days.
             assertThat(multipartListing.getMultipartUploads()).hasSize(1);
@@ -1288,8 +1288,8 @@ public final class AwsSdkTest {
     // not accept it on writes.
     @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
-        if (blobStoreType.equals("azureblob")
-                || blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // Azurite does not support copying blobs
             assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
         }
@@ -1361,8 +1361,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectReplaceMetadata() throws Exception {
-        if (blobStoreType.equals("azureblob")
-                || blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("azureblob-sdk")) {
             // Azurite does not support copying blobs
             assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
         }
