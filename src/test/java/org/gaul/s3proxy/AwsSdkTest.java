@@ -429,6 +429,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartCopy() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
         // B2 requires two parts to issue an MPU
         assumeTrue(!blobStoreType.equals("b2"));
 
@@ -475,6 +476,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testBigMultipartUpload() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -717,6 +720,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testPartNumberMarker() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+
         String blobName = "foo";
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
@@ -1093,6 +1098,8 @@ public final class AwsSdkTest {
     // TODO: fails for GCS (jclouds not implemented)
     @Test
     public void testMultipartUpload() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+
         String blobName = "multipart-upload";
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
@@ -1226,6 +1233,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+
         String blobName = "multipart-upload-abort";
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, MINIMUM_MULTIPART_SIZE);
