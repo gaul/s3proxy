@@ -121,6 +121,7 @@ public final class AwsSdkTest {
     private EndpointConfiguration s3EndpointConfig;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
+    private URI blobStoreEndpoint;
     private String blobStoreType;
     private String containerName;
     private AWSCredentials awsCreds;
@@ -149,6 +150,8 @@ public final class AwsSdkTest {
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
 
+        blobStoreEndpoint = URI.create(
+                context.unwrap().getProviderMetadata().getEndpoint());
         blobStoreType = context.unwrap().getProviderMetadata().getId();
         if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
             System.setProperty(
@@ -1280,6 +1283,12 @@ public final class AwsSdkTest {
     // not accept it on writes.
     @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
+        if (blobStoreType.equals("azureblob")
+                || blobStoreType.equals("azureblob-sdk")) {
+            // Azurite does not support copying blobs
+            assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
+        }
+
         String fromName = "from-name";
         String toName = "to-name";
         String cacheControl = "max-age=3600";
@@ -1347,6 +1356,12 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectReplaceMetadata() throws Exception {
+        if (blobStoreType.equals("azureblob")
+                || blobStoreType.equals("azureblob-sdk")) {
+            // Azurite does not support copying blobs
+            assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
+        }
+
         String fromName = "from-name";
         String toName = "to-name";
         ObjectMetadata metadata = new ObjectMetadata();
