@@ -32,11 +32,13 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
+import com.azure.core.http.rest.PagedResponse;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.AccessTier;
 import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobHttpHeaders;
+import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobListDetails;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobRange;
@@ -61,6 +63,7 @@ import jakarta.inject.Singleton;
 import jakarta.ws.rs.core.Response.Status;
 
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -144,9 +147,17 @@ public final class AzureBlobStore extends BaseBlobStore {
                 null;
 
         var set = ImmutableSet.<StorageMetadata>builder();
-        var page = client.listBlobsByHierarchy(
-                options.getDelimiter(), azureOptions, /*timeout=*/ null)
-                .iterableByPage().iterator().next();
+        PagedResponse<BlobItem> page;
+        try {
+            page = client.listBlobsByHierarchy(
+                    options.getDelimiter(), azureOptions, /*timeout=*/ null)
+                    .iterableByPage().iterator().next();
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() == BlobErrorCode.CONTAINER_NOT_FOUND) {
+                throw new ContainerNotFoundException(container, "");
+            }
+            throw bse;
+        }
         for (var blob : page.getValue()) {
             var properties = blob.getProperties();
             if (blob.isPrefix()) {
@@ -239,7 +250,9 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             blobStream = client.openInputStream(range, conditions);
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() == BlobErrorCode.CONDITION_NOT_MET) {
+            if (bse.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+                throw new KeyNotFoundException(container, key, "");
+            } else if (bse.getErrorCode() == BlobErrorCode.CONDITION_NOT_MET) {
                 var request = HttpRequest.builder()
                         .method("GET")
                         .endpoint(endpoint)
@@ -311,6 +324,13 @@ public final class AzureBlobStore extends BaseBlobStore {
                     .getProperties()
                     .getETag();
         } catch (IOException ioe) {
+            var cause = ioe.getCause();
+            if (cause != null && cause instanceof BlobStorageException) {
+                if (((BlobStorageException) cause).getErrorCode() ==
+                        BlobErrorCode.CONTAINER_NOT_FOUND) {
+                    throw new ContainerNotFoundException(container, "");
+                }
+            }
             throw new RuntimeException(ioe);
         }
     }
