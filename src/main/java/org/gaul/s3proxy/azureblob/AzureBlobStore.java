@@ -227,6 +227,26 @@ public final class AzureBlobStore extends BaseBlobStore {
     }
 
     @Override
+    public boolean deleteContainerIfEmpty(String container) {
+        var client = blobServiceClient.getBlobContainerClient(container);
+        try {
+            var page = client.listBlobsByHierarchy(
+                    /*delimiter=*/ null, /*options=*/ null, /*timeout=*/ null)
+                    .iterableByPage().iterator().next();
+            if (!page.getValue().isEmpty()) {
+                return false;
+            }
+            blobServiceClient.deleteBlobContainer(container);
+            return true;
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() == BlobErrorCode.CONTAINER_NOT_FOUND) {
+                return true;
+            }
+            throw bse;
+        }
+    }
+
+    @Override
     public boolean blobExists(String container, String key) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
