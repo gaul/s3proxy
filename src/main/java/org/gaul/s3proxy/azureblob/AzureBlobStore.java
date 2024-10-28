@@ -41,7 +41,10 @@ import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
 import com.azure.storage.blob.options.BlobContainerCreateOptions;
+import com.azure.storage.blob.options.BlobUploadFromUrlOptions;
 import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
+import com.azure.storage.blob.sas.BlobSasPermission;
+import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -271,7 +274,65 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public String copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
-        throw new UnsupportedOperationException("not yet implemented");
+        var expiryTime = OffsetDateTime.now().plusDays(1);
+        var permission = new BlobSasPermission().setReadPermission(true);
+        var values = new BlobServiceSasSignatureValues(expiryTime, permission)
+                .setStartTime(OffsetDateTime.now());
+
+        var fromClient = blobServiceClient
+                .getBlobContainerClient(fromContainer)
+                .getBlobClient(fromName);
+        var url = fromClient.getBlobUrl();
+        var token = fromClient.generateSas(values);
+
+        // TODO: is this the best way to generate a SAS URL?
+        var azureOptions = new BlobUploadFromUrlOptions(url + "?" + token);
+        var client = blobServiceClient
+                .getBlobContainerClient(toContainer)
+                .getBlobClient(toName)
+                .getBlockBlobClient();
+
+        var headers = new BlobHttpHeaders();
+        var contentMetadata = options.contentMetadata();
+        if (contentMetadata != null) {
+            var cacheControl = contentMetadata.getCacheControl();
+            if (cacheControl != null) {
+               headers.setCacheControl(cacheControl);
+            }
+
+            var contentDisposition = contentMetadata.getContentDisposition();
+            if (contentDisposition != null) {
+                headers.setContentDisposition(contentDisposition);
+            }
+
+            var contentEncoding = contentMetadata.getContentEncoding();
+            if (contentEncoding != null) {
+                headers.setContentEncoding(contentEncoding);
+            }
+
+            var contentLanguage = contentMetadata.getContentLanguage();
+            if (contentLanguage != null) {
+                headers.setContentLanguage(contentLanguage);
+            }
+
+            var contentType = contentMetadata.getContentType();
+            if (contentType != null) {
+                headers.setContentType(contentType);
+            }
+        }
+        azureOptions.setHeaders(headers);
+
+        // TODO: setSourceRequestConditions(BlobRequestConditions sourceRequestConditions)
+        var response = client.uploadFromUrlWithResponse(
+                azureOptions, /*timeout=*/ null, /*context=*/ null);
+
+        // TODO: cannot do this as part of uploadFromUrlWithResponse?
+        var userMetadata = options.userMetadata();
+        if (userMetadata != null) {
+            client.setMetadata(userMetadata);
+        }
+
+        return response.getValue().getETag();
     }
 
     @Override
