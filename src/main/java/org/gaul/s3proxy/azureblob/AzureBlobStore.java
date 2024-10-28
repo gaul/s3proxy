@@ -50,6 +50,7 @@ import com.azure.storage.blob.options.BlobUploadFromUrlOptions;
 import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
+import com.azure.storage.blob.specialized.BlobInputStream;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -57,9 +58,10 @@ import com.google.common.primitives.Ints;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import jakarta.ws.rs.core.Response.Status;
 
-import org.gaul.s3proxy.S3ErrorCode;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
@@ -84,6 +86,10 @@ import org.jclouds.blobstore.util.BlobUtils;
 import org.jclouds.collect.Memoized;
 import org.jclouds.domain.Credentials;
 import org.jclouds.domain.Location;
+import org.jclouds.http.HttpCommand;
+import org.jclouds.http.HttpRequest;
+import org.jclouds.http.HttpResponse;
+import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
@@ -93,6 +99,7 @@ import org.jclouds.providers.ProviderMetadata;
 @Singleton
 public final class AzureBlobStore extends BaseBlobStore {
     private final BlobServiceClient blobServiceClient;
+    private final String endpoint;
 
     @Inject
     AzureBlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -102,11 +109,12 @@ public final class AzureBlobStore extends BaseBlobStore {
             @org.jclouds.location.Provider Supplier<Credentials> creds,
             ProviderMetadata provider) {
         super(context, blobUtils, defaultLocation, locations, slicer);
+        this.endpoint = provider.getEndpoint();
         var cred = creds.get();
         blobServiceClient = new BlobServiceClientBuilder()
                 .credential(new AzureNamedKeyCredential(
                         cred.identity, cred.credential))
-                .endpoint(provider.getEndpoint())
+                .endpoint(endpoint)
                 .buildClient();
     }
 
@@ -227,7 +235,22 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .setIfNoneMatch(options.getIfNoneMatch())
                 .setIfUnmodifiedSince(toOffsetDateTime(
                         options.getIfUnmodifiedSince()));
-        var blobStream = client.openInputStream(range, conditions);
+        BlobInputStream blobStream;
+        try {
+            blobStream = client.openInputStream(range, conditions);
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() == BlobErrorCode.CONDITION_NOT_MET) {
+                var response = HttpResponse.builder()
+                        .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                        .build();
+                var command = new HttpCommand(HttpRequest.builder()
+                        .method("GET")
+                        .endpoint(endpoint)
+                        .build());
+                throw new HttpResponseException(command, response);
+            }
+            throw bse;
+        }
         var properties = blobStream.getProperties();
         var expires = properties.getExpiresOn();
         return new BlobBuilderImpl()
@@ -372,7 +395,15 @@ public final class AzureBlobStore extends BaseBlobStore {
     public BlobMetadata blobMetadata(String container, String key) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
-        var properties = client.getProperties();
+        BlobProperties properties;
+        try {
+            properties = client.getProperties();
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+                throw new KeyNotFoundException(container, key, "");
+            }
+            throw bse;
+        }
         return new BlobMetadataImpl(/*id=*/ null, key, /*location=*/ null,
                 /*uri=*/ null, properties.getETag(),
                 toDate(properties.getCreationTime()),
@@ -525,19 +556,6 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public InputStream streamBlob(String container, String name) {
         throw new UnsupportedOperationException("not yet implemented");
-    }
-
-    // TODO: handle more error codes
-    public static S3ErrorCode toS3ErrorCode(BlobErrorCode code) {
-        if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-            return S3ErrorCode.NO_SUCH_KEY;
-        } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
-            return S3ErrorCode.NO_SUCH_BUCKET;
-        } else if (code == BlobErrorCode.CONDITION_NOT_MET) {
-            return S3ErrorCode.PRECONDITION_FAILED;
-        } else {
-            return S3ErrorCode.INTERNAL_ERROR;
-        }
     }
 
     private static OffsetDateTime toOffsetDateTime(@Nullable Date date) {
