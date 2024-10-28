@@ -51,7 +51,7 @@ public final class AzureBlobProviderMetadata extends BaseProviderMetadata {
     }
 
     public static Properties defaultProperties() {
-        Properties properties = new Properties();
+        var properties = new Properties();
         properties.put("oauth.endpoint", "https://login.microsoft.com/${" +
                 AzureStorageProperties.TENANT_ID + "}/oauth2/token");
         properties.put(OAuthProperties.RESOURCE, "https://storage.azure.com");

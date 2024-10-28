@@ -40,7 +40,7 @@ public class PartPadding {
 
     public static PartPadding readPartPaddingFromBlob(Blob blob)
             throws IOException {
-        PartPadding partPadding = new PartPadding();
+        var partPadding = new PartPadding();
 
         try (var is = blob.getPayload().openStream()) {
             byte[] paddingBytes = IOUtils.toByteArray(is);

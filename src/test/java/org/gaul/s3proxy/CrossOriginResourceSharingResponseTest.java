@@ -115,7 +115,7 @@ public final class CrossOriginResourceSharingResponseTest {
                 .payload(payload).contentLength(payload.size()).build();
         info.getBlobStore().putBlob(containerName, blob);
 
-        Date expiration = new Date(System.currentTimeMillis() +
+        var expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
         presignedGET = s3Client.generatePresignedUrl(containerName, blobName,
                 expiration, HttpMethod.GET).toURI();
@@ -140,7 +140,7 @@ public final class CrossOriginResourceSharingResponseTest {
     @Test
     public void testCorsPreflight() throws Exception {
         // Allowed origin and method
-        HttpOptions request = new HttpOptions(presignedGET);
+        var request = new HttpOptions(presignedGET);
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
         HttpResponse response = httpClient.execute(request);
@@ -219,7 +219,7 @@ public final class CrossOriginResourceSharingResponseTest {
     @Test
     public void testCorsPreflightPublicRead() throws Exception {
         // No CORS headers
-        HttpOptions request = new HttpOptions(publicGET);
+        var request = new HttpOptions(publicGET);
         HttpResponse response = httpClient.execute(request);
 
         assertThat(response.getStatusLine().getStatusCode())
@@ -267,7 +267,7 @@ public final class CrossOriginResourceSharingResponseTest {
 
     @Test
     public void testCorsActual() throws Exception {
-        HttpGet request = new HttpGet(presignedGET);
+        var request = new HttpGet(presignedGET);
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         HttpResponse response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
@@ -289,7 +289,7 @@ public final class CrossOriginResourceSharingResponseTest {
 
     @Test
     public void testNonCors() throws Exception {
-        HttpGet request = new HttpGet(presignedGET);
+        var request = new HttpGet(presignedGET);
         HttpResponse response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
                 .isEqualTo(HttpStatus.SC_OK);
@@ -307,7 +307,7 @@ public final class CrossOriginResourceSharingResponseTest {
             KeyManagementException, NoSuchAlgorithmException,
             KeyStoreException {
         // Relax SSL Certificate check
-        SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(
+        var sslContext = new SSLContextBuilder().loadTrustMaterial(
                 null, new TrustStrategy() {
                     @Override
                     public boolean isTrusted(X509Certificate[] arg0,

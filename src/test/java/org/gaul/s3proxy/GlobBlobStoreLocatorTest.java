@@ -58,7 +58,7 @@ public final class GlobBlobStoreLocatorTest {
         var credsMap = ImmutableSortedMap.of(
                 "id1", Map.entry("one", blobStoreOne),
                 "id2", Map.entry("two", blobStoreTwo));
-        GlobBlobStoreLocator locator = new GlobBlobStoreLocator(
+        var locator = new GlobBlobStoreLocator(
                 credsMap, Map.of());
         assertThat(locator.locateBlobStore("id2", null, null).getKey())
                 .isEqualTo("two");
@@ -78,7 +78,7 @@ public final class GlobBlobStoreLocatorTest {
                 Map.entry("id1", blobStoreOne),
                 FileSystems.getDefault().getPathMatcher("glob:container2"),
                 Map.entry("id2", blobStoreTwo));
-        GlobBlobStoreLocator locator = new GlobBlobStoreLocator(credsMap,
+        var locator = new GlobBlobStoreLocator(credsMap,
                 globMap);
 
         assertThat(locator.locateBlobStore(null, "container1", null)
@@ -109,7 +109,7 @@ public final class GlobBlobStoreLocatorTest {
                         Map.entry("id1", blobStoreOne),
                         FileSystems.getDefault().getPathMatcher("glob:cont?X*"),
                         Map.entry("id2", blobStoreTwo));
-        GlobBlobStoreLocator locator = new GlobBlobStoreLocator(credsMap,
+        var locator = new GlobBlobStoreLocator(credsMap,
                 globMap);
 
         assertThat(locator.locateBlobStore(null, "one", null)
@@ -129,7 +129,7 @@ public final class GlobBlobStoreLocatorTest {
                         Maps.immutableEntry(null, blobStoreOne),
                         FileSystems.getDefault().getPathMatcher("glob:two"),
                         Maps.immutableEntry(null, blobStoreTwo));
-        GlobBlobStoreLocator locator = new GlobBlobStoreLocator(
+        var locator = new GlobBlobStoreLocator(
                 ImmutableMap.of(), globMap);
 
         assertThat(locator.locateBlobStore(null, null, null)

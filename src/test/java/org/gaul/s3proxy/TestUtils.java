@@ -151,7 +151,7 @@ final class TestUtils {
     }
 
     static S3ProxyLaunchInfo startS3Proxy(String configFile) throws Exception {
-        S3ProxyLaunchInfo info = new S3ProxyLaunchInfo();
+        var info = new S3ProxyLaunchInfo();
 
         try (InputStream is = Resources.asByteSource(Resources.getResource(
                 configFile)).openStream()) {
@@ -165,7 +165,7 @@ final class TestUtils {
         String credential = info.getProperties().getProperty(
                 Constants.PROPERTY_CREDENTIAL);
         if (provider.equals("google-cloud-storage")) {
-            File credentialFile = new File(credential);
+            var credentialFile = new File(credential);
             if (credentialFile.exists()) {
                 credential = Files.asCharSource(credentialFile,
                         StandardCharsets.UTF_8).read();

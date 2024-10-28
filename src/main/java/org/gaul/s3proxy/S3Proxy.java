@@ -80,19 +80,19 @@ public final class S3Proxy {
                 !Strings.isNullOrEmpty(builder.credential),
                 "Must provide both identity and credential");
 
-        QueuedThreadPool pool = new QueuedThreadPool(builder.jettyMaxThreads);
+        var pool = new QueuedThreadPool(builder.jettyMaxThreads);
         pool.setName("S3Proxy-Jetty");
         server = new Server(pool);
 
         if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
-            ContextHandler context = new ContextHandler();
+            var context = new ContextHandler();
             context.setContextPath(builder.servicePath);
         }
 
-        HttpConfiguration httpConfiguration = new HttpConfiguration();
+        var httpConfiguration = new HttpConfiguration();
         httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
         httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
-        SecureRequestCustomizer src = new SecureRequestCustomizer();
+        var src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
         httpConfiguration.addCustomizer(src);
         HttpConnectionFactory httpConnectionFactory =
@@ -165,7 +165,7 @@ public final class S3Proxy {
 
         public static Builder fromProperties(Properties properties)
                 throws URISyntaxException {
-            Builder builder = new Builder();
+            var builder = new Builder();
 
             String endpoint = properties.getProperty(
                     S3ProxyConstants.PROPERTY_ENDPOINT);

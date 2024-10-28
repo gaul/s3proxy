@@ -114,7 +114,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
                 .payload(payload).contentLength(payload.size()).build();
         info.getBlobStore().putBlob(containerName, blob);
 
-        Date expiration = new Date(System.currentTimeMillis() +
+        var expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
         presignedGET = s3Client.generatePresignedUrl(containerName, blobName,
                 expiration, HttpMethod.GET).toURI();
@@ -137,7 +137,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
     @Test
     public void testCorsPreflight() throws Exception {
         // Allowed origin, method and header combination
-        HttpOptions request = new HttpOptions(presignedGET);
+        var request = new HttpOptions(presignedGET);
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
         request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
@@ -169,7 +169,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
 
     @Test
     public void testCorsActual() throws Exception {
-        HttpGet request = new HttpGet(presignedGET);
+        var request = new HttpGet(presignedGET);
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         HttpResponse response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
@@ -193,7 +193,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
 
     @Test
     public void testNonCors() throws Exception {
-        HttpGet request = new HttpGet(presignedGET);
+        var request = new HttpGet(presignedGET);
         HttpResponse response = httpClient.execute(request);
         assertThat(response.getStatusLine().getStatusCode())
                 .isEqualTo(HttpStatus.SC_OK);
@@ -209,7 +209,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
             KeyManagementException, NoSuchAlgorithmException,
             KeyStoreException {
         // Relax SSL Certificate check
-        SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(
+        var sslContext = new SSLContextBuilder().loadTrustMaterial(
                 null, new TrustStrategy() {
                     @Override
                     public boolean isTrusted(X509Certificate[] arg0,

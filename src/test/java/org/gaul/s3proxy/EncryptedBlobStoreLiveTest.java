@@ -135,7 +135,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
                 Constants.S3_ENC_SUFFIX);
         }
 
-        ListContainerOptions lco = new ListContainerOptions();
+        var lco = new ListContainerOptions();
         lco.maxResults(1);
         list = view.getBlobStore().list(containerName, lco);
         assertThat(list).hasSize(1);
@@ -155,13 +155,13 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
         this.getApi().putObject(containerName, object);
 
         // get only 20 bytes
-        GetOptions options = new GetOptions();
+        var options = new GetOptions();
         options.range(0, 19);
         object = this.getApi().getObject(containerName, blobName, options);
 
-        InputStreamReader r = new InputStreamReader(
+        var r = new InputStreamReader(
                 object.getPayload().openStream());
-        BufferedReader reader = new BufferedReader(r);
+        var reader = new BufferedReader(r);
         String partialContent = reader.lines()
                 .collect(Collectors.joining());
 
@@ -243,7 +243,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
         ByteSource partialContent =
             byteSource.slice(partialStart, partialStart);
 
-        GetOptions options = new GetOptions();
+        var options = new GetOptions();
         options.range(partialStart, (partialStart * 2) - 1);
         object = this.getApi().getObject(containerName, blobName, options);
 

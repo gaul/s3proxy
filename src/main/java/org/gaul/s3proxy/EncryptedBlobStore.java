@@ -269,7 +269,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private MutableBlobMetadata setEncryptedSuffix(BlobMetadata blobMeta) {
-        MutableBlobMetadata bm = new MutableBlobMetadataImpl(blobMeta);
+        var bm = new MutableBlobMetadataImpl(blobMeta);
         if (blobMeta.getName() != null && !isEncrypted(blobMeta.getName())) {
             bm.setName(blobNameWithSuffix(blobMeta.getName()));
         }
@@ -283,7 +283,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private MutableBlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
-        MutableBlobMetadata bm = new MutableBlobMetadataImpl(blobMeta);
+        var bm = new MutableBlobMetadataImpl(blobMeta);
         if (isEncrypted(bm.getName())) {
             String blobName = bm.getName();
             bm.setName(removeEncryptedSuffix(blobName));
@@ -577,7 +577,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // emulate list of multipart uploads on gcp
         if (getBlobStoreType().equals("google-cloud-storage")) {
-            ListContainerOptions options = new ListContainerOptions();
+            var options = new ListContainerOptions();
             PageSet<? extends StorageMetadata> mpuList =
                 delegate().list(container,
                     options.prefix(Constants.MPU_FOLDER));

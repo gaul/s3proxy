@@ -106,7 +106,7 @@ public final class RegexBlobStoreTest {
 
     @Test
     public void testParseMatchWithoutReplace() {
-        Properties properties = new Properties();
+        var properties = new Properties();
         properties.put(
                 String.format("%s.%s.sample1",
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,

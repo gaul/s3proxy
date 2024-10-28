@@ -81,8 +81,8 @@ public final class Main {
             System.setErr(createLoggerErrorPrintStream());
         }
 
-        Options options = new Options();
-        CmdLineParser parser = new CmdLineParser(options);
+        var options = new Options();
+        var parser = new CmdLineParser(options);
         try {
             parser.parseArgument(args);
         } catch (CmdLineException cle) {
@@ -98,7 +98,7 @@ public final class Main {
         }
 
         S3Proxy.Builder s3ProxyBuilder = null;
-        ThreadFactory factory = new ThreadFactoryBuilder()
+        var factory = new ThreadFactoryBuilder()
                 .setNameFormat("user thread %d")
                 .setThreadFactory(Executors.defaultThreadFactory())
                 .build();
@@ -111,7 +111,7 @@ public final class Main {
         Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
         for (File propertiesFile : options.propertiesFiles) {
-            Properties properties = new Properties();
+            var properties = new Properties();
             try (InputStream is = new FileInputStream(propertiesFile)) {
                 properties.load(is);
             }
@@ -193,7 +193,7 @@ public final class Main {
     private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
             ExecutorService executorService, Properties properties)
             throws IOException {
-        Properties altProperties = new Properties();
+        var altProperties = new Properties();
         for (var entry : properties.entrySet()) {
             String key = (String) entry.getKey();
             if (key.startsWith(S3ProxyConstants.PROPERTY_ALT_JCLOUDS_PREFIX)) {
@@ -337,7 +337,7 @@ public final class Main {
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
         } else if (provider.equals("google-cloud-storage")) {
-            File credentialFile = new File(credential);
+            var credentialFile = new File(credential);
             if (credentialFile.exists()) {
                 credential = Files.asCharSource(credentialFile,
                         StandardCharsets.UTF_8).read();

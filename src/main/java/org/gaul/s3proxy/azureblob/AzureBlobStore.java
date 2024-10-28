@@ -240,14 +240,15 @@ public final class AzureBlobStore extends BaseBlobStore {
             blobStream = client.openInputStream(range, conditions);
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode() == BlobErrorCode.CONDITION_NOT_MET) {
+                var request = HttpRequest.builder()
+                        .method("GET")
+                        .endpoint(endpoint)
+                        .build();
                 var response = HttpResponse.builder()
                         .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
                         .build();
-                var command = new HttpCommand(HttpRequest.builder()
-                        .method("GET")
-                        .endpoint(endpoint)
-                        .build());
-                throw new HttpResponseException(command, response);
+                throw new HttpResponseException(
+                        new HttpCommand(request), response);
             }
             throw bse;
         }

@@ -85,7 +85,7 @@ final class ChunkedInputStream extends FilterInputStream {
      * @return line without the newline or empty String if InputStream is empty
      */
     private static String readLine(InputStream is) throws IOException {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         while (true) {
             int ch = is.read();
             if (ch == '\r') {

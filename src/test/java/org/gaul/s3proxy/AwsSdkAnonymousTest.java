@@ -114,7 +114,7 @@ public final class AwsSdkAnonymousTest {
             .withEndpointConfiguration(s3EndpointConfig)
             .build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 metadata);

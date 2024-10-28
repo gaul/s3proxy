@@ -108,7 +108,7 @@ final class AwsSignature {
         }
 
         // Build string to sign
-        StringBuilder builder = new StringBuilder()
+        var builder = new StringBuilder()
                 .append(request.getMethod())
                 .append('\n')
                 .append(Strings.nullToEmpty(request.getHeader(
@@ -217,7 +217,7 @@ final class AwsSignature {
         }
         Collections.sort(headers);
 
-        StringBuilder headersWithValues = new StringBuilder();
+        var headersWithValues = new StringBuilder();
         boolean firstHeader = true;
         for (String header : headers) {
             if (firstHeader) {

@@ -48,7 +48,7 @@ public class Encryption {
 
     private IvParameterSpec generateIV() {
         byte[] iv = new byte[Constants.AES_BLOCK_SIZE];
-        SecureRandom randomSecureRandom = new SecureRandom();
+        var randomSecureRandom = new SecureRandom();
         randomSecureRandom.nextBytes(iv);
 
         return new IvParameterSpec(iv);

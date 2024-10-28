@@ -88,7 +88,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         long length = Longs.fromByteArray(array);
-        ByteSourcePayload payload = new ByteSourcePayload(
+        var payload = new ByteSourcePayload(
                 new NullByteSource().slice(0, length));
         payload.setContentMetadata(blob.getPayload().getContentMetadata());
         payload.getContentMetadata().setContentLength(length);
@@ -103,7 +103,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         var builder = ImmutableSet.<StorageMetadata>builder();
         PageSet<? extends StorageMetadata> pageSet = super.list(container);
         for (StorageMetadata sm : pageSet) {
-            MutableStorageMetadata msm = new MutableStorageMetadataImpl(sm);
+            var msm = new MutableStorageMetadataImpl(sm);
             msm.setSize(0L);
             builder.add(msm);
         }
@@ -126,7 +126,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
-        ByteSourcePayload payload = new ByteSourcePayload(
+        var payload = new ByteSourcePayload(
                 ByteSource.wrap(array));
         payload.setContentMetadata(blob.getPayload().getContentMetadata());
         payload.getContentMetadata().setContentLength((long) array.length);
@@ -147,7 +147,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
-        ByteSourcePayload payload = new ByteSourcePayload(
+        var payload = new ByteSourcePayload(
                 ByteSource.wrap(array));
         payload.getContentMetadata().setContentLength((long) array.length);
 
@@ -182,7 +182,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
-        ByteSourcePayload newPayload = new ByteSourcePayload(
+        var newPayload = new ByteSourcePayload(
                 ByteSource.wrap(array));
         newPayload.setContentMetadata(payload.getContentMetadata());
         newPayload.getContentMetadata().setContentLength((long) array.length);

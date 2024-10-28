@@ -184,7 +184,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 metadata);
@@ -205,14 +205,14 @@ public final class AwsSdkTest {
                 .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
                 .withEndpointConfiguration(s3EndpointConfig).build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
                 metadata);
 
         String blobName = "foo";
 
-        ResponseHeaderOverrides headerOverride = new ResponseHeaderOverrides();
+        var headerOverride = new ResponseHeaderOverrides();
 
         String expectedContentDisposition = "attachment; " + blobName;
         headerOverride.setContentDisposition(expectedContentDisposition);
@@ -220,7 +220,7 @@ public final class AwsSdkTest {
         String expectedContentType = "text/plain";
         headerOverride.setContentType(expectedContentType);
 
-        GetObjectRequest request = new GetObjectRequest(containerName,
+        var request = new GetObjectRequest(containerName,
                 blobName);
         request.setResponseHeaders(headerOverride);
 
@@ -239,7 +239,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testAwsV4Signature() throws Exception {
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo",
                 BYTE_SOURCE.openStream(), metadata);
@@ -261,7 +261,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo",
                 BYTE_SOURCE.openStream(), metadata);
@@ -284,7 +284,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "foo",
                 BYTE_SOURCE.openStream(), metadata);
@@ -307,7 +307,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
         try {
@@ -331,7 +331,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
         try {
@@ -352,12 +352,12 @@ public final class AwsSdkTest {
                 .build();
 
         String blobName = "foo";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
 
-        Date expiration = new Date(System.currentTimeMillis() +
+        var expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
         URL url = client.generatePresignedUrl(containerName, blobName,
                 expiration, HttpMethod.GET);
@@ -375,7 +375,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig).build();
 
         String blobName = "foo";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -384,13 +384,13 @@ public final class AwsSdkTest {
                 new GeneratePresignedUrlRequest(containerName, blobName);
         generatePresignedUrlRequest.setMethod(HttpMethod.GET);
 
-        ResponseHeaderOverrides headerOverride = new ResponseHeaderOverrides();
+        var headerOverride = new ResponseHeaderOverrides();
 
         headerOverride.setContentDisposition("attachment; " + blobName);
         headerOverride.setContentType("text/plain");
         generatePresignedUrlRequest.setResponseHeaders(headerOverride);
 
-        Date expiration = new Date(System.currentTimeMillis() +
+        var expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
         generatePresignedUrlRequest.setExpiration(expiration);
 
@@ -412,12 +412,12 @@ public final class AwsSdkTest {
     @Test
     public void testAwsV4UrlSigning() throws Exception {
         String blobName = "foo";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
 
-        Date expiration = new Date(System.currentTimeMillis() +
+        var expiration = new Date(System.currentTimeMillis() +
                 TimeUnit.HOURS.toMillis(1));
         URL url = client.generatePresignedUrl(containerName, blobName,
                 expiration, HttpMethod.GET);
@@ -435,7 +435,7 @@ public final class AwsSdkTest {
         String sourceBlobName = "testMultipartCopy-source";
         String targetBlobName = "testMultipartCopy-target";
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, sourceBlobName,
                 BYTE_SOURCE.openStream(), metadata);
@@ -447,7 +447,7 @@ public final class AwsSdkTest {
                 client.initiateMultipartUpload(initiateRequest);
         String uploadId = initResult.getUploadId();
 
-        CopyPartRequest copyRequest = new CopyPartRequest()
+        var copyRequest = new CopyPartRequest()
                 .withDestinationBucketName(containerName)
                 .withDestinationKey(targetBlobName)
                 .withSourceBucketName(containerName)
@@ -487,7 +487,7 @@ public final class AwsSdkTest {
         String uploadId = initResponse.getUploadId();
 
         ByteSource byteSource1 = byteSource.slice(0, partSize);
-        UploadPartRequest uploadRequest1 = new UploadPartRequest()
+        var uploadRequest1 = new UploadPartRequest()
                 .withBucketName(containerName)
                 .withKey(key)
                 .withUploadId(uploadId)
@@ -499,7 +499,7 @@ public final class AwsSdkTest {
         UploadPartResult uploadPartResult1 = client.uploadPart(uploadRequest1);
 
         ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
-        UploadPartRequest uploadRequest2 = new UploadPartRequest()
+        var uploadRequest2 = new UploadPartRequest()
                 .withBucketName(containerName)
                 .withKey(key)
                 .withUploadId(uploadId)
@@ -533,7 +533,7 @@ public final class AwsSdkTest {
     public void testUpdateBlobXmlAcls() throws Exception {
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
         String blobName = "testUpdateBlobXmlAcls-blob";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -559,7 +559,7 @@ public final class AwsSdkTest {
     @Test
     public void testUnicodeObject() throws Exception {
         String blobName = "ŪņЇЌœđЗ/☺ unicode € rocks ™";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -589,7 +589,7 @@ public final class AwsSdkTest {
             prefix = prefix.replace("./", "/") + ".";
         }
         String blobName = prefix + "foo";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -606,7 +606,7 @@ public final class AwsSdkTest {
     @Test
     public void testAtomicMpuAbort() throws Exception {
         String key = "testAtomicMpuAbort";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, key, BYTE_SOURCE.openStream(),
                 metadata);
@@ -632,7 +632,7 @@ public final class AwsSdkTest {
     @Test
     public void testOverrideResponseHeader() throws Exception {
         String blobName = "foo";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -645,7 +645,7 @@ public final class AwsSdkTest {
         String expires = "Wed, 13 Jul 2016 21:23:51 GMT";
         long expiresTime = 1468445031000L;
 
-        GetObjectRequest getObjectRequest = new GetObjectRequest(containerName,
+        var getObjectRequest = new GetObjectRequest(containerName,
                 blobName);
         getObjectRequest.setResponseHeaders(
                 new ResponseHeaderOverrides()
@@ -678,7 +678,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testDeleteMultipleObjectsEmpty() throws Exception {
-        DeleteObjectsRequest request = new DeleteObjectsRequest(containerName)
+        var request = new DeleteObjectsRequest(containerName)
                 .withKeys();
 
         try {
@@ -692,10 +692,10 @@ public final class AwsSdkTest {
     @Test
     public void testDeleteMultipleObjects() throws Exception {
         String blobName = "foo";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
-        DeleteObjectsRequest request = new DeleteObjectsRequest(containerName)
+        var request = new DeleteObjectsRequest(containerName)
                 .withKeys(blobName);
 
         // without quiet
@@ -720,7 +720,7 @@ public final class AwsSdkTest {
         String blobName = "foo";
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
-        ListPartsRequest request = new ListPartsRequest(containerName,
+        var request = new ListPartsRequest(containerName,
                 blobName, result.getUploadId());
 
         client.listParts(request.withPartNumberMarker(0));
@@ -736,7 +736,7 @@ public final class AwsSdkTest {
     @Test
     public void testHttpClient() throws Exception {
         String blobName = "blob-name";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -750,7 +750,7 @@ public final class AwsSdkTest {
         }
 
         HttpClient httpClient = context.utils().http();
-        URI uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
+        var uri = new URI(s3Endpoint.getScheme(), s3Endpoint.getUserInfo(),
                 s3Endpoint.getHost(), s3Proxy.getSecurePort(),
                 servicePath + "/" + containerName + "/" + blobName,
                 /*query=*/ null, /*fragment=*/ null);
@@ -807,7 +807,7 @@ public final class AwsSdkTest {
     }
 
     private void putBlobAndCheckIt(String blobName) throws Exception {
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
@@ -845,7 +845,7 @@ public final class AwsSdkTest {
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).isEmpty();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
 
         var builder = ImmutableList.<String>builder();
@@ -872,7 +872,7 @@ public final class AwsSdkTest {
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).isEmpty();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "prefix/blob1",
                 BYTE_SOURCE.openStream(), metadata);
@@ -904,7 +904,7 @@ public final class AwsSdkTest {
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).isEmpty();
 
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, "blob1", BYTE_SOURCE.openStream(),
                 metadata);
@@ -929,7 +929,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobListV2() throws Exception {
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         for (int i = 1; i < 5; ++i) {
             client.putObject(containerName, String.valueOf(i),
@@ -976,7 +976,7 @@ public final class AwsSdkTest {
     @Test
     public void testBlobMetadata() throws Exception {
         String blobName = "blob";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -990,7 +990,7 @@ public final class AwsSdkTest {
     @Test
     public void testBlobRemove() throws Exception {
         String blobName = "blob";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         client.putObject(containerName, blobName, BYTE_SOURCE.openStream(),
                 metadata);
@@ -1012,7 +1012,7 @@ public final class AwsSdkTest {
     public void testSinglepartUploadJettyCachedHeader() throws Exception {
         String blobName = "singlepart-upload-jetty-cached";
         String contentType = "text/plain";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         metadata.setContentType(contentType);
 
@@ -1040,7 +1040,7 @@ public final class AwsSdkTest {
         var userMetadata = Map.of(
                 "key1", "value1",
                 "key2", "value2");
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             metadata.setCacheControl(cacheControl);
         }
@@ -1102,7 +1102,7 @@ public final class AwsSdkTest {
         var userMetadata = Map.of(
                 "key1", "value1",
                 "key2", "value2");
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             metadata.setCacheControl(cacheControl);
         }
@@ -1304,7 +1304,7 @@ public final class AwsSdkTest {
         var userMetadata = Map.of(
                 "key1", "value1",
                 "key2", "value2");
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             metadata.setCacheControl(cacheControl);
         }
@@ -1369,7 +1369,7 @@ public final class AwsSdkTest {
 
         String fromName = "from-name";
         String toName = "to-name";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             metadata.setCacheControl("max-age=3600");
@@ -1396,7 +1396,7 @@ public final class AwsSdkTest {
         String contentEncoding = "gzip";
         String contentLanguage = "fr";
         String contentType = "audio/mp4";
-        ObjectMetadata contentMetadata = new ObjectMetadata();
+        var contentMetadata = new ObjectMetadata();
         if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
             contentMetadata.setCacheControl(cacheControl);
         }
@@ -1455,7 +1455,7 @@ public final class AwsSdkTest {
         assumeTrue(!blobStoreType.equals("b2"));
 
         String blobName = "blob-name";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         PutObjectResult result = client.putObject(containerName, blobName,
                 BYTE_SOURCE.openStream(), metadata);
@@ -1477,9 +1477,9 @@ public final class AwsSdkTest {
     @Test
     public void testStorageClass() throws Exception {
         String blobName = "test-storage-class";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
-        PutObjectRequest request = new PutObjectRequest(
+        var request = new PutObjectRequest(
                 containerName, blobName, BYTE_SOURCE.openStream(), metadata)
                 .withStorageClass("STANDARD_IA");
         client.putObject(request);
@@ -1490,9 +1490,9 @@ public final class AwsSdkTest {
     @Test
     public void testUnknownHeader() throws Exception {
         String blobName = "test-unknown-header";
-        ObjectMetadata metadata = new ObjectMetadata();
+        var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
-        PutObjectRequest request = new PutObjectRequest(
+        var request = new PutObjectRequest(
                 containerName, blobName, BYTE_SOURCE.openStream(), metadata)
                 .withTagging(new ObjectTagging(List.of()));
         try {
@@ -1599,7 +1599,7 @@ public final class AwsSdkTest {
     static void disableSslVerification() {
         try {
             // Create a trust manager that does not validate certificate chains
-            TrustManager[] trustAllCerts = new TrustManager[] {
+            var trustAllCerts = new TrustManager[] {
                 new NullX509TrustManager() };
 
             // Install the all-trusting trust manager
@@ -1609,7 +1609,7 @@ public final class AwsSdkTest {
                     sc.getSocketFactory());
 
             // Create all-trusting host name verifier
-            HostnameVerifier allHostsValid = new HostnameVerifier() {
+            var allHostsValid = new HostnameVerifier() {
                 @Override
                 public boolean verify(String hostname, SSLSession session) {
                     return true;

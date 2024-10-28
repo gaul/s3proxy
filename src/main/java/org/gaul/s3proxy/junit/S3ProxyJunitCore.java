@@ -102,7 +102,7 @@ public class S3ProxyJunitCore {
         accessKey = builder.accessKey;
         secretKey = builder.secretKey;
 
-        Properties properties = new Properties();
+        var properties = new Properties();
         try {
             blobStoreLocation = Files.createTempDirectory("S3Proxy")
                     .toFile();

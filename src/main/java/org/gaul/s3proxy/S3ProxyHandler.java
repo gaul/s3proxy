@@ -943,7 +943,7 @@ public class S3ProxyHandler {
             return;
         }
 
-        PushbackInputStream pis = new PushbackInputStream(is);
+        var pis = new PushbackInputStream(is);
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
@@ -1044,7 +1044,7 @@ public class S3ProxyHandler {
             return;
         }
 
-        PushbackInputStream pis = new PushbackInputStream(is);
+        var pis = new PushbackInputStream(is);
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
@@ -1309,7 +1309,7 @@ public class S3ProxyHandler {
         }
         logger.debug("Creating bucket with location: {}", location);
 
-        CreateContainerOptions options = new CreateContainerOptions();
+        var options = new CreateContainerOptions();
         String acl = request.getHeader(AwsHttpHeaders.ACL);
         if ("public-read".equalsIgnoreCase(acl)) {
             options.publicRead();
@@ -1365,7 +1365,7 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
-        ListContainerOptions options = new ListContainerOptions();
+        var options = new ListContainerOptions();
         String encodingType = request.getParameter("encoding-type");
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null) {
@@ -1731,7 +1731,7 @@ public class S3ProxyHandler {
             String containerName, String blobName)
             throws IOException, S3Exception {
         int status = HttpServletResponse.SC_OK;
-        GetOptions options = new GetOptions();
+        var options = new GetOptions();
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         if (ifMatch != null) {
@@ -1991,7 +1991,7 @@ public class S3ProxyHandler {
             return;
         }
 
-        PutOptions options = new PutOptions().setBlobAccess(access);
+        var options = new PutOptions().setBlobAccess(access);
 
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob") &&
@@ -2046,7 +2046,7 @@ public class S3ProxyHandler {
         String signature = null;
         String algorithm = null;
         byte[] payload = null;
-        MultipartStream multipartStream = new MultipartStream(is,
+        var multipartStream = new MultipartStream(is,
                 boundary.getBytes(StandardCharsets.UTF_8), 4096, null);
         boolean nextPart = multipartStream.skipPreamble();
         while (nextPart) {
@@ -2222,7 +2222,7 @@ public class S3ProxyHandler {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        PutOptions options = new PutOptions().setBlobAccess(access);
+        var options = new PutOptions().setBlobAccess(access);
 
         MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
                 builder.build().getMetadata(), options);
@@ -2366,7 +2366,7 @@ public class S3ProxyHandler {
             final AtomicReference<String> eTag = new AtomicReference<>();
             final AtomicReference<RuntimeException> exception =
                     new AtomicReference<>();
-            Thread thread = new Thread() {
+            var thread = new Thread() {
                 @Override
                 public void run() {
                     try {
@@ -2566,7 +2566,7 @@ public class S3ProxyHandler {
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
 
-        GetOptions options = new GetOptions();
+        var options = new GetOptions();
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         long expectedSize = -1;
         if (range != null) {
@@ -2694,7 +2694,7 @@ public class S3ProxyHandler {
                 // single S3 part multiple Azure parts.
                 long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
-                HashingInputStream his = new HashingInputStream(MD5, is);
+                var his = new HashingInputStream(MD5, is);
                 int subPartNumber = 0;
                 for (long offset = 0; offset < contentLength;
                         offset += azureMaximumMultipartPartSize,
@@ -2839,7 +2839,7 @@ public class S3ProxyHandler {
             // S3 part multiple Azure parts.
             long azureMaximumMultipartPartSize =
                         blobStore.getMaximumMultipartPartSize();
-            HashingInputStream his = new HashingInputStream(MD5, is);
+            var his = new HashingInputStream(MD5, is);
             int subPartNumber = 0;
             for (long offset = 0; offset < contentLength;
                     offset += azureMaximumMultipartPartSize,
@@ -2945,7 +2945,7 @@ public class S3ProxyHandler {
 
     /** Parse ISO 8601 timestamp into seconds since 1970. */
     private static long parseIso8601(String date) {
-        SimpleDateFormat formatter = new SimpleDateFormat(
+        var formatter = new SimpleDateFormat(
                 "yyyyMMdd'T'HHmmss'Z'");
         formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
         try {
@@ -2977,7 +2977,7 @@ public class S3ProxyHandler {
     // cannot call BlobStore.getContext().utils().date().iso8601DateFormatsince
     // it has unwanted millisecond precision
     private static String formatDate(Date date) {
-        SimpleDateFormat formatter = new SimpleDateFormat(
+        var formatter = new SimpleDateFormat(
                 "yyyy-MM-dd'T'HH:mm:ss'Z'");
         formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
         return formatter.format(date);

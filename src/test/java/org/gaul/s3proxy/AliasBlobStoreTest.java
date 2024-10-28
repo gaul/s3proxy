@@ -167,7 +167,7 @@ public final class AliasBlobStoreTest {
 
     @Test
     public void testParseDuplicateAliases() {
-        Properties properties = new Properties();
+        var properties = new Properties();
         properties.setProperty(String.format("%s.alias",
                 S3ProxyConstants.PROPERTY_ALIAS_BLOBSTORE), "bucket");
         properties.setProperty(String.format("%s.other-alias",
