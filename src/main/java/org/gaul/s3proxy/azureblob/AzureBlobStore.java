@@ -21,12 +21,15 @@ import java.io.InputStream;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+
+import javax.annotation.Nullable;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.storage.blob.BlobServiceClient;
@@ -36,6 +39,8 @@ import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.models.BlobListDetails;
 import com.azure.storage.blob.models.BlobProperties;
+import com.azure.storage.blob.models.BlobRange;
+import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
@@ -213,7 +218,16 @@ public final class AzureBlobStore extends BaseBlobStore {
     public Blob getBlob(String container, String key, GetOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
-        var blobStream = client.openInputStream();
+        // TODO: handle BlobRange
+        BlobRange range = null;
+        var conditions = new BlobRequestConditions()
+                .setIfMatch(options.getIfMatch())
+                .setIfModifiedSince(toOffsetDateTime(
+                        options.getIfModifiedSince()))
+                .setIfNoneMatch(options.getIfNoneMatch())
+                .setIfUnmodifiedSince(toOffsetDateTime(
+                        options.getIfUnmodifiedSince()));
+        var blobStream = client.openInputStream(range, conditions);
         var properties = blobStream.getProperties();
         var expires = properties.getExpiresOn();
         return new BlobBuilderImpl()
@@ -265,7 +279,13 @@ public final class AzureBlobStore extends BaseBlobStore {
                     azureOptions, /*context=*/ null)) {
                 is.transferTo(os);
             }
-            return "";  // TODO: how to get ETag?
+
+            // TODO: racy
+            return blobServiceClient
+                    .getBlobContainerClient(container)
+                    .getBlobClient(blob.getMetadata().getName())
+                    .getProperties()
+                    .getETag();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -513,9 +533,18 @@ public final class AzureBlobStore extends BaseBlobStore {
             return S3ErrorCode.NO_SUCH_KEY;
         } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
             return S3ErrorCode.NO_SUCH_BUCKET;
+        } else if (code == BlobErrorCode.CONDITION_NOT_MET) {
+            return S3ErrorCode.PRECONDITION_FAILED;
         } else {
             return S3ErrorCode.INTERNAL_ERROR;
         }
+    }
+
+    private static OffsetDateTime toOffsetDateTime(@Nullable Date date) {
+        if (date == null) {
+            return null;
+        }
+        return date.toInstant().atOffset(ZoneOffset.UTC);
     }
 
     private static Date toDate(OffsetDateTime time) {
