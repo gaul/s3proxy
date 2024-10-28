@@ -29,8 +29,6 @@ import java.util.Date;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import javax.net.ssl.SSLContext;
-
 import com.amazonaws.HttpMethod;
 import com.amazonaws.SDKGlobalConfiguration;
 import com.amazonaws.auth.AWSCredentials;
