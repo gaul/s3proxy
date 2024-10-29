@@ -32,4 +32,23 @@ done
 
 # execute s3-tests
 pushd s3-tests
-tox -- -m 'not fails_on_s3proxy and not appendobject and not bucket_policy and not checksum and not cors and not encryption and not fails_strict_rfc2616 and not iam_tenant and not lifecycle and not object_lock and not policy and not policy_status and not s3select and not s3website and not sse_s3 and not tagging and not test_of_sts and not user_policy and not versioning and not webidentity_test'
+tox -- -m 'not fails_on_s3proxy'\
+' and not appendobject'\
+' and not bucket_policy'\
+' and not checksum'\
+' and not cors'\
+' and not encryption'\
+' and not fails_strict_rfc2616'\
+' and not iam_tenant'\
+' and not lifecycle'\
+' and not object_lock'\
+' and not policy'\
+' and not policy_status'\
+' and not s3select'\
+' and not s3website'\
+' and not sse_s3'\
+' and not tagging'\
+' and not test_of_sts'\
+' and not user_policy'\
+' and not versioning'\
+' and not webidentity_test'
