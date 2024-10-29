@@ -499,9 +499,12 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
+/*
         String uploadId = UUID.randomUUID().toString();
         return MultipartUpload.create(container, blobMetadata.getName(),
                 uploadId, blobMetadata, options);
+*/
+        throw new UnsupportedOperationException();
     }
 
     @Override
