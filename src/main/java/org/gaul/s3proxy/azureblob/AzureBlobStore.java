@@ -53,6 +53,8 @@ import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlobInputStream;
+import com.azure.storage.common.policy.RequestRetryOptions;
+import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -114,10 +116,17 @@ public final class AzureBlobStore extends BaseBlobStore {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
         var cred = creds.get();
+        // Disable retries since client should retry on errors.
+        var retryOptions = new RequestRetryOptions(
+                RetryPolicyType.FIXED, /*maxTries=*/ 1,
+                /*tryTimeoutInSeconds=*/ (Integer) null,
+                /*retryDelayInMs=*/ null, /*maxRetryDelayInMs=*/ null,
+                /*secondaryHost=*/ null);
         blobServiceClient = new BlobServiceClientBuilder()
                 .credential(new AzureNamedKeyCredential(
                         cred.identity, cred.credential))
                 .endpoint(endpoint)
+                .retryOptions(retryOptions)
                 .buildClient();
     }
 
