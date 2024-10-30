@@ -3,13 +3,14 @@
 set -o errexit
 set -o nounset
 
+S3PROXY_CONF="${1-s3proxy.conf}"
 S3PROXY_BIN="${PWD}/target/s3proxy"
 S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
 
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
-        < src/test/resources/s3proxy.conf | grep -v secure-endpoint > target/s3proxy.conf
+        < "src/test/resources/$S3PROXY_CONF" | grep -v secure-endpoint > target/s3proxy.conf
 $S3PROXY_BIN --properties target/s3proxy.conf &
 S3PROXY_PID=$!
 
@@ -30,9 +31,7 @@ do
     sleep 1
 done
 
-# execute s3-tests
-pushd s3-tests
-tox -- -m 'not fails_on_s3proxy'\
+tags='not fails_on_s3proxy'\
 ' and not appendobject'\
 ' and not bucket_policy'\
 ' and not checksum'\
@@ -54,3 +53,11 @@ tox -- -m 'not fails_on_s3proxy'\
 ' and not user_policy'\
 ' and not versioning'\
 ' and not webidentity_test'
+
+if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
+    tags="${tags} and not multipart"
+fi
+
+# execute s3-tests
+pushd s3-tests
+tox -- -m "${tags}"

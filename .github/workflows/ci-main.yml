@@ -92,6 +92,9 @@ jobs:
       - name: Run s3-tests
         run: |
           ./src/test/resources/run-s3-tests.sh
+      - name: Run s3-tests with Azurite
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
 
       #Store the target
       - uses: actions/upload-artifact@v4
