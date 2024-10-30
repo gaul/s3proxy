@@ -339,6 +339,8 @@ public final class AzureBlobStore extends BaseBlobStore {
                     contentMetadata.getContentEncoding());
             blobHttpHeaders.setContentLanguage(
                     contentMetadata.getContentLanguage());
+            blobHttpHeaders.setContentMd5(
+                    contentMetadata.getContentMD5());
             blobHttpHeaders.setContentType(contentMetadata.getContentType());
             azureOptions.setHeaders(blobHttpHeaders);
             if (blob.getMetadata().getTier() != Tier.STANDARD) {
