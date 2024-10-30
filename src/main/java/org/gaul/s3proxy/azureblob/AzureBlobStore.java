@@ -296,7 +296,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
         var properties = blobStream.getProperties();
         var expires = properties.getExpiresOn();
-        return new BlobBuilderImpl()
+        var blob = new BlobBuilderImpl()
                 .name(key)
                 .userMetadata(properties.getMetadata())
                 .payload(blobStream)
@@ -308,6 +308,11 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .contentType(properties.getContentType())
                 .expires(expires != null ? toDate(expires) : null)
                 .build();
+        var metadata = blob.getMetadata();
+        metadata.setETag(properties.getETag());
+        metadata.setCreationDate(toDate(properties.getCreationTime()));
+        metadata.setLastModified(toDate(properties.getLastModified()));
+        return blob;
     }
 
     @Override
