@@ -106,6 +106,9 @@ jobs:
       - name: Run s3-tests with transient-nio2
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-transient-nio2.conf
+      - name: Run s3-tests with Azurite
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
 
       #Store the target
       - uses: actions/upload-artifact@v4
