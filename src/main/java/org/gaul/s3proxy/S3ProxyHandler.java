@@ -174,6 +174,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
             AwsHttpHeaders.METADATA_DIRECTIVE,
             AwsHttpHeaders.STORAGE_CLASS,
+            AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
             AwsHttpHeaders.USER_AGENT
     );
     private static final Set<String> CANNED_ACLS = Set.of(
