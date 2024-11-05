@@ -74,7 +74,18 @@ jobs:
       - name: Maven Test
         run: |
           mvn test
-      - name: Install dependencies
+
+      - name: Install Azurite
+        run: npx --yes --loglevel info azurite --version
+      - name: Start Azurite
+        shell: bash
+        run: npx --yes azurite azurite-blob &
+      - name: Maven Test with Azurite
+        run: |
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest
+
+      - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions

@@ -608,6 +608,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testAtomicMpuAbort() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+
         String key = "testAtomicMpuAbort";
         var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -1536,6 +1538,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobStoreLocator() throws Exception {
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
         final BlobStore blobStore1 = context.getBlobStore();
         final BlobStore blobStore2 = ContextBuilder
                 .newBuilder(blobStoreType)
@@ -1564,6 +1568,8 @@ public final class AwsSdkTest {
 
         // check second access key
         client = AmazonS3ClientBuilder.standard()
+                .withClientConfiguration(
+                        new ClientConfiguration().withMaxErrorRetry(0))
                 .withCredentials(new AWSStaticCredentialsProvider(
                         new BasicAWSCredentials("other-identity",
                                 "credential")))
