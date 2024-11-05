@@ -32,6 +32,16 @@ final class CompleteMultipartUploadRequest {
         int partNumber;
         @JacksonXmlProperty(localName = "ETag")
         String eTag;
+
+        // TODO: unsupported checksums
+        @JacksonXmlProperty(localName = "ChecksumCRC32")
+        String checksumCRC32;
+        @JacksonXmlProperty(localName = "ChecksumCRC32C")
+        String checksumCRC32C;
+        @JacksonXmlProperty(localName = "ChecksumSHA1")
+        String checksumSHA1;
+        @JacksonXmlProperty(localName = "ChecksumSHA256")
+        String checksumSHA256;
     }
 }
 // CHECKSTYLE:ON
