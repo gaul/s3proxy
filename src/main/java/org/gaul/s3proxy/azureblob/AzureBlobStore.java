@@ -160,7 +160,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             page = client.listBlobsByHierarchy(
                     options.getDelimiter(), azureOptions, /*timeout=*/ null)
-                    .iterableByPage().iterator().next();
+                    .iterableByPage(marker).iterator().next();
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode() == BlobErrorCode.CONTAINER_NOT_FOUND) {
                 throw new ContainerNotFoundException(container, "");
