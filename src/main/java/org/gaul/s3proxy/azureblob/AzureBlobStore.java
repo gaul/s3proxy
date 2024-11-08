@@ -58,6 +58,7 @@ import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.net.HttpHeaders;
 import com.google.common.primitives.Ints;
 
 import jakarta.inject.Inject;
@@ -266,8 +267,30 @@ public final class AzureBlobStore extends BaseBlobStore {
     public Blob getBlob(String container, String key, GetOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
-        // TODO: handle BlobRange
-        BlobRange range = null;
+        BlobRange azureRange = null;
+        if (!options.getRanges().isEmpty()) {
+            var ranges = options.getRanges().get(0).split("-", 2);
+
+            if (ranges[0].isEmpty()) {
+                // handle to read from the end
+                long offset = 0;
+                long end = Long.parseLong(ranges[1]);
+                long length = end;
+                azureRange = new BlobRange(offset, length);
+                throw new UnsupportedOperationException(
+                        "trailing ranges unsupported");
+            } else if (ranges[1].isEmpty()) {
+                // handle to read from an offset till the end
+                long offset = Long.parseLong(ranges[0]);
+                azureRange = new BlobRange(offset);
+            } else {
+                // handle to read from an offset
+                long offset = Long.parseLong(ranges[0]);
+                long end = Long.parseLong(ranges[1]);
+                long length = end - offset + 1;
+                azureRange = new BlobRange(offset, length);
+            }
+        }
         var conditions = new BlobRequestConditions()
                 .setIfMatch(options.getIfMatch())
                 .setIfModifiedSince(toOffsetDateTime(
@@ -277,7 +300,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                         options.getIfUnmodifiedSince()));
         BlobInputStream blobStream;
         try {
-            blobStream = client.openInputStream(range, conditions);
+            blobStream = client.openInputStream(azureRange, conditions);
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
                 throw new KeyNotFoundException(container, key, "");
@@ -291,11 +314,30 @@ public final class AzureBlobStore extends BaseBlobStore {
                         .build();
                 throw new HttpResponseException(
                         new HttpCommand(request), response);
+            } else if (bse.getStatusCode() ==
+                    Status.REQUESTED_RANGE_NOT_SATISFIABLE.getStatusCode()) {
+                throw new HttpResponseException(
+                        "illegal range: " + azureRange, null,
+                        HttpResponse.builder()
+                        .statusCode(Status.REQUESTED_RANGE_NOT_SATISFIABLE
+                                .getStatusCode())
+                        .build());
             }
             throw bse;
         }
         var properties = blobStream.getProperties();
         var expires = properties.getExpiresOn();
+        long contentLength;
+        if (azureRange == null) {
+            contentLength = properties.getBlobSize();
+        } else {
+            if (azureRange.getCount() == null) {
+                contentLength = properties.getBlobSize() -
+                        azureRange.getOffset();
+            } else {
+                contentLength = azureRange.getCount();
+            }
+        }
         var blob = new BlobBuilderImpl()
                 .name(key)
                 .userMetadata(properties.getMetadata())
@@ -304,10 +346,16 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .contentDisposition(properties.getContentDisposition())
                 .contentEncoding(properties.getContentEncoding())
                 .contentLanguage(properties.getContentLanguage())
-                .contentLength(properties.getBlobSize())
+                .contentLength(contentLength)
                 .contentType(properties.getContentType())
                 .expires(expires != null ? toDate(expires) : null)
                 .build();
+        if (azureRange != null) {
+            blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE,
+                    "bytes " + azureRange.getOffset() +
+                    "-" + (azureRange.getOffset() + contentLength - 1) +
+                    "/" + properties.getBlobSize());
+        }
         var metadata = blob.getMetadata();
         metadata.setETag(properties.getETag());
         metadata.setCreationDate(toDate(properties.getCreationTime()));
