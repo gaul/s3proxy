@@ -530,6 +530,74 @@ public final class AwsSdkTest {
         }
     }
 
+    @Test
+    public void testMultipartUploadReplace() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+
+        String key = "multipart-upload";
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        long size = partSize + 1;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        // Create
+        InitiateMultipartUploadRequest initRequest1 =
+                new InitiateMultipartUploadRequest(containerName, key);
+        InitiateMultipartUploadResult initResponse1 =
+                client.initiateMultipartUpload(initRequest1);
+        String uploadId1 = initResponse1.getUploadId();
+
+        ByteSource byteSource1 = byteSource.slice(0, partSize);
+        var uploadRequest1 = new UploadPartRequest()
+                .withBucketName(containerName)
+                .withKey(key)
+                .withUploadId(uploadId1)
+                .withPartNumber(1)
+                .withInputStream(byteSource1.openStream())
+                .withPartSize(byteSource1.size());
+        uploadRequest1.getRequestClientOptions().setReadLimit(
+                (int) byteSource1.size());
+        UploadPartResult uploadPartResult1 = client.uploadPart(uploadRequest1);
+
+        CompleteMultipartUploadRequest completeRequest1 =
+                new CompleteMultipartUploadRequest(
+                        containerName, key, uploadId1,
+                        List.of(uploadPartResult1.getPartETag()));
+        client.completeMultipartUpload(completeRequest1);
+
+        // Replace
+        InitiateMultipartUploadRequest initRequest2 =
+                new InitiateMultipartUploadRequest(containerName, key);
+        InitiateMultipartUploadResult initResponse2 =
+                client.initiateMultipartUpload(initRequest2);
+        String uploadId2 = initResponse2.getUploadId();
+
+        ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
+        var uploadRequest2 = new UploadPartRequest()
+                .withBucketName(containerName)
+                .withKey(key)
+                .withUploadId(uploadId2)
+                .withPartNumber(1)
+                .withInputStream(byteSource2.openStream())
+                .withPartSize(byteSource2.size());
+        uploadRequest2.getRequestClientOptions().setReadLimit(
+                (int) byteSource2.size());
+        UploadPartResult uploadPartResult2 = client.uploadPart(uploadRequest2);
+
+        CompleteMultipartUploadRequest completeRequest2 =
+                new CompleteMultipartUploadRequest(
+                        containerName, key, uploadId2,
+                        List.of(uploadPartResult2.getPartETag()));
+        client.completeMultipartUpload(completeRequest2);
+
+        S3Object object = client.getObject(containerName, key);
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                byteSource2.size());
+        try (InputStream actual = object.getObjectContent();
+                InputStream expected = byteSource2.openStream()) {
+            assertThat(actual).hasSameContentAs(expected);
+        }
+    }
+
     // TODO: testMultipartUploadConditionalCopy
 
     @Test
