@@ -418,9 +418,21 @@ public final class AzureBlobStore extends BaseBlobStore {
         } catch (IOException ioe) {
             var cause = ioe.getCause();
             if (cause != null && cause instanceof BlobStorageException) {
-                if (((BlobStorageException) cause).getErrorCode() ==
-                        BlobErrorCode.CONTAINER_NOT_FOUND) {
+                var bse = (BlobStorageException) cause;
+                if (bse.getErrorCode() == BlobErrorCode.CONTAINER_NOT_FOUND) {
                     throw new ContainerNotFoundException(container, "");
+                } else if (bse.getErrorCode() ==
+                        BlobErrorCode.INVALID_OPERATION) {
+                    var response =
+                            HttpResponse.builder().statusCode(400).build();
+                    var exception = new HttpResponseException(
+                            new HttpCommand(HttpRequest.builder()
+                                    .method("GET")
+                                    .endpoint("http://stub")
+                                    .build()),
+                            response);
+                    exception.initCause(bse);
+                    throw exception;
                 }
             }
             throw new RuntimeException(ioe);
