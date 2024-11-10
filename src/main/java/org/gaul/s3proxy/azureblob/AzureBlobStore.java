@@ -310,9 +310,12 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             blobStream = client.openInputStream(azureRange, conditions);
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+            var code = bse.getErrorCode();
+            if (code == BlobErrorCode.BLOB_NOT_FOUND) {
                 throw new KeyNotFoundException(container, key, "");
-            } else if (bse.getErrorCode() == BlobErrorCode.CONDITION_NOT_MET) {
+            } else if (code == BlobErrorCode.CONTAINER_NOT_FOUND) {
+                throw new ContainerNotFoundException(container, "");
+            } else if (code == BlobErrorCode.CONDITION_NOT_MET) {
                 var request = HttpRequest.builder()
                         .method("GET")
                         .endpoint(endpoint)
@@ -547,10 +550,17 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public ContainerAccess getContainerAccess(String container) {
         var client = blobServiceClient.getBlobContainerClient(container);
-        return client.getAccessPolicy().getBlobAccessType() ==
-                PublicAccessType.CONTAINER ?
-                ContainerAccess.PUBLIC_READ :
-                ContainerAccess.PRIVATE;
+        try {
+            return client.getAccessPolicy().getBlobAccessType() ==
+                    PublicAccessType.CONTAINER ?
+                    ContainerAccess.PUBLIC_READ :
+                    ContainerAccess.PRIVATE;
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() == BlobErrorCode.CONTAINER_NOT_FOUND) {
+                throw new ContainerNotFoundException(container, "");
+            }
+            throw bse;
+        }
     }
 
     @Override
