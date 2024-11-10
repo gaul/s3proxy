@@ -215,13 +215,21 @@ public final class AzureBlobStore extends BaseBlobStore {
         if (options.isPublicRead()) {
             azureOptions.setPublicAccessType(PublicAccessType.CONTAINER);
         }
-        var response =
-                blobServiceClient.createBlobContainerIfNotExistsWithResponse(
-                        container, azureOptions, /*context=*/ null);
-        switch (response.getStatusCode()) {
-        case 201: return true;
-        case 409: return false;
-        default: return false;
+        try {
+            var response = blobServiceClient
+                    .createBlobContainerIfNotExistsWithResponse(
+                            container, azureOptions, /*context=*/ null);
+            switch (response.getStatusCode()) {
+            case 201: return true;
+            case 409: return false;
+            default: return false;
+            }
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode() == BlobErrorCode.INVALID_RESOURCE_NAME) {
+                throw new IllegalArgumentException(
+                        "Invalid container name", bse);
+            }
+            throw bse;
         }
     }
 
