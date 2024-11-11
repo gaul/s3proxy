@@ -480,7 +480,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             client.delete();
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() != BlobErrorCode.BLOB_NOT_FOUND) {
+            if (bse.getErrorCode() != BlobErrorCode.BLOB_NOT_FOUND &&
+                    bse.getErrorCode() != BlobErrorCode.CONTAINER_NOT_FOUND) {
                 throw bse;
             }
         }
