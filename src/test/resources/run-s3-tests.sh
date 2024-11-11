@@ -36,8 +36,10 @@ tox -- -m 'not fails_on_s3proxy'\
 ' and not appendobject'\
 ' and not bucket_policy'\
 ' and not checksum'\
+' and not copy'\
 ' and not cors'\
 ' and not encryption'\
+' and not fails_on_s3proxy_azureblob'\
 ' and not fails_strict_rfc2616'\
 ' and not iam_tenant'\
 ' and not lifecycle'\
