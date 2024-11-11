@@ -3,13 +3,14 @@
 set -o errexit
 set -o nounset
 
+S3PROXY_CONF="${1-s3proxy.conf}"
 S3PROXY_BIN="${PWD}/target/s3proxy"
 S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
 
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
-        < src/test/resources/s3proxy.conf | grep -v secure-endpoint > target/s3proxy.conf
+        < "src/test/resources/$S3PROXY_CONF" | grep -v secure-endpoint > target/s3proxy.conf
 $S3PROXY_BIN --properties target/s3proxy.conf &
 S3PROXY_PID=$!
 
