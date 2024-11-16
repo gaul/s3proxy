@@ -1567,6 +1567,27 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testGetObjectRange() throws Exception {
+        var blobName = "test-range";
+        var metadata = new ObjectMetadata();
+        var byteSource = TestUtils.randomByteSource().slice(0, 1024);
+        metadata.setContentLength(byteSource.size());
+        var request = new PutObjectRequest(
+                containerName, blobName, byteSource.openStream(), metadata);
+        client.putObject(request);
+
+        var object = client.getObject(
+                new GetObjectRequest(containerName, blobName)
+                        .withRange(42, 101));
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                101 - 42 + 1);
+        try (var actual = object.getObjectContent();
+             var expected = byteSource.slice(42, 101 - 42 + 1).openStream()) {
+            assertThat(actual).hasSameContentAs(expected);
+        }
+    }
+
+    @Test
     public void testUnknownHeader() throws Exception {
         String blobName = "test-unknown-header";
         var metadata = new ObjectMetadata();
