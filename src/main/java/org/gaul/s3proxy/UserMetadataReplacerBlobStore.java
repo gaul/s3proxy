@@ -73,6 +73,10 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     @Override
     public BlobMetadata blobMetadata(String container, String name) {
         var blobMetadata = super.blobMetadata(container, name);
+        if (blobMetadata == null) {
+            return null;
+        }
+
         var metadata = ImmutableMap.<String, String>builder();
         // TODO: duplication
         for (var entry : blobMetadata.getUserMetadata().entrySet()) {
@@ -92,6 +96,10 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     public Blob getBlob(String containerName, String name,
             GetOptions getOptions) {
         var blob = super.getBlob(containerName, name, getOptions);
+        if (blob == null) {
+            return null;
+        }
+
         var metadata = ImmutableMap.<String, String>builder();
         for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), toChars, fromChars),
