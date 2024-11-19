@@ -1914,8 +1914,12 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            writeSimpleElement(xml, "LastModified",
-                    formatDate(blobMetadata.getLastModified()));
+            var lastModified = blobMetadata.getLastModified();
+            if (lastModified != null) {
+                writeSimpleElement(xml, "LastModified",
+                        formatDate(lastModified));
+            }
+
             writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
 
             xml.writeEndElement();
@@ -2731,7 +2735,10 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            writeSimpleElement(xml, "LastModified", formatDate(lastModified));
+            if (lastModified != null) {
+                writeSimpleElement(xml, "LastModified",
+                        formatDate(lastModified));
+            }
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
