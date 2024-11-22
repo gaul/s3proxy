@@ -33,6 +33,7 @@ import javax.annotation.Nullable;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.http.rest.PagedResponse;
+import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.AccessTier;
@@ -123,9 +124,15 @@ public final class AzureBlobStore extends BaseBlobStore {
                 /*tryTimeoutInSeconds=*/ (Integer) null,
                 /*retryDelayInMs=*/ null, /*maxRetryDelayInMs=*/ null,
                 /*secondaryHost=*/ null);
-        blobServiceClient = new BlobServiceClientBuilder()
-                .credential(new AzureNamedKeyCredential(
-                        cred.identity, cred.credential))
+        var blobServiceClientBuilder = new BlobServiceClientBuilder();
+        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
+            blobServiceClientBuilder.credential(
+                new AzureNamedKeyCredential(cred.identity, cred.credential));
+        } else {
+            blobServiceClientBuilder.credential(
+                new DefaultAzureCredentialBuilder().build());
+        }
+        blobServiceClient = blobServiceClientBuilder
                 .endpoint(endpoint)
                 .retryOptions(retryOptions)
                 .buildClient();
