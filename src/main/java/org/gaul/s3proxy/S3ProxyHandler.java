@@ -2278,13 +2278,6 @@ public class S3ProxyHandler {
         final MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, metadata, options);
 
-        // List parts to get part sizes and to map multiple Azure parts
-        // into single parts.
-        var partsByListing =
-                blobStore.listMultipartUpload(mpu).stream().collect(
-                        Collectors.toMap(
-                                part -> part.partNumber(),
-                                part -> part));
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
@@ -2317,6 +2310,13 @@ public class S3ProxyHandler {
                         partNumber, partSize, eTag, /*lastModified=*/ null));
             }
         } else {
+            // List parts to get part sizes and to map multiple Azure parts
+            // into single parts.
+            var partsByListing =
+                blobStore.listMultipartUpload(mpu).stream().collect(
+                        Collectors.toMap(
+                                part -> part.partNumber(),
+                                part -> part));
             CompleteMultipartUploadRequest cmu;
             try {
                 cmu = mapper.readValue(
