@@ -238,12 +238,31 @@ public final class Nio2BlobStore extends BaseBlobStore {
                     var attr = Files.readAttributes(path, BasicFileAttributes.class);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
                     var creationTime = new Date(attr.creationTime().toMillis());
+
+                    String eTag;
+                    HashCode hashCode;
+                    var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+                    var attributes = Set.copyOf(view.list());
+                    var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
+                    view.read(XATTR_CONTENT_MD5, buf);
+                    var etagBytes = buf.array();
+                    if (etagBytes.length == 16) {
+                        // regular object
+                        hashCode = HashCode.fromBytes(buf.array());
+                        eTag = "\"" + hashCode + "\"";
+                    } else {
+                        // multi-part object
+                        eTag = new String(etagBytes, StandardCharsets.US_ASCII);
+                    }
+
+                    var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
+                    Tier tier = tierString != null ? Tier.valueOf(tierString) : Tier.STANDARD;
+
                     builder.add(new StorageMetadataImpl(StorageType.BLOB,
                             /*id=*/ null, name,
                             /*location=*/ null, /*uri=*/ null,
-                            /*eTag=*/ null, creationTime, lastModifiedTime,
-                            // TODO: get Tier
-                            Map.of(), attr.size(), Tier.STANDARD));
+                            eTag, creationTime, lastModifiedTime,
+                            Map.of(), attr.size(), tier));
                     count++;
                 }
             }
@@ -428,6 +447,9 @@ public final class Nio2BlobStore extends BaseBlobStore {
             blob.getMetadata().setSize(size);
             if (contentRange != null) {
                 blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE, contentRange);
+            }
+            if (hashCode != null) {
+                blob.getMetadata().setETag(BaseEncoding.base16().lowerCase().encode(hashCode.asBytes()));
             }
             return blob;
         } catch (NoSuchFileException nsfe) {
