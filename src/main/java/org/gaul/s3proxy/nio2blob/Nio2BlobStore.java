@@ -30,8 +30,10 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -127,7 +129,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
         this.locations = requireNonNull(locations, "locations");
         // TODO: close this
         this.fs = Jimfs.newFileSystem(Configuration.unix().toBuilder()
-                .setAttributeViews("basic", "user")
+                .setAttributeViews("posix", "user")
                 .setWorkingDirectory("/")
                 .build());
     }
@@ -274,6 +276,9 @@ public final class Nio2BlobStore extends BaseBlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+
+        setContainerAccess(container, options.isPublicRead() ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
+
         return true;
     }
 
@@ -630,27 +635,86 @@ public final class Nio2BlobStore extends BaseBlobStore {
         return !containerExists(container);
     }
 
-    // TODO: ContainerAccess
     @Override
     public ContainerAccess getContainerAccess(String container) {
-        throw new UnsupportedOperationException("not yet implemented");
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+
+        var path = fs.getPath(container);
+        Set<PosixFilePermission> permissions;
+        try {
+            permissions = Files.getPosixFilePermissions(path);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        return permissions.contains(PosixFilePermission.OTHERS_READ) ?
+                ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE;
     }
 
     @Override
     public void setContainerAccess(String container, ContainerAccess access) {
-        throw new UnsupportedOperationException("not yet implemented");
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+
+        var path = fs.getPath(container);
+        Set<PosixFilePermission> permissions;
+        try {
+            permissions = new HashSet<>(Files.getPosixFilePermissions(path));
+            if (access == ContainerAccess.PRIVATE) {
+                permissions.remove(PosixFilePermission.OTHERS_READ);
+            } else if (access == ContainerAccess.PUBLIC_READ) {
+                permissions.add(PosixFilePermission.OTHERS_READ);
+            }
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
     }
 
-    // TODO: BlobAccess
     @Override
     public BlobAccess getBlobAccess(String container, String key) {
-        //return BlobAccess.PRIVATE;
-        throw new UnsupportedOperationException("not yet implemented");
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+        if (!blobExists(container, key)) {
+            throw new KeyNotFoundException(container, key, "");
+        }
+
+        var path = fs.getPath(container, key);
+        Set<PosixFilePermission> permissions;
+        try {
+            permissions = Files.getPosixFilePermissions(path);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        return permissions.contains(PosixFilePermission.OTHERS_READ) ?
+                BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE;
     }
 
     @Override
     public void setBlobAccess(String container, String key, BlobAccess access) {
-        throw new UnsupportedOperationException("not yet implemented");
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+        if (!blobExists(container, key)) {
+            throw new KeyNotFoundException(container, key, "");
+        }
+
+        var path = fs.getPath(container, key);
+        Set<PosixFilePermission> permissions;
+        try {
+            permissions = new HashSet<>(Files.getPosixFilePermissions(path));
+            if (access == BlobAccess.PRIVATE) {
+                permissions.remove(PosixFilePermission.OTHERS_READ);
+            } else if (access == BlobAccess.PUBLIC_READ) {
+                permissions.add(PosixFilePermission.OTHERS_READ);
+            }
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
     }
 
     @Override
@@ -740,7 +804,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
         }
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
 
-        // TODO: setBlobAccess(mpu.containerName(), mpu.blobName(), mpu.putOptions().getBlobAccess());
+        setBlobAccess(mpu.containerName(), mpu.blobName(), mpu.putOptions().getBlobAccess());
 
         return mpuETag;
     }

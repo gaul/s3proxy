@@ -2265,11 +2265,7 @@ public class S3ProxyHandler {
             String uploadId) throws IOException, S3Exception {
         BlobMetadata metadata;
         PutOptions options;
-        if ("transient-nio2".equals(getBlobStoreType(blobStore))) {
-            // TODO: transient-nio2 does not yet support blob access
-            metadata = blobStore.blobMetadata(containerName, uploadId);
-            options = new PutOptions();
-        } else if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             metadata = blobStore.blobMetadata(containerName, uploadId);
             BlobAccess access = blobStore.getBlobAccess(containerName,

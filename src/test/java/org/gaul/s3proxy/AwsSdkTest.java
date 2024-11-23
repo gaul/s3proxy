@@ -813,9 +813,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testHttpClient() throws Exception {
-        // TODO:
-        assumeTrue(!blobStoreType.equals("transient-nio2"));
-
         String blobName = "blob-name";
         var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
