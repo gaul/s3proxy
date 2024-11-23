@@ -323,9 +323,8 @@ public final class Nio2BlobStore extends BaseBlobStore {
             String eTag = null;
             var tier = Tier.STANDARD;
             var userMetadata = ImmutableMap.<String, String>builder();
-            // TODO: times
-            //var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
-            //var creationTime = new Date(attr.creationTime().toMillis());
+            var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
+            var creationTime = new Date(attr.creationTime().toMillis());
 
             if (isDirectory) {
                 if (!attributes.contains(XATTR_CONTENT_MD5)) {
@@ -424,6 +423,8 @@ public final class Nio2BlobStore extends BaseBlobStore {
                     .tier(tier)
                     .build();
             blob.getMetadata().setContainer(container);
+            blob.getMetadata().setCreationDate(creationTime);
+            blob.getMetadata().setLastModified(lastModifiedTime);
             blob.getMetadata().setSize(size);
             if (contentRange != null) {
                 blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE, contentRange);
