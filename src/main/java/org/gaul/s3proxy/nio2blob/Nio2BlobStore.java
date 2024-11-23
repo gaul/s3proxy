@@ -58,6 +58,7 @@ import jakarta.inject.Singleton;
 
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -161,6 +162,10 @@ public final class Nio2BlobStore extends BaseBlobStore {
     @Override
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+
         var delimiter = options.getDelimiter();
         if (delimiter != null && !delimiter.equals("/")) {
             throw new IllegalArgumentException("Delimiters other than / not supported");
@@ -290,6 +295,10 @@ public final class Nio2BlobStore extends BaseBlobStore {
 
     @Override
     public Blob getBlob(String container, String key, GetOptions options) {
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+
         var path = fs.getPath(container, key);
         logger.debug("Getting blob at: " + path);
 
@@ -429,6 +438,10 @@ public final class Nio2BlobStore extends BaseBlobStore {
 
     @Override
     public String putBlob(String container, Blob blob, PutOptions options) {
+        if (!containerExists(container)) {
+            throw new ContainerNotFoundException(container, "");
+        }
+
         var path = fs.getPath(container, blob.getMetadata().getName());
         // TODO: should we use a known suffix to filter these out during list?
         var tmpPath = fs.getPath(container, blob.getMetadata().getName() + "-" + UUID.randomUUID());
