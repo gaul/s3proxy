@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
-import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Longs;
 
 import org.jclouds.blobstore.BlobStore;
@@ -81,7 +80,7 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         byte[] array;
         try (InputStream is = blob.getPayload().openStream()) {
-            array = ByteStreams.toByteArray(is);
+            array = is.readAllBytes();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }

@@ -577,8 +577,8 @@ public class S3ProxyHandler {
                     } else {
                         // buffer the entire stream to calculate digest
                         // why input stream read contentlength of header?
-                        payload = ByteStreams.toByteArray(ByteStreams.limit(
-                                is, v4MaxNonChunkedRequestSize + 1));
+                        payload = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
+                                .readAllBytes();
                         if (payload.length == v4MaxNonChunkedRequestSize + 1) {
                             throw new S3Exception(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
