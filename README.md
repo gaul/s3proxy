@@ -81,8 +81,8 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3 (all implementations)
-* transient (in-memory storage)
-* transient-nio2 (in-memory storage, preview)
+* transient (in-memory storage, deprecated)
+* transient-nio2 (in-memory storage, recommended)
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 
