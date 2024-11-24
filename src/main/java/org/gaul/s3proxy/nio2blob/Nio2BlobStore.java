@@ -40,7 +40,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +58,7 @@ import com.google.common.primitives.Longs;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import jakarta.ws.rs.core.Response.Status;
 
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
@@ -440,6 +440,43 @@ public final class Nio2BlobStore extends BaseBlobStore {
                     size = last - offset + 1;
                     inputStream = ByteStreams.limit(inputStream, size);
                     contentRange = "bytes " + offset + "-" + last + "/" + attr.size();
+                }
+            }
+
+            if (eTag != null) {
+                eTag = maybeQuoteETag(eTag);
+                if (options.getIfMatch() != null) {
+                    if (!eTag.equals(maybeQuoteETag(options.getIfMatch()))) {
+                        HttpResponse response = HttpResponse.builder().statusCode(Status.PRECONDITION_FAILED.getStatusCode()).addHeader(HttpHeaders.ETAG, eTag).build();
+                        throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response);
+                    }
+                }
+                if (options.getIfNoneMatch() != null) {
+                    if (eTag.equals(maybeQuoteETag(options.getIfNoneMatch()))) {
+                        HttpResponse response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode()).addHeader(HttpHeaders.ETAG, eTag).build();
+                        throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response);
+                    }
+                }
+            }
+            if (options.getIfModifiedSince() != null) {
+                Date modifiedSince = options.getIfModifiedSince();
+                if (lastModifiedTime.before(modifiedSince)) {
+                    HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode());
+                    if (eTag != null) {
+                        response.addHeader(HttpHeaders.ETAG, eTag);
+                    }
+                    throw new HttpResponseException(String.format("%1$s is before %2$s", lastModifiedTime, modifiedSince), null, response.build());
+                }
+
+            }
+            if (options.getIfUnmodifiedSince() != null) {
+                Date unmodifiedSince = options.getIfUnmodifiedSince();
+                if (lastModifiedTime.after(unmodifiedSince)) {
+                    HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.PRECONDITION_FAILED.getStatusCode());
+                    if (eTag != null) {
+                        response.addHeader(HttpHeaders.ETAG, eTag);
+                    }
+                    throw new HttpResponseException(String.format("%1$s is after %2$s", lastModifiedTime, unmodifiedSince), null, response.build());
                 }
             }
 
