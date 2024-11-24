@@ -527,12 +527,17 @@ public final class Nio2BlobStore extends BaseBlobStore {
         try (var is = new HashingInputStream(Hashing.md5(), blob.getPayload().openStream());
              var os = Files.newOutputStream(tmpPath)) {
             var count = is.transferTo(os);
-            var hashCode = is.hash();
+            var actualHashCode = is.hash();
+            var expectedHashCode = metadata.getContentMD5AsHashCode();
+            if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
+                Files.delete(tmpPath);
+                throw returnResponseException(400);
+            }
 
             var view = Files.getFileAttributeView(tmpPath, UserDefinedFileAttributeView.class);
             if (view != null) {
                 try {
-                    var eTag = hashCode.asBytes();
+                    var eTag = actualHashCode.asBytes();
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(eTag));
                     writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.getCacheControl());
                     writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.getContentDisposition());
@@ -557,7 +562,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
 
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-            return "\"" + hashCode + "\"";
+            return "\"" + actualHashCode + "\"";
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
