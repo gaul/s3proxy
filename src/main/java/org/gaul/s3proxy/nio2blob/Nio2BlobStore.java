@@ -193,11 +193,16 @@ public final class Nio2BlobStore extends BaseBlobStore {
             listHelper(set, container, dirPrefix, prefix, delimiter);
             var sorted = set.build();
             if (options.getMarker() != null) {
+                var found = false;
                 for (var blob : sorted) {
                     if (blob.getName().compareTo(options.getMarker()) > 0) {
                         sorted = sorted.tailSet(blob);
+                        found = true;
                         break;
                     }
+                }
+                if (!found) {
+                    sorted = ImmutableSortedSet.of();
                 }
             }
             String marker = null;
