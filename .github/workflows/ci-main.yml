@@ -97,6 +97,9 @@ jobs:
       - name: Run s3-tests
         run: |
           ./src/test/resources/run-s3-tests.sh
+      - name: Run s3-tests with transient-nio2
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-transient-nio2.conf
 
       #Store the target
       - uses: actions/upload-artifact@v4
