@@ -171,7 +171,9 @@ public final class Nio2BlobStore extends BaseBlobStore {
         }
 
         var delimiter = options.getDelimiter();
-        if (delimiter != null && !delimiter.equals("/")) {
+        if ("".equals(delimiter)) {
+            delimiter = null;
+        } else if (delimiter != null && !delimiter.equals("/")) {
             throw new IllegalArgumentException("Delimiters other than / not supported");
         }
 
