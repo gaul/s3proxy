@@ -39,11 +39,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
@@ -141,7 +143,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
 
     @Override
     public PageSet<? extends StorageMetadata> list() {
-        var set = ImmutableSet.<StorageMetadata>builder();
+        var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         try (var stream = Files.newDirectoryStream(fs.getPath(""))) {
             for (var path : stream) {
                 var attr = Files.readAttributes(path,
@@ -184,39 +186,52 @@ public final class Nio2BlobStore extends BaseBlobStore {
             prefix = "";
         }
         prefix = "/" + container + "/" + prefix;
-        var set = ImmutableSet.<StorageMetadata>builder();
+        var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         try {
-            listHelper(set, /*count=*/ 0, options.getMaxResults(),
-                    container, dirPrefix, prefix, delimiter,
-                    options.getMarker());
+            listHelper(set, container, dirPrefix, prefix, delimiter);
+            var sorted = set.build();
+            if (options.getMarker() != null) {
+                for (var blob : sorted) {
+                    if (blob.getName().compareTo(options.getMarker()) > 0) {
+                        sorted = sorted.tailSet(blob);
+                        break;
+                    }
+                }
+            }
+            String marker = null;
+            if (options.getMaxResults() != null) {
+                // TODO: efficiency?
+                var temp = ImmutableSortedSet.copyOf(sorted.stream().limit(options.getMaxResults().intValue()).collect(Collectors.toSet()));
+                if (!temp.isEmpty()) {
+                    var next = sorted.higher(temp.last());
+                    if (next != null) {
+                        marker = temp.last().getName();
+                    }
+                }
+                sorted = temp;
+            }
+            return new PageSetImpl<StorageMetadata>(sorted, marker);
         } catch (IOException ioe) {
             logger.error("unexpected exception", ioe);
             throw new RuntimeException(ioe);
         }
-        return new PageSetImpl<StorageMetadata>(set.build(), null);
     }
 
-    // TODO: marker
-    private static int listHelper(ImmutableSet.Builder<StorageMetadata> builder,
-            int count, Integer maxResults, String container, Path parent, String prefix,
-            String delimiter, String marker) throws IOException {
+    private static void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
+            String container, Path parent, String prefix, String delimiter)
+            throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, prefix);
         if (!Files.isDirectory(parent)) {  // TODO: TOCTOU
-            return count;
+            return;
         }
         try (var stream = Files.newDirectoryStream(parent)) {
             for (var path : stream) {
-                if (maxResults != null && count == maxResults) {
-                    // TODO: this is wrong -- return all results, sort, and limit in caller to produce marker
-                    return count;
-                }
-
                 logger.debug("examining: {}", path);
                 if (!path.toString().startsWith(prefix.substring(1))) {
                     continue;
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
-                        count += listHelper(builder, count, maxResults, container, path, prefix, delimiter, marker);
+                        listHelper(builder, container, path, prefix, delimiter);
                     }
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
@@ -230,7 +245,6 @@ public final class Nio2BlobStore extends BaseBlobStore {
                                 /*eTag=*/ null, /*creationTime=*/ null,
                                 /*lastModifiedTime=*/ null,
                                 Map.of(), /*size=*/ null, Tier.STANDARD));
-                        count++;
                     }
                 } else {
                     var name = path.toString().substring((container + "/").length());
@@ -263,14 +277,11 @@ public final class Nio2BlobStore extends BaseBlobStore {
                             /*location=*/ null, /*uri=*/ null,
                             eTag, creationTime, lastModifiedTime,
                             Map.of(), attr.size(), tier));
-                    count++;
                 }
             }
         } catch (NoSuchFileException nsfe) {
             // ignore
         }
-
-        return count;
     }
 
     @Override

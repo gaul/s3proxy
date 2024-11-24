@@ -1009,8 +1009,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobListV2() throws Exception {
-        assumeTrue(!blobStoreType.equals("transient-nio2"));  // TODO:
-
         var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         for (int i = 1; i < 5; ++i) {
