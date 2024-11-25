@@ -110,6 +110,16 @@ jobs:
           mvn test -Ds3proxy.test.conf=s3proxy-minio.conf -Dtest=AwsSdkTest
           kill $(pidof minio)
 
+      - name: Install fake-gcs-server
+        run: go install github.com/fsouza/fake-gcs-server@latest
+      - name: Start fake-gcs-server
+        run: $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &
+      - name: Maven Test with fake-gcs-server
+        run: |
+          # TODO: this fails because the credentials are wrong
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs-server.conf -Dtest=AwsSdkTest
+
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
