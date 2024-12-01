@@ -979,6 +979,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobListRecursiveImplicitMarker() throws Exception {
+        assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
         assumeTrue(!blobStoreType.equals("transient-nio2"));  // TODO:
 
         ObjectListing listing = client.listObjects(containerName);
@@ -1009,6 +1010,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobListV2() throws Exception {
+        assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
+
         var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
         for (int i = 1; i < 5; ++i) {
@@ -1308,7 +1311,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+        assumeTrue(!blobStoreType.equals("azureblob-sdk") &&
+                !blobStoreType.equals("google-cloud-storage"));
 
         String blobName = "multipart-upload-abort";
         ByteSource byteSource = TestUtils.randomByteSource().slice(
