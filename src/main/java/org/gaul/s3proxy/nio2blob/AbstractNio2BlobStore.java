@@ -219,7 +219,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
     }
 
-    private static void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
+    private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
             String container, Path parent, String prefix, String delimiter)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, prefix);
@@ -229,7 +229,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try (var stream = Files.newDirectoryStream(parent)) {
             for (var path : stream) {
                 logger.debug("examining: {}", path);
-                if (!path.toString().startsWith(prefix.substring(1))) {
+                if (!path.toString().startsWith(root + prefix)) {
                     continue;
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
@@ -239,7 +239,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
                     var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
                     if (view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5) || "/".equals(delimiter)) {
-                        var name = path.toString().substring((container + "/").length());
+                        var name = path.toString().substring((root + "/" + container + "/").length());
                         builder.add(new StorageMetadataImpl(
                                 StorageType.RELATIVE_PATH,
                                 /*id=*/ null, name + "/",
@@ -249,7 +249,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                                 Map.of(), /*size=*/ null, Tier.STANDARD));
                     }
                 } else {
-                    var name = path.toString().substring((container + "/").length());
+                    var name = path.toString().substring((root + "/" + container + "/").length());
                     logger.debug("adding: {}", name);
                     var attr = Files.readAttributes(path, BasicFileAttributes.class);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
