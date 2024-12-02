@@ -682,9 +682,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final void removeBlob(String container, String key) {
         try {
-            var path = root.resolve(container).resolve(key);
+            var containerPath = root.resolve(container);
+            var path = containerPath.resolve(key);
             Files.delete(path);
-            removeEmptyParentDirectories(path.getParent());
+            removeEmptyParentDirectories(containerPath, path.getParent());
         } catch (NoSuchFileException nsfe) {
             return;
         } catch (IOException ioe) {
@@ -1071,10 +1072,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
      * AbstractNio2BlobStore implicitly creates directories when creating a key /a/b/c.
      * When removing /a/b/c, it must clean up /a and /a/b, unless a client explicitly created a subdirectory which has file attributes.
      */
-    private static void removeEmptyParentDirectories(Path path) throws IOException {
+    private static void removeEmptyParentDirectories(Path containerPath, Path path) throws IOException {
+        logger.debug("removing empty parents: {}", path);
         while (true) {
             var parent = path.getParent();
-            if (parent == null || parent.equals(path.getRoot())) {
+            if (parent == null || path.equals(containerPath)) {
                 break;
             }
             var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
