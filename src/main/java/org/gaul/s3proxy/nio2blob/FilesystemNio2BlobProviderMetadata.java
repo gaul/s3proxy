@@ -27,12 +27,12 @@ import org.jclouds.providers.internal.BaseProviderMetadata;
  * Implementation of org.jclouds.types.ProviderMetadata for NIO.2 filesystems.
  */
 @AutoService(ProviderMetadata.class)
-public final class Nio2BlobProviderMetadata extends BaseProviderMetadata {
-    public Nio2BlobProviderMetadata() {
+public final class FilesystemNio2BlobProviderMetadata extends BaseProviderMetadata {
+    public FilesystemNio2BlobProviderMetadata() {
         super(builder());
     }
 
-    public Nio2BlobProviderMetadata(Builder builder) {
+    public FilesystemNio2BlobProviderMetadata(Builder builder) {
         super(builder);
     }
 
@@ -52,17 +52,17 @@ public final class Nio2BlobProviderMetadata extends BaseProviderMetadata {
     }
     public static final class Builder extends BaseProviderMetadata.Builder {
         protected Builder() {
-            id("transient-nio2")
+            id("filesystem-nio2")
                 .name("NIO.2 filesystem blobstore")
-                .apiMetadata(new Nio2BlobApiMetadata())
+                .apiMetadata(new FilesystemNio2BlobApiMetadata())
                 .endpoint("https://127.0.0.1")  // TODO:
                 .defaultProperties(
-                        Nio2BlobProviderMetadata.defaultProperties());
+                        FilesystemNio2BlobProviderMetadata.defaultProperties());
         }
 
         @Override
-        public Nio2BlobProviderMetadata build() {
-            return new Nio2BlobProviderMetadata(this);
+        public FilesystemNio2BlobProviderMetadata build() {
+            return new FilesystemNio2BlobProviderMetadata(this);
         }
 
         @Override

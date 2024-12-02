@@ -51,12 +51,9 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
-import com.google.common.jimfs.Configuration;
-import com.google.common.jimfs.Jimfs;
 import com.google.common.net.HttpHeaders;
 import com.google.common.primitives.Longs;
 
-import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import jakarta.ws.rs.core.Response.Status;
 
@@ -98,9 +95,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Singleton
-public final class Nio2BlobStore extends BaseBlobStore {
+public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
-            Nio2BlobStore.class);
+            AbstractNio2BlobStore.class);
     private static final String XATTR_CACHE_CONTROL = "user.cache-control";
     private static final String XATTR_CONTENT_DISPOSITION =
             "user.content-disposition";
@@ -120,31 +117,29 @@ public final class Nio2BlobStore extends BaseBlobStore {
 
     private final Supplier<Set<? extends Location>> locations;
     private final FileSystem fs;
+    private final Path root;
 
-    @Inject
-    Nio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
+    protected AbstractNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
             Supplier<Location> defaultLocation,
             @Memoized Supplier<Set<? extends Location>> locations,
             PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds) {
+            @org.jclouds.location.Provider Supplier<Credentials> creds,
+            FileSystem fs, Path root) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.locations = requireNonNull(locations, "locations");
-        // TODO: close this
-        this.fs = Jimfs.newFileSystem(Configuration.unix().toBuilder()
-                .setAttributeViews("posix", "user")
-                .setWorkingDirectory("/")
-                .build());
+        this.fs = fs;
+        this.root = root;
     }
 
     @Override
-    public Set<? extends Location> listAssignableLocations() {
+    public final Set<? extends Location> listAssignableLocations() {
         return locations.get();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
+    public final PageSet<? extends StorageMetadata> list() {
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
-        try (var stream = Files.newDirectoryStream(fs.getPath(""))) {
+        try (var stream = Files.newDirectoryStream(root)) {
             for (var path : stream) {
                 var attr = Files.readAttributes(path,
                         BasicFileAttributes.class);
@@ -164,7 +159,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public final PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
@@ -178,7 +173,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
         }
 
         var prefix = options.getPrefix();
-        var dirPrefix = fs.getPath(container);
+        var dirPrefix = root.resolve(container);
         if (prefix != null) {
             int idx = prefix.lastIndexOf('/');
             if (idx != -1) {
@@ -292,22 +287,22 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
-        return Files.exists(fs.getPath(container));
+    public final boolean containerExists(String container) {
+        return Files.exists(root.resolve(container));
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
+    public final boolean createContainerInLocation(Location location,
             String container) {
         return createContainerInLocation(location, container,
                 new CreateContainerOptions());
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
+    public final boolean createContainerInLocation(Location location,
             String container, CreateContainerOptions options) {
         try {
-            Files.createDirectory(fs.getPath(container));
+            Files.createDirectory(root.resolve(container));
         } catch (FileAlreadyExistsException faee) {
             return false;
         } catch (IOException ioe) {
@@ -320,9 +315,9 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public void deleteContainer(String container) {
+    public final void deleteContainer(String container) {
         try {
-            Files.deleteIfExists(fs.getPath(container));
+            Files.deleteIfExists(root.resolve(container));
         } catch (DirectoryNotEmptyException dnee) {
             // TODO: what to do?
         } catch (IOException ioe) {
@@ -331,17 +326,17 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean blobExists(String container, String key) {
+    public final boolean blobExists(String container, String key) {
         return blobMetadata(container, key) != null;
     }
 
     @Override
-    public Blob getBlob(String container, String key, GetOptions options) {
+    public final Blob getBlob(String container, String key, GetOptions options) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = fs.getPath(container, key);
+        var path = root.resolve(container).resolve(key);
         logger.debug("Getting blob at: " + path);
 
         try {
@@ -515,19 +510,19 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public String putBlob(String container, Blob blob) {
+    public final String putBlob(String container, Blob blob) {
         return putBlob(container, blob, new PutOptions());
     }
 
     @Override
-    public String putBlob(String container, Blob blob, PutOptions options) {
+    public final String putBlob(String container, Blob blob, PutOptions options) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = fs.getPath(container, blob.getMetadata().getName());
+        var path = root.resolve(container).resolve(blob.getMetadata().getName());
         // TODO: should we use a known suffix to filter these out during list?
-        var tmpPath = fs.getPath(container, blob.getMetadata().getName() + "-" + UUID.randomUUID());
+        var tmpPath = root.resolve(container).resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
         logger.debug("Creating blob at: " + path);
 
         if (blob.getMetadata().getName().endsWith("/")) {
@@ -606,7 +601,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName,
+    public final String copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         var blob = getBlob(fromContainer, fromName);
         if (blob == null) {
@@ -685,9 +680,9 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String key) {
+    public final void removeBlob(String container, String key) {
         try {
-            var path = fs.getPath(container, key);
+            var path = root.resolve(container).resolve(key);
             Files.delete(path);
             removeEmptyParentDirectories(path.getParent());
         } catch (NoSuchFileException nsfe) {
@@ -698,7 +693,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public BlobMetadata blobMetadata(String container, String key) {
+    public final BlobMetadata blobMetadata(String container, String key) {
         Blob blob = getBlob(container, key);
         if (blob == null) {
             return null;
@@ -713,18 +708,18 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    protected boolean deleteAndVerifyContainerGone(String container) {
+    protected final boolean deleteAndVerifyContainerGone(String container) {
         deleteContainer(container);
         return !containerExists(container);
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public final ContainerAccess getContainerAccess(String container) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = fs.getPath(container);
+        var path = root.resolve(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
@@ -736,12 +731,12 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public void setContainerAccess(String container, ContainerAccess access) {
+    public final void setContainerAccess(String container, ContainerAccess access) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = fs.getPath(container);
+        var path = root.resolve(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
@@ -757,7 +752,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String key) {
+    public final BlobAccess getBlobAccess(String container, String key) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
@@ -765,7 +760,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
-        var path = fs.getPath(container, key);
+        var path = root.resolve(container).resolve(key);
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
@@ -777,7 +772,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public void setBlobAccess(String container, String key, BlobAccess access) {
+    public final void setBlobAccess(String container, String key, BlobAccess access) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
@@ -785,7 +780,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
-        var path = fs.getPath(container, key);
+        var path = root.resolve(container).resolve(key);
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
@@ -801,7 +796,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
+    public final MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
         var uploadId = UUID.randomUUID().toString();
         // create a stub blob
@@ -812,7 +807,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public void abortMultipartUpload(MultipartUpload mpu) {
+    public final void abortMultipartUpload(MultipartUpload mpu) {
         var parts = listMultipartUpload(mpu);
         for (var part : parts) {
             removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
@@ -821,7 +816,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+    public final String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
         var metas = ImmutableList.<BlobMetadata>builder();
         long contentLength = 0;
         var md5Hasher = Hashing.md5().newHasher();
@@ -893,7 +888,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
+    public final MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
         var partName = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + partNumber;
         var blob = blobBuilder(partName)
                 .payload(payload)
@@ -905,7 +900,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public final List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         var parts = ImmutableList.<MultipartPart>builder();
         var options =
                 new ListContainerOptions().prefix(MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-").recursive();
@@ -928,7 +923,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
+    public final List<MultipartUpload> listMultipartUploads(String container) {
         var mpus = ImmutableList.<MultipartUpload>builder();
         var options = new ListContainerOptions().prefix(MULTIPART_PREFIX).recursive();
         int uuidLength = UUID.randomUUID().toString().length();
@@ -955,22 +950,22 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public long getMinimumMultipartPartSize() {
+    public final long getMinimumMultipartPartSize() {
         return 1;
     }
 
     @Override
-    public long getMaximumMultipartPartSize() {
+    public final long getMaximumMultipartPartSize() {
         return 100 * 1024 * 1024;
     }
 
     @Override
-    public int getMaximumNumberOfParts() {
+    public final int getMaximumNumberOfParts() {
         return 50 * 1000;
     }
 
     @Override
-    public InputStream streamBlob(String container, String name) {
+    public final InputStream streamBlob(String container, String name) {
         throw new UnsupportedOperationException("not yet implemented");
     }
 
@@ -1073,7 +1068,7 @@ public final class Nio2BlobStore extends BaseBlobStore {
     }
 
     /**
-     * Nio2BlobStore implicitly creates directories when creating a key /a/b/c.
+     * AbstractNio2BlobStore implicitly creates directories when creating a key /a/b/c.
      * When removing /a/b/c, it must clean up /a and /a/b, unless a client explicitly created a subdirectory which has file attributes.
      */
     private static void removeEmptyParentDirectories(Path path) throws IOException {

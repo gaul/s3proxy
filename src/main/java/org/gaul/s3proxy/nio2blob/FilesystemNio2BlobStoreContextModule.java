@@ -22,10 +22,10 @@ import com.google.inject.Scopes;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.attr.ConsistencyModel;
 
-public final class Nio2BlobStoreContextModule extends AbstractModule {
+public final class FilesystemNio2BlobStoreContextModule extends AbstractModule {
     @Override
     protected void configure() {
         bind(ConsistencyModel.class).toInstance(ConsistencyModel.STRICT);
-        bind(BlobStore.class).to(Nio2BlobStore.class).in(Scopes.SINGLETON);
+        bind(BlobStore.class).to(FilesystemNio2BlobStore.class).in(Scopes.SINGLETON);
     }
 }

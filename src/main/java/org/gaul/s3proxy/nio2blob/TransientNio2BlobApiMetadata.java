@@ -24,12 +24,12 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.reflect.Reflection2;
 import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
-public final class Nio2BlobApiMetadata extends BaseHttpApiMetadata {
-    public Nio2BlobApiMetadata() {
+public final class TransientNio2BlobApiMetadata extends BaseHttpApiMetadata {
+    public TransientNio2BlobApiMetadata() {
         this(builder());
     }
 
-    protected Nio2BlobApiMetadata(Builder builder) {
+    protected TransientNio2BlobApiMetadata(Builder builder) {
         super(builder);
     }
 
@@ -47,29 +47,29 @@ public final class Nio2BlobApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client
-    private interface Nio2BlobClient {
+    private interface TransientNio2BlobClient {
     }
 
     public static final class Builder
-            extends BaseHttpApiMetadata.Builder<Nio2BlobClient, Builder> {
+            extends BaseHttpApiMetadata.Builder<TransientNio2BlobClient, Builder> {
         protected Builder() {
-            super(Nio2BlobClient.class);
+            super(TransientNio2BlobClient.class);
             id("transient-nio2")
-                .name("NIO.2 Blobstore")
+                .name("Transient NIO.2 Blobstore")
                 .identityName("Account Name")
                 .credentialName("Access Key")
                 .defaultEndpoint("http://localhost/")
                 .documentation(URI.create(
                         "http://www.jclouds.org/documentation/userguide" +
                         "/blobstore-guide"))
-                .defaultProperties(Nio2BlobApiMetadata.defaultProperties())
+                .defaultProperties(TransientNio2BlobApiMetadata.defaultProperties())
                 .view(Reflection2.typeToken(BlobStoreContext.class))
-                .defaultModules(Set.of(Nio2BlobStoreContextModule.class));
+                .defaultModules(Set.of(TransientNio2BlobStoreContextModule.class));
         }
 
         @Override
-        public Nio2BlobApiMetadata build() {
-            return new Nio2BlobApiMetadata(this);
+        public TransientNio2BlobApiMetadata build() {
+            return new TransientNio2BlobApiMetadata(this);
         }
 
         @Override
