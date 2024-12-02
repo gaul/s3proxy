@@ -129,6 +129,18 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     iae.getMessage());
             baseRequest.setHandled(true);
             return;
+        } catch (IllegalStateException ise) {
+            // google-cloud-storage uses a different exception
+            if (ise.getMessage().startsWith("PreconditionFailed")) {
+                sendS3Exception(request, response,
+                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+                return;
+            }
+            logger.debug("IllegalStateException:", ise);
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST,
+                    ise.getMessage());
+            baseRequest.setHandled(true);
+            return;
         } catch (KeyNotFoundException knfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
             handler.sendSimpleErrorResponse(request, response, code,
