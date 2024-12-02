@@ -80,6 +80,11 @@ jobs:
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-transient-nio2.conf -Dtest=AwsSdkTest
 
+      - name: Maven Test with filesystem-nio2
+        run: |
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-filesystem-nio2.conf -Dtest=AwsSdkTest
+
       - name: Install Azurite
         run: npx --yes --loglevel info azurite --version
       - name: Start Azurite
