@@ -96,6 +96,7 @@ final class Quirks {
             "azureblob",
             "azureblob-sdk",
             "filesystem",
+            "filesystem-nio2",
             "google-cloud-storage",
             "openstack-swift",
             "transient",
