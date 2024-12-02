@@ -594,6 +594,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
+            setBlobAccess(container, blob.getMetadata().getName(), options.getBlobAccess());
+
             return "\"" + actualHashCode + "\"";
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
