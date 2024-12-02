@@ -229,7 +229,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try (var stream = Files.newDirectoryStream(parent)) {
             for (var path : stream) {
                 logger.debug("examining: {}", path);
-                if (!path.toString().startsWith(root + prefix)) {
+                if (!path.toAbsolutePath().toString().startsWith(root + prefix)) {
                     continue;
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
@@ -239,7 +239,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
                     var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
                     if (view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5) || "/".equals(delimiter)) {
-                        var name = path.toString().substring((root + "/" + container + "/").length());
+                        var name = path.toString().substring((root.resolve(container) + "/").length());
+                        logger.debug("adding prefix: {}", name);
                         builder.add(new StorageMetadataImpl(
                                 StorageType.RELATIVE_PATH,
                                 /*id=*/ null, name + "/",
@@ -249,7 +250,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                                 Map.of(), /*size=*/ null, Tier.STANDARD));
                     }
                 } else {
-                    var name = path.toString().substring((root + "/" + container + "/").length());
+                    var name = path.toString().substring((root.resolve(container) + "/").length());
                     logger.debug("adding: {}", name);
                     var attr = Files.readAttributes(path, BasicFileAttributes.class);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
