@@ -31,9 +31,7 @@ do
     sleep 1
 done
 
-# execute s3-tests
-pushd s3-tests
-tox -- -m 'not fails_on_s3proxy'\
+tags='not fails_on_s3proxy'\
 ' and not appendobject'\
 ' and not bucket_policy'\
 ' and not checksum'\
@@ -56,3 +54,11 @@ tox -- -m 'not fails_on_s3proxy'\
 ' and not user_policy'\
 ' and not versioning'\
 ' and not webidentity_test'
+
+if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
+    tags="${tags} and not multipart"
+fi
+
+# execute s3-tests
+pushd s3-tests
+tox -- -m "${tags}"
