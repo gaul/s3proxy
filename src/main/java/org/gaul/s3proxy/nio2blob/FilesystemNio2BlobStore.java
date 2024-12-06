@@ -16,7 +16,6 @@
 
 package org.gaul.s3proxy.nio2blob;
 
-import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.util.Set;
 
@@ -43,19 +42,8 @@ public final class FilesystemNio2BlobStore extends AbstractNio2BlobStore {
             PayloadSlicer slicer,
             @org.jclouds.location.Provider Supplier<Credentials> creds,
             @Named(FilesystemConstants.PROPERTY_BASEDIR) String baseDir) {
-        this(context, blobUtils, defaultLocation, locations, slicer, creds,
-                baseDir, FileSystems.getDefault());
-    }
-
-    // Helper to create Path
-    private FilesystemNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            @Named(FilesystemConstants.PROPERTY_BASEDIR) String baseDir,
-            FileSystem fs) {
         super(context, blobUtils, defaultLocation, locations, slicer, creds,
-                fs, fs.getPath(baseDir));
+                // cannot be closed
+                FileSystems.getDefault().getPath(baseDir));
     }
 }

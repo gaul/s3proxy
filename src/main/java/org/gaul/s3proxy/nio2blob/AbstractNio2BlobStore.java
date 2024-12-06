@@ -24,7 +24,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -116,7 +115,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             Hashing.md5().hashBytes(new byte[0]).asBytes();
 
     private final Supplier<Set<? extends Location>> locations;
-    private final FileSystem fs;
     private final Path root;
 
     protected AbstractNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -124,10 +122,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             @Memoized Supplier<Set<? extends Location>> locations,
             PayloadSlicer slicer,
             @org.jclouds.location.Provider Supplier<Credentials> creds,
-            FileSystem fs, Path root) {
+            Path root) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.locations = requireNonNull(locations, "locations");
-        this.fs = fs;
         this.root = root;
     }
 
@@ -230,7 +227,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             for (var path : stream) {
                 logger.debug("examining: {}", path);
                 if (!path.toAbsolutePath().toString().startsWith(root + prefix)) {
-                    continue;
+                    // ignore
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
                         listHelper(builder, container, path, prefix, delimiter);
@@ -238,7 +235,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
                     var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-                    if (view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5) || "/".equals(delimiter)) {
+                    if ((view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5)) || "/".equals(delimiter)) {
                         var name = path.toString().substring((root.resolve(container) + "/").length());
                         logger.debug("adding prefix: {}", name);
                         builder.add(new StorageMetadataImpl(
@@ -419,7 +416,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     } else if (range.endsWith("-")) {
                         offset = Long.parseLong(range.substring(0, range.length() - 1));
                     } else if (range.contains("-")) {
-                        String[] firstLast = range.split("\\-");
+                        String[] firstLast = range.split("\\-", 2);
                         offset = Long.parseLong(firstLast[0]);
                         last = Long.parseLong(firstLast[1]);
                     } else {
@@ -838,12 +835,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 md5Hasher.putBytes(BaseEncoding.base16().lowerCase().decode(eTag));
             }
         }
-        var mpuETag = new StringBuilder("\"")
-                .append(md5Hasher.hash())
-                .append("-")
-                .append(parts.size())
-                .append("\"")
-                .toString();
+        var mpuETag = "\"" + md5Hasher.hash() + "-" + parts.size() + "\"";
         var blobBuilder = blobBuilder(mpu.blobName())
                 .userMetadata(mpu.blobMetadata().getUserMetadata())
                 .payload(new MultiBlobInputStream(this, metas.build()))

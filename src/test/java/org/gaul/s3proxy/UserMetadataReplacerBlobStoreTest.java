@@ -29,14 +29,9 @@ import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class UserMetadataReplacerBlobStoreTest {
-    private static final Logger logger =
-            LoggerFactory.getLogger(UserMetadataReplacerBlobStoreTest.class);
-
     private BlobStoreContext context;
     private BlobStore blobStore;
     private String containerName;

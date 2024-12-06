@@ -240,7 +240,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             blobServiceClient.deleteBlobContainer(container);
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() != BlobErrorCode.CONTAINER_NOT_FOUND) {
+            if (!bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
                 throw bse;
             }
         }
@@ -259,7 +259,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             blobServiceClient.deleteBlobContainer(container);
             return true;
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() == BlobErrorCode.CONTAINER_NOT_FOUND) {
+            if (bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
                 return true;
             }
             throw bse;
@@ -487,8 +487,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             client.delete();
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode() != BlobErrorCode.BLOB_NOT_FOUND &&
-                    bse.getErrorCode() != BlobErrorCode.CONTAINER_NOT_FOUND) {
+            if (!bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND) &&
+                    !bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
                 throw bse;
             }
         }
@@ -524,8 +524,8 @@ public final class AzureBlobStore extends BaseBlobStore {
     public ContainerAccess getContainerAccess(String container) {
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
-            return client.getAccessPolicy().getBlobAccessType() ==
-                    PublicAccessType.CONTAINER ?
+            return client.getAccessPolicy().getBlobAccessType().equals(
+                    PublicAccessType.CONTAINER) ?
                     ContainerAccess.PUBLIC_READ :
                     ContainerAccess.PRIVATE;
         } catch (BlobStorageException bse) {
@@ -728,15 +728,15 @@ public final class AzureBlobStore extends BaseBlobStore {
     private void translateAndRethrowException(BlobStorageException bse,
             String container, @Nullable String key) {
         var code = bse.getErrorCode();
-        if (code == BlobErrorCode.BLOB_NOT_FOUND) {
+        if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
             var exception = new KeyNotFoundException(container, key, "");
             exception.initCause(bse);
             throw exception;
-        } else if (code == BlobErrorCode.CONTAINER_NOT_FOUND) {
+        } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
             var exception = new ContainerNotFoundException(container, "");
             exception.initCause(bse);
             throw exception;
-        } else if (code == BlobErrorCode.CONDITION_NOT_MET) {
+        } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET)) {
             var request = HttpRequest.builder()
                     .method("GET")
                     .endpoint(endpoint)
@@ -746,7 +746,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                     .build();
             throw new HttpResponseException(
                     new HttpCommand(request), response, bse);
-        } else if (code == BlobErrorCode.INVALID_OPERATION) {
+        } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
             var request = HttpRequest.builder()
                     .method("GET")
                     .endpoint(endpoint)
@@ -756,7 +756,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                     .build();
             throw new HttpResponseException(
                     new HttpCommand(request), response, bse);
-        } else if (bse.getErrorCode() == BlobErrorCode.INVALID_RESOURCE_NAME) {
+        } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             throw new IllegalArgumentException(
                     "Invalid container name", bse);
         }

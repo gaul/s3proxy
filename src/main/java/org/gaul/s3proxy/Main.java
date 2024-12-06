@@ -74,6 +74,7 @@ public final class Main {
         private boolean version;
     }
 
+    @SuppressWarnings("EqualsIncompatibleType")
     public static void main(String[] args) throws Exception {
         Console console = System.console();
         if (console == null) {

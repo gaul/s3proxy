@@ -80,8 +80,8 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
         var metadata = ImmutableMap.<String, String>builder();
         // TODO: duplication
         for (var entry : blobMetadata.getUserMetadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), toChars, fromChars),
-                    replaceChars(entry.getValue(), toChars, fromChars));
+            metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
+                    replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
         ((MutableBlobMetadata) blobMetadata).setUserMetadata(metadata.build());
         return blobMetadata;
@@ -102,19 +102,20 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
 
         var metadata = ImmutableMap.<String, String>builder();
         for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), toChars, fromChars),
-                    replaceChars(entry.getValue(), toChars, fromChars));
+            metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
+                    replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
         blob.getMetadata().setUserMetadata(metadata.build());
         return blob;
     }
 
+    @Override
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions overrides) {
         var metadata = ImmutableMap.<String, String>builder();
         for (var entry : blobMetadata.getUserMetadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
-                    replaceChars(entry.getValue(), fromChars, toChars));
+            metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ fromChars, /*toChars=*/ toChars),
+                    replaceChars(entry.getValue(), /*fromChars=*/ fromChars, /*toChars=*/ toChars));
         }
         ((MutableBlobMetadata) blobMetadata).setUserMetadata(metadata.build());
         return super.initiateMultipartUpload(container, blobMetadata,

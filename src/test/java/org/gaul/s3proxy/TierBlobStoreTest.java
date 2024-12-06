@@ -31,14 +31,9 @@ import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class TierBlobStoreTest {
-    private static final Logger logger =
-            LoggerFactory.getLogger(TierBlobStoreTest.class);
-
     private BlobStoreContext context;
     private BlobStore blobStore;
     private String containerName;

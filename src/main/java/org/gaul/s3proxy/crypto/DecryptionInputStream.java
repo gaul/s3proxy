@@ -19,7 +19,7 @@ package org.gaul.s3proxy.crypto;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.TreeMap;
+import java.util.SortedMap;
 
 import javax.annotation.concurrent.ThreadSafe;
 import javax.crypto.Cipher;
@@ -38,7 +38,7 @@ public class DecryptionInputStream extends FilterInputStream {
     private final SecretKey key;
 
     // the list of parts we expect in the stream
-    private final TreeMap<Integer, PartPadding> parts;
+    private final SortedMap<Integer, PartPadding> parts;
 
     /* the buffer holding data that have been read in from the
        underlying stream, but have not been processed by the cipher
@@ -77,7 +77,7 @@ public class DecryptionInputStream extends FilterInputStream {
      * @throws IOException if cipher fails
      */
     public DecryptionInputStream(InputStream is, SecretKey key,
-            TreeMap<Integer, PartPadding> parts, int skipParts,
+            SortedMap<Integer, PartPadding> parts, int skipParts,
             long skipPartBytes) throws IOException {
         super(is);
         in = is;

@@ -55,7 +55,8 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
             PayloadSlicer slicer,
             @org.jclouds.location.Provider Supplier<Credentials> creds,
             FileSystem fs) {
+        // TODO: close fs?
         super(context, blobUtils, defaultLocation, locations, slicer, creds,
-                fs, fs.getPath(""));
+                fs.getPath(""));
     }
 }
