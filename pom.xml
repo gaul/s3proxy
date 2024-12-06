@@ -152,7 +152,26 @@
           <compilerArgs>
             <arg>-Xlint</arg>
             <arg>-XDcompilePolicy=simple</arg>
+            <arg>--should-stop=ifError=FLOW</arg>
+            <arg>
+              -Xplugin:ErrorProne
+              -Xep:DefaultCharset:OFF
+              -Xep:HidingField:OFF
+              -Xep:JavaTimeDefaultTimeZone:OFF
+              -Xep:JavaUtilDate:OFF
+              -Xep:ProtectedMembersInFinalClass:OFF
+              -Xep:StringCaseLocaleUsage:OFF
+              -Xep:SystemConsoleNull:OFF
+              -Xep:UnusedVariable:OFF
+            </arg>
           </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>com.google.errorprone</groupId>
+              <artifactId>error_prone_core</artifactId>
+              <version>2.31.0</version>  <!-- latest version that JDK 11 supports -->
+            </path>
+          </annotationProcessorPaths>
         </configuration>
       </plugin>
       <plugin>
