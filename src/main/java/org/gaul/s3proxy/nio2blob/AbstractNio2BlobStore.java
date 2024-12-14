@@ -179,10 +179,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         } else {
             prefix = "";
         }
-        prefix = "/" + container + "/" + prefix;
+        var pathPrefix = root.resolve(container).resolve(prefix);
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         try {
-            listHelper(set, container, dirPrefix, prefix, delimiter);
+            listHelper(set, container, dirPrefix, pathPrefix, delimiter);
             var sorted = set.build();
             if (options.getMarker() != null) {
                 var found = false;
@@ -217,7 +217,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
-            String container, Path parent, String prefix, String delimiter)
+            String container, Path parent, Path prefix, String delimiter)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, prefix);
         if (!Files.isDirectory(parent)) {  // TODO: TOCTOU
@@ -226,7 +226,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try (var stream = Files.newDirectoryStream(parent)) {
             for (var path : stream) {
                 logger.debug("examining: {}", path);
-                if (!path.toAbsolutePath().toString().startsWith(root + prefix)) {
+                if (!path.toAbsolutePath().toString().startsWith(root.resolve(prefix).toAbsolutePath().toString())) {
                     // ignore
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
