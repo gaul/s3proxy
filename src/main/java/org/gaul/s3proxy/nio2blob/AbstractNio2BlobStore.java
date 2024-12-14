@@ -237,6 +237,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
                     if ((view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5)) || "/".equals(delimiter)) {
                         var name = path.toString().substring((root.resolve(container) + "/").length());
+                        if (path.getFileSystem().getSeparator().equals("\\")) {
+                            name = name.replace('\\', '/');
+                        }
                         logger.debug("adding prefix: {}", name);
                         builder.add(new StorageMetadataImpl(
                                 StorageType.RELATIVE_PATH,
@@ -248,6 +251,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     }
                 } else {
                     var name = path.toString().substring((root.resolve(container) + "/").length());
+                    if (path.getFileSystem().getSeparator().equals("\\")) {
+                        name = name.replace('\\', '/');
+                    }
                     logger.debug("adding: {}", name);
                     var attr = Files.readAttributes(path, BasicFileAttributes.class);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
