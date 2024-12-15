@@ -17,6 +17,8 @@
 package org.gaul.s3proxy.nio2blob;
 
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.util.Set;
 
 import com.google.common.base.Supplier;
@@ -45,5 +47,8 @@ public final class FilesystemNio2BlobStore extends AbstractNio2BlobStore {
         super(context, blobUtils, defaultLocation, locations, slicer, creds,
                 // cannot be closed
                 FileSystems.getDefault().getPath(baseDir));
+        if (!Files.exists(getRoot())) {
+            throw new RuntimeException(new NoSuchFileException(getRoot().toString()));
+        }
     }
 }

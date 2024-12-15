@@ -128,6 +128,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         this.root = root;
     }
 
+    protected Path getRoot() {
+        return root;
+    }
+
     @Override
     public final Set<? extends Location> listAssignableLocations() {
         return locations.get();
