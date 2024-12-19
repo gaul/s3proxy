@@ -128,7 +128,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         this.root = root;
     }
 
-    protected Path getRoot() {
+    protected final Path getRoot() {
         return root;
     }
 
