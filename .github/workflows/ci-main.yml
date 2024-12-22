@@ -95,6 +95,22 @@ jobs:
         run: |
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest
+          # TODO: kill $(pidof node)
+
+      - name: Install Minio
+        run: |
+          curl -o minio https://dl.min.io/server/minio/release/linux-amd64/minio
+          chmod +x minio
+      - name: Start Minio
+        run: |
+          mkdir mnt/
+          # TODO: kill this afterwards
+          MINIO_SERVER_URL=http://127.0.0.1:9000 MINIO_ROOT_USER=remote-identity MINIO_ROOT_PASSWORD=remote-credential ./minio server mnt/ &
+      - name: Maven Test with Minio
+        run: |
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-minio.conf -Dtest=AwsSdkTest
+          kill $(pidof minio)
 
       - name: Install s3-tests
         run: |
