@@ -795,7 +795,7 @@ public final class AwsSdkTest {
     public void testPartNumberMarker() throws Exception {
         assumeTrue(!blobStoreType.equals("azureblob-sdk"));
 
-        String blobName = "foo";
+        String blobName = "test-part-number-marker";
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
         var request = new ListPartsRequest(containerName,
@@ -808,6 +808,8 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("NotImplemented");
+        } finally {
+            client.abortMultipartUpload(new AbortMultipartUploadRequest(containerName, blobName, result.getUploadId()));
         }
     }
 
