@@ -11,7 +11,7 @@ export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
         < "src/test/resources/$S3PROXY_CONF" | grep -v secure-endpoint > target/s3proxy.conf
-$S3PROXY_BIN --properties target/s3proxy.conf &
+java -DLOG_LEVEL=${LOG_LEVEL:-info} -jar $S3PROXY_BIN --properties target/s3proxy.conf &
 S3PROXY_PID=$!
 
 function finish {
