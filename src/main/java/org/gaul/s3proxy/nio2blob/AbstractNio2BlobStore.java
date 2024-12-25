@@ -419,7 +419,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     long offset = 0;
                     long last = size;
                     if (range.startsWith("-")) {
-                        offset = last - Long.parseLong(range.substring(1)) + 1;
+                        offset = last - Long.parseLong(range.substring(1));
                         if (offset < 0) {
                             offset = 0;
                         }
