@@ -41,6 +41,8 @@ import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.common.base.Supplier;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -53,6 +55,7 @@ import org.jclouds.location.reference.LocationConstants;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
 import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
+import org.jclouds.domain.Credentials;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -377,13 +380,26 @@ public final class Main {
 
         ContextBuilder builder = ContextBuilder
                 .newBuilder(provider)
-                .credentials(identity, credential)
                 .modules(List.of(
                         new SLF4JLoggingModule(),
                         new ExecutorServiceModule(executorService)))
                 .overrides(properties);
         if (!Strings.isNullOrEmpty(endpoint)) {
             builder = builder.endpoint(endpoint);
+        }
+
+        if ((identity.isEmpty() || credential.isEmpty()) && provider.equals("aws-s3")) {
+            DefaultAWSCredentialsProviderChain creds = DefaultAWSCredentialsProviderChain.getInstance();
+            Supplier<Credentials> credentialsSupplier = new Supplier<Credentials>() {
+                @Override
+                public Credentials get() {
+                    return new Credentials(creds.getCredentials().getAWSAccessKeyId(),
+                            creds.getCredentials().getAWSSecretKey());
+                }
+            };
+            builder = builder.credentialsSupplier(credentialsSupplier);
+        } else {
+            builder = builder.credentials(identity, credential);
         }
 
         BlobStoreContext context = builder.build(BlobStoreContext.class);
