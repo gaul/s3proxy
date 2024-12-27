@@ -82,7 +82,7 @@ import com.google.common.net.PercentEscaper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.apache.commons.fileupload.MultipartStream;
+import org.apache.commons.fileupload2.core.MultipartInput;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
@@ -2051,8 +2051,10 @@ public class S3ProxyHandler {
         String signature = null;
         String algorithm = null;
         byte[] payload = null;
-        var multipartStream = new MultipartStream(is,
-                boundary.getBytes(StandardCharsets.UTF_8), 4096, null);
+        var multipartStream = MultipartInput.builder()
+                .setBoundary(boundary.getBytes(StandardCharsets.UTF_8))
+                .setInputStream(is)
+                .get();
         boolean nextPart = multipartStream.skipPreamble();
         while (nextPart) {
             String header = multipartStream.readHeaders();
