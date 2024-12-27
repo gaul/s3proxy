@@ -76,8 +76,8 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * azureblob
 * azureblob-sdk (newer but lacks multi-part upload, see [Azure/azure-sdk-for-java#42603](https://github.com/Azure/azure-sdk-for-java/issues/42603))
 * b2
-* filesystem (on-disk storage)
-* filesystem-nio2 (on-disk storage, preview)
+* filesystem (on-disk storage, deprecated)
+* filesystem-nio2 (on-disk storage, recommended)
 * google-cloud-storage
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
