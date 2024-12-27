@@ -108,7 +108,6 @@ jobs:
         run: |
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-minio.conf -Dtest=AwsSdkTest
-          kill $(pidof minio)
 
       - name: Install s3-tests
         run: |
@@ -124,6 +123,10 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
           kill $(pidof node)
+      - name: Run s3-tests with Minio
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-minio.conf
+          kill $(pidof minio)
 
       #Store the target
       - uses: actions/upload-artifact@v4
