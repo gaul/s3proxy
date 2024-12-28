@@ -17,13 +17,12 @@
 package org.gaul.s3proxy;
 
 import java.io.Console;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -39,7 +38,7 @@ import java.util.regex.Pattern;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.io.Files;
+import com.google.common.io.MoreFiles;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.jclouds.Constants;
@@ -68,7 +67,7 @@ public final class Main {
     private static final class Options {
         @Option(name = "--properties",
                 usage = "S3Proxy configuration (required, multiple allowed)")
-        private List<File> propertiesFiles = new ArrayList<>();
+        private List<Path> properties = new ArrayList<>();
 
         @Option(name = "--version", usage = "display version")
         private boolean version;
@@ -93,7 +92,7 @@ public final class Main {
             System.err.println(
                     Main.class.getPackage().getImplementationVersion());
             System.exit(0);
-        } else if (options.propertiesFiles.isEmpty()) {
+        } else if (options.properties.isEmpty()) {
             usage(parser);
         }
 
@@ -110,9 +109,9 @@ public final class Main {
                 .<PathMatcher, Map.Entry<String, BlobStore>>builder();
         Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
-        for (File propertiesFile : options.propertiesFiles) {
+        for (var path : options.properties) {
             var properties = new Properties();
-            try (InputStream is = new FileInputStream(propertiesFile)) {
+            try (var is = Files.newInputStream(path)) {
                 properties.load(is);
             }
             properties.putAll(System.getProperties());
@@ -350,9 +349,9 @@ public final class Main {
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
         } else if (provider.equals("google-cloud-storage")) {
-            var credentialFile = new File(credential);
-            if (credentialFile.exists()) {
-                credential = Files.asCharSource(credentialFile,
+            var path = FileSystems.getDefault().getPath(credential);
+            if (Files.exists(path)) {
+                credential = MoreFiles.asCharSource(path,
                         StandardCharsets.UTF_8).read();
             }
             properties.remove(Constants.PROPERTY_CREDENTIAL);

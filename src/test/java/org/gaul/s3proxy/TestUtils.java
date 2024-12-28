@@ -16,11 +16,12 @@
 
 package org.gaul.s3proxy;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Properties;
 import java.util.Random;
@@ -29,7 +30,7 @@ import com.google.common.base.Strings;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
-import com.google.common.io.Files;
+import com.google.common.io.MoreFiles;
 import com.google.common.io.Resources;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
@@ -165,9 +166,9 @@ final class TestUtils {
         String credential = info.getProperties().getProperty(
                 Constants.PROPERTY_CREDENTIAL);
         if (provider.equals("google-cloud-storage")) {
-            var credentialFile = new File(credential);
-            if (credentialFile.exists()) {
-                credential = Files.asCharSource(credentialFile,
+            var path = FileSystems.getDefault().getPath(credential);
+            if (Files.exists(path)) {
+                credential = MoreFiles.asCharSource(path,
                         StandardCharsets.UTF_8).read();
             }
             info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
