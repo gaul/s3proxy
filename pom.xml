@@ -333,7 +333,7 @@
       <plugin>
         <groupId>org.gaul</groupId>
         <artifactId>modernizer-maven-plugin</artifactId>
-        <version>2.9.0</version>
+        <version>3.0.0</version>
         <executions>
           <execution>
             <id>modernizer</id>
