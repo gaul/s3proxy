@@ -36,17 +36,21 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.AWSSessionCredentials;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.common.base.Supplier;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
+import org.jclouds.aws.domain.SessionCredentials;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.concurrent.DynamicExecutors;
@@ -389,12 +393,26 @@ public final class Main {
         }
 
         if ((identity.isEmpty() || credential.isEmpty()) && provider.equals("aws-s3")) {
-            DefaultAWSCredentialsProviderChain creds = DefaultAWSCredentialsProviderChain.getInstance();
             Supplier<Credentials> credentialsSupplier = new Supplier<Credentials>() {
                 @Override
                 public Credentials get() {
-                    return new Credentials(creds.getCredentials().getAWSAccessKeyId(),
-                            creds.getCredentials().getAWSSecretKey());
+                    AWSCredentialsProvider authChain = DefaultAWSCredentialsProviderChain.getInstance();
+                    AWSCredentials newCreds = authChain.getCredentials();
+                    Credentials jcloudCred = null;
+
+                    if (newCreds instanceof AWSSessionCredentials) {
+                        jcloudCred = SessionCredentials.builder()
+                                .accessKeyId(newCreds.getAWSAccessKeyId())
+                                .secretAccessKey(newCreds.getAWSSecretKey())
+                                .sessionToken(((AWSSessionCredentials) newCreds).getSessionToken())
+                                .build();
+                    } else {
+                        jcloudCred = new Credentials(
+                                newCreds.getAWSAccessKeyId(), newCreds.getAWSSecretKey()
+                        );
+                    }
+
+                    return jcloudCred;
                 }
             };
             builder = builder.credentialsSupplier(credentialsSupplier);
