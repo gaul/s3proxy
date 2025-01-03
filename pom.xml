@@ -345,6 +345,9 @@
         </executions>
         <configuration>
           <javaVersion>${java.version}</javaVersion>
+          <exclusions>
+            <exclusion>com/google/common/base/Supplier</exclusion>
+          </exclusions>
         </configuration>
       </plugin>
       <plugin>
@@ -395,9 +398,9 @@
       </exclusions>
     </dependency>
     <dependency>
-        <groupId>com.amazonaws</groupId>
-        <artifactId>aws-java-sdk-sts</artifactId>
-        <version>1.12.261</version>
+      <groupId>com.amazonaws</groupId>
+      <artifactId>aws-java-sdk-sts</artifactId>
+      <version>1.12.261</version>
     </dependency>
     <dependency>
       <groupId>args4j</groupId>

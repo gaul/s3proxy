@@ -40,11 +40,11 @@ import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.AWSSessionCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.google.common.base.Strings;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.MoreFiles;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.google.common.base.Supplier;
 
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
@@ -54,11 +54,11 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.concurrent.DynamicExecutors;
 import org.jclouds.concurrent.config.ExecutorServiceModule;
+import org.jclouds.domain.Credentials;
 import org.jclouds.location.reference.LocationConstants;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
 import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
-import org.jclouds.domain.Credentials;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -392,7 +392,7 @@ public final class Main {
         }
 
         if ((identity.isEmpty() || credential.isEmpty()) && provider.equals("aws-s3")) {
-            Supplier<Credentials> credentialsSupplier = new Supplier<Credentials>() {
+            var credentialsSupplier = new Supplier<Credentials>() {
                 @Override
                 public Credentials get() {
                     AWSCredentialsProvider authChain = DefaultAWSCredentialsProviderChain.getInstance();
