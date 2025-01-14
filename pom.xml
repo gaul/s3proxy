@@ -333,7 +333,7 @@
       <plugin>
         <groupId>org.gaul</groupId>
         <artifactId>modernizer-maven-plugin</artifactId>
-        <version>3.0.0</version>
+        <version>${modernizer.version}</version>
         <executions>
           <execution>
             <id>modernizer</id>
@@ -345,9 +345,6 @@
         </executions>
         <configuration>
           <javaVersion>${java.version}</javaVersion>
-          <exclusions>
-            <exclusion>com/google/common/base/Supplier</exclusion>
-          </exclusions>
         </configuration>
       </plugin>
       <plugin>
@@ -369,6 +366,7 @@
     <java.version>11</java.version>
     <jclouds.version>2.6.0</jclouds.version>
     <jetty.version>11.0.24</jetty.version>
+    <modernizer.version>3.1.0</modernizer.version>
     <slf4j.version>2.0.16</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>3.2.5</surefire.version>
@@ -508,6 +506,11 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-servlet</artifactId>
       <version>${jetty.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.gaul</groupId>
+      <artifactId>modernizer-maven-annotations</artifactId>
+      <version>${modernizer.version}</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>

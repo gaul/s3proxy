@@ -46,6 +46,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.MoreFiles;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
+import org.gaul.modernizer_maven_annotations.SuppressModernizer;
 import org.jclouds.Constants;
 import org.jclouds.ContextBuilder;
 import org.jclouds.JcloudsVersion;
@@ -392,7 +393,8 @@ public final class Main {
         }
 
         if ((identity.isEmpty() || credential.isEmpty()) && provider.equals("aws-s3")) {
-            var credentialsSupplier = new Supplier<Credentials>() {
+            @SuppressModernizer
+            Supplier<Credentials> credentialsSupplier = new Supplier<Credentials>() {
                 @Override
                 public Credentials get() {
                     AWSCredentialsProvider authChain = DefaultAWSCredentialsProviderChain.getInstance();
