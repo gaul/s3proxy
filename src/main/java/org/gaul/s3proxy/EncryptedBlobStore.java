@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,8 +36,8 @@ import javax.crypto.spec.SecretKeySpec;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
@@ -348,7 +349,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     private String generateUploadId(String container, String blobName) {
         String path = container + "/" + blobName;
-        return DigestUtils.sha256Hex(path);
+        return Hashing.md5().hashBytes(path.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     @Override
