@@ -293,6 +293,12 @@ public class S3ProxyHandler {
         String uri = request.getRequestURI();
         String originalUri = request.getRequestURI();
 
+        // Check for the /version endpoint
+        if ("/healthz".equals(uri) && "GET".equalsIgnoreCase(method)) {
+            handleVersionRequest(response);
+            return;
+        }
+
         if (!this.servicePath.isEmpty()) {
             if (uri.length() > this.servicePath.length()) {
                 uri = uri.substring(this.servicePath.length());
@@ -2028,6 +2034,18 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+    }
+    private void handleVersionRequest(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+    
+        String versionInfo = "{ \"status\": \"OK\"}";
+    
+        try (PrintWriter writer = response.getWriter()) {
+            writer.write(versionInfo);
+            writer.flush();
+        }
     }
 
     private void handlePostBlob(HttpServletRequest request,
