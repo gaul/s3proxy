@@ -26,8 +26,6 @@ import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 
-import org.apache.commons.io.IOUtils;
-
 @ThreadSafe
 public class DecryptionInputStream extends FilterInputStream {
 
@@ -176,7 +174,8 @@ public class DecryptionInputStream extends FilterInputStream {
                 // update the remaining bytes of the next part
                 partBytesRemain = parts.get(nextPart).getSize();
 
-                IOUtils.skip(in, Constants.PADDING_BLOCK_SIZE);
+                // Cannot call ByteStreams.skipFully since in may be shorter
+                in.readNBytes(Constants.PADDING_BLOCK_SIZE);
 
                 return ofinish;
             } else {

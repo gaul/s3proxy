@@ -26,8 +26,8 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.io.input.BoundedInputStream;
+import com.google.common.io.ByteStreams;
+
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
@@ -211,10 +211,10 @@ public class Decryption {
         if (this.skipFirstBlock) {
             offset = offset + Constants.AES_BLOCK_SIZE;
         }
-        IOUtils.skipFully(dis, offset);
+        ByteStreams.skipFully(dis, offset);
 
         // trim the stream to a specific length if needed
-        return new BoundedInputStream(dis, outputLength);
+        return outputLength >= 0 ? ByteStreams.limit(dis, outputLength) : dis;
     }
 
     private void calculateOffset(long offset) {

@@ -23,7 +23,6 @@ import java.util.Arrays;
 
 import javax.crypto.spec.IvParameterSpec;
 
-import org.apache.commons.io.IOUtils;
 import org.jclouds.blobstore.domain.Blob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +42,7 @@ public class PartPadding {
         var partPadding = new PartPadding();
 
         try (var is = blob.getPayload().openStream()) {
-            byte[] paddingBytes = IOUtils.toByteArray(is);
+            byte[] paddingBytes = is.readAllBytes();
             ByteBuffer bb = ByteBuffer.wrap(paddingBytes);
 
             byte[] delimiterBytes =
