@@ -7,11 +7,17 @@
       <level>${LOG_LEVEL:-info}</level>
     </filter>
   </appender>
+  <appender name="CONTAINER" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="ch.qos.logback.classic.encoder.JsonEncoder"/>
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>${LOG_LEVEL:-info}</level>
+    </filter>
+  </appender>
 
   <logger name="org.eclipse.jetty" level="${JETTY_LOG_LEVEL:-info}" />
   <logger name="org.gaul.shaded.org.eclipse.jetty" level="${JETTY_LOG_LEVEL:-info}" />
 
   <root level="${LOG_LEVEL:-info}">
-    <appender-ref ref="STDOUT" />
+    <appender-ref ref="${LOG_APPENDER:-STDOUT}" />
   </root>
 </configuration>
