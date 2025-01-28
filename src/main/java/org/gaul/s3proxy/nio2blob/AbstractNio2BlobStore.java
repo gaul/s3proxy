@@ -183,7 +183,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         } else {
             prefix = "";
         }
-        var pathPrefix = root.resolve(container).resolve(prefix);
+        var containerPath = root.resolve(container);
+        var pathPrefix = containerPath.resolve(prefix).normalize();
+        checkValidPath(containerPath, pathPrefix);
+        logger.debug("Listing blobs at: {}", pathPrefix);
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         try {
             listHelper(set, container, dirPrefix, pathPrefix, delimiter);
@@ -344,7 +347,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = root.resolve(container).resolve(key);
+        var containerPath = root.resolve(container);
+        var path = containerPath.resolve(key);
+        checkValidPath(containerPath, path);
         logger.debug("Getting blob at: {}", path);
 
         try {
@@ -528,7 +533,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = root.resolve(container).resolve(blob.getMetadata().getName());
+        var containerPath = root.resolve(container);
+        var path = containerPath.resolve(blob.getMetadata().getName());
+        checkValidPath(containerPath, path);
         // TODO: should we use a known suffix to filter these out during list?
         var tmpPath = root.resolve(container).resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
         logger.debug("Creating blob at: {}", path);
@@ -693,7 +700,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     public final void removeBlob(String container, String key) {
         try {
             var containerPath = root.resolve(container);
-            var path = containerPath.resolve(key);
+            var path = containerPath.resolve(key).normalize();
+            checkValidPath(containerPath, path);
+            logger.debug("Deleting blob at: {}", path);
             Files.delete(path);
             removeEmptyParentDirectories(containerPath, path.getParent());
         } catch (NoSuchFileException nsfe) {
@@ -771,7 +780,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
-        var path = root.resolve(container).resolve(key);
+        var containerPath = root.resolve(container);
+        var path = containerPath.resolve(key).normalize();
+        checkValidPath(containerPath, path);
+
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
@@ -791,7 +803,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
-        var path = root.resolve(container).resolve(key);
+        var containerPath = root.resolve(container);
+        var path = containerPath.resolve(key).normalize();
+        checkValidPath(containerPath, path);
+
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
@@ -1115,6 +1130,12 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getTier().toString());
         for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
             writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
+        }
+    }
+
+    private static void checkValidPath(Path container, Path path) {
+        if (!path.normalize().startsWith(container)) {
+            throw new IllegalArgumentException("Invalid key name: path traversal attempt detected: " + path);
         }
     }
 }

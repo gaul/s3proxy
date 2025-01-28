@@ -1717,6 +1717,70 @@ public final class AwsSdkTest {
         }
     }
 
+    @Test
+    public void testCopyRelativePath() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+        try {
+            client.copyObject(new CopyObjectRequest(
+                    containerName, "../evil.txt", containerName, "good.txt"));
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testDeleteRelativePath() throws Exception {
+        try {
+            client.deleteObject(containerName, "../evil.txt");
+            if (blobStoreType.equals("filesystem") || blobStoreType.equals("filesystem-nio2") || blobStoreType.equals("transient-nio2")) {
+                Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+            }
+        } catch (AmazonS3Exception e) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testGetRelativePath() throws Exception {
+        try {
+            client.getObject(containerName, "../evil.txt");
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testPutRelativePath() throws Exception {
+        try {
+            var metadata = new ObjectMetadata();
+            metadata.setContentLength(BYTE_SOURCE.size());
+            PutObjectResult result = client.putObject(containerName, "../evil.txt",
+                    BYTE_SOURCE.openStream(), metadata);
+            if (blobStoreType.equals("filesystem") || blobStoreType.equals("filesystem-nio2") || blobStoreType.equals("transient-nio2")) {
+                Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+            }
+        } catch (AmazonS3Exception e) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testListRelativePath() throws Exception {
+        assumeTrue(!blobStoreType.equals("filesystem"));
+        try {
+            client.listObjects(new ListObjectsRequest()
+                    .withBucketName(containerName)
+                    .withPrefix("../evil/"));
+            if (blobStoreType.equals("filesystem") || blobStoreType.equals("filesystem-nio2") || blobStoreType.equals("transient-nio2")) {
+                Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+            }
+        } catch (AmazonS3Exception e) {
+            // expected
+        }
+    }
+
     private static final class NullX509TrustManager
             implements X509TrustManager {
         @Override
