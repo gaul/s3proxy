@@ -345,7 +345,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         var path = root.resolve(container).resolve(key);
-        logger.debug("Getting blob at: " + path);
+        logger.debug("Getting blob at: {}", path);
 
         try {
             var isDirectory = Files.isDirectory(path);
@@ -531,7 +531,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var path = root.resolve(container).resolve(blob.getMetadata().getName());
         // TODO: should we use a known suffix to filter these out during list?
         var tmpPath = root.resolve(container).resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
-        logger.debug("Creating blob at: " + path);
+        logger.debug("Creating blob at: {}", path);
 
         if (blob.getMetadata().getName().endsWith("/")) {
             try {
