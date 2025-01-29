@@ -163,6 +163,8 @@ public class S3ProxyHandler {
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = Set.of(
             AwsHttpHeaders.ACL,
             AwsHttpHeaders.API_VERSION,
+            AwsHttpHeaders.CHECKSUM_ALGORITHM,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_CRC64NVME,  // TODO: ignoring header
             AwsHttpHeaders.CONTENT_SHA256,
             AwsHttpHeaders.COPY_SOURCE,
             AwsHttpHeaders.COPY_SOURCE_IF_MATCH,
