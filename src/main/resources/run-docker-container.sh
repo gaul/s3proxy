@@ -1,5 +1,7 @@
 #!/bin/sh
 
+mkdir "${JCLOUDS_FILESYSTEM_BASEDIR}"
+
 exec java \
     $S3PROXY_JAVA_OPTS \
     -DLOG_LEVEL="${LOG_LEVEL}" \
