@@ -683,8 +683,10 @@ public final class AzureBlobStore extends BaseBlobStore {
         switch (tier) {
         case ARCHIVE:
             return AccessTier.ARCHIVE;
-        case INFREQUENT:
+        case COOL:
             return AccessTier.COOL;
+        case COLD:
+            return AccessTier.COLD;
         case STANDARD:
         default:
             return AccessTier.HOT;
@@ -696,9 +698,10 @@ public final class AzureBlobStore extends BaseBlobStore {
             return Tier.STANDARD;
         } else if (tier.equals(AccessTier.ARCHIVE)) {
             return Tier.ARCHIVE;
-        } else if (tier.equals(AccessTier.COLD) ||
-                tier.equals(AccessTier.COOL)) {
-            return Tier.INFREQUENT;
+        } else if (tier.equals(AccessTier.COLD)) {
+            return Tier.COLD;
+        } else if (tier.equals(AccessTier.COOL)) {
+            return Tier.COOL;
         } else {
             return Tier.STANDARD;
         }
