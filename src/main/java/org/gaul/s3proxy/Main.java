@@ -125,6 +125,9 @@ public final class Main {
             properties.putAll(System.getProperties());
 
             BlobStore blobStore = createBlobStore(properties, executorService);
+            if (blobStore.getContext().unwrap().getProviderMetadata().getId().equals("filesystem")) {
+                logger.warn("filesystem storage backend deprecated -- please use filesystem-nio2 instead");
+            }
 
             blobStore = parseMiddlewareProperties(blobStore, executorService,
                     properties);
