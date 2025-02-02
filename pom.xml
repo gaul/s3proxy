@@ -364,6 +364,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>11</java.version>
+    <aws-sdk.version>1.12.780</aws-sdk.version>
     <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>11.0.24</jetty.version>
     <modernizer.version>3.1.0</modernizer.version>
@@ -386,7 +387,7 @@
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-s3</artifactId>
-      <version>1.12.261</version>
+      <version>${aws-sdk.version}</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
@@ -398,7 +399,7 @@
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-sts</artifactId>
-      <version>1.12.780</version>
+      <version>${aws-sdk.version}</version>
     </dependency>
     <dependency>
       <groupId>args4j</groupId>
