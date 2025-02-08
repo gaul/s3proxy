@@ -43,6 +43,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.io.MoreFiles;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
@@ -154,7 +155,7 @@ public final class Main {
                         globLocators.put(
                                 FileSystems.getDefault().getPathMatcher(
                                         "glob:" + bucketLocator),
-                                Map.entry(localIdentity, blobStore));
+                                Maps.immutableEntry(localIdentity, blobStore));
                     } else {
                         System.err.println("Multiple definitions of the " +
                                 "bucket locator: " + bucketLocator);
