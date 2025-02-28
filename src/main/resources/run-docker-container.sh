@@ -23,7 +23,7 @@ exec java \
     -Ds3proxy.encrypted-blobstore="${S3PROXY_ENCRYPTED_BLOBSTORE}" \
     -Ds3proxy.encrypted-blobstore-password="${S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD}" \
     -Ds3proxy.encrypted-blobstore-salt="${S3PROXY_ENCRYPTED_BLOBSTORE_SALT}" \
-    -Ds3proxy.v4-max-non-chunked-request-size="${S3PROXY_V4_MAX_NON_CHUNKED_REQ_SIZE:-33554432}" \
+    -Ds3proxy.v4-max-non-chunked-request-size="${S3PROXY_V4_MAX_NON_CHUNKED_REQ_SIZE:-134217728}" \
     -Ds3proxy.read-only-blobstore="${S3PROXY_READ_ONLY_BLOBSTORE:-false}" \
     -Ds3proxy.maximum-timeskew="${S3PROXY_MAXIMUM_TIMESKEW}" \
     -Ds3proxy.service-path="${S3PROXY_SERVICE_PATH}" \
