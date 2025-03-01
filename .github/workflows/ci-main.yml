@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: Docker meta
         id: docker_action_meta
-        uses: docker/metadata-action@v5.6.1
+        uses: docker/metadata-action@v5.7.0
         with:
           images: |
             name=ghcr.io/${{ github.repository }}/container
