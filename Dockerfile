@@ -3,6 +3,10 @@ LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
 
+RUN apt-get update && \
+    apt-get install -y dumb-init && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY \
     target/s3proxy \
     src/main/resources/run-docker-container.sh \
@@ -39,4 +43,7 @@ ENV \
     JCLOUDS_FILESYSTEM_BASEDIR="/data"
 
 EXPOSE 80 443
-ENTRYPOINT ["/opt/s3proxy/run-docker-container.sh"]
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+
+CMD ["/opt/s3proxy/run-docker-container.sh"]
