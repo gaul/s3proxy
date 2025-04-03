@@ -19,7 +19,7 @@ package org.gaul.s3proxy;
 final class AwsHttpHeaders {
     static final String ACL = "x-amz-acl";
     static final String API_VERSION = "x-amz-api-version";
-    static final String CHECKSUM_ALGORITHM = "x-amz-sdk-checksum-algorithm";
+    static final String CHECKSUM_ALGORITHM = "x-amz-checksum-algorithm";
     static final String CHECKSUM_CRC64NVME = "x-amz-checksum-crc64nvme";
     static final String CONTENT_SHA256 = "x-amz-content-sha256";
     static final String COPY_SOURCE = "x-amz-copy-source";
@@ -36,6 +36,7 @@ final class AwsHttpHeaders {
             "x-amz-decoded-content-length";
     static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
     static final String REQUEST_ID = "x-amz-request-id";
+    static final String SDK_CHECKSUM_ALGORITHM = "x-amz-sdk-checksum-algorithm";
     static final String STORAGE_CLASS = "x-amz-storage-class";
     static final String TRANSFER_ENCODING = "x-amz-te";
     static final String USER_AGENT = "x-amz-user-agent";

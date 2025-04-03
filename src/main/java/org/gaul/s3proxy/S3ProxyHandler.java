@@ -175,6 +175,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.DATE,
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
             AwsHttpHeaders.METADATA_DIRECTIVE,
+            AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
             AwsHttpHeaders.USER_AGENT
