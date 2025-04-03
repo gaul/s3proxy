@@ -24,6 +24,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.reflect.Reflection2;
 import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
+@SuppressWarnings("rawtypes")
 public final class FilesystemNio2BlobApiMetadata extends BaseHttpApiMetadata {
     public FilesystemNio2BlobApiMetadata() {
         this(builder());

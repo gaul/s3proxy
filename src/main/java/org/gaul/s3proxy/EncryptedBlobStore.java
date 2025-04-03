@@ -349,7 +349,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     private String generateUploadId(String container, String blobName) {
         String path = container + "/" + blobName;
-        return Hashing.md5().hashBytes(path.getBytes(StandardCharsets.UTF_8)).toString();
+        @SuppressWarnings("deprecation")
+        var hash = Hashing.md5();
+        return hash.hashBytes(path.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     @Override

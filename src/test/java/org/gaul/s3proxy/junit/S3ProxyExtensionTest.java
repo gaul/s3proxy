@@ -27,6 +27,7 @@ import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.Bucket;
+import com.amazonaws.services.s3.model.ListBucketsPaginatedRequest;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -67,7 +68,7 @@ public class S3ProxyExtensionTest {
 
     @Test
     public final void listBucket() {
-        List<Bucket> buckets = s3Client.listBuckets();
+        List<Bucket> buckets = s3Client.listBuckets(new ListBucketsPaginatedRequest()).getBuckets();
         assertThat(buckets).hasSize(1);
         assertThat(buckets.get(0).getName())
                 .isEqualTo(MY_TEST_BUCKET);

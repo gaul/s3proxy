@@ -24,6 +24,7 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.reflect.Reflection2;
 import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
+@SuppressWarnings("rawtypes")
 public final class TransientNio2BlobApiMetadata extends BaseHttpApiMetadata {
     public TransientNio2BlobApiMetadata() {
         this(builder());

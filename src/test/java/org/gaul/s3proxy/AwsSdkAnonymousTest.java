@@ -30,6 +30,7 @@ import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.internal.SkipMd5CheckStrategy;
+import com.amazonaws.services.s3.model.ListBucketsPaginatedRequest;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.S3Object;
 import com.google.common.io.ByteSource;
@@ -104,7 +105,7 @@ public final class AwsSdkAnonymousTest {
 
     @Test
     public void testListBuckets() throws Exception {
-        client.listBuckets();
+        client.listBuckets(new ListBucketsPaginatedRequest());
     }
 
     @Test
