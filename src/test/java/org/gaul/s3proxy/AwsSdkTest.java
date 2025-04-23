@@ -69,6 +69,7 @@ import com.amazonaws.services.s3.model.GroupGrantee;
 import com.amazonaws.services.s3.model.HeadBucketRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
 import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
+import com.amazonaws.services.s3.model.ListBucketsPaginatedRequest;
 import com.amazonaws.services.s3.model.ListMultipartUploadsRequest;
 import com.amazonaws.services.s3.model.ListObjectsRequest;
 import com.amazonaws.services.s3.model.ListObjectsV2Request;
@@ -850,7 +851,7 @@ public final class AwsSdkTest {
     @Test
     public void testListBuckets() throws Exception {
         var builder = ImmutableList.<String>builder();
-        for (Bucket bucket : client.listBuckets()) {
+        for (Bucket bucket : client.listBuckets(new ListBucketsPaginatedRequest()).getBuckets()) {
             builder.add(bucket.getName());
         }
         assertThat(builder.build()).contains(containerName);
@@ -1687,7 +1688,7 @@ public final class AwsSdkTest {
         });
 
         // check first access key
-        List<Bucket> buckets = client.listBuckets();
+        var buckets = client.listBuckets(new ListBucketsPaginatedRequest()).getBuckets();
         assertThat(buckets).hasSize(1);
         assertThat(buckets.get(0).getName()).isEqualTo(containerName);
 
@@ -1700,7 +1701,7 @@ public final class AwsSdkTest {
                                 "credential")))
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
-        buckets = client.listBuckets();
+        buckets = client.listBuckets(new ListBucketsPaginatedRequest()).getBuckets();
         assertThat(buckets).isEmpty();
 
         // check invalid access key
@@ -1710,7 +1711,7 @@ public final class AwsSdkTest {
                 .withEndpointConfiguration(s3EndpointConfig)
                 .build();
         try {
-            client.listBuckets();
+            client.listBuckets(new ListBucketsPaginatedRequest());
             Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
         } catch (AmazonS3Exception e) {
             assertThat(e.getErrorCode()).isEqualTo("InvalidAccessKeyId");

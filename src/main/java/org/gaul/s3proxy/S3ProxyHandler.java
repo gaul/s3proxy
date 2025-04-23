@@ -175,6 +175,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.DATE,
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
             AwsHttpHeaders.METADATA_DIRECTIVE,
+            AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
             AwsHttpHeaders.USER_AGENT
@@ -475,6 +476,34 @@ public class S3ProxyHandler {
             path[i] = URLDecoder.decode(path[i], StandardCharsets.UTF_8);
         }
 
+        for (String parameter : Collections.list(
+                request.getParameterNames())) {
+            if (UNSUPPORTED_PARAMETERS.contains(parameter)) {
+                logger.error("Unknown parameters {} with URI {}",
+                        parameter, request.getRequestURI());
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
+        }
+
+        // emit NotImplemented for unknown x-amz- headers
+        for (String headerName : Collections.list(request.getHeaderNames())) {
+            headerName = headerName.toLowerCase();
+            if (ignoreUnknownHeaders) {
+                continue;
+            }
+            if (!headerName.startsWith("x-amz-")) {
+                continue;
+            }
+            if (headerName.startsWith(USER_METADATA_PREFIX)) {
+                continue;
+            }
+            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
+                logger.error("Unknown header {} with URI {}",
+                        headerName, request.getRequestURI());
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            }
+        }
+
         Map.Entry<String, BlobStore> provider =
                 blobStoreLocator.locateBlobStore(
                         requestIdentity, path.length > 1 ? path[1] : null,
@@ -616,33 +645,6 @@ public class S3ProxyHandler {
             if (!method.equals("OPTIONS") && !constantTimeEquals(
                     expectedSignature, authHeader.getSignature())) {
                 throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
-            }
-        }
-
-        for (String parameter : Collections.list(
-                request.getParameterNames())) {
-            if (UNSUPPORTED_PARAMETERS.contains(parameter)) {
-                logger.error("Unknown parameters {} with URI {}",
-                        parameter, request.getRequestURI());
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
-            }
-        }
-
-        // emit NotImplemented for unknown x-amz- headers
-        for (String headerName : Collections.list(request.getHeaderNames())) {
-            if (ignoreUnknownHeaders) {
-                continue;
-            }
-            if (!headerName.startsWith("x-amz-")) {
-                continue;
-            }
-            if (headerName.startsWith(USER_METADATA_PREFIX)) {
-                continue;
-            }
-            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName.toLowerCase())) {
-                logger.error("Unknown header {} with URI {}",
-                        headerName, request.getRequestURI());
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 

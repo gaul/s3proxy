@@ -45,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
@@ -111,8 +112,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private static final String XATTR_USER_METADATA_PREFIX =
             "user.user-metadata.";
     private static final String MULTIPART_PREFIX = ".mpus-";
+    @SuppressWarnings("deprecation")
+    private static final HashFunction md5 = Hashing.md5();
     private static final byte[] DIRECTORY_MD5 =
-            Hashing.md5().hashBytes(new byte[0]).asBytes();
+            md5.hashBytes(new byte[0]).asBytes();
 
     private final Supplier<Set<? extends Location>> locations;
     private final Path root;
@@ -469,6 +472,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             if (options.getIfModifiedSince() != null) {
                 Date modifiedSince = options.getIfModifiedSince();
                 if (lastModifiedTime.before(modifiedSince)) {
+                    @SuppressWarnings("rawtypes")
                     HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode());
                     if (eTag != null) {
                         response.addHeader(HttpHeaders.ETAG, eTag);
@@ -480,6 +484,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             if (options.getIfUnmodifiedSince() != null) {
                 Date unmodifiedSince = options.getIfUnmodifiedSince();
                 if (lastModifiedTime.after(unmodifiedSince)) {
+                    @SuppressWarnings("rawtypes")
                     HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.PRECONDITION_FAILED.getStatusCode());
                     if (eTag != null) {
                         response.addHeader(HttpHeaders.ETAG, eTag);
@@ -571,7 +576,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         var metadata = blob.getMetadata().getContentMetadata();
-        try (var is = new HashingInputStream(Hashing.md5(), blob.getPayload().openStream());
+        try (var is = new HashingInputStream(md5, blob.getPayload().openStream());
              var os = Files.newOutputStream(tmpPath)) {
             var count = is.transferTo(os);
             var actualHashCode = is.hash();
@@ -845,7 +850,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     public final String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
         var metas = ImmutableList.<BlobMetadata>builder();
         long contentLength = 0;
-        var md5Hasher = Hashing.md5().newHasher();
+        var md5Hasher = md5.newHasher();
 
         for (var part : parts) {
             var meta = blobMetadata(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());

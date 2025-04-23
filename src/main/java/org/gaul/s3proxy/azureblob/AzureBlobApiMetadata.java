@@ -28,6 +28,7 @@ import org.jclouds.reflect.Reflection2;
 import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
 
+@SuppressWarnings("rawtypes")
 public final class AzureBlobApiMetadata extends BaseHttpApiMetadata {
     public AzureBlobApiMetadata() {
         this(builder());
