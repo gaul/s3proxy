@@ -792,6 +792,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
+        } catch (UnsupportedOperationException uoe) {
+            // Windows/SMB/other non-POSIX: default to PRIVATE
+            return BlobAccess.PRIVATE;
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
