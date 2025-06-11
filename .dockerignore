@@ -1,0 +1,4 @@
+# Exclude everything from context that is not used by COPY steps in the Dockerfile
+*
+!/target/s3proxy
+!/src/main/resources/run-docker-container.sh
