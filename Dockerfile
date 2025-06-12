@@ -1,10 +1,10 @@
-FROM docker.io/library/eclipse-temurin:17-jre
+FROM docker.io/library/ubuntu:24.04
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
 
 RUN apt-get update && \
-    apt-get install -y dumb-init && \
+    apt-get install -y dumb-init openjdk-21-jre-headless && \
     rm -rf /var/lib/apt/lists/*
 
 COPY \
