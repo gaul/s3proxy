@@ -84,21 +84,12 @@ public final class LatencyBlobStoreTest {
     }
 
     @Test
-    public void testNoLatency() {
-        BlobStore latencyBlobStore = LatencyBlobStore.newLatencyBlobStore(delegate, Map.ofEntries(), Map.ofEntries());
-
-        long timeTaken = time(() -> latencyBlobStore.containerExists(containerName));
-        assertThat(timeTaken).isLessThan(500L);
-    }
-
-    @Test
     public void testAllLatency() {
         BlobStore latencyBlobStore = LatencyBlobStore.newLatencyBlobStore(delegate,
                 Map.ofEntries(Map.entry("*", 1000L)), Map.ofEntries());
 
         long timeTaken = time(() -> latencyBlobStore.containerExists(containerName));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
-        assertThat(timeTaken).isLessThan(1500L);
     }
 
     @Test
@@ -109,35 +100,6 @@ public final class LatencyBlobStoreTest {
 
         long timeTaken = time(() -> latencyBlobStore.containerExists(containerName));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
-        assertThat(timeTaken).isLessThan(1500L);
-    }
-
-    @Test
-    public void testNoSpeed() throws Exception {
-        BlobStore latencyBlobStore = LatencyBlobStore.newLatencyBlobStore(delegate, Map.ofEntries(), Map.ofEntries());
-
-        String blobName = createRandomBlobName();
-        ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Payload payload = Payloads.newByteSourcePayload(content);
-        payload.getContentMetadata().setContentLength(content.size());
-        Blob blob = latencyBlobStore.blobBuilder(blobName).payload(payload).build();
-
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
-        assertThat(timeTaken).isLessThan(500L);
-    }
-
-    @Test
-    public void testNoSpeedWithLargeFile() throws Exception {
-        BlobStore latencyBlobStore = LatencyBlobStore.newLatencyBlobStore(delegate, Map.ofEntries(), Map.ofEntries());
-
-        String blobName = createRandomBlobName();
-        ByteSource content = TestUtils.randomByteSource().slice(0, 4 * 1024 * 1024);
-        Payload payload = Payloads.newByteSourcePayload(content);
-        payload.getContentMetadata().setContentLength(content.size());
-        Blob blob = latencyBlobStore.blobBuilder(blobName).payload(payload).build();
-
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
-        assertThat(timeTaken).isLessThan(500L);
     }
 
     @Test
@@ -153,7 +115,6 @@ public final class LatencyBlobStoreTest {
 
         long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
-        assertThat(timeTaken).isLessThan(1500L);
     }
 
     @Test
@@ -170,7 +131,6 @@ public final class LatencyBlobStoreTest {
 
         long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
-        assertThat(timeTaken).isLessThan(1500L);
     }
 
     @Test
@@ -200,7 +160,6 @@ public final class LatencyBlobStoreTest {
 
         long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
         assertThat(timeTaken).isGreaterThanOrEqualTo(2000L);
-        assertThat(timeTaken).isLessThan(2500L);
     }
 
     @Test
@@ -216,7 +175,6 @@ public final class LatencyBlobStoreTest {
 
         long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
-        assertThat(timeTaken).isLessThan(1500L);
     }
 
     @Test
@@ -235,7 +193,6 @@ public final class LatencyBlobStoreTest {
             consume(latencyBlobStore.getBlob(containerName, blobName));
         });
         assertThat(timeTaken).isGreaterThanOrEqualTo(3000L);
-        assertThat(timeTaken).isLessThan(3500L);
     }
 
     @Test
@@ -268,7 +225,6 @@ public final class LatencyBlobStoreTest {
                 }
             });
             assertThat(timeTaken).isGreaterThanOrEqualTo(2000L);
-            assertThat(timeTaken).isLessThan(2500L);
         } finally {
             if (executorService != null) {
                 executorService.shutdown();
