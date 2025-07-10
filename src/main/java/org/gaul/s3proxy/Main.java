@@ -307,6 +307,13 @@ public final class Main {
                             blobStore, fromChars, toChars);
         }
 
+        Map<String, Long> latencies = LatencyBlobStore.parseLatencies(properties);
+        Map<String, Long> speeds = LatencyBlobStore.parseSpeeds(properties);
+        if (!latencies.isEmpty() || !speeds.isEmpty()) {
+            System.err.println("Using latency storage backend");
+            blobStore = LatencyBlobStore.newLatencyBlobStore(blobStore, latencies, speeds);
+        }
+
         return blobStore;
     }
 
