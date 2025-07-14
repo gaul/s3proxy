@@ -16,7 +16,23 @@
 
 package org.gaul.s3proxy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Random;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import com.google.common.io.ByteSource;
+
+import org.assertj.core.api.Assertions;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
@@ -27,17 +43,6 @@ import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.*;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 public final class LatencyBlobStoreTest {
     private BlobStoreContext context;
@@ -135,15 +140,15 @@ public final class LatencyBlobStoreTest {
 
     @Test
     public void testInvalidLatency() {
-        assertThatIllegalArgumentException().isThrownBy(() -> LatencyBlobStore.newLatencyBlobStore(delegate,
+        Assertions.assertThatIllegalArgumentException().isThrownBy(() -> LatencyBlobStore.newLatencyBlobStore(delegate,
                 Map.ofEntries(Map.entry("*", -1000L)), Map.ofEntries()));
     }
 
     @Test
     public void testInvalidSpeed() {
-        assertThatIllegalArgumentException().isThrownBy(() -> LatencyBlobStore.newLatencyBlobStore(delegate,
+        Assertions.assertThatIllegalArgumentException().isThrownBy(() -> LatencyBlobStore.newLatencyBlobStore(delegate,
                 Map.ofEntries(), Map.ofEntries(Map.entry("*", 0L))));
-        assertThatIllegalArgumentException().isThrownBy(() -> LatencyBlobStore.newLatencyBlobStore(delegate,
+        Assertions.assertThatIllegalArgumentException().isThrownBy(() -> LatencyBlobStore.newLatencyBlobStore(delegate,
                 Map.ofEntries(), Map.ofEntries(Map.entry("*", -1000L))));
     }
 

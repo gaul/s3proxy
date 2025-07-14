@@ -16,15 +16,8 @@
 
 package org.gaul.s3proxy;
 
-import com.google.common.collect.ImmutableMap;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.*;
-import org.jclouds.blobstore.options.*;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.domain.Location;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.io.Payload;
-import org.jclouds.io.payloads.InputStreamPayload;
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,8 +30,27 @@ import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static java.util.Objects.requireNonNull;
+import com.google.common.collect.ImmutableMap;
+
+import org.jclouds.blobstore.BlobStore;
+import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
+import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
+import org.jclouds.blobstore.domain.PageSet;
+import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.CopyOptions;
+import org.jclouds.blobstore.options.CreateContainerOptions;
+import org.jclouds.blobstore.options.GetOptions;
+import org.jclouds.blobstore.options.ListContainerOptions;
+import org.jclouds.blobstore.options.PutOptions;
+import org.jclouds.blobstore.util.ForwardingBlobStore;
+import org.jclouds.domain.Location;
+import org.jclouds.io.ContentMetadata;
+import org.jclouds.io.Payload;
+import org.jclouds.io.payloads.InputStreamPayload;
 
 public final class LatencyBlobStore extends ForwardingBlobStore {
     private static final Pattern PROPERTIES_LATENCY_RE = Pattern.compile(
@@ -131,6 +143,18 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public PageSet<? extends StorageMetadata> list(String container) {
+        simulateLatency(OP_LIST);
+        return super.list(container);
+    }
+
+    @Override
+    public PageSet<? extends StorageMetadata> list(String container, ListContainerOptions options) {
+        simulateLatency(OP_LIST);
+        return super.list(container, options);
+    }
+
+    @Override
     public boolean containerExists(String container) {
         simulateLatency(OP_CONTAINER_EXISTS);
         return super.containerExists(container);
@@ -158,18 +182,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public void setContainerAccess(String container, ContainerAccess containerAccess) {
         simulateLatency(OP_CONTAINER_ACCESS);
         super.setContainerAccess(container, containerAccess);
-    }
-
-    @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        simulateLatency(OP_LIST);
-        return super.list(container);
-    }
-
-    @Override
-    public PageSet<? extends StorageMetadata> list(String container, ListContainerOptions options) {
-        simulateLatency(OP_LIST);
-        return super.list(container, options);
     }
 
     @Override
