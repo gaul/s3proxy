@@ -135,6 +135,9 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_USER_METADATA_REPLACER_TO_CHARS =
             "s3proxy.user-metadata-replacer-blobstore.to-chars";
 
+    public static final String PROPERTY_LATENCY =
+            "s3proxy.latency-blobstore";
+
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
