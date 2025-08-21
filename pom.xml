@@ -41,9 +41,15 @@
 
   <distributionManagement>
     <snapshotRepository>
-      <id>ossrh</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+      <id>sonatype-central-portal</id>
+      <name>Sonatype Central Portal</name>
+      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
     </snapshotRepository>
+    <repository>
+      <id>sonatype-central-portal</id>
+      <name>Sonatype Central Portal</name>
+      <url>https://repo.maven.apache.org/maven2/</url>
+    </repository>
   </distributionManagement>
 
   <profiles>
@@ -71,7 +77,19 @@
   </profiles>
 
   <build>
+    <extensions>
+      <extension>
+        <groupId>eu.maveniverse.maven.njord</groupId>
+        <artifactId>extension</artifactId>
+        <version>${njord.version}</version>
+      </extension>
+    </extensions>
     <plugins>
+      <plugin>
+        <groupId>eu.maveniverse.maven.plugins</groupId>
+        <artifactId>njord</artifactId>
+        <version>${njord.version}</version>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
@@ -347,17 +365,6 @@
           <javaVersion>${java.version}</javaVersion>
         </configuration>
       </plugin>
-      <plugin>
-        <groupId>org.sonatype.plugins</groupId>
-        <artifactId>nexus-staging-maven-plugin</artifactId>
-        <version>1.7.0</version>
-        <extensions>true</extensions>
-        <configuration>
-          <serverId>ossrh</serverId>
-          <nexusUrl>https://oss.sonatype.org/</nexusUrl>
-          <autoReleaseAfterClose>true</autoReleaseAfterClose>
-        </configuration>
-      </plugin>
     </plugins>
   </build>
 
@@ -368,6 +375,7 @@
     <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>11.0.25</jetty.version>
     <modernizer.version>3.1.0</modernizer.version>
+    <njord.version>0.7.1</njord.version>
     <slf4j.version>2.0.17</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>3.5.2</surefire.version>
