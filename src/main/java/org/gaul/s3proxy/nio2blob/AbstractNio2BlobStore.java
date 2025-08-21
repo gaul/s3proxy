@@ -352,6 +352,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = root.resolve(container);
         var path = containerPath.resolve(key);
+        if (path.toString().equals("/")) {
+            path = containerPath;
+        }
         checkValidPath(containerPath, path);
         logger.debug("Getting blob at: {}", path);
 
@@ -539,7 +542,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         var containerPath = root.resolve(container);
-        var path = containerPath.resolve(blob.getMetadata().getName());
+        var path = containerPath.resolve(blob.getMetadata().getName()).normalize();
+        if (path.toString().equals("/")) {
+            path = containerPath;
+        }
         checkValidPath(containerPath, path);
         // TODO: should we use a known suffix to filter these out during list?
         var tmpPath = root.resolve(container).resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
@@ -706,6 +712,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try {
             var containerPath = root.resolve(container);
             var path = containerPath.resolve(key).normalize();
+            if (path.toString().equals("/")) {
+                path = containerPath;
+            }
             checkValidPath(containerPath, path);
             logger.debug("Deleting blob at: {}", path);
             Files.delete(path);
@@ -793,6 +802,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = root.resolve(container);
         var path = containerPath.resolve(key).normalize();
+        if (path.toString().equals("/")) {
+            path = containerPath;
+        }
         checkValidPath(containerPath, path);
 
         Set<PosixFilePermission> permissions;
@@ -819,6 +831,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = root.resolve(container);
         var path = containerPath.resolve(key).normalize();
+        if (path.toString().equals("/")) {
+            path = containerPath;
+        }
         checkValidPath(containerPath, path);
 
         Set<PosixFilePermission> permissions;
@@ -1152,7 +1167,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     private static void checkValidPath(Path container, Path path) {
         if (!path.normalize().startsWith(container)) {
-            throw new IllegalArgumentException("Invalid key name: path traversal attempt detected: " + path);
+            throw new IllegalArgumentException("Invalid key name: path traversal attempt detected: " + container + " " + path);
         }
     }
 }
