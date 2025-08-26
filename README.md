@@ -115,6 +115,7 @@ S3Proxy can modify its behavior based on middlewares:
 * [sharded backend containers](https://github.com/gaul/s3proxy/wiki/Middleware-sharded-backend)
 * [storage class override](https://github.com/gaul/s3proxy/wiki/Middleware-storage-class-override)
 * [user metadata replacer](https://github.com/gaul/s3proxy/wiki/Middleware-user-metadata-replacer)
+* [no cache override](https://github.com/gaul/s3proxy/wiki/Middleware-no-cache)
 
 ## SSL Support
 
