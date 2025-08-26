@@ -314,6 +314,14 @@ public final class Main {
             blobStore = LatencyBlobStore.newLatencyBlobStore(blobStore, latencies, speeds);
         }
 
+        String noCacheBlobStore = properties.getProperty(
+              S3ProxyConstants.PROPERTY_NO_CACHE_BLOBSTORE);
+        if  ("true".equalsIgnoreCase(noCacheBlobStore)) {
+            System.err.println("Using no-cache storage backend middleware");
+            blobStore = NoCacheBlobStore
+                    .newNoCacheBlobStore(blobStore);
+        }
+
         return blobStore;
     }
 
