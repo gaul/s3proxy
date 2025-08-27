@@ -1828,7 +1828,7 @@ public final class AwsSdkTest {
         }
     }
 
-    private static String createRandomContainerName() {
+    static String createRandomContainerName() {
         return "s3proxy-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 }

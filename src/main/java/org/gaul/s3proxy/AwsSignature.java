@@ -281,6 +281,8 @@ final class AwsSignature {
         } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                 xAmzContentSha256)) {
             digest = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
+        } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(xAmzContentSha256)) {
+            digest = "STREAMING-UNSIGNED-PAYLOAD-TRAILER";
         } else if ("UNSIGNED-PAYLOAD".equals(xAmzContentSha256)) {
             digest = "UNSIGNED-PAYLOAD";
         } else {

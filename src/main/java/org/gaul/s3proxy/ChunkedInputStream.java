@@ -49,8 +49,14 @@ final class ChunkedInputStream extends FilterInputStream {
                 return -1;
             }
             String[] parts = line.split(";", 2);
-            currentLength = Integer.parseInt(parts[0], 16);
-            currentSignature = parts[1];
+            if (parts[0].startsWith("x-amz-checksum-crc32:")) {
+                currentLength = 0;
+            } else {
+                currentLength = Integer.parseInt(parts[0], 16);
+            }
+            if (parts.length > 1) {
+                currentSignature = parts[1];
+            }
             chunk = new byte[currentLength];
             currentIndex = 0;
             ByteStreams.readFully(in, chunk);
