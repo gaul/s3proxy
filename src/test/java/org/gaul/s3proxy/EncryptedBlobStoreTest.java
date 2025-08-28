@@ -47,10 +47,12 @@ import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
+import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -828,5 +830,24 @@ public final class EncryptedBlobStoreTest {
                     content.substring(offset, end + 1));
             }
         }
+    }
+
+    @Test
+    public void testReadConditional() {
+        String blobName = TestUtils.createRandomBlobName();
+        String content = "Hello world.";
+        InputStream is = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+
+        Blob blob = makeBlob(encryptedBlobStore, blobName, is, content.length());
+        encryptedBlobStore.putBlob(containerName, blob);
+
+        GetOptions options = new GetOptions();
+        blob = encryptedBlobStore.getBlob(containerName, blobName, options);
+        String etag = blob.getMetadata().getETag();
+
+        GetOptions conditionalOptions = GetOptions.Builder.ifETagDoesntMatch(etag);
+        var e = Assert.assertThrows(HttpResponseException.class,
+            () -> encryptedBlobStore.getBlob(containerName, blobName, conditionalOptions));
+        assertThat(e.getResponse().getStatusCode()).isEqualTo(304);
     }
 }
