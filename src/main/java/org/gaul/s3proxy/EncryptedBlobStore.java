@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
 import java.util.List;
@@ -104,7 +105,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     128);
             SecretKey tmp = factory.generateSecret(spec);
             secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
-        } catch (Exception e) {
+        } catch (GeneralSecurityException e) {
             throw new IllegalArgumentException(e);
         }
     }
@@ -172,7 +173,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     Constants.PADDING_BLOCK_SIZE;
 
             return cipheredBlob(container, blob, is, contentLength, true);
-        } catch (Exception e) {
+        } catch (IOException | GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
     }
@@ -203,7 +204,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 .setContentLength(contentLength);
 
             return cipheredPayload;
-        } catch (Exception e) {
+        } catch (IOException | GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
     }
@@ -228,8 +229,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             }
 
             return cipheredBlob(container, blob, is, contentLength, false);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -444,8 +445,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 return delegate().getBlob(containerName, blobName, getOptions);
             }
 
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 

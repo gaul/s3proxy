@@ -18,6 +18,7 @@ package org.gaul.s3proxy.crypto;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -33,7 +34,7 @@ public class Encryption {
     private final int part;
 
     public Encryption(SecretKeySpec key, InputStream isRaw, int partNumber)
-            throws Exception {
+            throws GeneralSecurityException {
         iv = generateIV();
 
         Cipher cipher = Cipher.getInstance(Constants.AES_CIPHER);
