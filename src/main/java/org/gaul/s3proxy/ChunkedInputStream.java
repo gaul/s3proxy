@@ -49,7 +49,7 @@ final class ChunkedInputStream extends FilterInputStream {
                 return -1;
             }
             String[] parts = line.split(";", 2);
-            if (parts[0].startsWith("x-amz-checksum-crc32:")) {
+            if (parts[0].startsWith("x-amz-checksum-")) {
                 currentLength = 0;
             } else {
                 currentLength = Integer.parseInt(parts[0], 16);
