@@ -23,6 +23,8 @@ import org.junit.Test;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.SdkHttpConfigurationOption;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
@@ -52,6 +54,11 @@ public final class AwsSdk2Test {
                 .endpointOverride(info.getSecureEndpoint())
                 .httpClient(ApacheHttpClient.builder()
                         .buildWithDefaults(attributeMap))
+                .overrideConfiguration(ClientOverrideConfiguration.builder()
+                        .retryPolicy(RetryPolicy.builder()
+                                .numRetries(0)
+                                .build())
+                        .build())
                 .build();
 
         containerName = AwsSdkTest.createRandomContainerName();
