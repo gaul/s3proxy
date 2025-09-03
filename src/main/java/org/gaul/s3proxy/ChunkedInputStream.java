@@ -19,9 +19,14 @@ package org.gaul.s3proxy;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.util.Base64;
 
+import javax.annotation.Nullable;
+
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
-
 
 /**
  * Parse an AWS v4 signature chunked stream.  Reference:
@@ -36,9 +41,27 @@ final class ChunkedInputStream extends FilterInputStream {
             justification = "https://github.com/gaul/s3proxy/issues/205")
     @SuppressWarnings("UnusedVariable")
     private String currentSignature;
+    private final Hasher hasher;
 
     ChunkedInputStream(InputStream is) {
         super(is);
+        hasher = null;
+    }
+
+    ChunkedInputStream(InputStream is, @Nullable String trailer) {
+        super(is);
+        if ("x-amz-checksum-crc32".equals(trailer)) {
+            hasher = Hashing.crc32().newHasher();
+        } else if ("x-amz-checksum-crc32c".equals(trailer)) {
+            hasher = Hashing.crc32c().newHasher();
+        } else if ("x-amz-checksum-sha1".equals(trailer)) {
+            hasher = Hashing.sha1().newHasher();
+        } else if ("x-amz-checksum-sha256".equals(trailer)) {
+            hasher = Hashing.sha256().newHasher();
+        } else {
+            // TODO: Guava does not support x-amz-checksum-crc64nvme
+            hasher = null;
+        }
     }
 
     @Override
@@ -50,6 +73,25 @@ final class ChunkedInputStream extends FilterInputStream {
             }
             String[] parts = line.split(";", 2);
             if (parts[0].startsWith("x-amz-checksum-")) {
+                String[] checksumParts = parts[0].split(":", 2);
+                var expectedHash = checksumParts[1];
+                String actualHash;
+                switch (checksumParts[0]) {
+                case "x-amz-checksum-crc32":
+                case "x-amz-checksum-crc32c":
+                    // Use big-endian to match AWS
+                    actualHash = Base64.getEncoder().encodeToString(ByteBuffer.allocate(4).putInt(hasher.hash().asInt()).array());
+                    break;
+                case "x-amz-checksum-sha1":
+                case "x-amz-checksum-sha256":
+                    actualHash = Base64.getEncoder().encodeToString(hasher.hash().asBytes());
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
+                }
+                if (!expectedHash.equals(actualHash)) {
+                    throw new IOException(new S3Exception(S3ErrorCode.BAD_DIGEST));
+                }
                 currentLength = 0;
             } else {
                 currentLength = Integer.parseInt(parts[0], 16);
@@ -60,10 +102,14 @@ final class ChunkedInputStream extends FilterInputStream {
             chunk = new byte[currentLength];
             currentIndex = 0;
             ByteStreams.readFully(in, chunk);
+            if (hasher != null) {
+                hasher.putBytes(chunk);
+            }
             // TODO: check currentSignature
             if (currentLength == 0) {
                 return -1;
             }
+            // consume trailing \r\n
             readLine(in);
         }
         return chunk[currentIndex++] & 0xFF;

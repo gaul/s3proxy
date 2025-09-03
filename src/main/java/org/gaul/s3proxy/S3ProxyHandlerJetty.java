@@ -141,6 +141,14 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                     ise.getMessage());
             baseRequest.setHandled(true);
             return;
+        } catch (IOException ioe) {
+            var cause = Throwables2.getFirstThrowableOfType(ioe, S3Exception.class);
+            if (cause != null) {
+                sendS3Exception(request, response, cause);
+                baseRequest.setHandled(true);
+                return;
+            }
+            throw ioe;
         } catch (KeyNotFoundException knfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
             handler.sendSimpleErrorResponse(request, response, code,

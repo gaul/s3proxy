@@ -516,7 +516,7 @@ public class S3ProxyHandler {
             if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
                 is = new ChunkedInputStream(is);
             } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
-                is = new ChunkedInputStream(is);
+                is = new ChunkedInputStream(is, request.getHeader(AwsHttpHeaders.TRAILER));
             }
         } else if (requestIdentity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
@@ -608,7 +608,7 @@ public class S3ProxyHandler {
                         is = new ChunkedInputStream(is);
                     } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
                         payload = new byte[0];
-                        is = new ChunkedInputStream(is);
+                        is = new ChunkedInputStream(is, request.getHeader(AwsHttpHeaders.TRAILER));
                     } else if ("UNSIGNED-PAYLOAD".equals(contentSha256)) {
                         payload = new byte[0];
                     } else {
