@@ -87,10 +87,10 @@ jobs:
           mvn test -Ds3proxy.test.conf=s3proxy-filesystem-nio2.conf -Dtest=AwsSdkTest
 
       - name: Install Azurite
-        run: npx --yes --loglevel info azurite@3.34 --version
+        run: npx --yes --loglevel info azurite@3.35 --version
       - name: Start Azurite
         shell: bash
-        run: npx --yes azurite@3.34 azurite-blob &
+        run: npx --yes azurite@3.35 azurite-blob &
       - name: Maven Test with Azurite
         run: |
           # TODO: run other test classes
