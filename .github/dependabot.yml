@@ -9,7 +9,8 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
-  - package-ecosystem: "maven" # See documentation for possible values
+  - package-ecosystem: "maven"
     directory: "/" # Location of package manifests
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 10
