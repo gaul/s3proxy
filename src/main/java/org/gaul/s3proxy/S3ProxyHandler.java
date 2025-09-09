@@ -269,8 +269,7 @@ public class S3ProxyHandler {
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
         this.defaultBlobStore = blobStore;
-        xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces",
-                Boolean.FALSE);
+        xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces", false);
         this.servicePath = Strings.nullToEmpty(servicePath);
         this.maximumTimeSkew = maximumTimeSkew;
     }

@@ -48,6 +48,7 @@ final class ChunkedInputStream extends FilterInputStream {
         hasher = null;
     }
 
+    @SuppressWarnings("deprecation")
     ChunkedInputStream(InputStream is, @Nullable String trailer) {
         super(is);
         if ("x-amz-checksum-crc32".equals(trailer)) {
