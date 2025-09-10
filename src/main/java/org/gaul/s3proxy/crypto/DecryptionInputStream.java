@@ -351,7 +351,7 @@ public class DecryptionInputStream extends FilterInputStream {
         in.close();
 
         // Throw away the unprocessed data and throw no crypto exceptions.
-        // AEAD ciphers are fully readed before closing.  Any authentication
+        // AEAD ciphers are fully read before closing.  Any authentication
         // exceptions would occur while reading.
         if (!done) {
             ensureCapacity(0);

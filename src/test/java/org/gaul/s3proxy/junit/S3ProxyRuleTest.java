@@ -97,7 +97,7 @@ public class S3ProxyRuleTest {
     }
 
     @Test
-    public final void createExtentionWithoutCredentials() {
+    public final void createExtensionWithoutCredentials() {
         S3ProxyRule extension = S3ProxyRule
                 .builder()
                 .build();

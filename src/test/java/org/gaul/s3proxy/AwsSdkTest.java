@@ -767,18 +767,18 @@ public final class AwsSdkTest {
             is.transferTo(OutputStream.nullOutputStream());
         }
 
-        ObjectMetadata reponseMetadata = object.getObjectMetadata();
-        assertThat(reponseMetadata.getCacheControl()).isEqualTo(
+        ObjectMetadata responseMetadata = object.getObjectMetadata();
+        assertThat(responseMetadata.getCacheControl()).isEqualTo(
                 cacheControl);
-        assertThat(reponseMetadata.getContentDisposition()).isEqualTo(
+        assertThat(responseMetadata.getContentDisposition()).isEqualTo(
                 contentDisposition);
-        assertThat(reponseMetadata.getContentEncoding()).isEqualTo(
+        assertThat(responseMetadata.getContentEncoding()).isEqualTo(
                 contentEncoding);
-        assertThat(reponseMetadata.getContentLanguage()).isEqualTo(
+        assertThat(responseMetadata.getContentLanguage()).isEqualTo(
                 contentLanguage);
-        assertThat(reponseMetadata.getContentType()).isEqualTo(
+        assertThat(responseMetadata.getContentType()).isEqualTo(
                 contentType);
-        assertThat(reponseMetadata.getHttpExpiresDate().getTime())
+        assertThat(responseMetadata.getHttpExpiresDate().getTime())
             .isEqualTo(expiresTime);
     }
 

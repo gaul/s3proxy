@@ -448,7 +448,7 @@ public class S3ProxyHandler {
                 if (finalAuthType == AuthenticationType.AWS_V2) {
                     dateSkew = request.getDateHeader(AwsHttpHeaders.DATE);
                     dateSkew /= 1000;
-                    //case sensetive?
+                    //case sensitive?
                 } else if (finalAuthType == AuthenticationType.AWS_V4) {
                     dateSkew = parseIso8601(request.getHeader(
                             AwsHttpHeaders.DATE));
@@ -1076,7 +1076,7 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
     }
 
-    /** Map XML ACLs to a canned policy if an exact tranformation exists. */
+    /** Map XML ACLs to a canned policy if an exact transformation exists. */
     private static String mapXmlAclsToCannedPolicy(
             AccessControlPolicy policy) throws S3Exception {
         if (!policy.owner.id.equals(FAKE_OWNER_ID)) {
@@ -2028,7 +2028,7 @@ public class S3ProxyHandler {
             builder.tier(StorageClass.valueOf(storageClass).toTier());
         }
 
-        addContentMetdataFromHttpRequest(builder, request);
+        addContentMetadataFromHttpRequest(builder, request);
         if (contentMD5 != null) {
             builder = builder.contentMD5(contentMD5);
         }
@@ -2216,7 +2216,7 @@ public class S3ProxyHandler {
         BlobBuilder.PayloadBlobBuilder builder = blobStore
                 .blobBuilder(blobName)
                 .payload(payload);
-        addContentMetdataFromHttpRequest(builder, request);
+        addContentMetadataFromHttpRequest(builder, request);
         builder.contentLength(payload.size());
 
         String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
@@ -2993,7 +2993,7 @@ public class S3ProxyHandler {
         }
     }
 
-    // cannot call BlobStore.getContext().utils().date().iso8601DateFormatsince
+    // cannot call BlobStore.getContext().utils().date().iso8601DateFormat since
     // it has unwanted millisecond precision
     private static String formatDate(Date date) {
         var formatter = new SimpleDateFormat(
@@ -3063,7 +3063,7 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void addContentMetdataFromHttpRequest(
+    private static void addContentMetadataFromHttpRequest(
             BlobBuilder.PayloadBlobBuilder builder,
             HttpServletRequest request) {
         var userMetadata = ImmutableMap.<String, String>builder();

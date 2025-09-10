@@ -418,21 +418,21 @@ public final class Main {
                 public Credentials get() {
                     AWSCredentialsProvider authChain = DefaultAWSCredentialsProviderChain.getInstance();
                     AWSCredentials newCreds = authChain.getCredentials();
-                    Credentials jcloudCred = null;
+                    Credentials jcloudsCred = null;
 
                     if (newCreds instanceof AWSSessionCredentials) {
-                        jcloudCred = SessionCredentials.builder()
+                        jcloudsCred = SessionCredentials.builder()
                                 .accessKeyId(newCreds.getAWSAccessKeyId())
                                 .secretAccessKey(newCreds.getAWSSecretKey())
                                 .sessionToken(((AWSSessionCredentials) newCreds).getSessionToken())
                                 .build();
                     } else {
-                        jcloudCred = new Credentials(
+                        jcloudsCred = new Credentials(
                                 newCreds.getAWSAccessKeyId(), newCreds.getAWSSecretKey()
                         );
                     }
 
-                    return jcloudCred;
+                    return jcloudsCred;
                 }
             };
             builder = builder.credentialsSupplier(credentialsSupplier);

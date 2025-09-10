@@ -573,7 +573,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 String uploadId = generateUploadId(container, mbm.getName());
 
                 // to emulate later the list of multipart uploads
-                // we create a placeholer
+                // we create a placeholder
                 BlobBuilder builder =
                     blobBuilder(Constants.MPU_FOLDER + uploadId)
                         .payload("")

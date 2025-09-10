@@ -22,8 +22,8 @@ import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 
 /**
- * BlobStore which drops eTag or date based cache options from object requests.
- * This is useful as the JClouds library does not fully support the proxying of HTTP 304 responses.
+ * BlobStore which drops ETag or date-based cache options from object requests.
+ * This is useful as jclouds does not fully support the proxying of HTTP 304 responses.
  */
 final class NoCacheBlobStore extends ForwardingBlobStore {
 
