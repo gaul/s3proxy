@@ -255,6 +255,30 @@ public final class AwsSdkTest {
         }
     }
 
+    @Ignore
+    @Test
+    public void testAwsV4SignatureChunkedSigned() throws Exception {
+        client = AmazonS3ClientBuilder.standard()
+                .withChunkedEncodingDisabled(false)
+                .withPayloadSigningEnabled(true)
+                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
+                .withEndpointConfiguration(s3EndpointConfig)
+                .build();
+
+        var metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        client.putObject(containerName, "foo",
+                BYTE_SOURCE.openStream(), metadata);
+
+        var object = client.getObject(containerName, "foo");
+        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
+                BYTE_SOURCE.size());
+        try (var actual = object.getObjectContent();
+                var expected = BYTE_SOURCE.openStream()) {
+            assertThat(actual).hasSameContentAs(expected);
+        }
+    }
+
     @Test
     public void testAwsV4SignatureNonChunked() throws Exception {
         client = AmazonS3ClientBuilder.standard()
