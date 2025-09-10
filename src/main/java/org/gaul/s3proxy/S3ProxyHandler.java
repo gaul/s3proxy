@@ -17,10 +17,10 @@
 package org.gaul.s3proxy;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.PushbackInputStream;
@@ -75,6 +75,7 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
+import com.google.common.io.CharStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
@@ -82,7 +83,7 @@ import com.google.common.net.PercentEscaper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.apache.commons.fileupload2.core.MultipartInput;
+import org.eclipse.jetty.server.MultiPartFormInputStream;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
@@ -2061,37 +2062,35 @@ public class S3ProxyHandler {
         String signature = null;
         String algorithm = null;
         byte[] payload = null;
-        var multipartStream = MultipartInput.builder()
-                .setBoundary(boundary.getBytes(StandardCharsets.UTF_8))
-                .setInputStream(is)
-                .get();
-        boolean nextPart = multipartStream.skipPreamble();
-        while (nextPart) {
-            String header = multipartStream.readHeaders();
-            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                multipartStream.readBodyData(baos);
-                if (isField(header, "acl")) {
-                    // TODO: acl
-                } else if (isField(header, "AWSAccessKeyId") ||
-                        isField(header, "X-Amz-Credential")) {
-                    identity = new String(baos.toByteArray());
-                } else if (isField(header, "Content-Type")) {
-                    contentType = new String(baos.toByteArray());
-                } else if (isField(header, "file")) {
-                    // TODO: buffers entire payload
-                    payload = baos.toByteArray();
-                } else if (isField(header, "key")) {
-                    blobName = new String(baos.toByteArray());
-                } else if (isField(header, "policy")) {
-                    policy = baos.toByteArray();
-                } else if (isField(header, "signature") ||
-                        isField(header, "X-Amz-Signature")) {
-                    signature = new String(baos.toByteArray());
-                } else if (isField(header, "X-Amz-Algorithm")) {
-                    algorithm = new String(baos.toByteArray());
+        var multipartStream = new MultiPartFormInputStream(is, boundaryHeader, null, null);
+        try {
+            for (var part : multipartStream.getParts()) {
+                try (var partIs = part.getInputStream()) {
+                    var header = part.getName();
+                    if (header.equalsIgnoreCase("acl")) {
+                        // TODO: acl
+                    } else if (header.equalsIgnoreCase("AWSAccessKeyId") ||
+                            header.equalsIgnoreCase("X-Amz-Credential")) {
+                        identity = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
+                    } else if (header.equalsIgnoreCase("Content-Type")) {
+                        contentType = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
+                    } else if (header.equalsIgnoreCase("file")) {
+                        // TODO: buffers entire payload
+                        payload = partIs.readAllBytes();
+                    } else if (header.equalsIgnoreCase("key")) {
+                        blobName = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
+                    } else if (header.equalsIgnoreCase("policy")) {
+                        policy = partIs.readAllBytes();
+                    } else if (header.equalsIgnoreCase("signature") ||
+                            header.equalsIgnoreCase("X-Amz-Signature")) {
+                        signature = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
+                    } else if (header.equalsIgnoreCase("X-Amz-Algorithm")) {
+                        algorithm = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
+                    }
                 }
             }
-            nextPart = multipartStream.readBoundary();
+        } finally {
+            multipartStream.deleteParts();
         }
 
 
@@ -3150,11 +3149,6 @@ public class S3ProxyHandler {
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
-    }
-
-    private static boolean isField(String string, String field) {
-        return startsWithIgnoreCase(string,
-                "Content-Disposition: form-data; name=\"" + field + "\"");
     }
 
     private static byte[] hmac(String algorithm, byte[] data, byte[] key) {
