@@ -378,7 +378,7 @@
     <njord.version>0.7.5</njord.version>
     <slf4j.version>2.0.17</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
-    <surefire.version>3.5.2</surefire.version>
+    <surefire.version>3.5.4</surefire.version>
   </properties>
 
   <dependencies>
