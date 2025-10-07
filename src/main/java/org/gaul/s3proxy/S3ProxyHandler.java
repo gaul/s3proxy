@@ -1998,6 +1998,7 @@ public class S3ProxyHandler {
         // Unlike GET operations which use GetOptions to pass these conditions
         // to jclouds, PUT operations lack a PutOptions equivalent in jclouds.
         // Therefore, we manually fetch the blob metadata and validate ETags.
+        // TODO: this is an emulated operation and therefore not atomic.
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
 
@@ -2006,18 +2007,24 @@ public class S3ProxyHandler {
                     blobName);
 
             if (ifMatch != null) {
-                if (metadata == null) {
-                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
-                }
-                String eTag = metadata.getETag();
-                if (eTag != null) {
-                    eTag = maybeQuoteETag(eTag);
-                    if (!equalsIgnoringSurroundingQuotes(ifMatch, eTag)) {
+                if (ifMatch.equals("*")) {
+                    if (metadata == null) {
                         throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
                     }
-                }
-                else {
-                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                } else {
+                    if (metadata == null) {
+                        throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                    }
+                    String eTag = metadata.getETag();
+                    if (eTag != null) {
+                        eTag = maybeQuoteETag(eTag);
+                        if (!equalsIgnoringSurroundingQuotes(ifMatch, eTag)) {
+                            throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                        }
+                    }
+                    else {
+                        throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    }
                 }
             }
 
