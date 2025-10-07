@@ -2021,8 +2021,7 @@ public class S3ProxyHandler {
                         if (!equalsIgnoringSurroundingQuotes(ifMatch, eTag)) {
                             throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
                         }
-                    }
-                    else {
+                    } else {
                         throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
                     }
                 }
@@ -2033,8 +2032,7 @@ public class S3ProxyHandler {
                     if (metadata != null) {
                         throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
                     }
-                }
-                else if (metadata != null) {
+                } else if (metadata != null) {
                     String eTag = metadata.getETag();
                     if (eTag != null) {
                         eTag = maybeQuoteETag(eTag);
