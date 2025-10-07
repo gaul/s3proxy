@@ -2003,9 +2003,7 @@ public class S3ProxyHandler {
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
 
         if (ifMatch != null || ifNoneMatch != null) {
-            BlobMetadata metadata = blobStore.blobMetadata(containerName,
-                    blobName);
-
+            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (ifMatch != null) {
                 if (ifMatch.equals("*")) {
                     if (metadata == null) {
