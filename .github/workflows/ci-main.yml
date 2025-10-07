@@ -1,8 +1,5 @@
 name: Main CI
 
-permissions:
-  contents: write
-
 on:
   push:
     branches:
