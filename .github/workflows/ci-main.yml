@@ -1,7 +1,7 @@
 name: Main CI
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   push:
@@ -143,8 +143,6 @@ jobs:
           path: pom.xml
 
   Containerize:
-    permissions:
-      contents: write
     runs-on: ubuntu-24.04-arm
     needs: [runTests, meta]
     steps:
