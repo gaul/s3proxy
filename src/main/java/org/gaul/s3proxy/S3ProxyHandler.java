@@ -1994,6 +1994,51 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE);
         }
 
+        // Handle If-Match and If-None-Match headers for PUT operations.
+        // Unlike GET operations which use GetOptions to pass these conditions
+        // to jclouds, PUT operations lack a PutOptions equivalent in jclouds.
+        // Therefore, we manually fetch the blob metadata and validate ETags.
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+
+        if (ifMatch != null || ifNoneMatch != null) {
+            BlobMetadata metadata = blobStore.blobMetadata(containerName,
+                    blobName);
+
+            if (ifMatch != null) {
+                if (metadata == null) {
+                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                }
+                String eTag = metadata.getETag();
+                if (eTag != null) {
+                    eTag = maybeQuoteETag(eTag);
+                    if (!equalsIgnoringSurroundingQuotes(ifMatch, eTag)) {
+                        throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    }
+                }
+                else {
+                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                }
+            }
+
+            if (ifNoneMatch != null) {
+                if (ifNoneMatch.equals("*")) {
+                    if (metadata != null) {
+                        throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    }
+                }
+                else if (metadata != null) {
+                    String eTag = metadata.getETag();
+                    if (eTag != null) {
+                        eTag = maybeQuoteETag(eTag);
+                        if (equalsIgnoringSurroundingQuotes(ifNoneMatch, eTag)) {
+                            throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                        }
+                    }
+                }
+            }
+        }
+
         BlobAccess access;
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
