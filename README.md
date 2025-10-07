@@ -140,6 +140,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 S3Proxy emulates the following operations:
 
+* conditional PUT object when using If-Match or If-None-Match
 * copy multi-part objects, see [#76](https://github.com/gaul/s3proxy/issues/76)
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
