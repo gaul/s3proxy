@@ -502,6 +502,9 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             properties = client.getProperties();
         } catch (BlobStorageException bse) {
+            if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
+                return null;
+            }
             translateAndRethrowException(bse, container, /*key=*/ null);
             throw bse;
         }
