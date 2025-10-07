@@ -1792,6 +1792,85 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testPutIfMatch() throws Exception {
+        String blobName = "test-blob";
+
+        var metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        PutObjectResult result = client.putObject(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+        String eTag = result.getETag();
+
+        // PUT with matching If-Match should succeed
+        metadata.setContentLength(BYTE_SOURCE.size());
+        var request = new PutObjectRequest(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+        request.setIfMatch(eTag);
+        client.putObject(request);
+
+        // PUT with non-matching If-Match should fail
+        metadata.setContentLength(BYTE_SOURCE.size());
+        var badRequest = new PutObjectRequest(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+        badRequest.setIfMatch("wrong-etag");
+        try {
+            client.putObject(badRequest);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getStatusCode()).isEqualTo(412);
+        }
+
+        // PUT with If-Match on non-existent object should fail with 404
+        metadata.setContentLength(BYTE_SOURCE.size());
+        var nonExistentRequest = new PutObjectRequest(containerName,
+                "non-existent", BYTE_SOURCE.openStream(), metadata);
+        nonExistentRequest.setIfMatch(eTag);
+        try {
+            client.putObject(nonExistentRequest);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getStatusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    public void testPutIfNoneMatch() throws Exception {
+        String blobName = "test-blob";
+
+        var metadata = new ObjectMetadata();
+        metadata.setContentLength(BYTE_SOURCE.size());
+        PutObjectResult result = client.putObject(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+        String eTag = result.getETag();
+
+        // PUT with If-None-Match matching current ETag should fail
+        metadata.setContentLength(BYTE_SOURCE.size());
+        var request = new PutObjectRequest(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+        request.setIfNoneMatch(eTag);
+        try {
+            client.putObject(request);
+            Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);
+        } catch (AmazonS3Exception e) {
+            assertThat(e.getStatusCode()).isEqualTo(412);
+        }
+
+        // PUT with If-None-Match with different ETag should succeed
+        metadata.setContentLength(BYTE_SOURCE.size());
+        var goodRequest = new PutObjectRequest(containerName, blobName,
+                BYTE_SOURCE.openStream(), metadata);
+        goodRequest.setIfNoneMatch("different-etag");
+        client.putObject(goodRequest);
+
+        // PUT with If-None-Match on non-existent object should succeed
+        metadata.setContentLength(BYTE_SOURCE.size());
+        var nonExistentRequest = new PutObjectRequest(containerName,
+                "non-existent", BYTE_SOURCE.openStream(), metadata);
+        nonExistentRequest.setIfNoneMatch("*");
+        client.putObject(nonExistentRequest);
+    }
+
+    @Test
     public void testListRelativePath() throws Exception {
         assumeTrue(!blobStoreType.equals("filesystem"));
         try {
