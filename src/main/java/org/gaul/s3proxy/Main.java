@@ -371,7 +371,10 @@ public final class Main {
             System.exit(1);
         }
 
-        if (provider.equals("filesystem") || provider.equals("transient")) {
+        if (provider.equals("filesystem") ||
+                provider.equals("filesystem-nio2") ||
+                provider.equals("transient") ||
+                provider.equals("transient-nio2")) {
             // local blobstores do not require credentials
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
