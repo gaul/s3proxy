@@ -450,7 +450,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     if (last + 1 > size) {
                         last = size - 1;
                     }
-                    ByteStreams.skipFully(inputStream, offset);
+                    inputStream.skipNBytes(offset);
                     size = last - offset + 1;
                     inputStream = ByteStreams.limit(inputStream, size);
                     contentRange = "bytes " + offset + "-" + last + "/" + attr.size();

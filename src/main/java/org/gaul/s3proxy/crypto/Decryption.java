@@ -211,7 +211,7 @@ public class Decryption {
         if (this.skipFirstBlock) {
             offset = offset + Constants.AES_BLOCK_SIZE;
         }
-        ByteStreams.skipFully(dis, offset);
+        dis.skipNBytes(offset);
 
         // trim the stream to a specific length if needed
         return outputLength >= 0 ? ByteStreams.limit(dis, outputLength) : dis;
