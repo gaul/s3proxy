@@ -224,11 +224,11 @@ public final class AzureBlobStore extends BaseBlobStore {
             var response = blobServiceClient
                     .createBlobContainerIfNotExistsWithResponse(
                             container, azureOptions, /*context=*/ null);
-            switch (response.getStatusCode()) {
-            case 201: return true;
-            case 409: return false;
-            default: return false;
-            }
+            return switch (response.getStatusCode()) {
+            case 201 -> true;
+            case 409 -> false;
+            default -> false;
+            };
         } catch (BlobStorageException bse) {
             translateAndRethrowException(bse, container, /*key=*/ null);
             throw bse;
@@ -683,17 +683,13 @@ public final class AzureBlobStore extends BaseBlobStore {
     }
 
     private static AccessTier toAccessTier(Tier tier) {
-        switch (tier) {
-        case ARCHIVE:
-            return AccessTier.ARCHIVE;
-        case COOL:
-            return AccessTier.COOL;
-        case COLD:
-            return AccessTier.COLD;
-        case STANDARD:
-        default:
-            return AccessTier.HOT;
-        }
+        return switch (tier) {
+        case ARCHIVE -> AccessTier.ARCHIVE;
+        case COOL -> AccessTier.COOL;
+        case INFREQUENT -> AccessTier.COOL;
+        case COLD -> AccessTier.COLD;
+        case STANDARD -> AccessTier.HOT;
+        };
     }
 
     private static Tier toTier(AccessTier tier) {

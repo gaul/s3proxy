@@ -76,21 +76,12 @@ final class ChunkedInputStream extends FilterInputStream {
             if (parts[0].startsWith("x-amz-checksum-")) {
                 String[] checksumParts = parts[0].split(":", 2);
                 var expectedHash = checksumParts[1];
-                String actualHash;
-                switch (checksumParts[0]) {
-                case "x-amz-checksum-crc32":
-                case "x-amz-checksum-crc32c":
-                    // Use big-endian to match AWS
-                    actualHash = Base64.getEncoder().encodeToString(ByteBuffer.allocate(4).putInt(hasher.hash().asInt()).array());
-                    break;
-                case "x-amz-checksum-sha1":
-                case "x-amz-checksum-sha256":
-                    actualHash = Base64.getEncoder().encodeToString(hasher.hash().asBytes());
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
-                }
-                if (!expectedHash.equals(actualHash)) {
+                var actualHash = switch (checksumParts[0]) {
+                case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer.allocate(4).putInt(hasher.hash().asInt()).array(); // Use big-endian to match AWS
+                case "x-amz-checksum-sha1", "x-amz-checksum-sha256" -> hasher.hash().asBytes();
+                default -> throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
+                };
+                if (!expectedHash.equals(Base64.getEncoder().encodeToString(actualHash))) {
                     throw new IOException(new S3Exception(S3ErrorCode.BAD_DIGEST));
                 }
                 currentLength = 0;
