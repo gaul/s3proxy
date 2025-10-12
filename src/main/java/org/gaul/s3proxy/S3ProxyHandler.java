@@ -1994,15 +1994,26 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE);
         }
 
-        // Handle If-Match and If-None-Match headers for PUT operations.
-        // Unlike GET operations which use GetOptions to pass these conditions
-        // to jclouds, PUT operations lack a PutOptions equivalent in jclouds.
-        // Therefore, we manually fetch the blob metadata and validate ETags.
-        // TODO: this is an emulated operation and therefore not atomic.
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        String blobStoreType = getBlobStoreType(blobStore);
 
-        if (ifMatch != null || ifNoneMatch != null) {
+        // Azure only supports If-None-Match: *, not If-Match: *
+        // Handle If-Match: * manually for the azureblob-sdk provider.
+        // Note: this is a non-atomic operation (HEAD then PUT).
+        if (ifMatch != null && ifMatch.equals("*") &&
+                blobStoreType.equals("azureblob-sdk")) {
+            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
+            if (metadata == null) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            ifMatch = null;
+        }
+
+        // Emulate conditional put for backends without native support.
+        // Note: this is a non-atomic operation (HEAD then PUT).
+        if ((ifMatch != null || ifNoneMatch != null) &&
+                !blobStoreType.equals("azureblob-sdk")) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (ifMatch != null) {
                 if (ifMatch.equals("*")) {
@@ -2055,9 +2066,10 @@ public class S3ProxyHandler {
             return;
         }
 
-        var options = new PutOptions().setBlobAccess(access);
-
-        String blobStoreType = getBlobStoreType(blobStore);
+        var options = new PutOptions2();
+        options.setBlobAccess(access);
+        options.ifMatch(ifMatch);
+        options.ifNoneMatch(ifNoneMatch);
         if (blobStoreType.equals("azureblob") &&
                 contentLength > 256 * 1024 * 1024) {
             options.multipart(true);
