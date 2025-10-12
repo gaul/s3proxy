@@ -20,3 +20,8 @@ s3proxy.iml
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 target/
+
+# files created during tests
+__blobstorage__/
+AzuriteConfig
+__azurite_db*

@@ -66,6 +66,7 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import jakarta.ws.rs.core.Response.Status;
 
+import org.gaul.s3proxy.PutOptions2;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
@@ -393,6 +394,20 @@ public final class AzureBlobStore extends BaseBlobStore {
             if (blob.getMetadata().getTier() != Tier.STANDARD) {
                 azureOptions.setTier(toAccessTier(
                         blob.getMetadata().getTier()));
+            }
+
+            if (options instanceof PutOptions2) {
+                var putOptions2 = (PutOptions2) options;
+                if (putOptions2.hasConditionalHeaders()) {
+                    var conditions = new BlobRequestConditions();
+                    if (putOptions2.getIfMatch() != null) {
+                        conditions.setIfMatch(putOptions2.getIfMatch());
+                    }
+                    if (putOptions2.getIfNoneMatch() != null) {
+                        conditions.setIfNoneMatch(putOptions2.getIfNoneMatch());
+                    }
+                    azureOptions.setRequestConditions(conditions);
+                }
             }
 
             try (var os = client.getBlobOutputStream(
@@ -742,6 +757,16 @@ public final class AzureBlobStore extends BaseBlobStore {
         } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET)) {
             var request = HttpRequest.builder()
                     .method("GET")
+                    .endpoint(endpoint)
+                    .build();
+            var response = HttpResponse.builder()
+                    .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                    .build();
+            throw new HttpResponseException(
+                    new HttpCommand(request), response, bse);
+        } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
+            var request = HttpRequest.builder()
+                    .method("PUT")
                     .endpoint(endpoint)
                     .build();
             var response = HttpResponse.builder()
