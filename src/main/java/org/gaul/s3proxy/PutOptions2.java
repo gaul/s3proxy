@@ -18,10 +18,13 @@ package org.gaul.s3proxy;
 
 import javax.annotation.Nullable;
 
+import com.google.common.util.concurrent.ListeningExecutorService;
+
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.options.PutOptions;
 
 /**
- * This class extends PutOptions to support conditional put operations via
+ * This class extends jclouds' PutOptions to support conditional put operations via
  * the If-Match and If-None-Match headers.
  */
 public final class PutOptions2 extends PutOptions {
@@ -51,7 +54,7 @@ public final class PutOptions2 extends PutOptions {
         return ifMatch;
     }
 
-    public PutOptions2 ifMatch(@Nullable String etag) {
+    public PutOptions2 setIfMatch(@Nullable String etag) {
         this.ifMatch = etag;
         return this;
     }
@@ -61,13 +64,39 @@ public final class PutOptions2 extends PutOptions {
         return ifNoneMatch;
     }
 
-    public PutOptions2 ifNoneMatch(@Nullable String etag) {
+    public PutOptions2 setIfNoneMatch(@Nullable String etag) {
         this.ifNoneMatch = etag;
         return this;
     }
 
-    public boolean hasConditionalHeaders() {
-        return ifMatch != null || ifNoneMatch != null;
+    @Override
+    public PutOptions2 setBlobAccess(BlobAccess blobAccess) {
+        super.setBlobAccess(blobAccess);
+        return this;
+    }
+
+    @Override
+    public PutOptions2 multipart() {
+        super.multipart();
+        return this;
+    }
+
+    @Override
+    public PutOptions2 multipart(boolean val) {
+        super.multipart(val);
+        return this;
+    }
+
+    @Override
+    public PutOptions2 multipart(ListeningExecutorService customExecutor) {
+        super.multipart(customExecutor);
+        return this;
+    }
+
+    @Override
+    public PutOptions2 setCustomExecutor(ListeningExecutorService customExecutor) {
+        super.setCustomExecutor(customExecutor);
+        return this;
     }
 
     @Override

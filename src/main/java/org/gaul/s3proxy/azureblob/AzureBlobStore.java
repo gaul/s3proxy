@@ -398,15 +398,12 @@ public final class AzureBlobStore extends BaseBlobStore {
 
             if (options instanceof PutOptions2) {
                 var putOptions2 = (PutOptions2) options;
-                if (putOptions2.hasConditionalHeaders()) {
-                    var conditions = new BlobRequestConditions();
-                    if (putOptions2.getIfMatch() != null) {
-                        conditions.setIfMatch(putOptions2.getIfMatch());
-                    }
-                    if (putOptions2.getIfNoneMatch() != null) {
-                        conditions.setIfNoneMatch(putOptions2.getIfNoneMatch());
-                    }
-                    azureOptions.setRequestConditions(conditions);
+                String ifMatch = putOptions2.getIfMatch();
+                String ifNoneMatch = putOptions2.getIfNoneMatch();
+                if (ifMatch != null || ifNoneMatch != null) {
+                    azureOptions.setRequestConditions(new BlobRequestConditions()
+                            .setIfMatch(ifMatch)
+                            .setIfNoneMatch(ifNoneMatch));
                 }
             }
 

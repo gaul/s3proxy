@@ -2066,10 +2066,10 @@ public class S3ProxyHandler {
             return;
         }
 
-        var options = new PutOptions2();
-        options.setBlobAccess(access);
-        options.ifMatch(ifMatch);
-        options.ifNoneMatch(ifNoneMatch);
+        var options = new PutOptions2()
+                .setBlobAccess(access)
+                .setIfMatch(ifMatch)
+                .setIfNoneMatch(ifNoneMatch);
         if (blobStoreType.equals("azureblob") &&
                 contentLength > 256 * 1024 * 1024) {
             options.multipart(true);
