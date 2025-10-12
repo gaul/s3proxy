@@ -255,6 +255,13 @@ public final class Main {
             blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
         }
 
+        Map<String, String> prefixMap = PrefixBlobStore.parsePrefixes(properties);
+        if (!prefixMap.isEmpty()) {
+            System.err.println("Using prefix backend");
+            blobStore = PrefixBlobStore.newPrefixBlobStore(blobStore,
+                    prefixMap);
+        }
+
         List<Map.Entry<Pattern, String>> regexs =
                 RegexBlobStore.parseRegexs(properties);
         if (!regexs.isEmpty()) {
