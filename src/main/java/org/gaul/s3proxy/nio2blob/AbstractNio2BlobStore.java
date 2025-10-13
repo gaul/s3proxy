@@ -618,9 +618,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
             }
 
-            Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            setBlobAccessHelper(tmpPath, options.getBlobAccess());
 
-            setBlobAccess(container, blob.getMetadata().getName(), options.getBlobAccess());
+            Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
             return "\"" + actualHashCode + "\"";
         } catch (IOException ioe) {
@@ -836,21 +836,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
         checkValidPath(containerPath, path);
 
-        Set<PosixFilePermission> permissions;
-        try {
-            permissions = new HashSet<>(Files.getPosixFilePermissions(path));
-            if (access == BlobAccess.PRIVATE) {
-                permissions.remove(PosixFilePermission.OTHERS_READ);
-            } else if (access == BlobAccess.PUBLIC_READ) {
-                permissions.add(PosixFilePermission.OTHERS_READ);
-            }
-            Files.setPosixFilePermissions(path, permissions);
-        } catch (UnsupportedOperationException uoe) {
-            // Windows/SMB/other non-POSIX: ignore, cannot set permissions
-            return;
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
+        setBlobAccessHelper(path, access);
     }
 
     @Override
@@ -1168,6 +1154,23 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private static void checkValidPath(Path container, Path path) {
         if (!path.normalize().startsWith(container)) {
             throw new IllegalArgumentException("Invalid key name: path traversal attempt detected: " + container + " " + path);
+        }
+    }
+
+    private static void setBlobAccessHelper(Path path, BlobAccess access) {
+        try {
+            var permissions = new HashSet<>(Files.getPosixFilePermissions(path));
+            if (access == BlobAccess.PRIVATE) {
+                permissions.remove(PosixFilePermission.OTHERS_READ);
+            } else if (access == BlobAccess.PUBLIC_READ) {
+                permissions.add(PosixFilePermission.OTHERS_READ);
+            }
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (UnsupportedOperationException uoe) {
+            // Windows/SMB/other non-POSIX: ignore, cannot set permissions
+            return;
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
         }
     }
 }
