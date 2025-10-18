@@ -2390,7 +2390,6 @@ public class S3ProxyHandler {
 
             if (cmu.parts != null) {
                 //  preserve part number order and deduplicate
-                // (last upload of same part number wins, matching S3 behavior)
                 Map<Integer, MultipartPart> partsMap = new LinkedHashMap<>();
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
                     MultipartPart uploadedPart = partsByListing.get(part.partNumber);
