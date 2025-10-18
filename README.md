@@ -74,7 +74,7 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * atmos
 * aws-s3 (Amazon-only)
 * azureblob
-* azureblob-sdk (newer but lacks multi-part upload, see [Azure/azure-sdk-for-java#42603](https://github.com/Azure/azure-sdk-for-java/issues/42603))
+* azureblob-sdk
 * b2
 * filesystem (on-disk storage, deprecated)
 * filesystem-nio2 (on-disk storage, recommended)
@@ -137,6 +137,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * POST upload policies, see [#73](https://github.com/gaul/s3proxy/issues/73)
 * requester pays buckets
 * [select object content](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectSELECTContent.html)
+
 
 S3Proxy emulates the following operations:
 
