@@ -502,8 +502,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBigMultipartUpload() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -558,8 +556,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadReplace() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -709,8 +705,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testAtomicMpuAbort() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-
         String key = "testAtomicMpuAbort";
         var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());
@@ -823,8 +817,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testPartNumberMarker() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-
         String blobName = "test-part-number-marker";
         InitiateMultipartUploadResult result = client.initiateMultipartUpload(
                 new InitiateMultipartUploadRequest(containerName, blobName));
@@ -1222,7 +1214,6 @@ public final class AwsSdkTest {
     // TODO: fails for GCS (jclouds not implemented)
     @Test
     public void testMultipartUpload() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
 
         String blobName = "multipart-upload";
         String cacheControl = "max-age=3600";
@@ -1357,8 +1348,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk") &&
-                !blobStoreType.equals("google-cloud-storage"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // TODO: fixed in jclouds 2.6.1
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
@@ -1373,14 +1363,7 @@ public final class AwsSdkTest {
         // uploads
         MultipartUploadListing multipartListing = client.listMultipartUploads(
                 new ListMultipartUploadsRequest(containerName));
-        if (blobStoreType.equals("azureblob") ||
-                blobStoreType.equals("azureblob-sdk")) {
-            // Azure does not create a manifest during initiate multi-part
-            // upload.  Instead the first part creates this.
-            assertThat(multipartListing.getMultipartUploads()).isEmpty();
-        } else {
-            assertThat(multipartListing.getMultipartUploads()).hasSize(1);
-        }
+        assertThat(multipartListing.getMultipartUploads()).hasSize(1);
 
         PartListing partListing = client.listParts(new ListPartsRequest(
                 containerName, blobName, result.getUploadId()));
@@ -1407,14 +1390,7 @@ public final class AwsSdkTest {
 
         multipartListing = client.listMultipartUploads(
                 new ListMultipartUploadsRequest(containerName));
-        if (blobStoreType.equals("azureblob") ||
-                blobStoreType.equals("azureblob-sdk")) {
-            // Azure does not support explicit abort.  It automatically
-            // removes incomplete multi-part uploads after 7 days.
-            assertThat(multipartListing.getMultipartUploads()).hasSize(1);
-        } else {
-            assertThat(multipartListing.getMultipartUploads()).isEmpty();
-        }
+        assertThat(multipartListing.getMultipartUploads()).isEmpty();
 
         ObjectListing listing = client.listObjects(containerName);
         assertThat(listing.getObjectSummaries()).isEmpty();

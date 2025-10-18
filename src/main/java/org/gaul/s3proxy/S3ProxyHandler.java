@@ -38,6 +38,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -2286,6 +2287,22 @@ public class S3ProxyHandler {
             builder.tier(StorageClass.valueOf(storageClass).toTier());
         }
 
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        String blobStoreType = getBlobStoreType(blobStore);
+
+        // Azure only supports If-None-Match: *, not If-Match: *
+        // Handle If-Match: * manually for the azureblob-sdk provider.
+        // Note: this is a non-atomic operation (HEAD then PUT).
+        if (ifMatch != null && ifMatch.equals("*") &&
+                blobStoreType.equals("azureblob-sdk")) {
+            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
+            if (metadata == null) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            ifMatch = null;
+        }
+
         BlobAccess access;
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
@@ -2298,7 +2315,11 @@ public class S3ProxyHandler {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        var options = new PutOptions().setBlobAccess(access);
+
+        var options = new PutOptions2()
+                .setBlobAccess(access)
+                .setIfMatch(ifMatch)
+                .setIfNoneMatch(ifNoneMatch);
 
         MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
                 builder.build().getMetadata(), options);
@@ -2354,9 +2375,30 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob") ||
                 blobStoreType.equals("azureblob-sdk")) {
-            // TODO: how to sanity check parts?
-            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
-                parts.add(part);
+            var partsByListing =
+                blobStore.listMultipartUpload(mpu).stream().collect(
+                        Collectors.toMap(
+                                part -> part.partNumber(),
+                                part -> part));
+            CompleteMultipartUploadRequest cmu;
+            try {
+                cmu = mapper.readValue(
+                        is, CompleteMultipartUploadRequest.class);
+            } catch (JsonParseException jpe) {
+                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
+            }
+
+            if (cmu.parts != null) {
+                //  preserve part number order and deduplicate
+                Map<Integer, MultipartPart> partsMap = new LinkedHashMap<>();
+                for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    MultipartPart uploadedPart = partsByListing.get(part.partNumber);
+                    if (uploadedPart == null) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    }
+                    partsMap.put(part.partNumber, uploadedPart);
+                }
+                parts.addAll(partsMap.values());
             }
         } else if (blobStoreType.equals("google-cloud-storage")) {
             // GCS only supports 32 parts but we can support up to 1024 by
@@ -2518,7 +2560,11 @@ public class S3ProxyHandler {
         MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
                 new PutOptions());
-        blobStore.abortMultipartUpload(mpu);
+        try {
+            blobStore.abortMultipartUpload(mpu);
+        } catch (KeyNotFoundException knfe) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, knfe);
+        }
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
