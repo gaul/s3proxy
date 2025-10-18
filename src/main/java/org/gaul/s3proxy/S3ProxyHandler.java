@@ -38,6 +38,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -2374,9 +2375,31 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob") ||
                 blobStoreType.equals("azureblob-sdk")) {
-            // TODO: how to sanity check parts?
-            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
-                parts.add(part);
+            var partsByListing =
+                blobStore.listMultipartUpload(mpu).stream().collect(
+                        Collectors.toMap(
+                                part -> part.partNumber(),
+                                part -> part));
+            CompleteMultipartUploadRequest cmu;
+            try {
+                cmu = mapper.readValue(
+                        is, CompleteMultipartUploadRequest.class);
+            } catch (JsonParseException jpe) {
+                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
+            }
+
+            if (cmu.parts != null) {
+                //  preserve part number order and deduplicate
+                // (last upload of same part number wins, matching S3 behavior)
+                Map<Integer, MultipartPart> partsMap = new LinkedHashMap<>();
+                for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    MultipartPart uploadedPart = partsByListing.get(part.partNumber);
+                    if (uploadedPart == null) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    }
+                    partsMap.put(part.partNumber, uploadedPart);
+                }
+                parts.addAll(partsMap.values());
             }
         } else if (blobStoreType.equals("google-cloud-storage")) {
             // GCS only supports 32 parts but we can support up to 1024 by
