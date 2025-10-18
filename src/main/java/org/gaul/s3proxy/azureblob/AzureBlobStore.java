@@ -16,10 +16,13 @@
 
 package org.gaul.s3proxy.azureblob;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLDecoder;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
@@ -45,20 +48,25 @@ import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobRange;
 import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.BlockList;
 import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
 import com.azure.storage.blob.options.BlobContainerCreateOptions;
 import com.azure.storage.blob.options.BlobUploadFromUrlOptions;
+import com.azure.storage.blob.options.BlockBlobCommitBlockListOptions;
 import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
+import com.azure.storage.blob.options.BlockBlobSimpleUploadOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlobInputStream;
+import com.azure.storage.blob.specialized.BlockBlobAsyncClient;
 import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 import com.google.common.primitives.Ints;
 
@@ -104,10 +112,16 @@ import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
 
+import reactor.core.publisher.Flux;
+
 @Singleton
 public final class AzureBlobStore extends BaseBlobStore {
+    private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
+    private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
+
     private final BlobServiceClient blobServiceClient;
     private final String endpoint;
+    private final Supplier<Credentials> creds;
 
     @Inject
     AzureBlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -118,13 +132,13 @@ public final class AzureBlobStore extends BaseBlobStore {
             ProviderMetadata provider) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
+        this.creds = creds;
         var cred = creds.get();
-        // Disable retries since client should retry on errors.
         var retryOptions = new RequestRetryOptions(
-                RetryPolicyType.FIXED, /*maxTries=*/ 1,
-                /*tryTimeoutInSeconds=*/ (Integer) null,
-                /*retryDelayInMs=*/ null, /*maxRetryDelayInMs=*/ null,
-                /*secondaryHost=*/ null);
+                RetryPolicyType.FIXED, 1,
+                (Integer) null,
+                null, null,
+                null);
         var blobServiceClientBuilder = new BlobServiceClientBuilder();
         if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
             blobServiceClientBuilder.credential(
@@ -571,65 +585,423 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
-/*
-        String uploadId = UUID.randomUUID().toString();
-        return MultipartUpload.create(container, blobMetadata.getName(),
-                uploadId, blobMetadata, options);
-*/
-        throw new UnsupportedOperationException();
+        // Validate container exists
+        var containerClient = blobServiceClient.getBlobContainerClient(container);
+        try {
+            if (!containerClient.exists()) {
+                throw new ContainerNotFoundException(container, "");
+            }
+        } catch (BlobStorageException bse) {
+            translateAndRethrowException(bse, container, /*key=*/ null);
+            throw bse;
+        }
+
+        // Validate user metadata keys match Azure naming rules
+        var userMetadata = blobMetadata.getUserMetadata();
+        if (userMetadata != null && !userMetadata.isEmpty()) {
+            for (var key : userMetadata.keySet()) {
+                if (!isValidMetadataKey(key)) {
+                    throw new IllegalArgumentException(
+                            "Invalid metadata key: " + key);
+                }
+            }
+        }
+
+        String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
+        String targetBlobName = blobMetadata.getName();
+        var stubBlobClient = containerClient.getBlobClient(uploadKey).getBlockBlobClient();
+
+        var contentMetadata = blobMetadata.getContentMetadata();
+        BlobHttpHeaders headers = new BlobHttpHeaders();
+        if (contentMetadata != null) {
+            headers.setContentType(contentMetadata.getContentType());
+            headers.setContentDisposition(contentMetadata.getContentDisposition());
+            headers.setContentEncoding(contentMetadata.getContentEncoding());
+            headers.setContentLanguage(contentMetadata.getContentLanguage());
+            headers.setCacheControl(contentMetadata.getCacheControl());
+        }
+
+        var uploadOptions = new BlockBlobSimpleUploadOptions(
+                new ByteArrayInputStream(new byte[0]), 0);
+        uploadOptions.setHeaders(headers);
+        if (userMetadata != null && !userMetadata.isEmpty()) {
+            uploadOptions.setMetadata(userMetadata);
+        }
+        if (blobMetadata.getTier() != null && blobMetadata.getTier() != Tier.STANDARD) {
+            uploadOptions.setTier(toAccessTier(blobMetadata.getTier()));
+        }
+
+        stubBlobClient.uploadWithResponse(uploadOptions, null, null);
+
+        var tags = new java.util.HashMap<String, String>();
+        tags.put(TARGET_BLOB_NAME_TAG, targetBlobName);
+        stubBlobClient.setTags(tags);
+
+        return MultipartUpload.create(container, targetBlobName,
+                uploadKey, blobMetadata, options);
+    }
+
+    /**
+     * Validates metadata key according to Azure naming rules.
+     * Keys must be valid C# identifiers (alphanumeric and underscores).
+     */
+    private static boolean isValidMetadataKey(String key) {
+        if (key == null || key.isEmpty()) {
+            return false;
+        }
+        // Must start with letter or underscore
+        if (!Character.isLetter(key.charAt(0)) && key.charAt(0) != '_') {
+            return false;
+        }
+        // Rest must be alphanumeric or underscore
+        for (int i = 1; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '_') {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
-        // Azure automatically removes uncommitted blocks after 7 days.
+        // Delete the stub blob to remove the upload from listMultipartUploads
+        // Note: Uncommitted blocks are automatically removed by Azure after 7 days
+        try {
+            blobServiceClient
+                    .getBlobContainerClient(mpu.containerName())
+                    .getBlobClient(mpu.id())
+                    .delete();
+        } catch (BlobStorageException bse) {
+            if (bse.getStatusCode() == 404) {
+                throw new KeyNotFoundException(mpu.containerName(), mpu.id(),
+                        "Multipart upload not found: " + mpu.id());
+            }
+            throw bse;
+        }
     }
 
     @Override
     public String completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
-        var client = blobServiceClient
-                .getBlobContainerClient(mpu.containerName())
-                .getBlobClient(mpu.blobName())
-                .getBlockBlobClient();
-        var blocks = ImmutableList.<String>builder();
-        for (var part : parts) {
-            blocks.add(makeBlockId(part.partNumber()));
+        String uploadKey = mpu.id();
+        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+
+        var containerClient = blobServiceClient.getBlobContainerClient(mpu.containerName());
+        var stubBlobClient = containerClient.getBlobClient(uploadKey);
+
+        BlobProperties stubProperties;
+        java.util.Map<String, String> stubTags;
+        try {
+            stubProperties = stubBlobClient.getProperties();
+            stubTags = stubBlobClient.getTags();
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
+                throw new IllegalArgumentException(
+                        "Upload not found: uploadId=" + uploadKey);
+            }
+            throw bse;
         }
-        var blockBlobItem = client.commitBlockList(blocks.build(),
-                /*overwrite=*/ true);
-        return blockBlobItem.getETag();
+
+        String targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
+        if (targetBlobName == null) {
+            throw new IllegalArgumentException(
+                    "Stub blob missing target name tag: uploadId=" + uploadKey);
+        }
+
+        var userMetadata = stubProperties.getMetadata();
+        var contentMetadata = toContentMetadata(stubProperties);
+        var tier = stubProperties.getAccessTier();
+
+        if (parts == null || parts.isEmpty()) {
+            throw new IllegalArgumentException("Parts list cannot be empty");
+        }
+
+        int previousPartNumber = 0;
+        for (var part : parts) {
+            int partNumber = part.partNumber();
+            if (partNumber <= previousPartNumber) {
+                throw new IllegalArgumentException(
+                        "Parts must be in strictly ascending order");
+            }
+            previousPartNumber = partNumber;
+        }
+
+        if (parts.size() > 50_000) {
+            throw new IllegalArgumentException(
+                    "Too many parts: " + parts.size() + " (max 50,000)");
+        }
+
+        var client = containerClient
+                .getBlobClient(targetBlobName)
+                .getBlockBlobClient();
+
+        var blockList = client.listBlocks(BlockListType.UNCOMMITTED);
+        var uncommittedBlocks = blockList.getUncommittedBlocks();
+
+        var blockMap = new java.util.HashMap<String, Long>();
+        for (var block : uncommittedBlocks) {
+            blockMap.put(block.getName(), block.getSizeLong());
+        }
+
+        var blockIds = ImmutableList.<String>builder();
+
+        for (int i = 0; i < parts.size(); i++) {
+            var part = parts.get(i);
+            int partNumber = part.partNumber();
+
+            String blockId = makeBlockId(nonce, partNumber);
+            blockIds.add(blockId);
+
+            if (!blockMap.containsKey(blockId)) {
+                throw new IllegalArgumentException(
+                        "Part " + partNumber + " not found in staged blocks");
+            }
+        }
+
+        BlobHttpHeaders blobHttpHeaders = new BlobHttpHeaders();
+        blobHttpHeaders.setContentType(contentMetadata.getContentType());
+        blobHttpHeaders.setContentDisposition(contentMetadata.getContentDisposition());
+        blobHttpHeaders.setContentEncoding(contentMetadata.getContentEncoding());
+        blobHttpHeaders.setContentLanguage(contentMetadata.getContentLanguage());
+        blobHttpHeaders.setCacheControl(contentMetadata.getCacheControl());
+
+        var options = new BlockBlobCommitBlockListOptions(
+                blockIds.build());
+        options.setHeaders(blobHttpHeaders);
+        if (userMetadata != null && !userMetadata.isEmpty()) {
+            options.setMetadata(userMetadata);
+        }
+        if (tier != null) {
+            options.setTier(tier);
+        }
+
+        try {
+            var response = client.commitBlockListWithResponse(
+                    options, /*timeout=*/ null, /*context=*/ null);
+
+            stubBlobClient.delete();
+
+            String finalETag = response.getValue().getETag();
+            return finalETag;
+        } catch (BlobStorageException bse) {
+            var errorCode = bse.getErrorCode();
+            if (errorCode.equals(BlobErrorCode.BLOB_NOT_FOUND) ||
+                    errorCode.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
+                throw new IllegalArgumentException(
+                        "Upload not found: container=" + mpu.containerName() +
+                        ", key=" + targetBlobName);
+            } else if (bse.getStatusCode() == 409) {
+                throw new IllegalArgumentException(
+                        "Conflict during commit: " + bse.getMessage(), bse);
+            } else if (bse.getStatusCode() == 412) {
+                translateAndRethrowException(bse, mpu.containerName(), targetBlobName);
+            }
+            throw bse;
+        }
     }
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
             int partNumber, Payload payload) {
-        var client = blobServiceClient
-                .getBlobContainerClient(mpu.containerName())
-                .getBlobClient(mpu.blobName())
-                .getBlockBlobClient();
-        var blockId = makeBlockId(partNumber);
-        var length = payload.getContentMetadata().getContentLength();
-        try (var is = payload.openStream()) {
-            client.stageBlock(blockId, is, length);
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
+
+        if (partNumber < 1 || partNumber > 10_000) {
+            throw new IllegalArgumentException(
+                    "Part number must be between 1 and 10,000, got: " + partNumber);
         }
-        String eTag = "";  // putBlock does not return ETag
-        Date lastModified = null;  // putBlob does not return Last-Modified
-        return MultipartPart.create(partNumber, length, eTag, lastModified);
+
+        Long contentLength = payload.getContentMetadata().getContentLength();
+        if (contentLength == null) {
+            throw new IllegalArgumentException("Content-Length is required");
+        }
+        if (contentLength < 0) {
+            throw new IllegalArgumentException(
+                    "Content-Length must be non-negative, got: " + contentLength);
+        }
+
+        if (contentLength > getMaximumMultipartPartSize()) {
+            throw new IllegalArgumentException(
+                    "Part size exceeds maximum of " + getMaximumMultipartPartSize() +
+                    " bytes: " + contentLength);
+        }
+
+
+        String uploadKey = mpu.id();
+        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String blockId = makeBlockId(nonce, partNumber);
+        var asyncClient = createNonRetryingBlockBlobAsyncClient(
+                mpu.containerName(), mpu.blobName());
+
+        byte[] md5Hash;
+        try {
+            var is = payload.openStream();
+            var providedMd5 = payload.getContentMetadata().getContentMD5AsHashCode();
+            var md = MessageDigest.getInstance("MD5");
+
+            Flux<ByteBuffer> body = Flux.generate(
+                () -> 0L,
+                (position, sink) -> {
+                    try {
+                        if (position >= contentLength) {
+                            sink.complete();
+                            return position;
+                        }
+                        int chunkSize = (int) Math.min(4 * 1024 * 1024L,
+                                contentLength - position);
+                        ByteBuffer buffer = ByteBuffer.allocate(chunkSize);
+                        int read = is.read(buffer.array(), 0, chunkSize);
+                        if (read == -1) {
+                            if (position < contentLength) {
+                                sink.error(new IOException(
+                                    String.format("Stream ended at %d bytes, expected %d",
+                                        position, contentLength)));
+                            } else {
+                                sink.complete();
+                            }
+                            return position;
+                        }
+                        md.update(buffer.array(), 0, read);
+                        buffer.limit(read);
+                        sink.next(buffer);
+                        long nextPosition = position + read;
+                        if (nextPosition >= contentLength) {
+                            sink.complete();
+                        }
+                        return nextPosition;
+                    } catch (IOException e) {
+                        sink.error(e);
+                        return position;
+                    }
+                },
+                position -> {
+                    try {
+                        is.close();
+                    } catch (IOException e) {
+                        // Ignore close errors
+                    }
+                }
+            );
+
+            asyncClient.stageBlock(blockId, body, contentLength).block();
+
+            md5Hash = md.digest();
+
+            if (providedMd5 != null) {
+                if (!MessageDigest.isEqual(md5Hash, providedMd5.asBytes())) {
+                    throw new IllegalArgumentException("Content-MD5 mismatch");
+                }
+            }
+
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new RuntimeException("MD5 algorithm not available", e);
+        } catch (BlobStorageException bse) {
+            translateAndRethrowException(bse, mpu.containerName(), mpu.blobName());
+            throw new RuntimeException(bse);
+        } catch (IOException ioe) {
+            throw new RuntimeException("Failed to upload part: " + ioe.getMessage(), ioe);
+        }
+
+        // Return S3-compliant response with ETag (hex-encoded MD5)
+        String eTag = BaseEncoding.base16()
+                .lowerCase().encode(md5Hash);
+        Date lastModified = null;
+        return MultipartPart.create(partNumber, contentLength, eTag, lastModified);
+    }
+
+    /**
+     * Creates a BlockBlobAsyncClient with retries disabled for streaming uploads.
+     * This allows us to stream directly from non-markable InputStreams without
+     * needing temp files or buffering. The S3 client can retry the entire part
+     * upload if needed.
+     */
+    private BlockBlobAsyncClient createNonRetryingBlockBlobAsyncClient(
+            String container, String blobName) {
+        var cred = creds.get();
+        var retryOptions = new RequestRetryOptions(
+                RetryPolicyType.EXPONENTIAL,
+                /*maxTries=*/ 1,
+                /*tryTimeoutInSeconds=*/ (Integer) null,
+                /*retryDelayInMs=*/ (Long) null,
+                /*maxRetryDelayInMs=*/ (Long) null,
+                /*secondaryHost=*/ (String) null);
+
+        var clientBuilder = new BlobServiceClientBuilder()
+                .endpoint(endpoint)
+                .retryOptions(retryOptions);
+
+        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
+            clientBuilder.credential(
+                new AzureNamedKeyCredential(cred.identity, cred.credential));
+        } else {
+            clientBuilder.credential(new DefaultAzureCredentialBuilder().build());
+        }
+
+        return clientBuilder.buildAsyncClient()
+                .getBlobContainerAsyncClient(container)
+                .getBlobAsyncClient(blobName)
+                .getBlockBlobAsyncClient();
     }
 
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
-        var client = blobServiceClient
-                .getBlobContainerClient(mpu.containerName())
-                .getBlobClient(mpu.blobName())
+        String uploadKey = mpu.id();
+        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+
+        var containerClient = blobServiceClient.getBlobContainerClient(mpu.containerName());
+        var stubBlobClient = containerClient.getBlobClient(uploadKey);
+
+        String targetBlobName;
+        try {
+            var stubTags = stubBlobClient.getTags();
+            targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
+        } catch (BlobStorageException bse) {
+            if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
+                throw new IllegalArgumentException(
+                        "Upload not found: uploadId=" + uploadKey);
+            }
+            throw bse;
+        }
+
+        var client = containerClient
+                .getBlobClient(targetBlobName)
                 .getBlockBlobClient();
-        var blockList = client.listBlocks(BlockListType.ALL);
+
+        BlockList blockList;
+        try {
+            blockList = client.listBlocks(BlockListType.ALL);
+        } catch (BlobStorageException bse) {
+            if (bse.getStatusCode() == 404) {
+                return ImmutableList.of();
+            }
+            throw bse;
+        }
+
         var parts = ImmutableList.<MultipartPart>builder();
+
+        String noncePrefix = nonce + ":";
+
         for (var properties : blockList.getUncommittedBlocks()) {
-            int partNumber = Ints.fromByteArray(Base64.getDecoder().decode(
-                    properties.getName()));
+            String encodedBlockId = properties.getName();
+            String blockId;
+            try {
+                blockId = new String(Base64.getDecoder().decode(encodedBlockId),
+                        StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+
+            if (!blockId.startsWith(noncePrefix)) {
+                continue;
+            }
+
+            int partNumber;
+            try {
+                String partNumberStr = blockId.substring(noncePrefix.length());
+                partNumber = Integer.parseInt(partNumberStr);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+
             String eTag = "";  // listBlocks does not return ETag
             Date lastModified = null; // listBlocks does not return LastModified
             parts.add(MultipartPart.create(partNumber, properties.getSizeLong(),
@@ -640,24 +1012,28 @@ public final class AzureBlobStore extends BaseBlobStore {
 
     @Override
     public List<MultipartUpload> listMultipartUploads(String container) {
-        var client = blobServiceClient.getBlobContainerClient(container);
-        var azureOptions = new ListBlobsOptions();
-        var details = new BlobListDetails();
-        details.setRetrieveUncommittedBlobs(true);
-        azureOptions.setDetails(details);
+        var containerClient = blobServiceClient.getBlobContainerClient(container);
 
         var builder = ImmutableList.<MultipartUpload>builder();
-        for (var blob : client.listBlobs(azureOptions,
-                /*continuationToken=*/ null, /*timeout=*/ null)) {
-            var properties = blob.getProperties();
-            // only uncommitted blobs lack ETags
-            if (properties.getETag() != null) {
+
+        var options = new ListBlobsOptions();
+        options.setPrefix(STUB_BLOB_PREFIX);
+        var details = new BlobListDetails();
+        details.setRetrieveTags(true);
+        options.setDetails(details);
+
+        for (var blobItem : containerClient.listBlobs(options, null, null)) {
+            // e.g., ".s3proxy/stubs/<uuid>"
+            String uploadKey = blobItem.getName();
+            var tags = blobItem.getTags();
+
+            if (tags == null || tags.get(TARGET_BLOB_NAME_TAG) == null) {
                 continue;
             }
-            // TODO: bogus uploadId
-            String uploadId = UUID.randomUUID().toString();
-            builder.add(MultipartUpload.create(container, blob.getName(),
-                    uploadId, null, null));
+
+            String targetBlobName = tags.get(TARGET_BLOB_NAME_TAG);
+            builder.add(MultipartUpload.create(container, targetBlobName,
+                    uploadKey, null, null));
         }
 
         return builder.build();
@@ -734,6 +1110,25 @@ public final class AzureBlobStore extends BaseBlobStore {
 
     private static String makeBlockId(int partNumber) {
         return Base64.getEncoder().encodeToString(Ints.toByteArray(partNumber));
+    }
+
+    /**
+     * Creates a deterministic Base64-encoded block ID using the upload nonce
+     * and padded part number.
+     *
+     * "Block IDs are strings of equal length within a blob. Block client code usually uses base-64 encoding to normalize strings into equal lengths."
+     * Source: https://learn.microsoft.com/en-us/rest/api/storageservices/understanding-block-blobs--append-blobs--and-page-blobs
+     *
+     * Format: nonce + ":" + 5-digit padded part number (e.g., "nonce:00001")
+     *
+     * @param nonce The upload session nonce from the uploadId context
+     * @param partNumber The part number (1-10,000)
+     * @return Base64-encoded block ID
+     */
+    private static String makeBlockId(String nonce, int partNumber) {
+        String rawId = String.format("%s:%05d", nonce, partNumber);
+        return Base64.getEncoder().encodeToString(
+                rawId.getBytes(StandardCharsets.UTF_8));
     }
 
     /**

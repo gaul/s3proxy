@@ -91,10 +91,12 @@ final class Quirks {
      * S3 stores object metadata during initiate multipart while others
      * require it during complete multipart.  Emulate the former in the latter
      * by storing and retrieving a stub object.
+     *
+     * Note: azureblob-sdk also uses stubs for multipart uploads but handles
+     * this internally in AzureBlobStore rather than in S3ProxyHandler.
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "azureblob",
-            "azureblob-sdk",
             "filesystem",
             "filesystem-nio2",
             "google-cloud-storage",

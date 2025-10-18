@@ -2518,7 +2518,11 @@ public class S3ProxyHandler {
         MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
                 new PutOptions());
-        blobStore.abortMultipartUpload(mpu);
+        try {
+            blobStore.abortMultipartUpload(mpu);
+        } catch (KeyNotFoundException knfe) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, knfe);
+        }
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
