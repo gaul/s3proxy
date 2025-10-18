@@ -2286,6 +2286,22 @@ public class S3ProxyHandler {
             builder.tier(StorageClass.valueOf(storageClass).toTier());
         }
 
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        String blobStoreType = getBlobStoreType(blobStore);
+
+        // Azure only supports If-None-Match: *, not If-Match: *
+        // Handle If-Match: * manually for the azureblob-sdk provider.
+        // Note: this is a non-atomic operation (HEAD then PUT).
+        if (ifMatch != null && ifMatch.equals("*") &&
+                blobStoreType.equals("azureblob-sdk")) {
+            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
+            if (metadata == null) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            ifMatch = null;
+        }
+
         BlobAccess access;
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
@@ -2298,7 +2314,11 @@ public class S3ProxyHandler {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        var options = new PutOptions().setBlobAccess(access);
+
+        var options = new PutOptions2()
+                .setBlobAccess(access)
+                .setIfMatch(ifMatch)
+                .setIfNoneMatch(ifNoneMatch);
 
         MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
                 builder.build().getMetadata(), options);

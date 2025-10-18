@@ -138,7 +138,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * requester pays buckets
 * [select object content](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectSELECTContent.html)
 
-
 S3Proxy emulates the following operations:
 
 * conditional PUT object when using If-Match or If-None-Match, unless the `azureblob-sdk` provider is used

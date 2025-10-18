@@ -585,7 +585,6 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
-        // Validate container exists
         var containerClient = blobServiceClient.getBlobContainerClient(container);
         try {
             if (!containerClient.exists()) {
@@ -596,7 +595,6 @@ public final class AzureBlobStore extends BaseBlobStore {
             throw bse;
         }
 
-        // Validate user metadata keys match Azure naming rules
         var userMetadata = blobMetadata.getUserMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             for (var key : userMetadata.keySet()) {
@@ -776,6 +774,18 @@ public final class AzureBlobStore extends BaseBlobStore {
             options.setTier(tier);
         }
 
+        // Support conditional writes (If-Match/If-None-Match)
+        if (mpu.putOptions() instanceof PutOptions2) {
+            var putOptions2 = (PutOptions2) mpu.putOptions();
+            String ifMatch = putOptions2.getIfMatch();
+            String ifNoneMatch = putOptions2.getIfNoneMatch();
+            if (ifMatch != null || ifNoneMatch != null) {
+                options.setRequestConditions(new BlobRequestConditions()
+                        .setIfMatch(ifMatch)
+                        .setIfNoneMatch(ifNoneMatch));
+            }
+        }
+
         try {
             var response = client.commitBlockListWithResponse(
                     options, /*timeout=*/ null, /*context=*/ null);
@@ -896,12 +906,15 @@ public final class AzureBlobStore extends BaseBlobStore {
             throw new RuntimeException("MD5 algorithm not available", e);
         } catch (BlobStorageException bse) {
             translateAndRethrowException(bse, mpu.containerName(), mpu.blobName());
-            throw new RuntimeException(bse);
+            throw new RuntimeException(String.format(
+                    "Failed to upload part %d for blob '%s' in container '%s': %s",
+                    partNumber, mpu.blobName(), mpu.containerName(), bse.getMessage()), bse);
         } catch (IOException ioe) {
-            throw new RuntimeException("Failed to upload part: " + ioe.getMessage(), ioe);
+            throw new RuntimeException(String.format(
+                    "Failed to upload part %d for blob '%s' in container '%s': %s",
+                    partNumber, mpu.blobName(), mpu.containerName(), ioe.getMessage()), ioe);
         }
 
-        // Return S3-compliant response with ETag (hex-encoded MD5)
         String eTag = BaseEncoding.base16()
                 .lowerCase().encode(md5Hash);
         Date lastModified = null;
@@ -1106,10 +1119,6 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .contentType(properties.getContentType())
                 .expires(expires != null ? toDate(expires) : null)
                 .build();
-    }
-
-    private static String makeBlockId(int partNumber) {
-        return Base64.getEncoder().encodeToString(Ints.toByteArray(partNumber));
     }
 
     /**
