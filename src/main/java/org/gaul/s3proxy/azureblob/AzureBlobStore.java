@@ -1058,7 +1058,7 @@ public final class AzureBlobStore extends BaseBlobStore {
 
     @Override
     public long getMaximumMultipartPartSize() {
-        return 4000 * 1024 * 1024;
+        return 4000L * 1024 * 1024;
     }
 
     @Override
