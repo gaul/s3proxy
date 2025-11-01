@@ -130,11 +130,11 @@ jobs:
           kill $(pidof minio)
 
       #Store the target
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: s3proxy
           path: target/s3proxy
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: pom
           path: pom.xml
