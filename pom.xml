@@ -419,7 +419,7 @@
     <dependency>
       <groupId>com.azure</groupId>
       <artifactId>azure-storage-blob</artifactId>
-      <version>12.31.3</version>
+      <version>12.32.0</version>
     </dependency>
     <dependency>
       <groupId>com.azure</groupId>
