@@ -161,7 +161,7 @@ public class Decryption {
     }
 
     public final long getUnencryptedSize() {
-      return unencryptedSize;
+        return unencryptedSize;
     }
 
     public final long calculateEndAt(long endAt) {

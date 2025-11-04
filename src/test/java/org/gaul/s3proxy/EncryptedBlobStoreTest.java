@@ -594,7 +594,7 @@ public final class EncryptedBlobStoreTest {
 
             long expectedEndRange = (offset != 0) ? content.length() : 0;
             assertThat(blob.getAllHeaders().get("Content-Range"))
-                .contains("bytes " + offset + "-" + expectedEndRange +"/" + content.length());
+                .contains("bytes " + offset + "-" + expectedEndRange + "/" + content.length());
         }
     }
 
@@ -674,7 +674,7 @@ public final class EncryptedBlobStoreTest {
                     content.substring(offset, end + 1));
 
                 assertThat(blob.getAllHeaders().get("Content-Range"))
-                    .contains("bytes " + offset + "-" + end +"/" + content.length());
+                    .contains("bytes " + offset + "-" + end + "/" + content.length());
             }
         }
     }
