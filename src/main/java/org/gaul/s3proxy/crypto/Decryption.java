@@ -160,6 +160,10 @@ public class Decryption {
         return encryptedSize;
     }
 
+    public final long getUnencryptedSize() {
+      return unencryptedSize;
+    }
+
     public final long calculateEndAt(long endAt) {
         // need to have always one more
         endAt++;

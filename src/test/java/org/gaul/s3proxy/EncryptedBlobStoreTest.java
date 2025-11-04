@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -590,6 +591,10 @@ public final class EncryptedBlobStoreTest {
             logger.debug("plaintext {}", plaintext);
 
             assertThat(plaintext).isEqualTo(content.substring(offset));
+
+            long expectedEndRange = (offset != 0) ? content.length() : 0;
+            assertThat(blob.getAllHeaders().get("Content-Range"))
+                .contains("bytes " + offset + "-" + expectedEndRange +"/" + content.length());
         }
     }
 
@@ -623,6 +628,9 @@ public final class EncryptedBlobStoreTest {
 
             assertThat(plaintext).isEqualTo(
                 content.substring(content.length() - length));
+
+            assertThat(blob.getAllHeaders().get("Content-Range"))
+                .contains("bytes " + 0 + "-" + length + "/" + content.length());
         }
     }
 
@@ -664,6 +672,9 @@ public final class EncryptedBlobStoreTest {
                 assertThat(plaintext).hasSize(size);
                 assertThat(plaintext).isEqualTo(
                     content.substring(offset, end + 1));
+
+                assertThat(blob.getAllHeaders().get("Content-Range"))
+                    .contains("bytes " + offset + "-" + end +"/" + content.length());
             }
         }
     }
@@ -849,5 +860,24 @@ public final class EncryptedBlobStoreTest {
         var e = Assert.assertThrows(HttpResponseException.class,
             () -> encryptedBlobStore.getBlob(containerName, blobName, conditionalOptions));
         assertThat(e.getResponse().getStatusCode()).isEqualTo(304);
+    }
+
+    @Test
+    public void testReadDoubleZeroRange() throws IOException {
+        String blobName = TestUtils.createRandomBlobName();
+        String content = "Hello world.";
+        InputStream is = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+
+        Blob blob = makeBlob(encryptedBlobStore, blobName, is, content.length());
+        encryptedBlobStore.putBlob(containerName, blob);
+
+        GetOptions rangeOptions = new GetOptions();
+        rangeOptions.getRanges().add("0-0");
+
+        var result = encryptedBlobStore.getBlob(containerName, blobName, rangeOptions);
+        assertThat(result.getPayload().openStream().readAllBytes().length).isEqualTo(1);
+
+        assertThat(result.getAllHeaders().get("Content-Range"))
+            .contains("bytes 0-0/" + content.length());
     }
 }

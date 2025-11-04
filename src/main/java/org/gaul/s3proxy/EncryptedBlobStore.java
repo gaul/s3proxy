@@ -39,6 +39,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
+import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
@@ -437,7 +438,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
                 Blob blob =
                     delegate().getBlob(containerName, blobName, getOptions);
-                return decryptBlob(decryption, containerName, blob);
+                Blob decryptedBlob = decryptBlob(decryption, containerName, blob);
+                if (!getOptions.getRanges().isEmpty()) {
+                    long decryptedSize = decryption.getUnencryptedSize();
+                    long endRange = (offset != 0 && end == 0) ? decryptedSize : end;
+                    decryptedBlob.getAllHeaders()
+                        .put(HttpHeaders.CONTENT_RANGE, "bytes " + offset + "-" + endRange +
+                            "/" + decryptedSize);
+                }
+                return decryptedBlob;
             } else {
                 // we suppose to return a unencrypted blob
                 // since no metadata was found
