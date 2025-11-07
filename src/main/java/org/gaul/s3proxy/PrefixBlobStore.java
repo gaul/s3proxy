@@ -59,6 +59,12 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     static BlobStore newPrefixBlobStore(BlobStore delegate,
             Map<String, String> prefixes) {
+        String blobStoreType = delegate.getContext().unwrap()
+                .getProviderMetadata().getId();
+        if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
+            throw new UnsupportedOperationException(
+                    "Only supports opaque markers");
+        }
         return new PrefixBlobStore(delegate, prefixes);
     }
 
@@ -404,4 +410,3 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         return builder.build();
     }
 }
-
