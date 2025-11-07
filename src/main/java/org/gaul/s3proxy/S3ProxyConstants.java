@@ -97,6 +97,9 @@ public final class S3ProxyConstants {
     /** Alias a backend bucket to an alternate name. */
     public static final String PROPERTY_ALIAS_BLOBSTORE =
             "s3proxy.alias-blobstore";
+    /** Scope bucket operations to a specific object prefix. */
+    public static final String PROPERTY_PREFIX_BLOBSTORE =
+            "s3proxy.prefix-blobstore";
     /** Alias a backend bucket to an alternate name. */
     public static final String PROPERTY_REGEX_BLOBSTORE =
             "s3proxy.regex-blobstore";

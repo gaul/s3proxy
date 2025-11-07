@@ -106,6 +106,7 @@ A bucket (or a glob) cannot be assigned to multiple backends.
 S3Proxy can modify its behavior based on middlewares:
 
 * [bucket aliasing](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
+* [bucket prefix scoping](https://github.com/gaul/s3proxy/wiki/Middleware-prefix-blobstore)
 * [bucket locator](https://github.com/gaul/s3proxy/wiki/Middleware-bucket-locator)
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
