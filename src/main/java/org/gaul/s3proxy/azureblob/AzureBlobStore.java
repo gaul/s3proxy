@@ -66,6 +66,9 @@ import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
+import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
@@ -117,6 +120,13 @@ import reactor.core.publisher.Flux;
 public final class AzureBlobStore extends BaseBlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
+    private static final HashFunction MD5 = Hashing.md5();
+    // Disable retries since client should retry on errors.
+    private static final RequestRetryOptions NO_RETRY_OPTIONS = new RequestRetryOptions(
+            RetryPolicyType.FIXED, /*maxTries=*/ 1,
+            /*tryTimeoutInSeconds=*/ (Integer) null,
+            /*retryDelayInMs=*/ null, /*maxRetryDelayInMs=*/ null,
+            /*secondaryHost=*/ null);
 
     private final BlobServiceClient blobServiceClient;
     private final String endpoint;
@@ -133,11 +143,6 @@ public final class AzureBlobStore extends BaseBlobStore {
         this.endpoint = provider.getEndpoint();
         this.creds = creds;
         var cred = creds.get();
-        var retryOptions = new RequestRetryOptions(
-                RetryPolicyType.FIXED, 1,
-                (Integer) null,
-                null, null,
-                null);
         var blobServiceClientBuilder = new BlobServiceClientBuilder();
         if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
             blobServiceClientBuilder.credential(
@@ -148,7 +153,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
         blobServiceClient = blobServiceClientBuilder
                 .endpoint(endpoint)
-                .retryOptions(retryOptions)
+                .retryOptions(NO_RETRY_OPTIONS)
                 .buildClient();
     }
 
@@ -842,10 +847,11 @@ public final class AzureBlobStore extends BaseBlobStore {
                 mpu.containerName(), mpu.blobName());
 
         byte[] md5Hash;
-        try {
-            var is = payload.openStream();
+        try (var is = payload.openStream();
+             var his = new HashingInputStream(MD5, is)) {
             var providedMd5 = payload.getContentMetadata().getContentMD5AsHashCode();
-            var md = MessageDigest.getInstance("MD5");
+
+            final int maxChunkSize = 4 * 1024 * 1024;
 
             Flux<ByteBuffer> body = Flux.generate(
                 () -> 0L,
@@ -855,24 +861,35 @@ public final class AzureBlobStore extends BaseBlobStore {
                             sink.complete();
                             return position;
                         }
-                        int chunkSize = (int) Math.min(4 * 1024 * 1024L,
+                        int chunkSize = (int) Math.min(maxChunkSize,
                                 contentLength - position);
                         ByteBuffer buffer = ByteBuffer.allocate(chunkSize);
-                        int read = is.read(buffer.array(), 0, chunkSize);
-                        if (read == -1) {
-                            if (position < contentLength) {
-                                sink.error(new IOException(
-                                    String.format("Stream ended at %d bytes, expected %d",
-                                        position, contentLength)));
-                            } else {
-                                sink.complete();
+                        byte[] array = buffer.array();
+                        int totalRead = 0;
+                        while (totalRead < chunkSize) {
+                            int read = his.read(array, totalRead,
+                                    chunkSize - totalRead);
+                            if (read == -1) {
+                                if (position + totalRead < contentLength) {
+                                    sink.error(new IOException(
+                                        String.format("Stream ended at %d bytes, expected %d",
+                                            position + totalRead, contentLength)));
+                                    return position + totalRead;
+                                }
+                                break;
                             }
+                            totalRead += read;
+                        }
+                        if (totalRead == 0) {
+                            sink.error(new IOException(
+                                String.format("Stream ended at %d bytes, expected %d",
+                                        position, contentLength)));
                             return position;
                         }
-                        md.update(buffer.array(), 0, read);
-                        buffer.limit(read);
-                        sink.next(buffer);
-                        long nextPosition = position + read;
+                        buffer.position(totalRead);
+                        buffer.flip();
+                        sink.next(buffer.asReadOnlyBuffer());
+                        long nextPosition = position + totalRead;
                         if (nextPosition >= contentLength) {
                             sink.complete();
                         }
@@ -883,17 +900,13 @@ public final class AzureBlobStore extends BaseBlobStore {
                     }
                 },
                 position -> {
-                    try {
-                        is.close();
-                    } catch (IOException e) {
-                        // Ignore close errors
-                    }
+                    // Stream is closed by try-with-resources
                 }
             );
 
             asyncClient.stageBlock(blockId, body, contentLength).block();
 
-            md5Hash = md.digest();
+            md5Hash = his.hash().asBytes();
 
             if (providedMd5 != null) {
                 if (!MessageDigest.isEqual(md5Hash, providedMd5.asBytes())) {
@@ -901,8 +914,6 @@ public final class AzureBlobStore extends BaseBlobStore {
                 }
             }
 
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new RuntimeException("MD5 algorithm not available", e);
         } catch (BlobStorageException bse) {
             translateAndRethrowException(bse, mpu.containerName(), mpu.blobName());
             throw new RuntimeException(String.format(
@@ -929,17 +940,10 @@ public final class AzureBlobStore extends BaseBlobStore {
     private BlockBlobAsyncClient createNonRetryingBlockBlobAsyncClient(
             String container, String blobName) {
         var cred = creds.get();
-        var retryOptions = new RequestRetryOptions(
-                RetryPolicyType.EXPONENTIAL,
-                /*maxTries=*/ 1,
-                /*tryTimeoutInSeconds=*/ (Integer) null,
-                /*retryDelayInMs=*/ (Long) null,
-                /*maxRetryDelayInMs=*/ (Long) null,
-                /*secondaryHost=*/ (String) null);
 
         var clientBuilder = new BlobServiceClientBuilder()
                 .endpoint(endpoint)
-                .retryOptions(retryOptions);
+                .retryOptions(NO_RETRY_OPTIONS);
 
         if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
             clientBuilder.credential(
