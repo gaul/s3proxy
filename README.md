@@ -73,8 +73,8 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 
 * atmos
 * aws-s3 (Amazon-only)
-* azureblob
-* azureblob-sdk
+* azureblob (deprecated)
+* azureblob-sdk (recommended)
 * b2
 * filesystem (on-disk storage, deprecated)
 * filesystem-nio2 (on-disk storage, recommended)
