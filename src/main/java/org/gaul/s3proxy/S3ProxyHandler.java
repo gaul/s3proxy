@@ -41,6 +41,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TimeZone;
@@ -58,6 +59,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
@@ -293,9 +295,10 @@ public class S3ProxyHandler {
         String uri = request.getRequestURI();
         String originalUri = request.getRequestURI();
 
-        // Check for the /version endpoint
-        if ("/healthz".equals(uri) && "GET".equalsIgnoreCase(method)) {
-            handleVersionRequest(response);
+        String healthzUri = servicePath.isEmpty() ? "/healthz" :
+                servicePath + "/healthz";
+        if (healthzUri.equals(uri) && "GET".equalsIgnoreCase(method)) {
+            handleStatuszRequest(response);
             return;
         }
 
@@ -2035,16 +2038,53 @@ public class S3ProxyHandler {
 
         response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
     }
-    private void handleVersionRequest(HttpServletResponse response) throws IOException {
+
+    private void handleStatuszRequest(HttpServletResponse response)
+            throws IOException {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("application/json");
-        response.setCharacterEncoding("UTF-8");
-    
-        String versionInfo = "{ \"status\": \"OK\"}";
-    
+        response.setCharacterEncoding(UTF_8);
+
+        var statusBody = ImmutableMap.of("gitHash", StatusMetadata.INSTANCE.gitHash);
+        String versionInfo = StatusMetadata.JSON_MAPPER.writeValueAsString(statusBody);
+
         try (PrintWriter writer = response.getWriter()) {
             writer.write(versionInfo);
             writer.flush();
+        }
+    }
+
+    private static final class StatusMetadata {
+        private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+        private static final StatusMetadata INSTANCE = StatusMetadata.load();
+        private static final String UNKNOWN_VALUE = "unknown";
+        private final String gitHash;
+
+        private StatusMetadata(String gitHash) {
+            this.gitHash = gitHash;
+        }
+
+        static StatusMetadata load() {
+            String gitHash = loadGitHash();
+            return new StatusMetadata(gitHash);
+        }
+
+        private static String loadGitHash() {
+            try (InputStream stream = S3ProxyHandler.class.getClassLoader()
+                    .getResourceAsStream("git.properties")) {
+                if (stream == null) {
+                    return UNKNOWN_VALUE;
+                }
+                Properties properties = new Properties();
+                properties.load(stream);
+                return Optional.ofNullable(
+                        properties.getProperty("git.commit.id.abbrev"))
+                        .orElseGet(() -> properties.getProperty("git.commit.id",
+                                UNKNOWN_VALUE));
+            } catch (IOException ioe) {
+                logger.debug("Unable to load git.properties", ioe);
+                return UNKNOWN_VALUE;
+            }
         }
     }
 

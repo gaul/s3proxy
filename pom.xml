@@ -169,6 +169,26 @@
         </configuration>
       </plugin>
       <plugin>
+        <groupId>pl.project13.maven</groupId>
+        <artifactId>git-commit-id-plugin</artifactId>
+        <version>5.0.0</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>revision</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <generateGitPropertiesFile>true</generateGitPropertiesFile>
+          <gitPropertiesFile>${project.build.outputDirectory}/git.properties</gitPropertiesFile>
+          <includeOnlyProperties>
+            <includeOnlyProperty>git.commit.id.abbrev</includeOnlyProperty>
+            <includeOnlyProperty>git.commit.id</includeOnlyProperty>
+          </includeOnlyProperties>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
         <version>3.5.0</version>
