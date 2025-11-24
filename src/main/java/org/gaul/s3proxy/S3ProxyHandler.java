@@ -2373,8 +2373,11 @@ public class S3ProxyHandler {
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("azureblob") ||
-                blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob")) {
+            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
+                parts.add(part);
+            }
+        } else if (blobStoreType.equals("azureblob-sdk")) {
             var partsByListing =
                 blobStore.listMultipartUpload(mpu).stream().collect(
                         Collectors.toMap(
@@ -2585,8 +2588,7 @@ public class S3ProxyHandler {
 
         List<MultipartPart> parts;
         var blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("azureblob") ||
-                blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob")) {
             // map Azure subparts back into S3 parts
             SortedMap<Integer, Long> map = new TreeMap<>();
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
