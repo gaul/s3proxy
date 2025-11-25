@@ -126,8 +126,11 @@ public final class Main {
             properties.putAll(System.getProperties());
 
             BlobStore blobStore = createBlobStore(properties, executorService);
-            if (blobStore.getContext().unwrap().getProviderMetadata().getId().equals("filesystem")) {
-                logger.warn("filesystem storage backend deprecated -- please use filesystem-nio2 instead");
+            var blobStoreType = blobStore.getContext().unwrap().getProviderMetadata().getId();
+            if (blobStoreType.equals("azureblob")) {
+                System.err.println("WARNING: azureblob storage backend deprecated -- please use azureblob-sdk instead");
+            } else if (blobStoreType.equals("filesystem")) {
+                System.err.println("WARNING: filesystem storage backend deprecated -- please use filesystem-nio2 instead");
             }
 
             blobStore = parseMiddlewareProperties(blobStore, executorService,
