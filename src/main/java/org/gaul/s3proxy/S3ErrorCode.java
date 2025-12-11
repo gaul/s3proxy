@@ -65,6 +65,9 @@ public enum S3ErrorCode {
             "One or more of the specified parts could not be found." +
             "  The part may not have been uploaded, or the specified entity" +
             " tag may not match the part's entity tag."),
+    INVALID_PART_ORDER(HttpServletResponse.SC_BAD_REQUEST,
+            "The list of parts must be specified in ascending" +
+            " PartNumber order."),
     INVALID_REQUEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +

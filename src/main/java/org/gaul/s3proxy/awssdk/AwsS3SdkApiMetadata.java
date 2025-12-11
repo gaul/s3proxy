@@ -29,8 +29,6 @@ import org.jclouds.rest.internal.BaseHttpApiMetadata;
 public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
     /** Property for AWS region. */
     public static final String REGION = "aws-s3-sdk.region";
-    /** Property for custom S3 endpoint. */
-    public static final String ENDPOINT = "aws-s3-sdk.endpoint";
 
     public AwsS3SdkApiMetadata() {
         this(builder());

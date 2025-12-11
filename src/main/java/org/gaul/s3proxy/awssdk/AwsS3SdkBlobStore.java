@@ -16,14 +16,19 @@
 
 package org.gaul.s3proxy.awssdk;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.annotation.Nullable;
 
@@ -35,11 +40,10 @@ import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
 import jakarta.inject.Inject;
+import jakarta.inject.Named;
 import jakarta.inject.Singleton;
-import jakarta.ws.rs.core.Response.Status;
 
 import org.gaul.s3proxy.PutOptions2;
-import org.gaul.s3proxy.S3ErrorCode;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
@@ -75,15 +79,16 @@ import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
+import org.jclouds.rest.AuthorizationException;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
@@ -103,18 +108,16 @@ import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -123,7 +126,15 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 @Singleton
 public final class AwsS3SdkBlobStore extends BaseBlobStore {
-    private static final String DEFAULT_REGION = "us-east-1";
+    /**
+     * Tri-state for conditional writes support detection:
+     * - null: not yet detected
+     * - true: backend supports native conditional writes
+     * - false: backend does not support, emulation required
+     */
+    private final AtomicReference<Boolean> conditionalWritesSupported =
+            new AtomicReference<>(null);
+
     private final S3Client s3Client;
     private final String endpoint;
 
@@ -133,7 +144,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             @Memoized Supplier<Set<? extends Location>> locations,
             PayloadSlicer slicer,
             @org.jclouds.location.Provider Supplier<Credentials> creds,
-            ProviderMetadata provider) {
+            ProviderMetadata provider,
+            @Named(AwsS3SdkApiMetadata.REGION) String region) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
         var cred = creds.get();
@@ -159,8 +171,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             }
         }
 
-        // Configure region - default to us-east-1 for S3 compatibility
-        builder.region(Region.US_EAST_1);
+        // Configure region from property or default to us-east-1
+        builder.region(Region.of(region));
 
         this.s3Client = builder.build();
     }
@@ -245,7 +257,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                     nextMarker = Iterables.getLast(response.commonPrefixes()).prefix();
                 }
             }
-            
+
             // Workaround for LocalStack/Backend reporting truncated when result count < maxKeys
             if (set.build().size() < maxKeys) {
                 nextMarker = null;
@@ -300,8 +312,20 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             return true;
         } catch (S3Exception e) {
             if (e.statusCode() == 409) {
-                // Bucket already exists
-                return false;
+                String errorCode = e.awsErrorDetails() != null ?
+                        e.awsErrorDetails().errorCode() :
+                        null;
+                if ("BucketAlreadyOwnedByYou".equals(errorCode)) {
+                    // Idempotent success - bucket exists and caller owns it
+                    return false;
+                }
+                if ("BucketAlreadyExists".equals(errorCode)) {
+                    // Bucket exists but is owned by someone else
+                    throw new AuthorizationException(
+                            "Bucket already exists: " + container, e);
+                }
+                // Other 409s (OperationAborted, InvalidBucketState, etc.)
+                // fall through to translateAndRethrowException
             }
             translateAndRethrowException(e, container, null);
             throw e;
@@ -442,7 +466,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                         .build();
                 var responseBuilder = HttpResponse.builder()
                         .statusCode(304);
-                
+
                 // Try to get ETag from exception headers
                 var etagOptional = e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader("ETag");
                 if (etagOptional.isPresent()) {
@@ -455,14 +479,14 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                                 .key(key)
                                 .build());
                         if (head.eTag() != null) {
-                             responseBuilder.addHeader(HttpHeaders.ETAG, head.eTag());
+                            responseBuilder.addHeader(HttpHeaders.ETAG, head.eTag());
                         }
                     } catch (Exception ignored) {
                         // Ignore if head fails, we can't do much
                         System.err.println("Failed to fetch fallback ETag for 304: " + ignored.getMessage());
                     }
                 }
-                
+
                 throw new HttpResponseException(
                         new HttpCommand(request), responseBuilder.build(), e);
             }
@@ -849,7 +873,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     @Override
     public String completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
-        var completedParts = parts.stream()
+        var sortedParts = sortAndValidateParts(parts);
+        var completedParts = sortedParts.stream()
                 .map(part -> CompletedPart.builder()
                         .partNumber(part.partNumber())
                         .eTag(part.partETag())
@@ -975,6 +1000,31 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
 
     // Helper methods
 
+    private static List<MultipartPart> sortAndValidateParts(
+            List<MultipartPart> parts) {
+        if (parts == null || parts.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "At least one multipart part is required");
+        }
+        var sortedParts = parts.stream()
+                .sorted(Comparator.comparingInt(MultipartPart::partNumber))
+                .toList();
+        int previousPartNumber = 0;
+        for (MultipartPart part : sortedParts) {
+            int partNumber = part.partNumber();
+            if (partNumber <= 0) {
+                throw new IllegalArgumentException(
+                        "Part numbers must be positive integers");
+            }
+            if (partNumber < previousPartNumber) {
+                throw new IllegalArgumentException(
+                        "Parts must be provided in ascending PartNumber order");
+            }
+            previousPartNumber = partNumber;
+        }
+        return sortedParts;
+    }
+
     private static Date toDate(@Nullable Instant instant) {
         if (instant == null) {
             return null;
@@ -1051,10 +1101,10 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     private void translateAndRethrowException(S3Exception e,
             String container, @Nullable String key) {
         if (e.statusCode() == 501) {
-             System.err.println("Caught 501 Not Implemented from AWS SDK");
-             System.err.println("Message: " + e.getMessage());
-             System.err.println("Error Code: " + e.awsErrorDetails().errorCode());
-             System.err.println("Service Name: " + e.awsErrorDetails().serviceName());
+            System.err.println("Caught 501 Not Implemented from AWS SDK");
+            System.err.println("Message: " + e.getMessage());
+            System.err.println("Error Code: " + e.awsErrorDetails().errorCode());
+            System.err.println("Service Name: " + e.awsErrorDetails().serviceName());
         }
         if (e.statusCode() == 404) {
             String errorCode = e.awsErrorDetails().errorCode();
@@ -1081,7 +1131,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         var responseBuilder = HttpResponse.builder()
                 .statusCode(e.statusCode())
                 .message(e.getMessage());
-        
+
         if (e.statusCode() == 304) {
             // S3Exception headers are in the response
             e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader(HttpHeaders.ETAG)
