@@ -86,6 +86,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.server.MultiPartFormInputStream;
 import org.jclouds.blobstore.BlobStore;
+import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -849,16 +850,21 @@ public class S3ProxyHandler {
     }
 
     private static boolean checkPublicAccess(BlobStore blobStore,
-            String containerName, String blobName) {
+            String containerName, String blobName) throws S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
-        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
-            ContainerAccess access = blobStore.getContainerAccess(
-                    containerName);
-            return access == ContainerAccess.PUBLIC_READ;
-        } else {
+        try {
+            if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+                ContainerAccess access = blobStore.getContainerAccess(
+                        containerName);
+                return access == ContainerAccess.PUBLIC_READ;
+            }
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     blobName);
             return access == BlobAccess.PUBLIC_READ;
+        } catch (ContainerNotFoundException e) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, e);
+        } catch (KeyNotFoundException e) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, e);
         }
     }
 
@@ -2090,10 +2096,15 @@ public class S3ProxyHandler {
             ifMatch = null;
         }
 
+        // Providers that support native conditional writes
+        boolean supportsNativeConditionalWrites =
+                blobStoreType.equals("azureblob-sdk") ||
+                blobStoreType.equals("aws-s3-sdk");
+
         // Emulate conditional put for backends without native support.
         // Note: this is a non-atomic operation (HEAD then PUT).
         if ((ifMatch != null || ifNoneMatch != null) &&
-                !blobStoreType.equals("azureblob-sdk")) {
+                !supportsNativeConditionalWrites) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (ifMatch != null) {
                 if (ifMatch.equals("*")) {

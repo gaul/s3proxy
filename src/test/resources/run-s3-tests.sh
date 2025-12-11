@@ -3,10 +3,23 @@
 set -o errexit
 set -o nounset
 
-S3PROXY_CONF="${1-s3proxy.conf}"
+# Optional first argument selects a config; remaining args pass through to pytest via tox.
+# Example single test: ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf \
+#     s3tests_boto3/functional/test_s3.py::test_bucket_list_delimiter_prefix
+S3PROXY_CONF="s3proxy.conf"
+if (($# > 0)) && [[ "$1" == *.conf ]]; then
+    S3PROXY_CONF="$1"
+    shift
+fi
+
+if (($# > 0)) && [[ "$1" == -- ]]; then
+    shift
+fi
+
 S3PROXY_BIN="${PWD}/target/s3proxy"
 S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
+TOX_TEST_ARGS=("$@")
 
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
@@ -55,12 +68,18 @@ tags='not fails_on_s3proxy'\
 
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     tags="${tags} and not fails_on_s3proxy_azureblob"
+elif [ "${S3PROXY_CONF}" = "s3proxy-minio.conf" ]; then
+    tags="${tags} and not fails_on_s3proxy_minio"
 elif [ "${S3PROXY_CONF}" = "s3proxy-localstack.conf" ]; then
-    tags="${tags} and not fails_on_s3proxy_localstack and not fails_on_s3proxy_minio"
+    tags="${tags} and not fails_on_s3proxy_localstack and not fails_on_s3proxy_minio and not fails_on_aws"
 elif [ "${S3PROXY_CONF}" = "s3proxy-transient-nio2.conf" ]; then
     tags="${tags} and not fails_on_s3proxy_nio2"
 fi
 
 # execute s3-tests
 pushd s3-tests
-tox -- -m "${tags}"
+if [ ${#TOX_TEST_ARGS[@]} -eq 0 ]; then
+    tox -- -m "${tags}"
+else
+    tox -- -m "${tags}" "${TOX_TEST_ARGS[@]}"
+fi
