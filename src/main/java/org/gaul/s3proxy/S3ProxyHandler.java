@@ -60,7 +60,6 @@ import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -2483,10 +2482,13 @@ public class S3ProxyHandler {
             }
 
             if (cmu.parts != null) {
-                validateCompleteMultipartRequestOrder(cmu.parts);
-                //  preserve part number order and deduplicate
-                Map<Integer, MultipartPart> partsMap = new LinkedHashMap<>();
+                //  sort by part number and deduplicate (last occurrence wins)
+                SortedMap<Integer, MultipartPart> partsMap = new TreeMap<>();
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    if (part.partNumber <= 0) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
+                                "Part numbers must be positive integers.");
+                    }
                     MultipartPart uploadedPart = partsByListing.get(part.partNumber);
                     if (uploadedPart == null) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART);
@@ -2533,11 +2535,14 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
             }
 
-            // use TreeMap to allow runt last part
+            // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, String> requestParts = new TreeMap<>();
             if (cmu.parts != null) {
-                validateCompleteMultipartRequestOrder(cmu.parts);
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    if (part.partNumber <= 0) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
+                                "Part numbers must be positive integers.");
+                    }
                     requestParts.put(part.partNumber, part.eTag);
                 }
             }
@@ -2633,25 +2638,6 @@ public class S3ProxyHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
-        }
-    }
-
-    @VisibleForTesting
-    static void validateCompleteMultipartRequestOrder(
-            Collection<CompleteMultipartUploadRequest.Part> requestParts)
-            throws S3Exception {
-        int previousPartNumber = 0;
-        for (CompleteMultipartUploadRequest.Part part : requestParts) {
-            if (part.partNumber <= 0) {
-                throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
-                        "Part numbers must be positive integers.");
-            }
-            if (part.partNumber < previousPartNumber) {
-                throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
-                        "CompleteMultipartUpload requires parts in ascending" +
-                        " PartNumber order.");
-            }
-            previousPartNumber = part.partNumber;
         }
     }
 
