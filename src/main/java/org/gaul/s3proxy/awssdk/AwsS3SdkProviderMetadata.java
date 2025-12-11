@@ -16,7 +16,6 @@
 
 package org.gaul.s3proxy.awssdk;
 
-import java.net.URI;
 import java.util.Properties;
 
 import com.google.auto.service.AutoService;
@@ -58,13 +57,6 @@ public final class AwsS3SdkProviderMetadata extends BaseProviderMetadata {
                 .name("AWS S3 SDK Backend")
                 .apiMetadata(new AwsS3SdkApiMetadata())
                 .endpoint("https://s3.amazonaws.com")
-                .homepage(URI.create("https://aws.amazon.com/s3/"))
-                .console(URI.create("https://console.aws.amazon.com/s3/"))
-                .linkedServices("aws-s3-sdk")
-                .iso3166Codes("US", "US-CA", "US-OH", "US-OR", "US-VA",
-                        "CA", "BR", "IE", "GB", "DE", "FR", "SE", "CH",
-                        "SG", "JP", "AU", "IN", "CN", "HK", "KR", "ZA",
-                        "AE", "BH", "IL")
                 .defaultProperties(
                         AwsS3SdkProviderMetadata.defaultProperties());
         }

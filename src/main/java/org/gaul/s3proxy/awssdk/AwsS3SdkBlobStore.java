@@ -20,20 +20,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-
 import javax.annotation.Nullable;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
-import com.google.common.io.BaseEncoding;
+import com.google.common.collect.Streams;
 import com.google.common.net.HttpHeaders;
 
 import jakarta.inject.Inject;
@@ -93,6 +92,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
@@ -126,6 +126,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     private final S3Client s3Client;
     private final String endpoint;
     private final boolean useNativeConditionalWrites;
+    private final Region awsRegion;
 
     @Inject
     AwsS3SdkBlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -139,20 +140,19 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 String conditionalWrites) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
+        this.awsRegion = Region.of(region);
         this.useNativeConditionalWrites = !"emulated".equalsIgnoreCase(
                 conditionalWrites);
         var cred = creds.get();
 
         S3ClientBuilder builder = S3Client.builder();
 
-        // Configure credentials
         if (cred.identity != null && !cred.identity.isEmpty() &&
                 cred.credential != null && !cred.credential.isEmpty()) {
             builder.credentialsProvider(StaticCredentialsProvider.create(
                     AwsBasicCredentials.create(cred.identity, cred.credential)));
         }
 
-        // Configure endpoint and path-style access for non-AWS endpoints
         if (endpoint != null && !endpoint.isEmpty()) {
             URI endpointUri = URI.create(endpoint);
             builder.endpointOverride(endpointUri);
@@ -164,25 +164,29 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             }
         }
 
-        // Configure region from property or default to us-east-1
-        builder.region(Region.of(region));
+        builder.region(this.awsRegion);
 
         this.s3Client = builder.build();
     }
 
     @Override
     public PageSet<? extends StorageMetadata> list() {
-        var set = ImmutableSet.<StorageMetadata>builder();
-        for (Bucket bucket : s3Client.listBuckets().buckets()) {
-            set.add(new StorageMetadataImpl(StorageType.CONTAINER, /*id=*/ null,
-                    bucket.name(), /*location=*/ null, /*uri=*/ null,
-                    /*eTag=*/ null,
-                    toDate(bucket.creationDate()),
-                    toDate(bucket.creationDate()),
-                    Map.of(), /*size=*/ null,
-                    Tier.STANDARD));
+        try {
+            var set = ImmutableSet.<StorageMetadata>builder();
+            for (Bucket bucket : s3Client.listBuckets().buckets()) {
+                set.add(new StorageMetadataImpl(StorageType.CONTAINER, /*id=*/ null,
+                        bucket.name(), /*location=*/ null, /*uri=*/ null,
+                        /*eTag=*/ null,
+                        toDate(bucket.creationDate()),
+                        toDate(bucket.creationDate()),
+                        Map.of(), /*size=*/ null,
+                        Tier.STANDARD));
+            }
+            return new PageSetImpl<StorageMetadata>(set.build(), null);
+        } catch (S3Exception e) {
+            translateAndRethrowException(e, null, null);
+            throw e;
         }
-        return new PageSetImpl<StorageMetadata>(set.build(), null);
     }
 
     @Override
@@ -213,7 +217,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             var set = ImmutableSet.<StorageMetadata>builder();
             String nextMarker = null;
 
-            // Add objects
             for (S3Object obj : response.contents()) {
                 set.add(new StorageMetadataImpl(StorageType.BLOB,
                         /*id=*/ null, obj.key(), /*location=*/ null,
@@ -225,29 +228,25 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                         toTier(obj.storageClass())));
             }
 
-            // Add common prefixes (directories)
             for (CommonPrefix prefix : response.commonPrefixes()) {
-                try {
-                    set.add(new StorageMetadataImpl(StorageType.RELATIVE_PATH,
-                            /*id=*/ null, prefix.prefix(), /*location=*/ null,
-                            /*uri=*/ null, /*eTag=*/ null,
-                            /*creationDate=*/ null,
-                            /*lastModified=*/ null,
-                            Map.of(),
-                            /*size=*/ 0L,
-                            Tier.STANDARD));
-                } catch (Exception e) {
-                    System.err.println("Error creating StorageMetadataImpl for prefix: " + prefix.prefix());
-                    e.printStackTrace();
-                    throw e;
-                }
+                set.add(new StorageMetadataImpl(StorageType.RELATIVE_PATH,
+                        /*id=*/ null, prefix.prefix(), /*location=*/ null,
+                        /*uri=*/ null, /*eTag=*/ null,
+                        /*creationDate=*/ null,
+                        /*lastModified=*/ null,
+                        Map.of(),
+                        /*size=*/ 0L,
+                        Tier.STANDARD));
             }
 
             if (response.isTruncated()) {
                 if (!response.contents().isEmpty()) {
-                    nextMarker = Iterables.getLast(response.contents()).key();
+                    nextMarker = Streams.findLast(response.contents().stream())
+                            .orElseThrow().key();
                 } else if (!response.commonPrefixes().isEmpty()) {
-                    nextMarker = Iterables.getLast(response.commonPrefixes()).prefix();
+                    nextMarker = Streams.findLast(
+                            response.commonPrefixes().stream())
+                            .orElseThrow().prefix();
                 }
             }
 
@@ -296,9 +295,15 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             options = new CreateContainerOptions();
         }
         try {
-            s3Client.createBucket(CreateBucketRequest.builder()
-                    .bucket(container)
-                    .build());
+            var requestBuilder = CreateBucketRequest.builder()
+                    .bucket(container);
+            if (!Region.US_EAST_1.equals(awsRegion)) {
+                requestBuilder.createBucketConfiguration(
+                        CreateBucketConfiguration.builder()
+                                .locationConstraint(awsRegion.id())
+                                .build());
+            }
+            s3Client.createBucket(requestBuilder.build());
             if (options.isPublicRead()) {
                 setContainerAccess(container, ContainerAccess.PUBLIC_READ);
             }
@@ -317,8 +322,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                     throw new AuthorizationException(
                             "Bucket already exists: " + container, e);
                 }
-                // Other 409s (OperationAborted, InvalidBucketState, etc.)
-                // fall through to translateAndRethrowException
             }
             translateAndRethrowException(e, container, null);
             throw e;
@@ -328,9 +331,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     @Override
     public void deleteContainer(String container) {
         try {
-            // First, delete all objects in the container
             clearContainer(container);
-            // Then delete the bucket
             s3Client.deleteBucket(DeleteBucketRequest.builder()
                     .bucket(container)
                     .build());
@@ -345,7 +346,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     @Override
     public boolean deleteContainerIfEmpty(String container) {
         try {
-            // Check if empty first
             var response = s3Client.listObjectsV2(ListObjectsV2Request.builder()
                     .bucket(container)
                     .maxKeys(1)
@@ -392,13 +392,11 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 .bucket(container)
                 .key(key);
 
-        // Handle range requests
         if (!options.getRanges().isEmpty()) {
             String rangeSpec = options.getRanges().get(0);
             requestBuilder.range("bytes=" + rangeSpec);
         }
 
-        // Handle conditional gets
         if (options.getIfMatch() != null) {
             requestBuilder.ifMatch(options.getIfMatch());
         }
@@ -432,7 +430,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                             Date.from(response.expires()) : null)
                     .build();
 
-            // Add Content-Range header for range requests
             if (response.contentRange() != null) {
                 blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE,
                         response.contentRange());
@@ -451,7 +448,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            // 304 Not Modified - condition not met for If-None-Match
             if (e.statusCode() == 304) {
                 var request = HttpRequest.builder()
                         .method("GET")
@@ -460,25 +456,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 var responseBuilder = HttpResponse.builder()
                         .statusCode(304);
 
-                // Try to get ETag from exception headers
-                var etagOptional = e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader("ETag");
-                if (etagOptional.isPresent()) {
-                    responseBuilder.addHeader(HttpHeaders.ETAG, etagOptional.get());
-                } else {
-                    // Fallback: ETag missing in 304 response (LocalStack issue?), fetch it via HeadObject
-                    try {
-                        HeadObjectResponse head = s3Client.headObject(HeadObjectRequest.builder()
-                                .bucket(container)
-                                .key(key)
-                                .build());
-                        if (head.eTag() != null) {
-                            responseBuilder.addHeader(HttpHeaders.ETAG, head.eTag());
-                        }
-                    } catch (Exception ignored) {
-                        // Ignore if head fails, we can't do much
-                        System.err.println("Failed to fetch fallback ETag for 304: " + ignored.getMessage());
-                    }
-                }
+                e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader("ETag")
+                        .ifPresent(etag -> responseBuilder.addHeader(HttpHeaders.ETAG, etag));
 
                 throw new HttpResponseException(
                         new HttpCommand(request), responseBuilder.build(), e);
@@ -500,7 +479,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 .bucket(container)
                 .key(blob.getMetadata().getName());
 
-        // Set content metadata
         if (contentMetadata.getCacheControl() != null) {
             requestBuilder.cacheControl(contentMetadata.getCacheControl());
         }
@@ -515,7 +493,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.contentLanguage(contentMetadata.getContentLanguage());
         }
         if (contentMetadata.getContentMD5() != null) {
-            requestBuilder.contentMD5(BaseEncoding.base64().encode(
+            requestBuilder.contentMD5(Base64.getEncoder().encodeToString(
                     contentMetadata.getContentMD5()));
         }
         if (contentMetadata.getContentType() != null) {
@@ -525,7 +503,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.expires(contentMetadata.getExpires().toInstant());
         }
 
-        // Set user metadata
         var userMetadata = blob.getMetadata().getUserMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             requestBuilder.metadata(userMetadata);
@@ -536,14 +513,12 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
         }
 
-        // Set storage class/tier
         if (blob.getMetadata().getTier() != null &&
                 blob.getMetadata().getTier() != Tier.STANDARD) {
             requestBuilder.storageClass(
                     toStorageClass(blob.getMetadata().getTier()));
         }
 
-        // Handle conditional puts (If-Match/If-None-Match)
         String ifMatch = null;
         String ifNoneMatch = null;
         if (options instanceof PutOptions2) {
@@ -554,16 +529,12 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
 
         boolean hasConditionalHeaders = ifMatch != null || ifNoneMatch != null;
         if (hasConditionalHeaders && !useNativeConditionalWrites) {
-            // Emulated mode: validate preconditions via HEAD, then PUT
-            // without conditional headers
             validateConditionalPut(container, blob.getMetadata().getName(),
                     ifMatch, ifNoneMatch);
-            // Don't pass headers to backend since it doesn't support them
             ifMatch = null;
             ifNoneMatch = null;
         }
 
-        // Set conditional headers only in native mode
         if (ifMatch != null) {
             requestBuilder.ifMatch(ifMatch);
         }
@@ -619,7 +590,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             if (contentMetadata.getContentType() != null) {
                 requestBuilder.contentType(contentMetadata.getContentType());
             }
-            // Mark that we want to replace metadata
             requestBuilder.metadataDirective("REPLACE");
         }
 
@@ -724,10 +694,17 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     public void setContainerAccess(String container, ContainerAccess access) {
         BucketCannedACL acl = access == ContainerAccess.PUBLIC_READ ?
                 BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
-        s3Client.putBucketAcl(PutBucketAclRequest.builder()
-                .bucket(container)
-                .acl(acl)
-                .build());
+        try {
+            s3Client.putBucketAcl(PutBucketAclRequest.builder()
+                    .bucket(container)
+                    .acl(acl)
+                    .build());
+        } catch (NoSuchBucketException e) {
+            throw new ContainerNotFoundException(container, e.getMessage());
+        } catch (S3Exception e) {
+            translateAndRethrowException(e, container, null);
+            throw e;
+        }
     }
 
     @Override
@@ -793,14 +770,21 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     public void setBlobAccess(String container, String key, BlobAccess access) {
         ObjectCannedACL acl = access == BlobAccess.PUBLIC_READ ?
                 ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
-        s3Client.putObjectAcl(PutObjectAclRequest.builder()
-                .bucket(container)
-                .key(key)
-                .acl(acl)
-                .build());
+        try {
+            s3Client.putObjectAcl(PutObjectAclRequest.builder()
+                    .bucket(container)
+                    .key(key)
+                    .acl(acl)
+                    .build());
+        } catch (NoSuchKeyException e) {
+            throw new KeyNotFoundException(container, key, e.getMessage());
+        } catch (NoSuchBucketException e) {
+            throw new ContainerNotFoundException(container, e.getMessage());
+        } catch (S3Exception e) {
+            translateAndRethrowException(e, container, key);
+            throw e;
+        }
     }
-
-    // Multipart upload operations
 
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
@@ -940,24 +924,34 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         try {
-            var response = s3Client.listParts(ListPartsRequest.builder()
-                    .bucket(mpu.containerName())
-                    .key(mpu.blobName())
-                    .uploadId(mpu.id())
-                    .build());
-
             var parts = ImmutableList.<MultipartPart>builder();
-            for (Part part : response.parts()) {
-                parts.add(MultipartPart.create(part.partNumber(),
-                        part.size(),
-                        part.eTag(),
-                        toDate(part.lastModified())));
-            }
+            Integer partNumberMarker = null;
+
+            do {
+                var response = s3Client.listParts(ListPartsRequest.builder()
+                        .bucket(mpu.containerName())
+                        .key(mpu.blobName())
+                        .uploadId(mpu.id())
+                        .partNumberMarker(partNumberMarker)
+                        .build());
+
+                for (Part part : response.parts()) {
+                    parts.add(MultipartPart.create(part.partNumber(),
+                            part.size(),
+                            part.eTag(),
+                            toDate(part.lastModified())));
+                }
+
+                partNumberMarker = response.isTruncated() ?
+                        response.nextPartNumberMarker() : null;
+            } while (partNumberMarker != null);
+
             return parts.build();
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
                 return ImmutableList.of();
             }
+            translateAndRethrowException(e, mpu.containerName(), mpu.blobName());
             throw e;
         }
     }
@@ -965,18 +959,33 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     @Override
     public List<MultipartUpload> listMultipartUploads(String container) {
         try {
-            var response = s3Client.listMultipartUploads(
-                    ListMultipartUploadsRequest.builder()
-                            .bucket(container)
-                            .build());
-
             var builder = ImmutableList.<MultipartUpload>builder();
-            for (var upload : response.uploads()) {
-                builder.add(MultipartUpload.create(container,
-                        upload.key(),
-                        upload.uploadId(),
-                        null, null));
-            }
+            String keyMarker = null;
+            String uploadIdMarker = null;
+
+            do {
+                var response = s3Client.listMultipartUploads(
+                        ListMultipartUploadsRequest.builder()
+                                .bucket(container)
+                                .keyMarker(keyMarker)
+                                .uploadIdMarker(uploadIdMarker)
+                                .build());
+
+                for (var upload : response.uploads()) {
+                    builder.add(MultipartUpload.create(container,
+                            upload.key(),
+                            upload.uploadId(),
+                            null, null));
+                }
+
+                if (response.isTruncated()) {
+                    keyMarker = response.nextKeyMarker();
+                    uploadIdMarker = response.nextUploadIdMarker();
+                } else {
+                    keyMarker = null;
+                }
+            } while (keyMarker != null);
+
             return builder.build();
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
@@ -1007,8 +1016,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     public InputStream streamBlob(String container, String name) {
         throw new UnsupportedOperationException("not yet implemented");
     }
-
-    // Helper methods
 
     private static List<MultipartPart> sortAndValidateParts(
             List<MultipartPart> parts) {
@@ -1109,25 +1116,17 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
      * translated otherwise returns.
      */
     private void translateAndRethrowException(S3Exception e,
-            String container, @Nullable String key) {
-        if (e.statusCode() == 501) {
-            System.err.println("Caught 501 Not Implemented from AWS SDK");
-            System.err.println("Message: " + e.getMessage());
-            System.err.println("Error Code: " + e.awsErrorDetails().errorCode());
-            System.err.println("Service Name: " + e.awsErrorDetails().serviceName());
-        }
-        if (e.statusCode() == 404) {
+            @Nullable String container, @Nullable String key) {
+        if (container != null && e.statusCode() == 404) {
             String errorCode = e.awsErrorDetails().errorCode();
             if ("NoSuchBucket".equals(errorCode)) {
                 throw new ContainerNotFoundException(container, e.getMessage());
             } else if ("NoSuchKey".equals(errorCode)) {
                 if (key == null) {
-                    // Should not happen for key-less operations but fallback
                     throw new ContainerNotFoundException(container, e.getMessage());
                 }
                 throw new KeyNotFoundException(container, key, e.getMessage());
             }
-            // Fallback for other 404s
             if (key != null) {
                 throw new KeyNotFoundException(container, key, e.getMessage());
             } else {
@@ -1143,7 +1142,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 .message(e.getMessage());
 
         if (e.statusCode() == 304) {
-            // S3Exception headers are in the response
             e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader(HttpHeaders.ETAG)
                     .ifPresent(etag -> responseBuilder.addHeader(HttpHeaders.ETAG, etag));
         }
@@ -1213,49 +1211,54 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             @Nullable String ifMatch, @Nullable String ifNoneMatch) {
         BlobMetadata metadata = blobMetadata(container, blobName);
 
-        // Validate If-Match condition
         if (ifMatch != null) {
-            if ("*".equals(ifMatch)) {
-                // If-Match: * requires the object to exist
-                if (metadata == null) {
-                    throwPreconditionFailed();
-                }
-            } else {
-                // If-Match: <etag> requires object to exist with matching ETag
-                if (metadata == null) {
-                    throwKeyNotFound(container, blobName);
-                }
-                String currentETag = metadata.getETag();
-                if (currentETag != null) {
-                    currentETag = maybeQuoteETag(currentETag);
-                    if (!equalsIgnoringSurroundingQuotes(ifMatch, currentETag)) {
-                        throwPreconditionFailed();
-                    }
-                } else {
-                    // No ETag available, cannot validate
-                    throwPreconditionFailed();
-                }
-            }
+            validateIfMatch(container, blobName, ifMatch, metadata);
         }
 
-        // Validate If-None-Match condition
         if (ifNoneMatch != null) {
-            if ("*".equals(ifNoneMatch)) {
-                // If-None-Match: * requires the object to NOT exist
-                if (metadata != null) {
-                    throwPreconditionFailed();
-                }
-            } else if (metadata != null) {
-                // If-None-Match: <etag> requires ETag to NOT match
-                String currentETag = metadata.getETag();
-                if (currentETag != null) {
-                    currentETag = maybeQuoteETag(currentETag);
-                    if (equalsIgnoringSurroundingQuotes(ifNoneMatch,
-                            currentETag)) {
-                        throwPreconditionFailed();
-                    }
-                }
+            validateIfNoneMatch(ifNoneMatch, metadata);
+        }
+    }
+
+    private void validateIfMatch(String container, String blobName,
+            String ifMatch, @Nullable BlobMetadata metadata) {
+        if ("*".equals(ifMatch)) {
+            if (metadata == null) {
+                throwPreconditionFailed();
             }
+            return;
+        }
+
+        if (metadata == null) {
+            throwKeyNotFound(container, blobName);
+        }
+
+        String currentETag = metadata.getETag();
+        if (currentETag == null ||
+                !equalsIgnoringSurroundingQuotes(ifMatch,
+                    maybeQuoteETag(currentETag))) {
+            throwPreconditionFailed();
+        }
+    }
+
+    private void validateIfNoneMatch(String ifNoneMatch,
+            @Nullable BlobMetadata metadata) {
+        if ("*".equals(ifNoneMatch)) {
+            if (metadata != null) {
+                throwPreconditionFailed();
+            }
+            return;
+        }
+
+        if (metadata == null) {
+            return;
+        }
+
+        String currentETag = metadata.getETag();
+        if (currentETag != null &&
+                equalsIgnoringSurroundingQuotes(ifNoneMatch,
+                    maybeQuoteETag(currentETag))) {
+            throwPreconditionFailed();
         }
     }
 }
