@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
+
 
 import javax.annotation.Nullable;
 
@@ -126,17 +126,9 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 @Singleton
 public final class AwsS3SdkBlobStore extends BaseBlobStore {
-    /**
-     * Tri-state for conditional writes support detection:
-     * - null: not yet detected
-     * - true: backend supports native conditional writes
-     * - false: backend does not support, emulation required
-     */
-    private final AtomicReference<Boolean> conditionalWritesSupported =
-            new AtomicReference<>(null);
-
     private final S3Client s3Client;
     private final String endpoint;
+    private final boolean useNativeConditionalWrites;
 
     @Inject
     AwsS3SdkBlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -145,9 +137,13 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             PayloadSlicer slicer,
             @org.jclouds.location.Provider Supplier<Credentials> creds,
             ProviderMetadata provider,
-            @Named(AwsS3SdkApiMetadata.REGION) String region) {
+            @Named(AwsS3SdkApiMetadata.REGION) String region,
+            @Named(AwsS3SdkApiMetadata.CONDITIONAL_WRITES)
+                String conditionalWrites) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
+        this.useNativeConditionalWrites = !"emulated".equalsIgnoreCase(
+                conditionalWrites);
         var cred = creds.get();
 
         S3ClientBuilder builder = S3Client.builder();
@@ -551,14 +547,31 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         }
 
         // Handle conditional puts (If-Match/If-None-Match)
+        String ifMatch = null;
+        String ifNoneMatch = null;
         if (options instanceof PutOptions2) {
             var putOptions2 = (PutOptions2) options;
-            if (putOptions2.getIfMatch() != null) {
-                requestBuilder.ifMatch(putOptions2.getIfMatch());
-            }
-            if (putOptions2.getIfNoneMatch() != null) {
-                requestBuilder.ifNoneMatch(putOptions2.getIfNoneMatch());
-            }
+            ifMatch = putOptions2.getIfMatch();
+            ifNoneMatch = putOptions2.getIfNoneMatch();
+        }
+
+        boolean hasConditionalHeaders = ifMatch != null || ifNoneMatch != null;
+        if (hasConditionalHeaders && !useNativeConditionalWrites) {
+            // Emulated mode: validate preconditions via HEAD, then PUT
+            // without conditional headers
+            validateConditionalPut(container, blob.getMetadata().getName(),
+                    ifMatch, ifNoneMatch);
+            // Don't pass headers to backend since it doesn't support them
+            ifMatch = null;
+            ifNoneMatch = null;
+        }
+
+        // Set conditional headers only in native mode
+        if (ifMatch != null) {
+            requestBuilder.ifMatch(ifMatch);
+        }
+        if (ifNoneMatch != null) {
+            requestBuilder.ifNoneMatch(ifNoneMatch);
         }
 
         try (InputStream is = blob.getPayload().openStream()) {
@@ -1140,5 +1153,112 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
 
         throw new HttpResponseException(
                 new HttpCommand(request), responseBuilder.build(), e);
+    }
+
+    /**
+     * Ensures the ETag is surrounded by quotes if not already.
+     */
+    private static String maybeQuoteETag(String eTag) {
+        if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+            eTag = "\"" + eTag + "\"";
+        }
+        return eTag;
+    }
+
+    /**
+     * Compares two ETags, ignoring surrounding quotes.
+     */
+    private static boolean equalsIgnoringSurroundingQuotes(
+            String s1, String s2) {
+        if (s1.length() >= 2 && s1.startsWith("\"") && s1.endsWith("\"")) {
+            s1 = s1.substring(1, s1.length() - 1);
+        }
+        if (s2.length() >= 2 && s2.startsWith("\"") && s2.endsWith("\"")) {
+            s2 = s2.substring(1, s2.length() - 1);
+        }
+        return s1.equals(s2);
+    }
+
+    /**
+     * Throws an HttpResponseException with 412 Precondition Failed status.
+     */
+    private void throwPreconditionFailed() {
+        var request = HttpRequest.builder()
+                .method("PUT")
+                .endpoint(endpoint)
+                .build();
+        var response = HttpResponse.builder()
+                .statusCode(412)
+                .message("Precondition Failed")
+                .build();
+        throw new HttpResponseException(new HttpCommand(request), response);
+    }
+
+    /**
+     * Throws an HttpResponseException with 404 Not Found status.
+     */
+    private void throwKeyNotFound(String container, String key) {
+        throw new KeyNotFoundException(container, key,
+                "Object does not exist for If-Match condition");
+    }
+
+    /**
+     * Validates conditional PUT preconditions by checking current object state.
+     * This is used when emulating conditional writes for backends that don't
+     * support If-Match/If-None-Match headers natively.
+     *
+     * @param container the bucket name
+     * @param blobName the object key
+     * @param ifMatch the If-Match header value (or null)
+     * @param ifNoneMatch the If-None-Match header value (or null)
+     */
+    private void validateConditionalPut(String container, String blobName,
+            @Nullable String ifMatch, @Nullable String ifNoneMatch) {
+        BlobMetadata metadata = blobMetadata(container, blobName);
+
+        // Validate If-Match condition
+        if (ifMatch != null) {
+            if ("*".equals(ifMatch)) {
+                // If-Match: * requires the object to exist
+                if (metadata == null) {
+                    throwPreconditionFailed();
+                }
+            } else {
+                // If-Match: <etag> requires object to exist with matching ETag
+                if (metadata == null) {
+                    throwKeyNotFound(container, blobName);
+                }
+                String currentETag = metadata.getETag();
+                if (currentETag != null) {
+                    currentETag = maybeQuoteETag(currentETag);
+                    if (!equalsIgnoringSurroundingQuotes(ifMatch, currentETag)) {
+                        throwPreconditionFailed();
+                    }
+                } else {
+                    // No ETag available, cannot validate
+                    throwPreconditionFailed();
+                }
+            }
+        }
+
+        // Validate If-None-Match condition
+        if (ifNoneMatch != null) {
+            if ("*".equals(ifNoneMatch)) {
+                // If-None-Match: * requires the object to NOT exist
+                if (metadata != null) {
+                    throwPreconditionFailed();
+                }
+            } else if (metadata != null) {
+                // If-None-Match: <etag> requires ETag to NOT match
+                String currentETag = metadata.getETag();
+                if (currentETag != null) {
+                    currentETag = maybeQuoteETag(currentETag);
+                    if (equalsIgnoringSurroundingQuotes(ifNoneMatch,
+                            currentETag)) {
+                        throwPreconditionFailed();
+                    }
+                }
+            }
+        }
     }
 }

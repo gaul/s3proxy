@@ -30,6 +30,14 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
     /** Property for AWS region. */
     public static final String REGION = "aws-s3-sdk.region";
 
+    /**
+     * Property for conditional writes mode.
+     * Values: "native" (default) - use If-Match/If-None-Match headers directly
+     *         "emulated" - validate via HEAD request before PUT
+     */
+    public static final String CONDITIONAL_WRITES =
+            "aws-s3-sdk.conditional-writes";
+
     public AwsS3SdkApiMetadata() {
         this(builder());
     }
@@ -50,6 +58,7 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
     public static Properties defaultProperties() {
         Properties properties = BaseHttpApiMetadata.defaultProperties();
         properties.setProperty(REGION, "us-east-1");
+        properties.setProperty(CONDITIONAL_WRITES, "native");
         return properties;
     }
 
