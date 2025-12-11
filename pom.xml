@@ -550,7 +550,6 @@
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
       <version>2.39.6</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>javax.annotation</groupId>

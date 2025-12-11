@@ -840,6 +840,8 @@ public final class AwsSdkTest {
     @Test
     public void testHttpClient() throws Exception {
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
+        // aws-s3-sdk doesn't support jclouds HTTP client
+        assumeTrue(!blobStoreType.equals("aws-s3-sdk"));
 
         String blobName = "blob-name";
         var metadata = new ObjectMetadata();
@@ -889,8 +891,10 @@ public final class AwsSdkTest {
 
     @Test
     public void testContainerCreateDelete() throws Exception {
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
-
+assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+        // LocalStack in us-east-1 returns 200 OK for duplicate bucket creation (legacy S3 behavior)
+        // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
+        assumeTrue(!blobStoreType.equals("aws-s3-sdk"));
         String containerName2 = createRandomContainerName();
         client.createBucket(containerName2);
         try {

@@ -114,6 +114,21 @@ jobs:
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest
 
+      - name: Start LocalStack
+        run: |
+          docker run -d --name localstack -p 4566:4566 localstack/localstack:4.11.1
+          # Wait for LocalStack to be ready
+          for i in $(seq 30); do
+            if curl -s http://127.0.0.1:4566/_localstack/health | grep -q '"s3"'; then
+              break
+            fi
+            sleep 1
+          done
+      - name: Maven Test with LocalStack (aws-s3-sdk)
+        run: |
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest
+
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
@@ -129,6 +144,11 @@ jobs:
           ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
           kill $(pidof node)
       - name: Run s3-tests with LocalStack
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
+          docker stop localstack
+
+      - name: Run s3-tests with LocalStack (aws-s3-sdk)
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
           docker stop localstack
