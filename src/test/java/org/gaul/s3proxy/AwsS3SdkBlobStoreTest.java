@@ -52,4 +52,21 @@ public final class AwsS3SdkBlobStoreTest {
             assertThat(context.getBlobStore()).isNotNull();
         }
     }
+
+    @Test
+    public void testCustomRegionConfiguration() {
+        var properties = new Properties();
+        properties.setProperty("jclouds.identity", "test-identity");
+        properties.setProperty("jclouds.credential", "test-credential");
+        properties.setProperty("jclouds.endpoint", "http://localhost:9000");
+        properties.setProperty("aws-s3-sdk.region", "eu-west-1");
+
+        // Verify that custom region configuration is accepted
+        try (BlobStoreContext context = ContextBuilder.newBuilder("aws-s3-sdk")
+                .overrides(properties)
+                .buildView(BlobStoreContext.class)) {
+            assertThat(context).isNotNull();
+            assertThat(context.getBlobStore()).isNotNull();
+        }
+    }
 }

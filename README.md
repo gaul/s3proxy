@@ -72,7 +72,8 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 ## Supported storage backends
 
 * atmos
-* aws-s3 (Amazon-only)
+* aws-s3 (Amazon-only, deprecated)
+* aws-s3-sdk (S3-compatible backends via AWS SDK, recommended)
 * azureblob (deprecated)
 * azureblob-sdk (recommended)
 * b2
