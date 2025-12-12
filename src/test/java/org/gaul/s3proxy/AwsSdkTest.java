@@ -118,6 +118,7 @@ public final class AwsSdkTest {
                     .withSignerOverride("S3SignerType");
     private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
     private static final int MINIO_PORT = 9000;
+    private static final int LOCALSTACK_PORT = 4566;
 
     private URI s3Endpoint;
     private EndpointConfiguration s3EndpointConfig;
@@ -675,6 +676,7 @@ public final class AwsSdkTest {
     public void testSpecialCharacters() throws Exception {
         // TODO: fixed in jclouds 2.6.1
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
 
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
         if (blobStoreType.equals("azureblob") ||
@@ -887,6 +889,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testContainerCreateDelete() throws Exception {
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+
         String containerName2 = createRandomContainerName();
         client.createBucket(containerName2);
         try {

@@ -55,8 +55,8 @@ tags='not fails_on_s3proxy'\
 
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     tags="${tags} and not fails_on_s3proxy_azureblob"
-elif [ "${S3PROXY_CONF}" = "s3proxy-minio.conf" ]; then
-    tags="${tags} and not fails_on_s3proxy_minio"
+elif [ "${S3PROXY_CONF}" = "s3proxy-localstack.conf" ]; then
+    tags="${tags} and not fails_on_s3proxy_localstack and not fails_on_s3proxy_minio"
 elif [ "${S3PROXY_CONF}" = "s3proxy-transient-nio2.conf" ]; then
     tags="${tags} and not fails_on_s3proxy_nio2"
 fi
