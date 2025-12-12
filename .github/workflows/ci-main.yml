@@ -97,18 +97,22 @@ jobs:
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest
 
-      - name: Install Minio
+      - name: Install LocalStack
+        run: docker pull localstack/localstack:4.11.1
+      - name: Start LocalStack
         run: |
-          curl --fail --silent --output minio https://dl.min.io/server/minio/release/linux-$(uname -m | sed -e s/aarch64/arm64/ -e s/x86_64/amd64/)/minio
-          chmod +x minio
-      - name: Start Minio
-        run: |
-          mkdir mnt/
-          MINIO_SERVER_URL=http://127.0.0.1:9000 MINIO_ROOT_USER=remote-identity MINIO_ROOT_PASSWORD=remote-credential ./minio server mnt/ &
-      - name: Maven Test with Minio
+          docker run -d --name localstack -p 4566:4566 localstack/localstack:4.11.1
+          # Wait for LocalStack to be ready
+          for i in $(seq 30); do
+            if curl -s http://127.0.0.1:4566/_localstack/health | grep -q '"s3"'; then
+              break
+            fi
+            sleep 1
+          done
+      - name: Maven Test with LocalStack
         run: |
           # TODO: run other test classes
-          mvn test -Ds3proxy.test.conf=s3proxy-minio.conf -Dtest=AwsSdkTest
+          mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest
 
       - name: Install s3-tests
         run: |
@@ -124,10 +128,10 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
           kill $(pidof node)
-      - name: Run s3-tests with Minio
+      - name: Run s3-tests with LocalStack
         run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-minio.conf
-          kill $(pidof minio)
+          ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
+          docker stop localstack
 
       #Store the target
       - uses: actions/upload-artifact@v5
