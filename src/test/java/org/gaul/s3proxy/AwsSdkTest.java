@@ -891,7 +891,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testContainerCreateDelete() throws Exception {
-assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
         // LocalStack in us-east-1 returns 200 OK for duplicate bucket creation (legacy S3 behavior)
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
         assumeTrue(!blobStoreType.equals("aws-s3-sdk"));
