@@ -458,7 +458,15 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .getBlobContainerClient(fromContainer)
                 .getBlobClient(fromName);
         var url = fromClient.getBlobUrl();
-        var token = fromClient.generateSas(values);
+        String token;
+        var cred = creds.get();
+        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
+            token = fromClient.generateSas(values);
+        } else {
+            var userDelegationKey = blobServiceClient.getUserDelegationKey(
+                    OffsetDateTime.now().minusMinutes(5), expiryTime);
+            token = fromClient.generateUserDelegationSas(values, userDelegationKey);
+        }
 
         // TODO: is this the best way to generate a SAS URL?
         var azureOptions = new BlobUploadFromUrlOptions(url + "?" + token);
