@@ -23,10 +23,6 @@ import com.google.auto.service.AutoService;
 import org.jclouds.providers.ProviderMetadata;
 import org.jclouds.providers.internal.BaseProviderMetadata;
 
-/**
- * Implementation of org.jclouds.types.ProviderMetadata for AWS S3 using
- * the AWS SDK v2.
- */
 @AutoService(ProviderMetadata.class)
 public final class AwsS3SdkProviderMetadata extends BaseProviderMetadata {
     public AwsS3SdkProviderMetadata() {

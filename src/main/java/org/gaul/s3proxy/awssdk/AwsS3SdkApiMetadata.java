@@ -27,7 +27,6 @@ import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
 @SuppressWarnings("rawtypes")
 public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
-    /** Property for AWS region. */
     public static final String REGION = "aws-s3-sdk.region";
 
     /**
@@ -46,6 +45,17 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
      */
     public static final String CHUNKED_ENCODING_ENABLED =
             "aws-s3-sdk.chunked-encoding";
+
+    /**
+     * Property for stripping quotes from ETag values in conditional headers.
+     * Enable for S3-compatible backends with Ceph Reef bug that requires
+     * unquoted ETags in If-Match/If-None-Match headers.
+     * See: https://tracker.ceph.com/issues/68712
+     * TODO: Can be removed after 2027-01-01 - by then every provider should
+     * have migrated to a newer Ceph version (including Hetzner).
+     */
+    public static final String STRIP_ETAG_QUOTES =
+            "aws-s3-sdk.strip-etag-quotes";
 
     public AwsS3SdkApiMetadata() {
         this(builder());
@@ -69,6 +79,7 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
         properties.setProperty(REGION, "us-east-1");
         properties.setProperty(CONDITIONAL_WRITES, "native");
         properties.setProperty(CHUNKED_ENCODING_ENABLED, "true");
+        properties.setProperty(STRIP_ETAG_QUOTES, "false");
         return properties;
     }
 
