@@ -250,11 +250,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 }
             }
 
-            // Workaround for LocalStack/Backend reporting truncated when result count < maxKeys
-            if (set.build().size() < maxKeys) {
-                nextMarker = null;
-            }
-
             return new PageSetImpl<StorageMetadata>(set.build(), nextMarker);
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
