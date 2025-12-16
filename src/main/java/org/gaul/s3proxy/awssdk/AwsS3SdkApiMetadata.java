@@ -38,6 +38,15 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
     public static final String CONDITIONAL_WRITES =
             "aws-s3-sdk.conditional-writes";
 
+    /**
+     * Property for enabling chunked encoding (default: true).
+     * When false, sends "x-amz-content-sha256: UNSIGNED-PAYLOAD" instead of
+     * streaming signatures. Disable for S3-compatible backends that don't
+     * support aws-chunked encoding (e.g., some Ceph RGW versions).
+     */
+    public static final String CHUNKED_ENCODING_ENABLED =
+            "aws-s3-sdk.chunked-encoding";
+
     public AwsS3SdkApiMetadata() {
         this(builder());
     }
@@ -59,6 +68,7 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
         Properties properties = BaseHttpApiMetadata.defaultProperties();
         properties.setProperty(REGION, "us-east-1");
         properties.setProperty(CONDITIONAL_WRITES, "native");
+        properties.setProperty(CHUNKED_ENCODING_ENABLED, "true");
         return properties;
     }
 

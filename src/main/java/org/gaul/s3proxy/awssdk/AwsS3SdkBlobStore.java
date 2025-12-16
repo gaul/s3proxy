@@ -80,10 +80,13 @@ import org.jclouds.rest.AuthorizationException;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
+import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
@@ -137,7 +140,9 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             ProviderMetadata provider,
             @Named(AwsS3SdkApiMetadata.REGION) String region,
             @Named(AwsS3SdkApiMetadata.CONDITIONAL_WRITES)
-                String conditionalWrites) {
+                String conditionalWrites,
+            @Named(AwsS3SdkApiMetadata.CHUNKED_ENCODING_ENABLED)
+                String chunkedEncodingEnabled) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
         this.awsRegion = Region.of(region);
@@ -146,6 +151,16 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         var cred = creds.get();
 
         S3ClientBuilder builder = S3Client.builder();
+
+        builder.serviceConfiguration(S3Configuration.builder()
+                .chunkedEncodingEnabled(Boolean.valueOf(chunkedEncodingEnabled))
+                .build());
+
+        // Disable checksum calculation to avoid reading the stream twice.
+        // This allows streaming non-resettable InputStreams to S3-compatible
+        // backends that don't support aws-chunked encoding.
+        builder.requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED);
+        builder.responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED);
 
         if (cred.identity != null && !cred.identity.isEmpty() &&
                 cred.credential != null && !cred.credential.isEmpty()) {
