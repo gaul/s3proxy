@@ -129,6 +129,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     private final S3Client s3Client;
     private final String endpoint;
     private final boolean useNativeConditionalWrites;
+    private final boolean stripETagQuotes;
     private final Region awsRegion;
 
     @Inject
@@ -142,12 +143,15 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             @Named(AwsS3SdkApiMetadata.CONDITIONAL_WRITES)
                 String conditionalWrites,
             @Named(AwsS3SdkApiMetadata.CHUNKED_ENCODING_ENABLED)
-                String chunkedEncodingEnabled) {
+                String chunkedEncodingEnabled,
+            @Named(AwsS3SdkApiMetadata.STRIP_ETAG_QUOTES)
+                String stripEtagQuotes) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
         this.awsRegion = Region.of(region);
         this.useNativeConditionalWrites = !"emulated".equalsIgnoreCase(
                 conditionalWrites);
+        this.stripETagQuotes = Boolean.parseBoolean(stripEtagQuotes);
         var cred = creds.get();
 
         S3ClientBuilder builder = S3Client.builder();
@@ -408,10 +412,11 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         }
 
         if (options.getIfMatch() != null) {
-            requestBuilder.ifMatch(options.getIfMatch());
+            requestBuilder.ifMatch(maybeStripETagQuotes(options.getIfMatch()));
         }
         if (options.getIfNoneMatch() != null) {
-            requestBuilder.ifNoneMatch(options.getIfNoneMatch());
+            requestBuilder.ifNoneMatch(
+                    maybeStripETagQuotes(options.getIfNoneMatch()));
         }
         if (options.getIfModifiedSince() != null) {
             requestBuilder.ifModifiedSince(
@@ -546,10 +551,10 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         }
 
         if (ifMatch != null) {
-            requestBuilder.ifMatch(ifMatch);
+            requestBuilder.ifMatch(maybeStripETagQuotes(ifMatch));
         }
         if (ifNoneMatch != null) {
-            requestBuilder.ifNoneMatch(ifNoneMatch);
+            requestBuilder.ifNoneMatch(maybeStripETagQuotes(ifNoneMatch));
         }
 
         try (InputStream is = blob.getPayload().openStream()) {
@@ -1121,10 +1126,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         return builder.build();
     }
 
-    /**
-     * Translate S3Exception to a jclouds exception. Throws if
-     * translated otherwise returns.
-     */
     private void translateAndRethrowException(S3Exception e,
             @Nullable String container, @Nullable String key) {
         if (container != null && e.statusCode() == 404) {
@@ -1171,6 +1172,23 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     }
 
     /**
+     * Strips surrounding quotes from ETag if stripETagQuotes is enabled.
+     * Required for backends with Ceph Reef bug.
+     * See: https://tracker.ceph.com/issues/68712
+     * TODO: Can be removed after 2027-01-01 - by then every provider should
+     * have migrated to a newer Ceph version (including Hetzner).
+     */
+    private String maybeStripETagQuotes(String eTag) {
+        if (!stripETagQuotes || eTag == null) {
+            return eTag;
+        }
+        if (eTag.length() >= 2 && eTag.startsWith("\"") && eTag.endsWith("\"")) {
+            return eTag.substring(1, eTag.length() - 1);
+        }
+        return eTag;
+    }
+
+    /**
      * Compares two ETags, ignoring surrounding quotes.
      */
     private static boolean equalsIgnoringSurroundingQuotes(
@@ -1184,9 +1202,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         return s1.equals(s2);
     }
 
-    /**
-     * Throws an HttpResponseException with 412 Precondition Failed status.
-     */
     private void throwPreconditionFailed() {
         var request = HttpRequest.builder()
                 .method("PUT")
@@ -1199,23 +1214,14 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         throw new HttpResponseException(new HttpCommand(request), response);
     }
 
-    /**
-     * Throws an HttpResponseException with 404 Not Found status.
-     */
     private void throwKeyNotFound(String container, String key) {
         throw new KeyNotFoundException(container, key,
                 "Object does not exist for If-Match condition");
     }
 
     /**
-     * Validates conditional PUT preconditions by checking current object state.
-     * This is used when emulating conditional writes for backends that don't
-     * support If-Match/If-None-Match headers natively.
-     *
-     * @param container the bucket name
-     * @param blobName the object key
-     * @param ifMatch the If-Match header value (or null)
-     * @param ifNoneMatch the If-None-Match header value (or null)
+     * For S3-compatible backends that don't support If-Match/If-None-Match
+     * headers natively.
      */
     private void validateConditionalPut(String container, String blobName,
             @Nullable String ifMatch, @Nullable String ifNoneMatch) {

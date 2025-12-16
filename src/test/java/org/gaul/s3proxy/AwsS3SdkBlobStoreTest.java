@@ -24,9 +24,6 @@ import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.junit.Test;
 
-/**
- * Tests for the aws-s3-sdk BlobStore provider registration.
- */
 public final class AwsS3SdkBlobStoreTest {
 
     @Test
