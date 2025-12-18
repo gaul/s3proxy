@@ -47,17 +47,20 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             S3ProxyHandlerJetty.class);
 
     private final S3ProxyHandler handler;
+    private final S3ProxyMetrics metrics;
 
     S3ProxyHandlerJetty(final BlobStore blobStore,
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
             boolean ignoreUnknownHeaders, CrossOriginResourceSharing corsRules,
-            String servicePath, int maximumTimeSkew) {
+            String servicePath, int maximumTimeSkew,
+            @Nullable S3ProxyMetrics metrics) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
                 credential, virtualHost, maxSinglePartObjectSize,
                 v4MaxNonChunkedRequestSize, ignoreUnknownHeaders, corsRules,
                 servicePath, maximumTimeSkew);
+        this.metrics = metrics;
     }
 
     private void sendS3Exception(HttpServletRequest request,
@@ -71,13 +74,16 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
     public void handle(String target, Request baseRequest,
             HttpServletRequest request, HttpServletResponse response)
             throws IOException {
+        long startNanos = System.nanoTime();
+        var ctx = new S3ProxyHandler.RequestContext();
+
         try (InputStream is = request.getInputStream()) {
 
             // Set query encoding
             baseRequest.setAttribute(S3ProxyConstants.ATTRIBUTE_QUERY_ENCODING,
                     baseRequest.getQueryEncoding());
 
-            handler.doHandle(baseRequest, request, response, is);
+            handler.doHandle(baseRequest, request, response, is, ctx);
             baseRequest.setHandled(true);
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
@@ -142,7 +148,8 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             baseRequest.setHandled(true);
             return;
         } catch (IOException ioe) {
-            var cause = Throwables2.getFirstThrowableOfType(ioe, S3Exception.class);
+            var cause = Throwables2.getFirstThrowableOfType(ioe,
+                    S3Exception.class);
             if (cause != null) {
                 sendS3Exception(request, response, cause);
                 baseRequest.setHandled(true);
@@ -184,7 +191,25 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 logger.debug("Unknown exception:", throwable);
                 throw throwable;
             }
+        } finally {
+            recordMetrics(request, response, ctx, startNanos);
         }
+    }
+
+    private void recordMetrics(HttpServletRequest request,
+            HttpServletResponse response, S3ProxyHandler.RequestContext ctx,
+            long startNanos) {
+        if (metrics == null || ctx.getOperation() == null) {
+            return;
+        }
+        long durationNanos = System.nanoTime() - startNanos;
+        metrics.recordRequest(
+                request.getMethod(),
+                request.getScheme(),
+                response.getStatus(),
+                ctx.getOperation(),
+                ctx.getBucket(),
+                durationNanos);
     }
 
     public S3ProxyHandler getHandler() {
