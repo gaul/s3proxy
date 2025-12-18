@@ -40,6 +40,7 @@ import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.ContextHandler;
+import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.jclouds.blobstore.BlobStore;
@@ -53,6 +54,7 @@ import org.jclouds.blobstore.BlobStore;
 public final class S3Proxy {
     private final Server server;
     private final S3ProxyHandlerJetty handler;
+    private final S3ProxyMetrics metrics;
     private final boolean listenHTTP;
     private final boolean listenHTTPS;
 
@@ -128,14 +130,27 @@ public final class S3Proxy {
         } else {
             listenHTTPS = false;
         }
+        if (builder.metricsEnabled) {
+            this.metrics = new S3ProxyMetrics();
+        } else {
+            this.metrics = null;
+        }
+
         handler = new S3ProxyHandlerJetty(builder.blobStore,
                 builder.authenticationType, builder.identity,
                 builder.credential, builder.virtualHost,
                 builder.maxSinglePartObjectSize,
                 builder.v4MaxNonChunkedRequestSize,
                 builder.ignoreUnknownHeaders, builder.corsRules,
-                builder.servicePath, builder.maximumTimeSkew);
-        server.setHandler(handler);
+                builder.servicePath, builder.maximumTimeSkew, metrics);
+
+        if (metrics != null) {
+            var metricsHandler = new MetricsHandler(metrics);
+            var handlerList = new HandlerList(metricsHandler, handler);
+            server.setHandler(handlerList);
+        } else {
+            server.setHandler(handler);
+        }
     }
 
     public static final class Builder {
@@ -157,6 +172,7 @@ public final class S3Proxy {
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
+        private boolean metricsEnabled;
 
         Builder() {
         }
@@ -321,6 +337,12 @@ public final class S3Proxy {
                 builder.maximumTimeSkew(Integer.parseInt(maximumTimeSkew));
             }
 
+            String metricsEnabled = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_METRICS_ENABLED);
+            if (!Strings.isNullOrEmpty(metricsEnabled)) {
+                builder.metricsEnabled(Boolean.parseBoolean(metricsEnabled));
+            }
+
             return builder;
         }
 
@@ -409,6 +431,11 @@ public final class S3Proxy {
             return this;
         }
 
+        public Builder metricsEnabled(boolean metricsEnabled) {
+            this.metricsEnabled = metricsEnabled;
+            return this;
+        }
+
         public Builder servicePath(String s3ProxyServicePath) {
             String path = Strings.nullToEmpty(s3ProxyServicePath);
 
@@ -487,6 +514,9 @@ public final class S3Proxy {
 
     public void stop() throws Exception {
         server.stop();
+        if (metrics != null) {
+            metrics.close();
+        }
     }
 
     public int getPort() {
