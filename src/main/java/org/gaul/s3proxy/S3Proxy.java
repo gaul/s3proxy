@@ -131,7 +131,8 @@ public final class S3Proxy {
             listenHTTPS = false;
         }
         if (builder.metricsEnabled) {
-            this.metrics = new S3ProxyMetrics();
+            this.metrics = new S3ProxyMetrics(
+                    builder.metricsHost, builder.metricsPort);
         } else {
             this.metrics = null;
         }
@@ -173,6 +174,8 @@ public final class S3Proxy {
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
         private boolean metricsEnabled;
+        private int metricsPort = S3ProxyMetrics.DEFAULT_METRICS_PORT;
+        private String metricsHost = S3ProxyMetrics.DEFAULT_METRICS_HOST;
 
         Builder() {
         }
@@ -343,6 +346,18 @@ public final class S3Proxy {
                 builder.metricsEnabled(Boolean.parseBoolean(metricsEnabled));
             }
 
+            String metricsPort = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_METRICS_PORT);
+            if (!Strings.isNullOrEmpty(metricsPort)) {
+                builder.metricsPort(Integer.parseInt(metricsPort));
+            }
+
+            String metricsHost = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_METRICS_HOST);
+            if (!Strings.isNullOrEmpty(metricsHost)) {
+                builder.metricsHost(metricsHost);
+            }
+
             return builder;
         }
 
@@ -433,6 +448,16 @@ public final class S3Proxy {
 
         public Builder metricsEnabled(boolean metricsEnabled) {
             this.metricsEnabled = metricsEnabled;
+            return this;
+        }
+
+        public Builder metricsPort(int metricsPort) {
+            this.metricsPort = metricsPort;
+            return this;
+        }
+
+        public Builder metricsHost(String metricsHost) {
+            this.metricsHost = requireNonNull(metricsHost);
             return this;
         }
 

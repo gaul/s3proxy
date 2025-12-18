@@ -31,6 +31,10 @@ import io.opentelemetry.semconv.HttpAttributes;
 import io.opentelemetry.semconv.UrlAttributes;
 
 public final class S3ProxyMetrics {
+    /** Default metrics port (0 = ephemeral). */
+    public static final int DEFAULT_METRICS_PORT = 0;
+    public static final String DEFAULT_METRICS_HOST = "0.0.0.0";
+
     private static final AttributeKey<String> S3_OPERATION =
             AttributeKey.stringKey("s3.operation");
     private static final AttributeKey<String> S3_BUCKET =
@@ -44,9 +48,13 @@ public final class S3ProxyMetrics {
     private final PrometheusHttpServer prometheusServer;
 
     public S3ProxyMetrics() {
+        this(DEFAULT_METRICS_HOST, DEFAULT_METRICS_PORT);
+    }
+
+    public S3ProxyMetrics(String host, int port) {
         prometheusServer = PrometheusHttpServer.builder()
-                .setHost("localhost")
-                .setPort(0)
+                .setHost(host)
+                .setPort(port)
                 .build();
 
         meterProvider = SdkMeterProvider.builder()
