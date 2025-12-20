@@ -117,6 +117,27 @@ import org.slf4j.LoggerFactory;
 public class S3ProxyHandler {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
+
+    public static final class RequestContext {
+        private S3Operation operation;
+        private String bucket;
+
+        public S3Operation getOperation() {
+            return operation;
+        }
+
+        public void setOperation(S3Operation operation) {
+            this.operation = operation;
+        }
+
+        public String getBucket() {
+            return bucket;
+        }
+
+        public void setBucket(String bucket) {
+            this.bucket = bucket;
+        }
+    }
     private static final String AWS_XMLNS =
             "http://s3.amazonaws.com/doc/2006-03-01/";
     // TODO: support configurable metadata prefix
@@ -294,7 +315,8 @@ public class S3ProxyHandler {
 
     public final void doHandle(HttpServletRequest baseRequest,
             HttpServletRequest request, HttpServletResponse response,
-            InputStream is) throws IOException, S3Exception {
+            InputStream is, @Nullable RequestContext ctx)
+            throws IOException, S3Exception {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         String originalUri = request.getRequestURI();
@@ -357,7 +379,8 @@ public class S3ProxyHandler {
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
                 request.getParameter("AWSAccessKeyId") == null &&  // v2 query
                 defaultBlobStore != null) {
-            doHandleAnonymous(request, response, is, uri, defaultBlobStore);
+            doHandleAnonymous(request, response, is, uri, defaultBlobStore,
+                    ctx);
             return;
         }
 
@@ -668,76 +691,98 @@ public class S3ProxyHandler {
         }
 
         String uploadId = request.getParameter("uploadId");
+
+        if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
+            ctx.setBucket(path[1]);
+        }
+
         switch (method) {
         case "DELETE":
             if (path.length <= 2 || path[2].isEmpty()) {
+                setOperation(ctx, S3Operation.DELETE_BUCKET);
                 handleContainerDelete(request, response, blobStore, path[1]);
                 return;
             } else if (uploadId != null) {
+                setOperation(ctx, S3Operation.ABORT_MULTIPART_UPLOAD);
                 handleAbortMultipartUpload(request, response, blobStore,
                         path[1], path[2], uploadId);
                 return;
             } else {
+                setOperation(ctx, S3Operation.DELETE_OBJECT);
                 handleBlobRemove(request, response, blobStore, path[1],
                         path[2]);
                 return;
             }
         case "GET":
             if (uri.equals("/")) {
+                setOperation(ctx, S3Operation.LIST_BUCKETS);
                 handleContainerList(request, response, blobStore);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_ACL);
                     handleGetContainerAcl(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("location") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_LOCATION);
                     handleContainerLocation(request, response);
                     return;
                 } else if (request.getParameter("policy") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_POLICY);
                     handleBucketPolicy(blobStore, path[1]);
                     return;
                 } else if (request.getParameter("uploads") != null) {
+                    setOperation(ctx, S3Operation.LIST_MULTIPART_UPLOADS);
                     handleListMultipartUploads(request, response, blobStore,
                             path[1]);
                     return;
                 }
+                setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                 handleBlobList(request, response, blobStore, path[1]);
                 return;
             } else {
                 if (request.getParameter("acl") != null) {
+                    setOperation(ctx, S3Operation.GET_OBJECT_ACL);
                     handleGetBlobAcl(request, response, blobStore, path[1],
                             path[2]);
                     return;
                 } else if (uploadId != null) {
+                    setOperation(ctx, S3Operation.LIST_PARTS);
                     handleListParts(request, response, blobStore, path[1],
                             path[2], uploadId);
                     return;
                 }
+                setOperation(ctx, S3Operation.GET_OBJECT);
                 handleGetBlob(request, response, blobStore, path[1],
                         path[2]);
                 return;
             }
         case "HEAD":
             if (path.length <= 2 || path[2].isEmpty()) {
+                setOperation(ctx, S3Operation.HEAD_BUCKET);
                 handleContainerExists(request, response, blobStore, path[1]);
                 return;
             } else {
+                setOperation(ctx, S3Operation.HEAD_OBJECT);
                 handleBlobMetadata(request, response, blobStore, path[1],
                         path[2]);
                 return;
             }
         case "POST":
             if (request.getParameter("delete") != null) {
+                setOperation(ctx, S3Operation.DELETE_OBJECTS);
                 handleMultiBlobRemove(request, response, is, blobStore,
                         path[1]);
                 return;
             } else if (request.getParameter("uploads") != null) {
+                setOperation(ctx, S3Operation.CREATE_MULTIPART_UPLOAD);
                 handleInitiateMultipartUpload(request, response, blobStore,
                         path[1], path[2]);
                 return;
             } else if (uploadId != null &&
                     request.getParameter("partNumber") == null) {
+                setOperation(ctx, S3Operation.COMPLETE_MULTIPART_UPLOAD);
                 handleCompleteMultipartUpload(request, response, is, blobStore,
                         path[1], path[2], uploadId);
                 return;
@@ -746,45 +791,61 @@ public class S3ProxyHandler {
         case "PUT":
             if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
+                    setOperation(ctx, S3Operation.PUT_BUCKET_ACL);
                     handleSetContainerAcl(request, response, is, blobStore,
                             path[1]);
                     return;
                 }
+                setOperation(ctx, S3Operation.CREATE_BUCKET);
                 handleContainerCreate(request, response, is, blobStore,
                         path[1]);
                 return;
             } else if (uploadId != null) {
                 if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
+                    setOperation(ctx, S3Operation.UPLOAD_PART_COPY);
                     handleCopyPart(request, response, blobStore, path[1],
                             path[2], uploadId);
                 } else {
+                    setOperation(ctx, S3Operation.UPLOAD_PART);
                     handleUploadPart(request, response, is, blobStore, path[1],
                             path[2], uploadId);
                 }
                 return;
             } else if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
+                setOperation(ctx, S3Operation.COPY_OBJECT);
                 handleCopyBlob(request, response, is, blobStore, path[1],
                         path[2]);
                 return;
             } else {
                 if (request.getParameter("acl") != null) {
+                    setOperation(ctx, S3Operation.PUT_OBJECT_ACL);
                     handleSetBlobAcl(request, response, is, blobStore, path[1],
                             path[2]);
                     return;
                 }
+                setOperation(ctx, S3Operation.PUT_OBJECT);
                 handlePutBlob(request, response, is, blobStore, path[1],
                         path[2]);
                 return;
             }
         case "OPTIONS":
+            setOperation(ctx, S3Operation.OPTIONS_OBJECT);
             handleOptionsBlob(request, response, blobStore, path[1]);
             return;
         default:
             break;
         }
+        setOperation(ctx, S3Operation.UNKNOWN);
         logger.error("Unknown method {} with URI {}",
                 method, request.getRequestURI());
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+    }
+
+    private static void setOperation(@Nullable RequestContext ctx,
+            S3Operation operation) {
+        if (ctx != null) {
+            ctx.setOperation(operation);
+        }
     }
 
     private static boolean checkPublicAccess(BlobStore blobStore,
@@ -803,29 +864,39 @@ public class S3ProxyHandler {
 
     private void doHandleAnonymous(HttpServletRequest request,
             HttpServletResponse response, InputStream is, String uri,
-            BlobStore blobStore)
+            BlobStore blobStore, @Nullable RequestContext ctx)
             throws IOException, S3Exception {
         String method = request.getMethod();
         String[] path = uri.split("/", 3);
+
+        if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
+            ctx.setBucket(path[1]);
+        }
+
         switch (method) {
         case "GET":
             if (uri.equals("/")) {
+                setOperation(ctx, S3Operation.LIST_BUCKETS);
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
                 ContainerAccess access = blobStore.getContainerAccess(
                         containerName);
                 if (access == ContainerAccess.PRIVATE) {
+                    setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+                setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                 handleBlobList(request, response, blobStore, containerName);
                 return;
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
                 if (!checkPublicAccess(blobStore, containerName, blobName)) {
+                    setOperation(ctx, S3Operation.GET_OBJECT);
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+                setOperation(ctx, S3Operation.GET_OBJECT);
                 handleGetBlob(request, response, blobStore, containerName,
                         blobName);
                 return;
@@ -836,8 +907,10 @@ public class S3ProxyHandler {
                 ContainerAccess access = blobStore.getContainerAccess(
                         containerName);
                 if (access == ContainerAccess.PRIVATE) {
+                    setOperation(ctx, S3Operation.HEAD_BUCKET);
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+                setOperation(ctx, S3Operation.HEAD_BUCKET);
                 if (!blobStore.containerExists(containerName)) {
                     throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
                 }
@@ -845,29 +918,35 @@ public class S3ProxyHandler {
                 String containerName = path[1];
                 String blobName = path[2];
                 if (!checkPublicAccess(blobStore, containerName, blobName)) {
+                    setOperation(ctx, S3Operation.HEAD_OBJECT);
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
+                setOperation(ctx, S3Operation.HEAD_OBJECT);
                 handleBlobMetadata(request, response, blobStore, containerName,
                         blobName);
             }
             return;
         case "POST":
             if (path.length <= 2 || path[2].isEmpty()) {
+                setOperation(ctx, S3Operation.PUT_OBJECT);
                 handlePostBlob(request, response, is, blobStore, path[1]);
                 return;
             }
             break;
         case "OPTIONS":
             if (uri.equals("/")) {
+                setOperation(ctx, S3Operation.OPTIONS_OBJECT);
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             } else {
                 String containerName = path[1];
+                setOperation(ctx, S3Operation.OPTIONS_OBJECT);
                 handleOptionsBlob(request, response, blobStore, containerName);
                 return;
             }
         default:
             break;
         }
+        setOperation(ctx, S3Operation.UNKNOWN);
         logger.error("Unknown method {} with URI {}",
                 method, request.getRequestURI());
         throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);

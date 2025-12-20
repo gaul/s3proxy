@@ -383,12 +383,44 @@
     <jetty.version>11.0.26</jetty.version>
     <modernizer.version>3.2.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
+    <opentelemetry.version>1.57.0</opentelemetry.version>
+    <opentelemetry-semconv.version>1.25.0-alpha</opentelemetry-semconv.version>
     <slf4j.version>2.0.17</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <surefire.version>3.5.2</surefire.version>
   </properties>
 
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-bom</artifactId>
+        <version>${opentelemetry.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-prometheus</artifactId>
+      <version>1.45.0-alpha</version>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry.semconv</groupId>
+      <artifactId>opentelemetry-semconv</artifactId>
+      <version>${opentelemetry-semconv.version}</version>
+    </dependency>
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-s3</artifactId>
