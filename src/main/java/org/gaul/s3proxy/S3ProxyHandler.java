@@ -38,7 +38,6 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,6 +85,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.server.MultiPartFormInputStream;
 import org.jclouds.blobstore.BlobStore;
+import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
@@ -788,16 +788,21 @@ public class S3ProxyHandler {
     }
 
     private static boolean checkPublicAccess(BlobStore blobStore,
-            String containerName, String blobName) {
+            String containerName, String blobName) throws S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
-        if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
-            ContainerAccess access = blobStore.getContainerAccess(
-                    containerName);
-            return access == ContainerAccess.PUBLIC_READ;
-        } else {
+        try {
+            if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
+                ContainerAccess access = blobStore.getContainerAccess(
+                        containerName);
+                return access == ContainerAccess.PUBLIC_READ;
+            }
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     blobName);
             return access == BlobAccess.PUBLIC_READ;
+        } catch (ContainerNotFoundException e) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, e);
+        } catch (KeyNotFoundException e) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, e);
         }
     }
 
@@ -2011,10 +2016,15 @@ public class S3ProxyHandler {
             ifMatch = null;
         }
 
+        // Providers that support native conditional writes
+        boolean supportsNativeConditionalWrites =
+                blobStoreType.equals("azureblob-sdk") ||
+                blobStoreType.equals("aws-s3-sdk");
+
         // Emulate conditional put for backends without native support.
         // Note: this is a non-atomic operation (HEAD then PUT).
         if ((ifMatch != null || ifNoneMatch != null) &&
-                !blobStoreType.equals("azureblob-sdk")) {
+                !supportsNativeConditionalWrites) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (ifMatch != null) {
                 if (ifMatch.equals("*")) {
@@ -2392,9 +2402,13 @@ public class S3ProxyHandler {
             }
 
             if (cmu.parts != null) {
-                //  preserve part number order and deduplicate
-                Map<Integer, MultipartPart> partsMap = new LinkedHashMap<>();
+                //  sort by part number and deduplicate (last occurrence wins)
+                SortedMap<Integer, MultipartPart> partsMap = new TreeMap<>();
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    if (part.partNumber <= 0) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
+                                "Part numbers must be positive integers.");
+                    }
                     MultipartPart uploadedPart = partsByListing.get(part.partNumber);
                     if (uploadedPart == null) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART);
@@ -2441,10 +2455,14 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
             }
 
-            // use TreeMap to allow runt last part
+            // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, String> requestParts = new TreeMap<>();
             if (cmu.parts != null) {
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
+                    if (part.partNumber <= 0) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
+                                "Part numbers must be positive integers.");
+                    }
                     requestParts.put(part.partNumber, part.eTag);
                 }
             }
