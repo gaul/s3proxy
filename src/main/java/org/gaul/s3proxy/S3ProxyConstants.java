@@ -144,6 +144,15 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_NO_CACHE_BLOBSTORE =
             "s3proxy.no-cache-blobstore";
 
+    /** Enable Prometheus metrics endpoint at /metrics. */
+    public static final String PROPERTY_METRICS_ENABLED =
+            "s3proxy.metrics.enabled";
+
+    public static final String PROPERTY_METRICS_PORT =
+            "s3proxy.metrics.port";
+    public static final String PROPERTY_METRICS_HOST =
+            "s3proxy.metrics.host";
+
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
