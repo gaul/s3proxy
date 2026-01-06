@@ -127,10 +127,16 @@ public final class Main {
 
             BlobStore blobStore = createBlobStore(properties, executorService);
             var blobStoreType = blobStore.getContext().unwrap().getProviderMetadata().getId();
-            if (blobStoreType.equals("azureblob")) {
+            if (blobStoreType.equals("aws-s3")) {
+                System.err.println("WARNING: aws-s3 storage backend deprecated -- please use aws-s3-sdk instead");
+            } else if (blobStoreType.equals("azureblob")) {
                 System.err.println("WARNING: azureblob storage backend deprecated -- please use azureblob-sdk instead");
             } else if (blobStoreType.equals("filesystem")) {
                 System.err.println("WARNING: filesystem storage backend deprecated -- please use filesystem-nio2 instead");
+            } else if (blobStoreType.equals("s3")) {
+                System.err.println("WARNING: s3 storage backend deprecated -- please use aws-s3-sdk instead");
+            } else if (blobStoreType.equals("transient")) {
+                System.err.println("WARNING: transient storage backend deprecated -- please use transient-nio2 instead");
             }
 
             blobStore = parseMiddlewareProperties(blobStore, executorService,

@@ -82,7 +82,7 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * google-cloud-storage
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
-* s3 (all implementations)
+* s3 (non-Amazon, deprecated)
 * transient (in-memory storage, deprecated)
 * transient-nio2 (in-memory storage, recommended)
 
