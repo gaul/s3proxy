@@ -661,8 +661,8 @@ public class S3ProxyHandler {
                         is = new ByteArrayInputStream(payload);
                     }
 
-                    String uriForSigning = presignedUrl ? originalUri :
-                            this.servicePath + originalUri;
+                    String uriForSigning = presignedUrl ? uri :
+                            this.servicePath + uri;
                     expectedSignature = AwsSignature
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
