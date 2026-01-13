@@ -83,6 +83,7 @@ public final class S3Proxy {
                 "Must provide both identity and credential");
 
         var pool = new QueuedThreadPool(builder.jettyMaxThreads);
+        pool.setIdleTimeout(builder.jettyIdleTimeout);
         pool.setName("S3Proxy-Jetty");
         server = new Server(pool);
 
@@ -172,6 +173,7 @@ public final class S3Proxy {
         private boolean ignoreUnknownHeaders;
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
+        private int jettyIdleTimeout = 30000; // Default Jetty idle timeout in ms
         private int maximumTimeSkew = 15 * 60;
         private boolean metricsEnabled;
         private int metricsPort = S3ProxyMetrics.DEFAULT_METRICS_PORT;
@@ -334,6 +336,13 @@ public final class S3Proxy {
                 builder.jettyMaxThreads(Integer.parseInt(jettyMaxThreads));
             }
 
+            String jettyIdleTimeout = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_JETTY_IDLE_TIMEOUT);
+            if (jettyIdleTimeout != null) {
+                builder.jettyIdleTimeout(Integer.parseInt(jettyIdleTimeout));
+            }
+
+
             String maximumTimeSkew = properties.getProperty(
                     S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
             if (maximumTimeSkew != null && !maximumTimeSkew.trim().isEmpty()) {
@@ -438,6 +447,11 @@ public final class S3Proxy {
 
         public Builder jettyMaxThreads(int jettyMaxThreads) {
             this.jettyMaxThreads = jettyMaxThreads;
+            return this;
+        }
+
+        public Builder jettyIdleTimeout(int jettyIdleTimeout) {
+            this.jettyIdleTimeout = jettyIdleTimeout;
             return this;
         }
 
