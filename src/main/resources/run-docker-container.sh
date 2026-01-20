@@ -27,6 +27,9 @@ exec java \
     -Ds3proxy.read-only-blobstore="${S3PROXY_READ_ONLY_BLOBSTORE:-false}" \
     -Ds3proxy.no-cache-blobstore="${S3PROXY_NO_CACHE_BLOBSTORE:-false}" \
     -Ds3proxy.maximum-timeskew="${S3PROXY_MAXIMUM_TIMESKEW}" \
+    -Ds3proxy.metrics.enabled="${S3PROXY_METRICS_ENABLED}" \
+    -Ds3proxy.metrics.port="${S3PROXY_METRICS_PORT}" \
+    -Ds3proxy.metrics.host="${S3PROXY_METRICS_HOST}" \
     -Ds3proxy.service-path="${S3PROXY_SERVICE_PATH}" \
     -Djclouds.provider="${JCLOUDS_PROVIDER}" \
     -Djclouds.identity="${JCLOUDS_IDENTITY}" \
