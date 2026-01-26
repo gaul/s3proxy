@@ -273,16 +273,20 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     HashCode hashCode;
                     var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
                     var attributes = Set.copyOf(view.list());
-                    var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
-                    view.read(XATTR_CONTENT_MD5, buf);
-                    var etagBytes = buf.array();
-                    if (etagBytes.length == 16) {
-                        // regular object
-                        hashCode = HashCode.fromBytes(buf.array());
-                        eTag = "\"" + hashCode + "\"";
+                    if (!attributes.contains(XATTR_CONTENT_MD5)) {
+                        eTag = null;
                     } else {
-                        // multi-part object
-                        eTag = new String(etagBytes, StandardCharsets.US_ASCII);
+                        var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
+                        view.read(XATTR_CONTENT_MD5, buf);
+                        var etagBytes = buf.array();
+                        if (etagBytes.length == 16) {
+                            // regular object
+                            hashCode = HashCode.fromBytes(buf.array());
+                            eTag = "\"" + hashCode + "\"";
+                        } else {
+                            // multi-part object
+                            eTag = new String(etagBytes, StandardCharsets.US_ASCII);
+                        }
                     }
 
                     var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
