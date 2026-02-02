@@ -91,7 +91,7 @@ jobs:
         run: npx --yes --loglevel info azurite@3.35 --version
       - name: Start Azurite
         shell: bash
-        run: npx --yes azurite@3.35 azurite-blob &
+        run: npx --yes --package azurite@3.35 azurite-blob &
       - name: Maven Test with Azurite
         run: |
           # TODO: run other test classes
