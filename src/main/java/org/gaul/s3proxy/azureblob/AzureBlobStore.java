@@ -41,6 +41,7 @@ import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.storage.blob.BlobServiceVersion;
 import com.azure.storage.blob.models.AccessTier;
 import com.azure.storage.blob.models.BlobBeginCopySourceRequestConditions;
 import com.azure.storage.blob.models.BlobErrorCode;
@@ -138,6 +139,9 @@ public final class AzureBlobStore implements BlobStore {
         this.creds = creds;
         var cred = creds.get();
         var blobServiceClientBuilder = new BlobServiceClientBuilder()
+                // TODO: remove after
+                // https://github.com/Azure/Azurite/issues/2623 is addressed
+                .serviceVersion(BlobServiceVersion.V2025_11_05)
                 .endpoint(endpoint)
                 .retryOptions(NO_RETRY_OPTIONS);
         if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
