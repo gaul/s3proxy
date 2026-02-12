@@ -1,18 +1,13 @@
-# Stage 1: Analyze dependencies and create custom JRE with jlink
+# Stage 1: Create custom JRE with jlink
 FROM docker.io/library/eclipse-temurin:21-jdk AS jre-build
 
 WORKDIR /opt/s3proxy
 
-# Copy the built artifact for analysis
-COPY target/s3proxy /opt/s3proxy/s3proxy
+# Copy the pre-computed jdeps modules list from the Maven build
+COPY target/jdeps-modules.txt /tmp/modules.txt
 
-# Analyze the JAR with jdeps to determine required modules
-RUN jdeps \
-    --ignore-missing-deps \
-    --print-module-deps \
-    --multi-release 21 \
-    /opt/s3proxy/s3proxy > /tmp/modules.txt && \
-    cat /tmp/modules.txt
+# Display the required modules for debugging/verification
+RUN cat /tmp/modules.txt
 
 # Create a custom Java runtime with jlink
 RUN jlink \
