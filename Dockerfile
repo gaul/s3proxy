@@ -1,12 +1,45 @@
-FROM docker.io/library/eclipse-temurin:21-jre
+# Stage 1: Analyze dependencies and create custom JRE with jlink
+FROM docker.io/library/eclipse-temurin:21-jdk AS jre-build
+
+WORKDIR /opt/s3proxy
+
+# Copy the built artifact for analysis
+COPY target/s3proxy /opt/s3proxy/s3proxy
+
+# Analyze the JAR with jdeps to determine required modules
+RUN jdeps \
+    --ignore-missing-deps \
+    --print-module-deps \
+    --multi-release 21 \
+    /opt/s3proxy/s3proxy > /tmp/modules.txt && \
+    cat /tmp/modules.txt
+
+# Create a custom Java runtime with jlink
+RUN jlink \
+    --add-modules $(cat /tmp/modules.txt) \
+    --strip-debug \
+    --no-man-pages \
+    --no-header-files \
+    --compress=2 \
+    --output /javaruntime
+
+# Stage 2: Create the final runtime image
+FROM docker.io/library/ubuntu:24.04
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 WORKDIR /opt/s3proxy
 
+# Install dumb-init
 RUN apt-get update && \
     apt-get install -y dumb-init && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy custom Java runtime from build stage
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+COPY --from=jre-build /javaruntime $JAVA_HOME
+
+# Copy application files
 COPY \
     target/s3proxy \
     src/main/resources/run-docker-container.sh \
