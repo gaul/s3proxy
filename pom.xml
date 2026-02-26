@@ -379,6 +379,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
     <aws-sdk.version>1.12.797</aws-sdk.version>
+    <aws-sdkv2.version>2.41.19</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>11.0.26</jetty.version>
     <modernizer.version>3.2.0</modernizer.version>
@@ -581,7 +582,12 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
-      <version>2.41.19</version>
+      <version>${aws-sdkv2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sts</artifactId>
+      <version>${aws-sdkv2.version}</version>
     </dependency>
     <dependency>
       <groupId>javax.annotation</groupId>
