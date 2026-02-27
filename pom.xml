@@ -372,6 +372,31 @@
           <javaVersion>${java.version}</javaVersion>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>jdeps-analysis</id>
+            <phase>package</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>${java.home}/bin/jdeps</executable>
+              <arguments>
+                <argument>--ignore-missing-deps</argument>
+                <argument>--print-module-deps</argument>
+                <argument>--multi-release</argument>
+                <argument>${java.version}</argument>
+                <argument>${project.build.directory}/${project.build.finalName}-jar-with-dependencies.jar</argument>
+              </arguments>
+              <outputFile>${project.build.directory}/jdeps-modules.txt</outputFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 

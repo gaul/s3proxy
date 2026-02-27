@@ -72,6 +72,31 @@ jobs:
       - name: Maven Package
         run: |
           mvn verify -DskipTests
+
+      - name: Build custom JRE with jlink
+        run: |
+          APP_MODULES=$(cat target/jdeps-modules.txt)
+          # Extra modules needed for Maven/Surefire to function on top of the app modules:
+          #   jdk.compiler  – compiles test sources
+          #   jdk.zipfs     – reads JAR/ZIP files
+          #   java.instrument – JVM instrumentation (used by Surefire agents)
+          #   jdk.attach    – JVM Attach API (used by Maven Surefire plugin)
+          EXTRA_MODULES="jdk.compiler,jdk.zipfs,java.instrument,jdk.attach"
+          ALL_MODULES="${APP_MODULES},${EXTRA_MODULES}"
+          jlink \
+            --add-modules "${ALL_MODULES}" \
+            --bind-services \
+            --strip-debug \
+            --no-man-pages \
+            --no-header-files \
+            --compress=2 \
+            --output /opt/custom-jre
+          # Carry over CA certificates so TLS connections to remote blobstores work
+          cp "${JAVA_HOME}/lib/security/cacerts" /opt/custom-jre/lib/security/cacerts
+          # Override JAVA_HOME and PATH for all subsequent steps in this job
+          echo "JAVA_HOME=/opt/custom-jre" >> $GITHUB_ENV
+          echo "/opt/custom-jre/bin" >> $GITHUB_PATH
+
       - name: Maven Test
         run: |
           mvn test
@@ -149,6 +174,14 @@ jobs:
           path: target/s3proxy
       - uses: actions/upload-artifact@v6
         with:
+          name: s3proxy-jar
+          path: target/s3proxy-*-jar-with-dependencies.jar
+      - uses: actions/upload-artifact@v6
+        with:
+          name: jdeps-modules
+          path: target/jdeps-modules.txt
+      - uses: actions/upload-artifact@v6
+        with:
           name: pom
           path: pom.xml
 
@@ -160,6 +193,14 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: s3proxy
+          path: target
+      - uses: actions/download-artifact@v7
+        with:
+          name: s3proxy-jar
+          path: target
+      - uses: actions/download-artifact@v7
+        with:
+          name: jdeps-modules
           path: target
       - uses: actions/download-artifact@v7
         with:

@@ -20,6 +20,12 @@
       <useProjectArtifact>true</useProjectArtifact>
       <unpack>true</unpack>
       <scope>runtime</scope>
+      <unpackOptions>
+        <excludes>
+          <exclude>**/module-info.class</exclude>
+          <exclude>META-INF/versions/*/module-info.class</exclude>
+        </excludes>
+      </unpackOptions>
     </dependencySet>
   </dependencySets>
   <fileSets>
