@@ -157,11 +157,11 @@ jobs:
     needs: [runTests, meta]
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: s3proxy
           path: target
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: pom
           path: .
