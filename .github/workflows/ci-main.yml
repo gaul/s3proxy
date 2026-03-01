@@ -143,11 +143,11 @@ jobs:
           docker stop localstack
 
       #Store the target
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: s3proxy
           path: target/s3proxy
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: pom
           path: pom.xml
