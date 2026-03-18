@@ -79,7 +79,8 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * b2
 * filesystem (on-disk storage, deprecated)
 * filesystem-nio2 (on-disk storage, recommended)
-* google-cloud-storage
+* google-cloud-storage (deprecated)
+* google-cloud-storage-sdk (recommended)
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3 (non-Amazon, deprecated)
