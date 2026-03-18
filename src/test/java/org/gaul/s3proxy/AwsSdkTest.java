@@ -842,6 +842,7 @@ public final class AwsSdkTest {
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
         // aws-s3-sdk doesn't support jclouds HTTP client
         assumeTrue(!blobStoreType.equals("aws-s3-sdk"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
 
         String blobName = "blob-name";
         var metadata = new ObjectMetadata();
@@ -1574,6 +1575,7 @@ public final class AwsSdkTest {
     public void testConditionalGet() throws Exception {
         assumeTrue(!blobStoreType.equals("b2"));
         // TODO:
+        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
         assumeTrue(!blobStoreType.equals("transient-nio2"));
 
         String blobName = "blob-name";
@@ -1600,6 +1602,8 @@ public final class AwsSdkTest {
     public void testStorageClass() throws Exception {
         // Minio only supports STANDARD and REDUCED_REDUNDANCY
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
+        // TODO:
+        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
         String blobName = "test-storage-class";
         var metadata = new ObjectMetadata();
         metadata.setContentLength(BYTE_SOURCE.size());

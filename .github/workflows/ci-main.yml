@@ -119,6 +119,15 @@ jobs:
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-localstack-aws-s3-sdk.conf -Dtest=AwsSdkTest
 
+      - name: Install fake-gcs-server
+        run: go install github.com/fsouza/fake-gcs-server@latest
+      - name: Start fake-gcs-server
+        run: $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &
+      - name: Maven Test with fake-gcs-server
+        run: |
+          # TODO: run other test classes
+          STORAGE_EMULATOR_HOST=http://localhost:4443 mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs-server.conf -Dtest=AwsSdkTest
+
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
@@ -136,11 +145,15 @@ jobs:
       - name: Run s3-tests with LocalStack (s3)
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-localstack-s3.conf
-
       - name: Run s3-tests with LocalStack (aws-s3-sdk)
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-localstack-aws-s3-sdk.conf
           docker stop localstack
+      - name: Run s3-tests with fake-gcs-server
+        run: |
+          # TODO:
+          #STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
+          kill $(pidof fake-gcs-server)
 
       #Store the target
       - uses: actions/upload-artifact@v7

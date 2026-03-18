@@ -2098,7 +2098,8 @@ public class S3ProxyHandler {
         // Providers that support native conditional writes
         boolean supportsNativeConditionalWrites =
                 blobStoreType.equals("azureblob-sdk") ||
-                blobStoreType.equals("aws-s3-sdk");
+                blobStoreType.equals("aws-s3-sdk") ||
+                blobStoreType.equals("google-cloud-storage-sdk");
 
         // Emulate conditional put for backends without native support.
         // Note: this is a non-atomic operation (HEAD then PUT).
@@ -2466,7 +2467,8 @@ public class S3ProxyHandler {
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
                 parts.add(part);
             }
-        } else if (blobStoreType.equals("azureblob-sdk")) {
+        } else if (blobStoreType.equals("azureblob-sdk") ||
+                blobStoreType.equals("google-cloud-storage-sdk")) {
             var partsByListing =
                 blobStore.listMultipartUpload(mpu).stream().collect(
                         Collectors.toMap(

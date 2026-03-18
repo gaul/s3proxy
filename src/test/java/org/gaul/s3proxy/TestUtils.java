@@ -165,12 +165,17 @@ final class TestUtils {
                 Constants.PROPERTY_IDENTITY);
         String credential = info.getProperties().getProperty(
                 Constants.PROPERTY_CREDENTIAL);
-        if (provider.equals("google-cloud-storage")) {
-            var path = FileSystems.getDefault().getPath(credential);
-            if (Files.exists(path)) {
-                credential = MoreFiles.asCharSource(path,
-                        StandardCharsets.UTF_8).read();
+        if (provider.equals("google-cloud-storage") ||
+                provider.equals("google-cloud-storage-sdk")) {
+            if (credential != null && !credential.isEmpty()) {
+                var path = FileSystems.getDefault().getPath(credential);
+                if (Files.exists(path)) {
+                    credential = MoreFiles.asCharSource(path,
+                            StandardCharsets.UTF_8).read();
+                }
             }
+            identity = Strings.nullToEmpty(identity);
+            credential = Strings.nullToEmpty(credential);
             info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
         }
         String endpoint = info.getProperties().getProperty(

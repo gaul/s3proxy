@@ -133,6 +133,8 @@ public final class Main {
                 System.err.println("WARNING: azureblob storage backend deprecated -- please use azureblob-sdk instead");
             } else if (blobStoreType.equals("filesystem")) {
                 System.err.println("WARNING: filesystem storage backend deprecated -- please use filesystem-nio2 instead");
+            } else if (blobStoreType.equals("google-cloud-storage")) {
+                System.err.println("WARNING: google-cloud-storage storage backend deprecated -- please use google-cloud-storage-sdk instead");
             } else if (blobStoreType.equals("s3")) {
                 System.err.println("WARNING: s3 storage backend deprecated -- please use aws-s3-sdk instead");
             } else if (blobStoreType.equals("transient")) {
@@ -394,12 +396,17 @@ public final class Main {
             // local blobstores do not require credentials
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
-        } else if (provider.equals("google-cloud-storage")) {
-            var path = FileSystems.getDefault().getPath(credential);
-            if (Files.exists(path)) {
-                credential = MoreFiles.asCharSource(path,
-                        StandardCharsets.UTF_8).read();
+        } else if (provider.equals("google-cloud-storage") ||
+                provider.equals("google-cloud-storage-sdk")) {
+            if (credential != null && !credential.isEmpty()) {
+                var path = FileSystems.getDefault().getPath(credential);
+                if (Files.exists(path)) {
+                    credential = MoreFiles.asCharSource(path,
+                            StandardCharsets.UTF_8).read();
+                }
             }
+            identity = Strings.nullToEmpty(identity);
+            credential = Strings.nullToEmpty(credential);
             properties.remove(Constants.PROPERTY_CREDENTIAL);
             // We also need to clear the system property, otherwise the
             // credential will be overridden by the system property.
