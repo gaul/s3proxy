@@ -111,6 +111,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private static final String XATTR_STORAGE_TIER = "user.storage-tier";
     private static final String XATTR_USER_METADATA_PREFIX =
             "user.user-metadata.";
+    private static final Set<String> NO_ATTRIBUTES = Set.of();
     private static final String MULTIPART_PREFIX = ".mpus-";
     @SuppressWarnings("deprecation")
     private static final HashFunction md5 = Hashing.md5();
@@ -244,8 +245,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     }
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
-                    var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-                    if ((view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5)) || "/".equals(delimiter)) {
+                    if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5) || "/".equals(delimiter)) {
                         var name = path.toString().substring((root.resolve(container) + "/").length());
                         if (path.getFileSystem().getSeparator().equals("\\")) {
                             name = name.replace('\\', '/');
@@ -269,28 +269,31 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
                     var creationTime = new Date(attr.creationTime().toMillis());
 
-                    String eTag;
-                    HashCode hashCode;
-                    var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-                    var attributes = Set.copyOf(view.list());
-                    if (!attributes.contains(XATTR_CONTENT_MD5)) {
-                        eTag = null;
-                    } else {
-                        var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
-                        view.read(XATTR_CONTENT_MD5, buf);
-                        var etagBytes = buf.array();
-                        if (etagBytes.length == 16) {
-                            // regular object
-                            hashCode = HashCode.fromBytes(buf.array());
-                            eTag = "\"" + hashCode + "\"";
-                        } else {
-                            // multi-part object
-                            eTag = new String(etagBytes, StandardCharsets.US_ASCII);
+                    String eTag = null;
+                    Tier tier = Tier.STANDARD;
+                    var xattrs = safeGetXattrs(path);
+                    if (xattrs.view() != null) {
+                        var view = xattrs.view();
+                        var attributes = xattrs.attributes();
+                        if (attributes.contains(XATTR_CONTENT_MD5)) {
+                            var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
+                            view.read(XATTR_CONTENT_MD5, buf);
+                            var etagBytes = buf.array();
+                            if (etagBytes.length == 16) {
+                                // regular object
+                                var hashCode = HashCode.fromBytes(buf.array());
+                                eTag = "\"" + hashCode + "\"";
+                            } else {
+                                // multi-part object
+                                eTag = new String(etagBytes, StandardCharsets.US_ASCII);
+                            }
+                        }
+
+                        var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
+                        if (tierString != null) {
+                            tier = Tier.valueOf(tierString);
                         }
                     }
-
-                    var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
-                    Tier tier = tierString != null ? Tier.valueOf(tierString) : Tier.STANDARD;
 
                     builder.add(new StorageMetadataImpl(StorageType.BLOB,
                             /*id=*/ null, name,
@@ -365,14 +368,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try {
             var isDirectory = Files.isDirectory(path);
             var attr = Files.readAttributes(path, BasicFileAttributes.class);
-            var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-            var attributes = Set.copyOf(view.list());
-            var cacheControl = readStringAttributeIfPresent(view, attributes, XATTR_CACHE_CONTROL);
-            var contentDisposition = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_DISPOSITION);
-            var contentEncoding = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_ENCODING);
-            var contentLanguage = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_LANGUAGE);
-            var contentType = isDirectory ? "application/x-directory" :
-                    readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_TYPE);
+            var xattrs = safeGetXattrs(path);
+            var view = xattrs.view();
+            var attributes = xattrs.attributes();
+            String cacheControl = null;
+            String contentDisposition = null;
+            String contentEncoding = null;
+            String contentLanguage = null;
+            String contentType = isDirectory ? "application/x-directory" : null;
             Date expires = null;
             HashCode hashCode = null;
             String eTag = null;
@@ -380,6 +383,22 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             var userMetadata = ImmutableMap.<String, String>builder();
             var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
             var creationTime = new Date(attr.creationTime().toMillis());
+
+            if (view != null) {
+                cacheControl = readStringAttributeIfPresent(view, attributes, XATTR_CACHE_CONTROL);
+                contentDisposition = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_DISPOSITION);
+                contentEncoding = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_ENCODING);
+                contentLanguage = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_LANGUAGE);
+                if (!isDirectory) {
+                    contentType = readStringAttributeIfPresent(view, attributes, XATTR_CONTENT_TYPE);
+                }
+            }
+            if (contentType == null && !isDirectory) {
+                contentType = Files.probeContentType(path);
+                if (contentType == null) {
+                    contentType = "application/octet-stream";
+                }
+            }
 
             if (isDirectory) {
                 if (!attributes.contains(XATTR_CONTENT_MD5)) {
@@ -405,16 +424,18 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 buf.flip();
                 expires = new Date(buf.asLongBuffer().get());
             }
-            var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
-            if (tierString != null) {
-                tier = Tier.valueOf(tierString);
-            }
-            for (String attribute : attributes) {
-                if (!attribute.startsWith(XATTR_USER_METADATA_PREFIX)) {
-                    continue;
+            if (view != null) {
+                var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
+                if (tierString != null) {
+                    tier = Tier.valueOf(tierString);
                 }
-                var value = readStringAttributeIfPresent(view, attributes, attribute);
-                userMetadata.put(attribute.substring(XATTR_USER_METADATA_PREFIX.length()), value);
+                for (String attribute : attributes) {
+                    if (!attribute.startsWith(XATTR_USER_METADATA_PREFIX)) {
+                        continue;
+                    }
+                    var value = readStringAttributeIfPresent(view, attributes, attribute);
+                    userMetadata.put(attribute.substring(XATTR_USER_METADATA_PREFIX.length()), value);
+                }
             }
 
             // Handle range.
@@ -1121,8 +1142,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             if (parent == null || path.equals(containerPath)) {
                 break;
             }
-            var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-            if (view != null && Set.copyOf(view.list()).contains(XATTR_CONTENT_MD5)) {
+            if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
                 break;
             }
             try {
@@ -1152,6 +1172,28 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getTier().toString());
         for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
             writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
+        }
+    }
+
+    private record XattrState(UserDefinedFileAttributeView view, Set<String> attributes) {
+        static final XattrState EMPTY = new XattrState(null, NO_ATTRIBUTES);
+    }
+
+    /**
+     * Safely read extended attributes for a path. Returns a view and attribute
+     * set, or EMPTY if the filesystem does not support extended attributes
+     * (e.g., Docker Desktop bind mounts via VirtioFS, some NFS/NAS mounts).
+     */
+    private static XattrState safeGetXattrs(Path path) {
+        var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+        if (view == null) {
+            return XattrState.EMPTY;
+        }
+        try {
+            return new XattrState(view, Set.copyOf(view.list()));
+        } catch (IOException e) {
+            logger.debug("xattrs not supported on {}", path);
+            return XattrState.EMPTY;
         }
     }
 
