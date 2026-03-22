@@ -25,11 +25,10 @@ import javax.annotation.Nullable;
 
 import com.google.common.net.HttpHeaders;
 
+import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.eclipse.jetty.server.Request;
-import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
@@ -42,7 +41,7 @@ import org.slf4j.LoggerFactory;
 
 
 /** Jetty-specific handler for S3 requests. */
-final class S3ProxyHandlerJetty extends AbstractHandler {
+final class S3ProxyHandlerJetty extends HttpServlet {
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandlerJetty.class);
 
@@ -71,25 +70,19 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
     }
 
     @Override
-    public void handle(String target, Request baseRequest,
-            HttpServletRequest request, HttpServletResponse response)
+    protected void service(HttpServletRequest request,
+            HttpServletResponse response)
             throws IOException {
         long startNanos = System.nanoTime();
         var ctx = new S3ProxyHandler.RequestContext();
 
         try (InputStream is = request.getInputStream()) {
 
-            // Set query encoding
-            baseRequest.setAttribute(S3ProxyConstants.ATTRIBUTE_QUERY_ENCODING,
-                    baseRequest.getQueryEncoding());
-
-            handler.doHandle(baseRequest, request, response, is, ctx);
-            baseRequest.setHandled(true);
+            handler.doHandle(request, request, response, is, ctx);
         } catch (ContainerNotFoundException cnfe) {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
             handler.sendSimpleErrorResponse(request, response, code,
                     code.getMessage(), Map.of());
-            baseRequest.setHandled(true);
             return;
         } catch (HttpResponseException hre) {
             HttpResponse hr = hre.getResponse();
@@ -127,13 +120,11 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 response.setStatus(status);
                 break;
             }
-            baseRequest.setHandled(true);
             return;
         } catch (IllegalArgumentException iae) {
             logger.debug("IllegalArgumentException:", iae);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
                     iae.getMessage());
-            baseRequest.setHandled(true);
             return;
         } catch (IllegalStateException ise) {
             // google-cloud-storage uses a different exception
@@ -145,14 +136,12 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             logger.debug("IllegalStateException:", ise);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
                     ise.getMessage());
-            baseRequest.setHandled(true);
             return;
         } catch (IOException ioe) {
             var cause = Throwables2.getFirstThrowableOfType(ioe,
                     S3Exception.class);
             if (cause != null) {
                 sendS3Exception(request, response, cause);
-                baseRequest.setHandled(true);
                 return;
             }
             throw ioe;
@@ -160,17 +149,14 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
             S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
             handler.sendSimpleErrorResponse(request, response, code,
                     code.getMessage(), Map.of());
-            baseRequest.setHandled(true);
             return;
         } catch (S3Exception se) {
             sendS3Exception(request, response, se);
-            baseRequest.setHandled(true);
             return;
         } catch (UnsupportedOperationException uoe) {
             logger.debug("UnsupportedOperationException:", uoe);
             response.sendError(HttpServletResponse.SC_NOT_IMPLEMENTED,
                     uoe.getMessage());
-            baseRequest.setHandled(true);
             return;
         } catch (Throwable throwable) {
             if (Throwables2.getFirstThrowableOfType(throwable,
@@ -178,14 +164,12 @@ final class S3ProxyHandlerJetty extends AbstractHandler {
                 S3ErrorCode code = S3ErrorCode.ACCESS_DENIED;
                 handler.sendSimpleErrorResponse(request, response, code,
                         code.getMessage(), Map.of());
-                baseRequest.setHandled(true);
                 return;
             } else if (Throwables2.getFirstThrowableOfType(throwable,
                     TimeoutException.class) != null) {
                 S3ErrorCode code = S3ErrorCode.REQUEST_TIMEOUT;
                 handler.sendSimpleErrorResponse(request, response, code,
                         code.getMessage(), Map.of());
-                baseRequest.setHandled(true);
                 return;
             } else {
                 logger.debug("Unknown exception:", throwable);

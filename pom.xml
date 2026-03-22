@@ -224,10 +224,20 @@
                    <exclude>about.html</exclude>
                  </excludes>
                </filter>
+               <filter>
+                 <artifact>org.eclipse.jetty.ee10:*</artifact>
+                 <excludes>
+                   <exclude>META-INF/MANIFEST.MF</exclude>
+                   <exclude>META-INF/LICENSE</exclude>
+                   <exclude>META-INF/NOTICE.txt</exclude>
+                   <exclude>about.html</exclude>
+                 </excludes>
+               </filter>
              </filters>
              <artifactSet>
                 <includes>
                   <include>org.eclipse.jetty:*</include>
+                  <include>org.eclipse.jetty.ee10:*</include>
                 </includes>
               </artifactSet>
               <relocations>
@@ -374,7 +384,7 @@
     <aws-sdk.version>1.12.797</aws-sdk.version>
     <aws-sdkv2.version>2.42.18</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
-    <jetty.version>11.0.26</jetty.version>
+    <jetty.version>12.1.7</jetty.version>
     <modernizer.version>3.3.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.60.1</opentelemetry.version>
@@ -537,8 +547,8 @@
       <version>3.27.7</version>
     </dependency>
     <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-servlet</artifactId>
+      <groupId>org.eclipse.jetty.ee10</groupId>
+      <artifactId>jetty-ee10-servlet</artifactId>
       <version>${jetty.version}</version>
     </dependency>
     <dependency>

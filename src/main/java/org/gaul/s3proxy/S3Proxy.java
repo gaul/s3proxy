@@ -32,6 +32,8 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
+import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
+import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.server.HttpConfiguration;
@@ -39,8 +41,6 @@ import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.server.handler.ContextHandler;
-import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.jclouds.blobstore.BlobStore;
@@ -86,15 +86,9 @@ public final class S3Proxy {
         pool.setName("S3Proxy-Jetty");
         server = new Server(pool);
 
-        if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
-            var context = new ContextHandler();
-            context.setContextPath(builder.servicePath);
-        }
-
         var httpConfiguration = new HttpConfiguration();
         httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
         httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
-        httpConfiguration.setHeaderCacheCaseSensitive(true);
 
         var src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
@@ -145,13 +139,16 @@ public final class S3Proxy {
                 builder.ignoreUnknownHeaders, builder.corsRules,
                 builder.servicePath, builder.maximumTimeSkew, metrics);
 
-        if (metrics != null) {
-            var metricsHandler = new MetricsHandler(metrics);
-            var handlerList = new HandlerList(metricsHandler, handler);
-            server.setHandler(handlerList);
-        } else {
-            server.setHandler(handler);
+        var context = new ServletContextHandler();
+        if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
+            context.setContextPath(builder.servicePath);
         }
+        if (metrics != null) {
+            context.addServlet(new ServletHolder(
+                    new MetricsHandler(metrics)), "/metrics");
+        }
+        context.addServlet(new ServletHolder(handler), "/*");
+        server.setHandler(context);
     }
 
     public static final class Builder {

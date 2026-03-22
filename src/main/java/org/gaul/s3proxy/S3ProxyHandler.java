@@ -20,7 +20,6 @@ import java.io.ByteArrayInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.PushbackInputStream;
@@ -75,7 +74,6 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
-import com.google.common.io.CharStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
@@ -83,7 +81,8 @@ import com.google.common.net.PercentEscaper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.eclipse.jetty.server.MultiPartFormInputStream;
+import org.eclipse.jetty.http.MultiPartFormData;
+import org.eclipse.jetty.io.content.InputStreamContentSource;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.ContainerNotFoundException;
 import org.jclouds.blobstore.KeyNotFoundException;
@@ -2213,35 +2212,46 @@ public class S3ProxyHandler {
         String signature = null;
         String algorithm = null;
         byte[] payload = null;
-        var multipartStream = new MultiPartFormInputStream(is, boundaryHeader, null, null);
+        var parser = new MultiPartFormData.Parser(boundary);
+        parser.setFilesDirectory(java.nio.file.Path.of(
+                System.getProperty("java.io.tmpdir")));
+        MultiPartFormData.Parts parts = parser.parse(
+                new InputStreamContentSource(is)).join();
         try {
-            for (var part : multipartStream.getParts()) {
-                try (var partIs = part.getInputStream()) {
-                    var header = part.getName();
-                    if (header.equalsIgnoreCase("acl")) {
-                        // TODO: acl
-                    } else if (header.equalsIgnoreCase("AWSAccessKeyId") ||
-                            header.equalsIgnoreCase("X-Amz-Credential")) {
-                        identity = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
-                    } else if (header.equalsIgnoreCase("Content-Type")) {
-                        contentType = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
-                    } else if (header.equalsIgnoreCase("file")) {
-                        // TODO: buffers entire payload
-                        payload = partIs.readAllBytes();
-                    } else if (header.equalsIgnoreCase("key")) {
-                        blobName = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
-                    } else if (header.equalsIgnoreCase("policy")) {
-                        policy = partIs.readAllBytes();
-                    } else if (header.equalsIgnoreCase("signature") ||
-                            header.equalsIgnoreCase("X-Amz-Signature")) {
-                        signature = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
-                    } else if (header.equalsIgnoreCase("X-Amz-Algorithm")) {
-                        algorithm = CharStreams.toString(new InputStreamReader(partIs, StandardCharsets.UTF_8));
-                    }
+            for (var part : parts) {
+                var header = part.getName();
+                if (header.equalsIgnoreCase("acl")) {
+                    // TODO: acl
+                } else if (header.equalsIgnoreCase("AWSAccessKeyId") ||
+                        header.equalsIgnoreCase("X-Amz-Credential")) {
+                    identity = part.getContentAsString(
+                            StandardCharsets.UTF_8);
+                } else if (header.equalsIgnoreCase("Content-Type")) {
+                    contentType = part.getContentAsString(
+                            StandardCharsets.UTF_8);
+                } else if (header.equalsIgnoreCase("file")) {
+                    // TODO: buffers entire payload
+                    payload = part.getContentAsString(
+                            StandardCharsets.ISO_8859_1)
+                            .getBytes(StandardCharsets.ISO_8859_1);
+                } else if (header.equalsIgnoreCase("key")) {
+                    blobName = part.getContentAsString(
+                            StandardCharsets.UTF_8);
+                } else if (header.equalsIgnoreCase("policy")) {
+                    policy = part.getContentAsString(
+                            StandardCharsets.ISO_8859_1)
+                            .getBytes(StandardCharsets.ISO_8859_1);
+                } else if (header.equalsIgnoreCase("signature") ||
+                        header.equalsIgnoreCase("X-Amz-Signature")) {
+                    signature = part.getContentAsString(
+                            StandardCharsets.UTF_8);
+                } else if (header.equalsIgnoreCase("X-Amz-Algorithm")) {
+                    algorithm = part.getContentAsString(
+                            StandardCharsets.UTF_8);
                 }
             }
         } finally {
-            multipartStream.deleteParts();
+            parts.close();
         }
 
 

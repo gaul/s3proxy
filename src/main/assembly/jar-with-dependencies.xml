@@ -15,6 +15,7 @@
     <dependencySet>
       <excludes>
         <exclude>org.eclipse.jetty:*</exclude>
+        <exclude>org.eclipse.jetty.ee10:*</exclude>
       </excludes>
       <outputDirectory>/</outputDirectory>
       <useProjectArtifact>true</useProjectArtifact>

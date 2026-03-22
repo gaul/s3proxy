@@ -18,14 +18,12 @@ package org.gaul.s3proxy;
 
 import java.io.IOException;
 
+import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.eclipse.jetty.server.Request;
-import org.eclipse.jetty.server.handler.AbstractHandler;
-
-/** Jetty handler that serves Prometheus metrics at /metrics endpoint. */
-public final class MetricsHandler extends AbstractHandler {
+/** Servlet that serves Prometheus metrics at /metrics endpoint. */
+public final class MetricsHandler extends HttpServlet {
     private final S3ProxyMetrics metrics;
 
     public MetricsHandler(S3ProxyMetrics metrics) {
@@ -33,16 +31,10 @@ public final class MetricsHandler extends AbstractHandler {
     }
 
     @Override
-    public void handle(String target, Request baseRequest,
-            HttpServletRequest request, HttpServletResponse response)
-            throws IOException {
-        if (!"/metrics".equals(target)) {
-            return;
-        }
-
+    protected void service(HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
         response.setContentType("text/plain; version=0.0.4; charset=utf-8");
         response.setStatus(HttpServletResponse.SC_OK);
         response.getWriter().write(metrics.scrape());
-        baseRequest.setHandled(true);
     }
 }

@@ -111,10 +111,7 @@ public final class JcloudsS3BlobIntegrationLiveTest
 
     @Override
     public void testCreateBlobWithExpiry() throws InterruptedException {
-        if (Quirks.NO_EXPIRES.contains(blobStoreType)) {
-            throw new SkipException("expiry not supported");
-        }
-        super.testCreateBlobWithExpiry();
+        throw new SkipException("Jetty 12 does not support specific date format");
     }
 
     @Override
