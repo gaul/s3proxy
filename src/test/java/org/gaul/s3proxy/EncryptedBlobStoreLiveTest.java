@@ -64,6 +64,13 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
 
+    private static String readPayload(InputStream inputStream)
+            throws IOException {
+        try (var reader = new BufferedReader(new InputStreamReader(inputStream))) {
+            return reader.lines().collect(Collectors.joining());
+        }
+    }
+
     @AfterSuite
     @Override
     public void destroyResources() throws Exception {
@@ -159,11 +166,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
         options.range(0, 19);
         object = this.getApi().getObject(containerName, blobName, options);
 
-        var r = new InputStreamReader(
-                object.getPayload().openStream());
-        var reader = new BufferedReader(r);
-        String partialContent = reader.lines()
-                .collect(Collectors.joining());
+        String partialContent = readPayload(object.getPayload().openStream());
 
         assertThat(partialContent).isEqualTo(
                 content.substring(0, 20));
@@ -175,9 +178,7 @@ public final class EncryptedBlobStoreLiveTest extends S3ClientLiveTest {
         options.startAt(10);
         object = this.getApi().getObject(containerName, blobName, options);
 
-        r = new InputStreamReader(object.getPayload().openStream());
-        reader = new BufferedReader(r);
-        partialContent = reader.lines().collect(Collectors.joining());
+        partialContent = readPayload(object.getPayload().openStream());
 
         assertThat(partialContent).isEqualTo(content.substring(10));
         assertThat((long) partialContent.length()).isEqualTo(
