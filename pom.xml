@@ -382,7 +382,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
     <aws-sdk.version>1.12.797</aws-sdk.version>
-    <aws-sdkv2.version>2.42.18</aws-sdkv2.version>
+    <aws-sdkv2.version>2.42.26</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>12.1.7</jetty.version>
     <modernizer.version>3.3.0</modernizer.version>
