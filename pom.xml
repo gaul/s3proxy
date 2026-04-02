@@ -384,7 +384,7 @@
     <aws-sdk.version>1.12.797</aws-sdk.version>
     <aws-sdkv2.version>2.42.18</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
-    <jetty.version>12.1.7</jetty.version>
+    <jetty.version>12.1.8</jetty.version>
     <modernizer.version>3.3.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.60.1</opentelemetry.version>
