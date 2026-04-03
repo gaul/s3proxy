@@ -19,7 +19,9 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Random;
 
 import com.amazonaws.SDKGlobalConfiguration;
@@ -51,6 +53,7 @@ public final class AwsSdkAnonymousTest {
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
 
     private URI s3Endpoint;
+    private URI httpEndpoint;
     private EndpointConfiguration s3EndpointConfig;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
@@ -67,6 +70,7 @@ public final class AwsSdkAnonymousTest {
         awsCreds = new AnonymousAWSCredentials();
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
+        httpEndpoint = info.getEndpoint();
         s3Endpoint = info.getSecureEndpoint();
         servicePath = info.getServicePath();
         s3EndpointConfig = new EndpointConfiguration(
@@ -127,6 +131,31 @@ public final class AwsSdkAnonymousTest {
             InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
+    }
+
+    @Test
+    public void testHealthzEndpoint() throws Exception {
+        URI baseUri = httpEndpoint != null ? httpEndpoint : s3Endpoint;
+        String path = (servicePath == null ? "" : servicePath) + "/healthz";
+        URI healthzUri = new URI(baseUri.getScheme(), baseUri.getUserInfo(),
+                baseUri.getHost(), baseUri.getPort(), path,
+                baseUri.getQuery(), baseUri.getFragment());
+
+        HttpURLConnection connection =
+                (HttpURLConnection) healthzUri.toURL().openConnection();
+        connection.setRequestMethod("GET");
+
+        assertThat(connection.getResponseCode()).isEqualTo(200);
+
+        String body;
+        try (InputStream stream = connection.getInputStream()) {
+            body = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        } finally {
+            connection.disconnect();
+        }
+
+        assertThat(body).contains("\"gitHash\":\"");
+        assertThat(body).startsWith("{").endsWith("}");
     }
 
     private static String createRandomContainerName() {
