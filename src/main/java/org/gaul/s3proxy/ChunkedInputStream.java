@@ -33,6 +33,7 @@ import com.google.common.io.ByteStreams;
  * https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
  */
 final class ChunkedInputStream extends FilterInputStream {
+    private static final int MAX_LINE_LENGTH = 4096;
     private byte[] chunk;
     private int currentIndex;
     private int currentLength;
@@ -41,16 +42,20 @@ final class ChunkedInputStream extends FilterInputStream {
             justification = "https://github.com/gaul/s3proxy/issues/205")
     @SuppressWarnings("UnusedVariable")
     private String currentSignature;
+    private final int maxChunkSize;
     private final Hasher hasher;
 
-    ChunkedInputStream(InputStream is) {
+    ChunkedInputStream(InputStream is, int maxChunkSize) {
         super(is);
+        this.maxChunkSize = maxChunkSize;
         hasher = null;
     }
 
     @SuppressWarnings("deprecation")
-    ChunkedInputStream(InputStream is, @Nullable String trailer) {
+    ChunkedInputStream(InputStream is, int maxChunkSize,
+            @Nullable String trailer) {
         super(is);
+        this.maxChunkSize = maxChunkSize;
         if ("x-amz-checksum-crc32".equals(trailer)) {
             hasher = Hashing.crc32().newHasher();
         } else if ("x-amz-checksum-crc32c".equals(trailer)) {
@@ -87,6 +92,10 @@ final class ChunkedInputStream extends FilterInputStream {
                 currentLength = 0;
             } else {
                 currentLength = Integer.parseInt(parts[0], 16);
+                if (currentLength < 0 || currentLength > maxChunkSize) {
+                    throw new IOException(
+                            "chunk size exceeds maximum: " + currentLength);
+                }
             }
             if (parts.length > 1) {
                 currentSignature = parts[1];
@@ -144,6 +153,9 @@ final class ChunkedInputStream extends FilterInputStream {
                     throw new IOException("unexpected end of stream");
                 }
                 break;
+            }
+            if (builder.length() >= MAX_LINE_LENGTH) {
+                throw new IOException("chunk header too long");
             }
             builder.append((char) ch);
         }
