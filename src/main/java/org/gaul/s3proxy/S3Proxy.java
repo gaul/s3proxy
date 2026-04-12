@@ -136,6 +136,7 @@ public final class S3Proxy {
                 builder.credential, builder.virtualHost,
                 builder.maxSinglePartObjectSize,
                 builder.v4MaxNonChunkedRequestSize,
+                builder.v4MaxChunkSize,
                 builder.ignoreUnknownHeaders, builder.corsRules,
                 builder.servicePath, builder.maximumTimeSkew, metrics);
 
@@ -166,6 +167,7 @@ public final class S3Proxy {
         private String virtualHost;
         private long maxSinglePartObjectSize = 5L * 1024 * 1024 * 1024;
         private long v4MaxNonChunkedRequestSize = 128 * 1024 * 1024;
+        private int v4MaxChunkSize = 16 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
         private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
@@ -276,6 +278,12 @@ public final class S3Proxy {
             if (v4MaxNonChunkedRequestSize != null) {
                 builder.v4MaxNonChunkedRequestSize(Long.parseLong(
                         v4MaxNonChunkedRequestSize));
+            }
+
+            String v4MaxChunkSize = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_V4_MAX_CHUNK_SIZE);
+            if (v4MaxChunkSize != null) {
+                builder.v4MaxChunkSize(Integer.parseInt(v4MaxChunkSize));
             }
 
             String ignoreUnknownHeaders = properties.getProperty(
@@ -423,6 +431,16 @@ public final class S3Proxy {
             return this;
         }
 
+        public Builder v4MaxChunkSize(int v4MaxChunkSize) {
+            if (v4MaxChunkSize <= 0) {
+                throw new IllegalArgumentException(
+                        "must be greater than zero, was: " +
+                        v4MaxChunkSize);
+            }
+            this.v4MaxChunkSize = v4MaxChunkSize;
+            return this;
+        }
+
         public Builder ignoreUnknownHeaders(boolean ignoreUnknownHeaders) {
             this.ignoreUnknownHeaders = ignoreUnknownHeaders;
             return this;
@@ -513,6 +531,7 @@ public final class S3Proxy {
                             that.maxSinglePartObjectSize &&
                     this.v4MaxNonChunkedRequestSize ==
                             that.v4MaxNonChunkedRequestSize &&
+                    this.v4MaxChunkSize == that.v4MaxChunkSize &&
                     this.ignoreUnknownHeaders == that.ignoreUnknownHeaders &&
                     this.corsRules.equals(that.corsRules);
         }
@@ -522,7 +541,7 @@ public final class S3Proxy {
             return Objects.hash(endpoint, secureEndpoint, sslContext,
                     keyStorePath, keyStorePassword, virtualHost, servicePath,
                     maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,
-                    ignoreUnknownHeaders, corsRules);
+                    v4MaxChunkSize, ignoreUnknownHeaders, corsRules);
         }
     }
 

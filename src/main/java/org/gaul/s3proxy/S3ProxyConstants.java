@@ -70,6 +70,9 @@ public final class S3ProxyConstants {
             "s3proxy.max-single-part-object-size";
     public static final String PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE =
             "s3proxy.v4-max-non-chunked-request-size";
+    /** Maximum size of a single chunk in an aws-chunked transfer encoding. */
+    public static final String PROPERTY_V4_MAX_CHUNK_SIZE =
+            "s3proxy.v4-max-chunk-size";
     /** Used to locate blobstores by specified bucket names. Each property
      * file should contain a list of buckets associated with it, e.g.
      *     s3proxy.bucket-locator.1 = data

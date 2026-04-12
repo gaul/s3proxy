@@ -226,6 +226,7 @@ public class S3ProxyHandler {
     private final Optional<String> virtualHost;
     private final long maxSinglePartObjectSize;
     private final long v4MaxNonChunkedRequestSize;
+    private final int v4MaxChunkSize;
     private final boolean ignoreUnknownHeaders;
     private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
@@ -252,6 +253,7 @@ public class S3ProxyHandler {
             AuthenticationType authenticationType, final String identity,
             final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
+            int v4MaxChunkSize,
             boolean ignoreUnknownHeaders,
             @Nullable CrossOriginResourceSharing corsRules,
             final String servicePath, int maximumTimeSkew) {
@@ -289,6 +291,7 @@ public class S3ProxyHandler {
         this.virtualHost = Optional.ofNullable(virtualHost);
         this.maxSinglePartObjectSize = maxSinglePartObjectSize;
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
+        this.v4MaxChunkSize = v4MaxChunkSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces", false);
@@ -538,9 +541,9 @@ public class S3ProxyHandler {
             String contentSha256 = request.getHeader(
                     AwsHttpHeaders.CONTENT_SHA256);
             if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
-                is = new ChunkedInputStream(is);
+                is = new ChunkedInputStream(is, v4MaxChunkSize);
             } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
-                is = new ChunkedInputStream(is, request.getHeader(AwsHttpHeaders.TRAILER));
+                is = new ChunkedInputStream(is, v4MaxChunkSize, request.getHeader(AwsHttpHeaders.TRAILER));
             }
         } else if (requestIdentity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
@@ -629,10 +632,10 @@ public class S3ProxyHandler {
                     } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                             contentSha256)) {
                         payload = new byte[0];
-                        is = new ChunkedInputStream(is);
+                        is = new ChunkedInputStream(is, v4MaxChunkSize);
                     } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
                         payload = new byte[0];
-                        is = new ChunkedInputStream(is, request.getHeader(AwsHttpHeaders.TRAILER));
+                        is = new ChunkedInputStream(is, v4MaxChunkSize, request.getHeader(AwsHttpHeaders.TRAILER));
                     } else if ("UNSIGNED-PAYLOAD".equals(contentSha256)) {
                         payload = new byte[0];
                     } else {
