@@ -414,8 +414,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                         blob.getMetadata().getTier()));
             }
 
-            if (options instanceof PutOptions2) {
-                var putOptions2 = (PutOptions2) options;
+            if (options instanceof PutOptions2 putOptions2) {
                 String ifMatch = putOptions2.getIfMatch();
                 String ifNoneMatch = putOptions2.getIfNoneMatch();
                 if (ifMatch != null || ifNoneMatch != null) {
@@ -438,9 +437,9 @@ public final class AzureBlobStore extends BaseBlobStore {
                     .getETag();
         } catch (IOException ioe) {
             var cause = ioe.getCause();
-            if (cause != null && cause instanceof BlobStorageException) {
+            if (cause instanceof BlobStorageException bse) {
                 translateAndRethrowException(
-                        (BlobStorageException) cause, container, /*key=*/ null);
+                        bse, container, /*key=*/ null);
             }
             throw new RuntimeException(ioe);
         }

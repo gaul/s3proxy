@@ -197,11 +197,10 @@ public final class CrossOriginResourceSharing {
         if (this == object) {
             return true;
         }
-        if (object == null || !(object instanceof CrossOriginResourceSharing)) {
+        if (!(object instanceof CrossOriginResourceSharing that)) {
             return false;
         }
 
-        CrossOriginResourceSharing that = (CrossOriginResourceSharing) object;
         return this.allowedOrigins.equals(that.allowedOrigins) &&
                 this.allowedMethodsRaw.equals(that.allowedMethodsRaw) &&
                 this.allowedHeadersRaw.equals(that.allowedHeadersRaw);

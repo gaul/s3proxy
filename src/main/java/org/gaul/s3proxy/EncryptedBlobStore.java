@@ -240,14 +240,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         PageSet<? extends StorageMetadata> pageSet) {
         var builder = ImmutableSet.<StorageMetadata>builder();
         for (StorageMetadata sm : pageSet) {
-            if (sm instanceof BlobMetadata) {
+            if (sm instanceof BlobMetadata bm) {
                 MutableBlobMetadata mbm =
-                    new MutableBlobMetadataImpl((BlobMetadata) sm);
+                    new MutableBlobMetadataImpl(bm);
 
                 // if blob is encrypted remove the -s3enc suffix
                 // from content type
                 if (isEncrypted(mbm)) {
-                    mbm = removeEncryptedSuffix((BlobMetadata) sm);
+                    mbm = removeEncryptedSuffix(bm);
                     mbm = calculateBlobSize(mbm);
                 }
 

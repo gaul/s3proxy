@@ -446,11 +446,11 @@ public final class Main {
                     AWSCredentials newCreds = authChain.getCredentials();
                     Credentials jcloudsCred = null;
 
-                    if (newCreds instanceof AWSSessionCredentials) {
+                    if (newCreds instanceof AWSSessionCredentials sessionCreds) {
                         jcloudsCred = SessionCredentials.builder()
                                 .accessKeyId(newCreds.getAWSAccessKeyId())
                                 .secretAccessKey(newCreds.getAWSSecretKey())
-                                .sessionToken(((AWSSessionCredentials) newCreds).getSessionToken())
+                                .sessionToken(sessionCreds.getSessionToken())
                                 .build();
                     } else {
                         jcloudsCred = new Credentials(
@@ -468,10 +468,9 @@ public final class Main {
 
         BlobStoreContext context = builder.build(BlobStoreContext.class);
         BlobStore blobStore;
-        if (context instanceof RegionScopedBlobStoreContext &&
+        if (context instanceof RegionScopedBlobStoreContext regionContext &&
                 region != null) {
-            blobStore = ((RegionScopedBlobStoreContext) context)
-                    .getBlobStore(region);
+            blobStore = regionContext.getBlobStore(region);
         } else {
             blobStore = context.getBlobStore();
         }

@@ -42,8 +42,7 @@ public final class PutOptions2 extends PutOptions {
                 options.getCustomExecutor());
         this.setBlobAccess(options.getBlobAccess());
 
-        if (options instanceof PutOptions2) {
-            PutOptions2 other = (PutOptions2) options;
+        if (options instanceof PutOptions2 other) {
             this.ifMatch = other.ifMatch;
             this.ifNoneMatch = other.ifNoneMatch;
         }

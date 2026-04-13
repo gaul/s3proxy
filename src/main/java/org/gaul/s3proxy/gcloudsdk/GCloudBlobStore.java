@@ -426,8 +426,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         var writeOptions = new java.util.ArrayList<BlobWriteOption>();
-        if (options instanceof PutOptions2) {
-            var putOptions2 = (PutOptions2) options;
+        if (options instanceof PutOptions2 putOptions2) {
             String ifMatch = putOptions2.getIfMatch();
             String ifNoneMatch = putOptions2.getIfNoneMatch();
             if (ifNoneMatch != null && ifNoneMatch.equals("*")) {
