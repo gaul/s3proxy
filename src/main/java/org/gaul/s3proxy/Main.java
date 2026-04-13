@@ -422,7 +422,7 @@ public final class Main {
         }
 
         properties.setProperty(Constants.PROPERTY_USER_AGENT,
-                String.format("s3proxy/%s jclouds/%s java/%s",
+                "s3proxy/%s jclouds/%s java/%s".formatted(
                         Main.class.getPackage().getImplementationVersion(),
                         JcloudsVersion.get(),
                         System.getProperty("java.version")));

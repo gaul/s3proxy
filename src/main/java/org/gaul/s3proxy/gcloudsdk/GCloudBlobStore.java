@@ -891,15 +891,15 @@ public final class GCloudBlobStore extends BaseBlobStore {
         } catch (StorageException se) {
             translateAndRethrowException(se, mpu.containerName(),
                     mpu.blobName());
-            throw new RuntimeException(String.format(
+            throw new RuntimeException((
                     "Failed to upload part %d for blob '%s' in " +
-                    "container '%s': %s",
+                    "container '%s': %s").formatted(
                     partNumber, mpu.blobName(), mpu.containerName(),
                     se.getMessage()), se);
         } catch (IOException ioe) {
-            throw new RuntimeException(String.format(
+            throw new RuntimeException((
                     "Failed to upload part %d for blob '%s' in " +
-                    "container '%s': %s",
+                    "container '%s': %s").formatted(
                     partNumber, mpu.blobName(), mpu.containerName(),
                     ioe.getMessage()), ioe);
         }
@@ -980,7 +980,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
     private static String makePartBlobName(String nonce, int partNumber) {
         return STUB_BLOB_PREFIX + nonce +
-                String.format("/part_%05d", partNumber);
+                "/part_%05d".formatted(partNumber);
     }
 
     /**

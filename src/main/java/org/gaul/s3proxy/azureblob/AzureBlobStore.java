@@ -879,7 +879,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                             if (read == -1) {
                                 if (position + totalRead < contentLength) {
                                     sink.error(new IOException(
-                                        String.format("Stream ended at %d bytes, expected %d",
+                                        "Stream ended at %d bytes, expected %d".formatted(
                                             position + totalRead, contentLength)));
                                     return position + totalRead;
                                 }
@@ -889,7 +889,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                         }
                         if (totalRead == 0) {
                             sink.error(new IOException(
-                                String.format("Stream ended at %d bytes, expected %d",
+                                "Stream ended at %d bytes, expected %d".formatted(
                                         position, contentLength)));
                             return position;
                         }
@@ -923,12 +923,12 @@ public final class AzureBlobStore extends BaseBlobStore {
 
         } catch (BlobStorageException bse) {
             translateAndRethrowException(bse, mpu.containerName(), mpu.blobName());
-            throw new RuntimeException(String.format(
-                    "Failed to upload part %d for blob '%s' in container '%s': %s",
+            throw new RuntimeException((
+                    "Failed to upload part %d for blob '%s' in container '%s': %s").formatted(
                     partNumber, mpu.blobName(), mpu.containerName(), bse.getMessage()), bse);
         } catch (IOException ioe) {
-            throw new RuntimeException(String.format(
-                    "Failed to upload part %d for blob '%s' in container '%s': %s",
+            throw new RuntimeException((
+                    "Failed to upload part %d for blob '%s' in container '%s': %s").formatted(
                     partNumber, mpu.blobName(), mpu.containerName(), ioe.getMessage()), ioe);
         }
 
@@ -1145,7 +1145,7 @@ public final class AzureBlobStore extends BaseBlobStore {
      * @return Base64-encoded block ID
      */
     private static String makeBlockId(String nonce, int partNumber) {
-        String rawId = String.format("%s:%05d", nonce, partNumber);
+        String rawId = "%s:%05d".formatted(nonce, partNumber);
         return Base64.getEncoder().encodeToString(
                 rawId.getBytes(StandardCharsets.UTF_8));
     }

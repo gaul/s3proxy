@@ -136,7 +136,7 @@ public class S3ProxyJunitCore {
 
         int port = Math.max(builder.port, 0);
         endpointFormat = "http://%s:%d";
-        String endpoint = String.format(endpointFormat, LOCALHOST, port);
+        String endpoint = endpointFormat.formatted(LOCALHOST, port);
         s3ProxyBuilder.endpoint(URI.create(endpoint));
 
         s3Proxy = s3ProxyBuilder.build();
@@ -148,7 +148,7 @@ public class S3ProxyJunitCore {
         while (!s3Proxy.getState().equals(AbstractLifeCycle.STARTED)) {
             Thread.sleep(10);
         }
-        endpointUri = URI.create(String.format(endpointFormat, LOCALHOST,
+        endpointUri = URI.create(endpointFormat.formatted(LOCALHOST,
                 s3Proxy.getPort()));
         logger.debug("S3 proxy is running");
     }

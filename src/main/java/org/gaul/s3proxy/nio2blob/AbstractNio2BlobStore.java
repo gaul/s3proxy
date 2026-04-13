@@ -505,7 +505,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     if (eTag != null) {
                         response.addHeader(HttpHeaders.ETAG, eTag);
                     }
-                    throw new HttpResponseException(String.format("%1$s is before %2$s", lastModifiedTime, modifiedSince), null, response.build());
+                    throw new HttpResponseException("%1$s is before %2$s".formatted(lastModifiedTime, modifiedSince), null, response.build());
                 }
 
             }
@@ -517,7 +517,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     if (eTag != null) {
                         response.addHeader(HttpHeaders.ETAG, eTag);
                     }
-                    throw new HttpResponseException(String.format("%1$s is after %2$s", lastModifiedTime, unmodifiedSince), null, response.build());
+                    throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), null, response.build());
                 }
             }
 

@@ -2520,8 +2520,8 @@ public class S3ProxyHandler {
             for (int partNumber = 1;; ++partNumber) {
                 MultipartUpload mpu2 = MultipartUpload.create(
                         containerName,
-                        String.format("%s_%08d", mpu.id(), partNumber),
-                        String.format("%s_%08d", mpu.id(), partNumber),
+                        "%s_%08d".formatted(mpu.id(), partNumber),
+                        "%s_%08d".formatted(mpu.id(), partNumber),
                         metadata, options);
                 List<MultipartPart> subParts = blobStore.listMultipartUpload(
                         mpu2);
@@ -2873,8 +2873,8 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("google-cloud-storage")) {
             // fix up 1-based part numbers
-            uploadId = String.format(
-                    "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
+            uploadId = "%s_%08d".formatted(
+                    uploadId, ((partNumber - 1) / 32) + 1);
             partNumber = ((partNumber - 1) % 32) + 1;
         }
 
@@ -3066,8 +3066,8 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("google-cloud-storage")) {
             // fix up 1-based part numbers
-            uploadId = String.format(
-                    "%s_%08d", uploadId, ((partNumber - 1) / 32) + 1);
+            uploadId = "%s_%08d".formatted(
+                    uploadId, ((partNumber - 1) / 32) + 1);
             partNumber = ((partNumber - 1) % 32) + 1;
         }
 

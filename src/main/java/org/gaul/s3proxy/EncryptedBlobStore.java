@@ -740,7 +740,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 partCount = 0;
                 for (MultipartPart part : parts) {
                     blobName =
-                        String.format("%s_%08d",
+                        "%s_%08d".formatted(
                             mpu.id(),
                             part.partNumber());
                     BlobMetadata metadata =

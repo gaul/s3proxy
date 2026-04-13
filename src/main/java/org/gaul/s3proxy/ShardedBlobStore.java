@@ -122,9 +122,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String allMissingShards = missingShards.stream().collect(
                     Collectors.joining(", "));
             throw new IllegalArgumentException(
-                    String.format(
-                            "Number of shards unset for sharded buckets: %s",
-                            allMissingShards));
+                    "Number of shards unset for sharded buckets: %s"
+                            .formatted(allMissingShards));
         }
         var bucketsBuilder = new ImmutableMap.Builder<String, ShardedBucket>();
         for (String bucket : shards.keySet()) {
@@ -189,7 +188,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     private static String getShardContainer(ShardedBucket bucket, int shard) {
-        return String.format("%s-%d", bucket.prefix, shard);
+        return "%s-%d".formatted(bucket.prefix, shard);
     }
 
     private String getShard(String containerName, String blob) {
@@ -210,8 +209,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String current = currentSuperblockMeta.get(entry.getKey());
             String expected = entry.getValue();
             if (!expected.equalsIgnoreCase(current)) {
-                throw new RuntimeException(String.format(
-                        "Superblock block for %s does not match: %s, %s",
+                throw new RuntimeException((
+                        "Superblock block for %s does not match: %s, %s").formatted(
                         container, expected, current));
             }
         }
