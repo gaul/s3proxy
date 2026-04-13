@@ -2080,6 +2080,9 @@ public class S3ProxyHandler {
         if (contentLength > maxSinglePartObjectSize) {
             throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE);
         }
+        if (decodedContentLengthString != null) {
+            is = ByteStreams.limit(is, contentLength);
+        }
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
@@ -3032,6 +3035,9 @@ public class S3ProxyHandler {
         }
         if (contentLength < 0) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        if (decodedContentLengthString != null) {
+            is = ByteStreams.limit(is, contentLength);
         }
 
         String partNumberString = request.getParameter("partNumber");
