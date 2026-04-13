@@ -2823,6 +2823,9 @@ public class S3ProxyHandler {
                 } else {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
+                    if (end < start) {
+                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                    }
                     expectedSize = end - start + 1;
                     if (expectedSize > MAX_MULTIPART_COPY_SIZE) {
                         throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
