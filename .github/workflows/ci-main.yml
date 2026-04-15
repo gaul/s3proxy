@@ -10,6 +10,9 @@ on:
     branches:
       - "*"
 
+permissions:
+  contents: read
+
 env:
   dockerhub_publish: ${{ secrets.DOCKER_PASS != '' }}
 
