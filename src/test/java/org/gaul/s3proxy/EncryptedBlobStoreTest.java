@@ -169,24 +169,22 @@ public final class EncryptedBlobStoreTest {
             blobStore.putBlob(containerName, blob);
             blob = encryptedBlobStore.getBlob(containerName, blobName);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(content).isEqualTo(plaintext);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(content).isEqualTo(plaintext);
+            }
 
             var options = new GetOptions();
             blob = encryptedBlobStore.getBlob(containerName, blobName, options);
 
-            blobIs = blob.getPayload().openStream();
-            r = new InputStreamReader(blobIs);
-            reader = new BufferedReader(r);
-            plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {} with empty options ", plaintext);
-
-            assertThat(content).isEqualTo(plaintext);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {} with empty options ", plaintext);
+                assertThat(content).isEqualTo(plaintext);
+            }
         }
 
         PageSet<? extends StorageMetadata> blobs =
@@ -333,13 +331,15 @@ public final class EncryptedBlobStoreTest {
                 blob = encryptedBlobStore.getBlob(containerName, blobName,
                     options);
 
-                InputStream blobIs = blob.getPayload().openStream();
-                var r = new InputStreamReader(blobIs);
-                var reader = new BufferedReader(r);
-                String plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {} with offset {}", plaintext, offset);
-
-                assertThat(plaintext).isEqualTo(content.substring(offset));
+                try (InputStream blobIs = blob.getPayload().openStream()) {
+                    var reader = new BufferedReader(
+                        new InputStreamReader(blobIs));
+                    String plaintext = reader.lines().collect(
+                        Collectors.joining());
+                    logger.debug("plaintext {} with offset {}", plaintext,
+                        offset);
+                    assertThat(plaintext).isEqualTo(content.substring(offset));
+                }
 
                 options = new GetOptions();
                 int tail = rand.nextInt(content.length());
@@ -352,14 +352,15 @@ public final class EncryptedBlobStoreTest {
                 blob = encryptedBlobStore.getBlob(containerName, blobName,
                     options);
 
-                blobIs = blob.getPayload().openStream();
-                r = new InputStreamReader(blobIs);
-                reader = new BufferedReader(r);
-                plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {} with tail {}", plaintext, tail);
-
-                assertThat(plaintext).isEqualTo(
-                    content.substring(content.length() - tail));
+                try (InputStream blobIs = blob.getPayload().openStream()) {
+                    var reader = new BufferedReader(
+                        new InputStreamReader(blobIs));
+                    String plaintext = reader.lines().collect(
+                        Collectors.joining());
+                    logger.debug("plaintext {} with tail {}", plaintext, tail);
+                    assertThat(plaintext).isEqualTo(
+                        content.substring(content.length() - tail));
+                }
 
                 options = new GetOptions();
                 offset = 1;
@@ -371,15 +372,16 @@ public final class EncryptedBlobStoreTest {
                 blob = encryptedBlobStore.getBlob(containerName, blobName,
                     options);
 
-                blobIs = blob.getPayload().openStream();
-                r = new InputStreamReader(blobIs);
-                reader = new BufferedReader(r);
-                plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {} with range {}-{}", plaintext, offset,
-                    end);
-
-                assertThat(plaintext).isEqualTo(
-                    content.substring(offset, end + 1));
+                try (InputStream blobIs = blob.getPayload().openStream()) {
+                    var reader = new BufferedReader(
+                        new InputStreamReader(blobIs));
+                    String plaintext = reader.lines().collect(
+                        Collectors.joining());
+                    logger.debug("plaintext {} with range {}-{}", plaintext,
+                        offset, end);
+                    assertThat(plaintext).isEqualTo(
+                        content.substring(offset, end + 1));
+                }
             }
         }
     }
@@ -405,23 +407,22 @@ public final class EncryptedBlobStoreTest {
 
             blob = encryptedBlobStore.getBlob(containerName, blobName);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(plaintext).isEqualTo(content);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(plaintext).isEqualTo(content);
+            }
 
             blob = blobStore.getBlob(containerName,
                 blobName + Constants.S3_ENC_SUFFIX);
-            blobIs = blob.getPayload().openStream();
-            r = new InputStreamReader(blobIs);
-            reader = new BufferedReader(r);
-            String encrypted = reader.lines().collect(Collectors.joining());
-            logger.debug("encrypted {}", encrypted);
 
-            assertThat(content).isNotEqualTo(encrypted);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String encrypted = reader.lines().collect(Collectors.joining());
+                logger.debug("encrypted {}", encrypted);
+                assertThat(content).isNotEqualTo(encrypted);
+            }
 
             assertThat(encryptedBlobStore.blobExists(containerName,
                 blobName)).isTrue();
@@ -459,23 +460,22 @@ public final class EncryptedBlobStoreTest {
 
             blob = encryptedBlobStore.getBlob(containerName, blobName);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(content).isEqualTo(plaintext);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(content).isEqualTo(plaintext);
+            }
 
             blob = blobStore.getBlob(containerName,
                 blobName + Constants.S3_ENC_SUFFIX);
-            blobIs = blob.getPayload().openStream();
-            r = new InputStreamReader(blobIs);
-            reader = new BufferedReader(r);
-            String encrypted = reader.lines().collect(Collectors.joining());
-            logger.debug("encrypted {}", encrypted);
 
-            assertThat(content).isNotEqualTo(encrypted);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String encrypted = reader.lines().collect(Collectors.joining());
+                logger.debug("encrypted {}", encrypted);
+                assertThat(content).isNotEqualTo(encrypted);
+            }
 
             BlobMetadata metadata =
                 encryptedBlobStore.blobMetadata(containerName,
@@ -488,23 +488,23 @@ public final class EncryptedBlobStoreTest {
 
             blob = blobStore.getBlob(containerName,
                 blobName + Constants.S3_ENC_SUFFIX);
-            blobIs = blob.getPayload().openStream();
-            r = new InputStreamReader(blobIs);
-            reader = new BufferedReader(r);
-            encrypted = reader.lines().collect(Collectors.joining());
-            logger.debug("encrypted {}", encrypted);
 
-            assertThat(content).isNotEqualTo(encrypted);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String encrypted = reader.lines().collect(Collectors.joining());
+                logger.debug("encrypted {}", encrypted);
+                assertThat(content).isNotEqualTo(encrypted);
+            }
 
             blob =
                 encryptedBlobStore.getBlob(containerName, blobName + "-copy");
-            blobIs = blob.getPayload().openStream();
-            r = new InputStreamReader(blobIs);
-            reader = new BufferedReader(r);
-            plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
 
-            assertThat(content).isEqualTo(plaintext);
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(content).isEqualTo(plaintext);
+            }
         }
     }
 
@@ -545,22 +545,22 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.completeMultipartUpload(mpu, parts);
         Blob blob = encryptedBlobStore.getBlob(containerName, blobName);
 
-        InputStream blobIs = blob.getPayload().openStream();
-        var r = new InputStreamReader(blobIs);
-        var reader = new BufferedReader(r);
-        String plaintext = reader.lines().collect(Collectors.joining());
-        logger.debug("plaintext {}", plaintext);
-        assertThat(plaintext).isEqualTo(content);
+        try (InputStream blobIs = blob.getPayload().openStream()) {
+            var reader = new BufferedReader(new InputStreamReader(blobIs));
+            String plaintext = reader.lines().collect(Collectors.joining());
+            logger.debug("plaintext {}", plaintext);
+            assertThat(plaintext).isEqualTo(content);
+        }
 
         blob = blobStore.getBlob(containerName,
             blobName + Constants.S3_ENC_SUFFIX);
-        blobIs = blob.getPayload().openStream();
-        r = new InputStreamReader(blobIs);
-        reader = new BufferedReader(r);
-        String encrypted = reader.lines().collect(Collectors.joining());
-        logger.debug("encrypted {}", encrypted);
 
-        assertThat(content).isNotEqualTo(encrypted);
+        try (InputStream blobIs = blob.getPayload().openStream()) {
+            var reader = new BufferedReader(new InputStreamReader(blobIs));
+            String encrypted = reader.lines().collect(Collectors.joining());
+            logger.debug("encrypted {}", encrypted);
+            assertThat(content).isNotEqualTo(encrypted);
+        }
     }
 
     @Test
@@ -584,13 +584,12 @@ public final class EncryptedBlobStoreTest {
             options.startAt(offset);
             blob = encryptedBlobStore.getBlob(containerName, blobName, options);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(plaintext).isEqualTo(content.substring(offset));
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(plaintext).isEqualTo(content.substring(offset));
+            }
 
             long expectedEndRange = (offset != 0) ? content.length() : 0;
             assertThat(blob.getAllHeaders().get("Content-Range"))
@@ -620,14 +619,13 @@ public final class EncryptedBlobStoreTest {
             options.tail(length);
             blob = encryptedBlobStore.getBlob(containerName, blobName, options);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(plaintext).isEqualTo(
-                content.substring(content.length() - length));
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(plaintext).isEqualTo(
+                    content.substring(content.length() - length));
+            }
 
             assertThat(blob.getAllHeaders().get("Content-Range"))
                 .contains("bytes " + 0 + "-" + length + "/" + content.length());
@@ -663,15 +661,16 @@ public final class EncryptedBlobStoreTest {
                 blob = encryptedBlobStore.getBlob(containerName, blobName,
                     options);
 
-                InputStream blobIs = blob.getPayload().openStream();
-                var r = new InputStreamReader(blobIs);
-                var reader = new BufferedReader(r);
-                String plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {}", plaintext);
-
-                assertThat(plaintext).hasSize(size);
-                assertThat(plaintext).isEqualTo(
-                    content.substring(offset, end + 1));
+                try (InputStream blobIs = blob.getPayload().openStream()) {
+                    var reader = new BufferedReader(
+                        new InputStreamReader(blobIs));
+                    String plaintext = reader.lines().collect(
+                        Collectors.joining());
+                    logger.debug("plaintext {}", plaintext);
+                    assertThat(plaintext).hasSize(size);
+                    assertThat(plaintext).isEqualTo(
+                        content.substring(offset, end + 1));
+                }
 
                 assertThat(blob.getAllHeaders().get("Content-Range"))
                     .contains("bytes " + offset + "-" + end + "/" + content.length());
@@ -720,13 +719,12 @@ public final class EncryptedBlobStoreTest {
             Blob blob =
                 encryptedBlobStore.getBlob(containerName, blobName, options);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(plaintext).isEqualTo(content.substring(offset));
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(plaintext).isEqualTo(content.substring(offset));
+            }
         }
     }
 
@@ -770,14 +768,13 @@ public final class EncryptedBlobStoreTest {
             Blob blob =
                 encryptedBlobStore.getBlob(containerName, blobName, options);
 
-            InputStream blobIs = blob.getPayload().openStream();
-            var r = new InputStreamReader(blobIs);
-            var reader = new BufferedReader(r);
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-
-            assertThat(plaintext).isEqualTo(
-                content.substring(content.length() - length));
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                logger.debug("plaintext {}", plaintext);
+                assertThat(plaintext).isEqualTo(
+                    content.substring(content.length() - length));
+            }
         }
     }
 
@@ -831,14 +828,15 @@ public final class EncryptedBlobStoreTest {
                 Blob blob = encryptedBlobStore.getBlob(containerName, blobName,
                     options);
 
-                InputStream blobIs = blob.getPayload().openStream();
-                var r = new InputStreamReader(blobIs);
-                var reader = new BufferedReader(r);
-                String plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {}", plaintext);
-
-                assertThat(plaintext).isEqualTo(
-                    content.substring(offset, end + 1));
+                try (InputStream blobIs = blob.getPayload().openStream()) {
+                    var reader = new BufferedReader(
+                        new InputStreamReader(blobIs));
+                    String plaintext = reader.lines().collect(
+                        Collectors.joining());
+                    logger.debug("plaintext {}", plaintext);
+                    assertThat(plaintext).isEqualTo(
+                        content.substring(offset, end + 1));
+                }
             }
         }
     }
