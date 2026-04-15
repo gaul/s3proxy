@@ -10,11 +10,14 @@ on:
     branches:
       - "*"
 
+permissions:
+  contents: read
+
 env:
   dockerhub_publish: ${{ secrets.DOCKER_PASS != '' }}
 
 jobs:
-  
+
   meta:
     runs-on: ubuntu-24.04-arm
     outputs:
@@ -87,6 +90,48 @@ jobs:
           mkdir /tmp/blobstore
           mvn test -Ds3proxy.test.conf=s3proxy-filesystem-nio2.conf -Dtest=AwsSdkTest
 
+      - name: Install s3-tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install tox tox-gh-actions
+      - name: Run s3-tests
+        run: |
+          ./src/test/resources/run-s3-tests.sh
+      - name: Run s3-tests with transient-nio2
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-transient-nio2.conf
+
+      #Store the target
+      - uses: actions/upload-artifact@v7
+        with:
+          name: s3proxy
+          path: target/s3proxy
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pom
+          path: pom.xml
+
+  azuriteTests:
+    runs-on: ubuntu-24.04-arm
+    needs: [meta]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: "maven"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Maven Package
+        run: |
+          mvn package -DskipTests
+
       - name: Install Azurite
         run: npx --yes --loglevel info azurite@3.35 --version
       - name: Start Azurite
@@ -96,6 +141,36 @@ jobs:
         run: |
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest
+
+      - name: Install s3-tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install tox tox-gh-actions
+      - name: Run s3-tests with Azurite
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
+          kill $(pidof node)
+
+  localstackTests:
+    runs-on: ubuntu-24.04-arm
+    needs: [meta]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: "maven"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Maven Package
+        run: |
+          mvn package -DskipTests
 
       - name: Install LocalStack
         run: docker pull localstack/localstack:4.11.1
@@ -119,6 +194,39 @@ jobs:
           # TODO: run other test classes
           mvn test -Ds3proxy.test.conf=s3proxy-localstack-aws-s3-sdk.conf -Dtest=AwsSdkTest
 
+      - name: Install s3-tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install tox tox-gh-actions
+      - name: Run s3-tests with LocalStack (s3)
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-localstack-s3.conf
+      - name: Run s3-tests with LocalStack (aws-s3-sdk)
+        run: |
+          ./src/test/resources/run-s3-tests.sh s3proxy-localstack-aws-s3-sdk.conf
+          docker stop localstack
+
+  fakeGcsServerTests:
+    runs-on: ubuntu-24.04-arm
+    needs: [meta]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: "maven"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Maven Package
+        run: |
+          mvn package -DskipTests
+
       - name: Install fake-gcs-server
         run: go install github.com/fsouza/fake-gcs-server@latest
       - name: Start fake-gcs-server
@@ -132,42 +240,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
-      - name: Run s3-tests
-        run: |
-          ./src/test/resources/run-s3-tests.sh
-      - name: Run s3-tests with transient-nio2
-        run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-transient-nio2.conf
-      - name: Run s3-tests with Azurite
-        run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
-          kill $(pidof node)
-      - name: Run s3-tests with LocalStack (s3)
-        run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-localstack-s3.conf
-      - name: Run s3-tests with LocalStack (aws-s3-sdk)
-        run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-localstack-aws-s3-sdk.conf
-          docker stop localstack
       - name: Run s3-tests with fake-gcs-server
         run: |
           # TODO:
           #STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
           kill $(pidof fake-gcs-server)
 
-      #Store the target
-      - uses: actions/upload-artifact@v7
-        with:
-          name: s3proxy
-          path: target/s3proxy
-      - uses: actions/upload-artifact@v7
-        with:
-          name: pom
-          path: pom.xml
-
   Containerize:
     runs-on: ubuntu-24.04-arm
-    needs: [runTests, meta]
+    needs: [runTests, azuriteTests, localstackTests, fakeGcsServerTests, meta]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
