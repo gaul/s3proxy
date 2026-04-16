@@ -587,11 +587,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
 
             var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-            try {
-                writeCommonMetadataAttr(view, blob);
-                view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
+            if (view != null) {
+                try {
+                    writeCommonMetadataAttr(view, blob);
+                    view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
+                } catch (IOException ioe) {
+                    logger.debug("xattrs not supported on {}", path);
+                }
             }
 
             return BaseEncoding.base16().lowerCase().encode(DIRECTORY_MD5);
