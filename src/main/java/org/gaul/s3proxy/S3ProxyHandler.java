@@ -32,6 +32,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -226,6 +227,9 @@ public class S3ProxyHandler {
             "*-./_", /*plusForSpace=*/ false);
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final Instant LAUNCH_TIME = Instant.now();
+    private static final String GIT_HASH = loadGitHash();
 
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
@@ -2236,46 +2240,33 @@ public class S3ProxyHandler {
         response.setContentType("application/json");
         response.setCharacterEncoding(UTF_8);
 
-        var statusBody = ImmutableMap.of("gitHash", StatusMetadata.INSTANCE.gitHash);
-        String versionInfo = StatusMetadata.JSON_MAPPER.writeValueAsString(statusBody);
+        Map<String, String> body = ImmutableMap.of(
+                "status", "OK",
+                "gitHash", GIT_HASH,
+                "launchTime", LAUNCH_TIME.toString(),
+                "currentTime", Instant.now().toString());
 
         try (PrintWriter writer = response.getWriter()) {
-            writer.write(versionInfo);
-            writer.flush();
+            JSON_MAPPER.writeValue(writer, body);
         }
     }
 
-    private static final class StatusMetadata {
-        private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
-        private static final StatusMetadata INSTANCE = StatusMetadata.load();
-        private static final String UNKNOWN_VALUE = "unknown";
-        private final String gitHash;
-
-        private StatusMetadata(String gitHash) {
-            this.gitHash = gitHash;
-        }
-
-        static StatusMetadata load() {
-            String gitHash = loadGitHash();
-            return new StatusMetadata(gitHash);
-        }
-
-        private static String loadGitHash() {
-            try (InputStream stream = S3ProxyHandler.class.getClassLoader()
-                    .getResourceAsStream("git.properties")) {
-                if (stream == null) {
-                    return UNKNOWN_VALUE;
-                }
-                Properties properties = new Properties();
-                properties.load(stream);
-                return Optional.ofNullable(
-                        properties.getProperty("git.commit.id.abbrev"))
-                        .orElseGet(() -> properties.getProperty("git.commit.id",
-                                UNKNOWN_VALUE));
-            } catch (IOException ioe) {
-                logger.debug("Unable to load git.properties", ioe);
-                return UNKNOWN_VALUE;
+    private static String loadGitHash() {
+        try (InputStream stream = S3ProxyHandler.class.getClassLoader()
+                .getResourceAsStream("git.properties")) {
+            if (stream == null) {
+                return "unknown";
             }
+            Properties properties = new Properties();
+            properties.load(stream);
+            String hash = properties.getProperty("git.commit.id.abbrev");
+            if (hash == null) {
+                hash = properties.getProperty("git.commit.id", "unknown");
+            }
+            return hash;
+        } catch (IOException ioe) {
+            logger.debug("Unable to load git.properties", ioe);
+            return "unknown";
         }
     }
 

@@ -154,7 +154,10 @@ public final class AwsSdkAnonymousTest {
             connection.disconnect();
         }
 
+        assertThat(body).contains("\"status\":\"OK\"");
         assertThat(body).contains("\"gitHash\":\"");
+        assertThat(body).contains("\"launchTime\":\"");
+        assertThat(body).contains("\"currentTime\":\"");
         assertThat(body).startsWith("{").endsWith("}");
     }
 
