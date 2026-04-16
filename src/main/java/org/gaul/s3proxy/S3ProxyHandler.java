@@ -1686,8 +1686,28 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
+        String contentMD5String = request.getHeader(HttpHeaders.CONTENT_MD5);
+        if (contentMD5String == null) {
+            throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                    "Missing required header for this request: Content-Md5");
+        }
+        HashCode expected;
+        try {
+            expected = HashCode.fromBytes(
+                    Base64.getDecoder().decode(contentMD5String));
+        } catch (IllegalArgumentException iae) {
+            throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+        }
+        if (expected.bits() != MD5.bits()) {
+            throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
+        }
+        byte[] body = ByteStreams.toByteArray(is);
+        HashCode actual = MD5.hashBytes(body);
+        if (!expected.equals(actual)) {
+            throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+        }
         DeleteMultipleObjectsRequest dmor = mapper.readValue(
-                is, DeleteMultipleObjectsRequest.class);
+                body, DeleteMultipleObjectsRequest.class);
         if (dmor.objects == null) {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
