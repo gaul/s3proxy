@@ -1701,7 +1701,7 @@ public class S3ProxyHandler {
         if (expected.bits() != MD5.bits()) {
             throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
         }
-        byte[] body = ByteStreams.toByteArray(is);
+        byte[] body = is.readAllBytes();
         HashCode actual = MD5.hashBytes(body);
         if (!expected.equals(actual)) {
             throw new S3Exception(S3ErrorCode.BAD_DIGEST);
