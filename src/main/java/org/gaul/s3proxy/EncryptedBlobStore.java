@@ -56,6 +56,7 @@ import org.jclouds.blobstore.domain.MutableBlobMetadata;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
+import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
 import org.jclouds.blobstore.domain.internal.PageSetImpl;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.GetOptions;
@@ -252,6 +253,12 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
 
                 builder.add(mbm);
+            } else if (sm.getName() != null && isEncrypted(sm.getName())) {
+                // non-BlobMetadata list entries (e.g. from S3 list backends)
+                // still need the .s3enc suffix stripped from the name
+                var msm = new MutableStorageMetadataImpl(sm);
+                msm.setName(removeEncryptedSuffix(sm.getName()));
+                builder.add(msm);
             } else {
                 builder.add(sm);
             }
