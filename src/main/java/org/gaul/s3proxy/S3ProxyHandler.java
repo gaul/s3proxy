@@ -186,8 +186,12 @@ public class S3ProxyHandler {
             AwsHttpHeaders.ACL,
             AwsHttpHeaders.API_VERSION,
             AwsHttpHeaders.CHECKSUM_ALGORITHM,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_CRC32,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_CRC32C,  // TODO: ignoring header
             AwsHttpHeaders.CHECKSUM_CRC64NVME,  // TODO: ignoring header
             AwsHttpHeaders.CHECKSUM_MODE,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_SHA1,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_SHA256,  // TODO: ignoring header
             AwsHttpHeaders.CONTENT_SHA256,
             AwsHttpHeaders.COPY_SOURCE,
             AwsHttpHeaders.COPY_SOURCE_IF_MATCH,

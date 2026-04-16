@@ -20,8 +20,12 @@ final class AwsHttpHeaders {
     static final String ACL = "x-amz-acl";
     static final String API_VERSION = "x-amz-api-version";
     static final String CHECKSUM_ALGORITHM = "x-amz-checksum-algorithm";
+    static final String CHECKSUM_CRC32 = "x-amz-checksum-crc32";
+    static final String CHECKSUM_CRC32C = "x-amz-checksum-crc32c";
     static final String CHECKSUM_CRC64NVME = "x-amz-checksum-crc64nvme";
     static final String CHECKSUM_MODE = "x-amz-checksum-mode";
+    static final String CHECKSUM_SHA1 = "x-amz-checksum-sha1";
+    static final String CHECKSUM_SHA256 = "x-amz-checksum-sha256";
     static final String CONTENT_SHA256 = "x-amz-content-sha256";
     static final String COPY_SOURCE = "x-amz-copy-source";
     static final String COPY_SOURCE_IF_MATCH = "x-amz-copy-source-if-match";
