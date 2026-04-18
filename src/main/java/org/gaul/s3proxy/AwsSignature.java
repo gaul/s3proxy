@@ -186,6 +186,29 @@ final class AwsSignature {
         return mac.doFinal(data);
     }
 
+    /**
+     * Derive the AWS SigV4 signing key from the credential and auth header.
+     */
+    static byte[] deriveSigningKeyV4(S3AuthorizationHeader authHeader,
+            String credential)
+            throws InvalidKeyException, NoSuchAlgorithmException {
+        String algorithm = authHeader.getHmacAlgorithm();
+        byte[] dateKey = signMessage(
+                authHeader.getDate().getBytes(StandardCharsets.UTF_8),
+                ("AWS4" + credential).getBytes(StandardCharsets.UTF_8),
+                algorithm);
+        byte[] dateRegionKey = signMessage(
+                authHeader.getRegion().getBytes(StandardCharsets.UTF_8),
+                dateKey,
+                algorithm);
+        byte[] dateRegionServiceKey = signMessage(
+                authHeader.getService().getBytes(StandardCharsets.UTF_8),
+                dateRegionKey, algorithm);
+        return signMessage(
+                "aws4_request".getBytes(StandardCharsets.UTF_8),
+                dateRegionServiceKey, algorithm);
+    }
+
     private static String getMessageDigest(byte[] payload, String algorithm)
             throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance(algorithm);
@@ -338,20 +361,7 @@ final class AwsSignature {
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
                 authHeader.getHashAlgorithm());
         String algorithm = authHeader.getHmacAlgorithm();
-        byte[] dateKey = signMessage(
-                authHeader.getDate().getBytes(StandardCharsets.UTF_8),
-                ("AWS4" + credential).getBytes(StandardCharsets.UTF_8),
-                algorithm);
-        byte[] dateRegionKey = signMessage(
-                authHeader.getRegion().getBytes(StandardCharsets.UTF_8),
-                dateKey,
-                algorithm);
-        byte[] dateRegionServiceKey = signMessage(
-                authHeader.getService().getBytes(StandardCharsets.UTF_8),
-                dateRegionKey, algorithm);
-        byte[] signingKey = signMessage(
-                "aws4_request".getBytes(StandardCharsets.UTF_8),
-                dateRegionServiceKey, algorithm);
+        byte[] signingKey = deriveSigningKeyV4(authHeader, credential);
         String date = request.getHeader(AwsHttpHeaders.DATE);
         if (date == null) {
             date = request.getParameter("X-Amz-Date");

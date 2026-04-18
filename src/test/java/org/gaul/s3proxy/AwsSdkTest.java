@@ -256,7 +256,6 @@ public final class AwsSdkTest {
         }
     }
 
-    @Ignore
     @Test
     public void testAwsV4SignatureChunkedSigned() throws Exception {
         client = AmazonS3ClientBuilder.standard()

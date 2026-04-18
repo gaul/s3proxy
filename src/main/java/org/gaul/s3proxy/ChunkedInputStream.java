@@ -20,12 +20,19 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
 import javax.annotation.Nullable;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 
 /**
@@ -34,21 +41,28 @@ import com.google.common.io.ByteStreams;
  */
 final class ChunkedInputStream extends FilterInputStream {
     private static final int MAX_LINE_LENGTH = 4096;
+    private static final String EMPTY_SHA256 =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     private byte[] chunk;
     private int currentIndex;
     private int currentLength;
-    @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-            value = "URF_UNREAD_FIELD",
-            justification = "https://github.com/gaul/s3proxy/issues/205")
-    @SuppressWarnings("UnusedVariable")
     private String currentSignature;
     private final int maxChunkSize;
     private final Hasher hasher;
+    @Nullable private final byte[] signingKey;
+    @Nullable private final String hmacAlgorithm;
+    @Nullable private final String timestamp;
+    @Nullable private final String scope;
+    @Nullable private String previousSignature;
 
     ChunkedInputStream(InputStream is, int maxChunkSize) {
         super(is);
         this.maxChunkSize = maxChunkSize;
         hasher = null;
+        signingKey = null;
+        hmacAlgorithm = null;
+        timestamp = null;
+        scope = null;
     }
 
     @SuppressWarnings("deprecation")
@@ -68,6 +82,33 @@ final class ChunkedInputStream extends FilterInputStream {
             // TODO: Guava does not support x-amz-checksum-crc64nvme
             hasher = null;
         }
+        signingKey = null;
+        hmacAlgorithm = null;
+        timestamp = null;
+        scope = null;
+    }
+
+    /**
+     * Construct a chunked stream that verifies the per-chunk signature chain
+     * used by STREAMING-AWS4-HMAC-SHA256-PAYLOAD.
+     *
+     * @param seedSignature the Authorization header signature (hex-encoded)
+     * @param signingKey    the AWS SigV4 signing key
+     * @param hmacAlgorithm HMAC algorithm name (e.g. "HmacSHA256")
+     * @param timestamp     full ISO8601 request timestamp (x-amz-date)
+     * @param scope         credential scope (date/region/service/aws4_request)
+     */
+    ChunkedInputStream(InputStream is, int maxChunkSize,
+            String seedSignature, byte[] signingKey, String hmacAlgorithm,
+            String timestamp, String scope) {
+        super(is);
+        this.maxChunkSize = maxChunkSize;
+        this.hasher = null;
+        this.signingKey = signingKey.clone();
+        this.hmacAlgorithm = hmacAlgorithm;
+        this.timestamp = timestamp;
+        this.scope = scope;
+        this.previousSignature = seedSignature;
     }
 
     @Override
@@ -98,7 +139,11 @@ final class ChunkedInputStream extends FilterInputStream {
                 }
             }
             if (parts.length > 1) {
-                currentSignature = parts[1];
+                String sigPart = parts[1];
+                int eq = sigPart.indexOf('=');
+                currentSignature = eq >= 0 ? sigPart.substring(eq + 1) : sigPart;
+            } else {
+                currentSignature = null;
             }
             chunk = new byte[currentLength];
             currentIndex = 0;
@@ -106,7 +151,9 @@ final class ChunkedInputStream extends FilterInputStream {
             if (hasher != null) {
                 hasher.putBytes(chunk);
             }
-            // TODO: check currentSignature
+            if (signingKey != null) {
+                verifyChunkSignature(chunk, currentSignature);
+            }
             if (currentLength == 0) {
                 return -1;
             }
@@ -130,6 +177,53 @@ final class ChunkedInputStream extends FilterInputStream {
             return -1;
         }
         return i;
+    }
+
+    private void verifyChunkSignature(byte[] data, @Nullable String signature)
+            throws IOException {
+        if (signature == null) {
+            throw new IOException(new S3Exception(
+                    S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
+        }
+        String chunkHash;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            chunkHash = BaseEncoding.base16().lowerCase()
+                    .encode(md.digest(data));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        String stringToSign = "AWS4-HMAC-SHA256-PAYLOAD\n" +
+                timestamp + "\n" +
+                scope + "\n" +
+                previousSignature + "\n" +
+                EMPTY_SHA256 + "\n" +
+                chunkHash;
+        String expected;
+        try {
+            Mac mac = Mac.getInstance(hmacAlgorithm);
+            mac.init(new SecretKeySpec(signingKey, hmacAlgorithm));
+            expected = BaseEncoding.base16().lowerCase().encode(
+                    mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8)));
+        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        if (!constantTimeEquals(expected, signature)) {
+            throw new IOException(new S3Exception(
+                    S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
+        }
+        previousSignature = signature;
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a.length() != b.length()) {
+            return false;
+        }
+        int diff = 0;
+        for (int i = 0; i < a.length(); i++) {
+            diff |= a.charAt(i) ^ b.charAt(i);
+        }
+        return diff == 0;
     }
 
     /**
