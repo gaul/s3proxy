@@ -648,7 +648,9 @@ public class S3ProxyHandler {
                     } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                             contentSha256)) {
                         payload = new byte[0];
-                        is = new ChunkedInputStream(is, v4MaxChunkSize);
+                        // ChunkedInputStream constructed below after deriving
+                        // the signing key so per-chunk signatures can be
+                        // verified.
                     } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
                         payload = new byte[0];
                         is = new ChunkedInputStream(is, v4MaxChunkSize, request.getHeader(AwsHttpHeaders.TRAILER));
@@ -685,6 +687,23 @@ public class S3ProxyHandler {
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
                             credential);
+                    if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
+                            contentSha256)) {
+                        byte[] signingKey = AwsSignature.deriveSigningKeyV4(
+                                authHeader, credential);
+                        String scope = authHeader.getDate() + "/" +
+                                authHeader.getRegion() + "/" +
+                                authHeader.getService() + "/aws4_request";
+                        String timestamp = request.getHeader(
+                                AwsHttpHeaders.DATE);
+                        if (timestamp == null) {
+                            timestamp = request.getParameter("X-Amz-Date");
+                        }
+                        is = new ChunkedInputStream(is, v4MaxChunkSize,
+                                expectedSignature, signingKey,
+                                authHeader.getHmacAlgorithm(), timestamp,
+                                scope);
+                    }
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, e);
                 }
