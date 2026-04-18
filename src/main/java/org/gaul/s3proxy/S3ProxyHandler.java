@@ -47,6 +47,7 @@ import java.util.SortedMap;
 import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -154,7 +155,6 @@ public class S3ProxyHandler {
             "user/some-user-11116a31-17b5-4fb7-9df5-b288870f11xx";
     private static final String FAKE_INITIATOR_DISPLAY_NAME =
             "umat-user-11116a31-17b5-4fb7-9df5-b288870f11xx";
-    private static final String FAKE_REQUEST_ID = "4442587FB7D0A2F9";
     private static final CharMatcher VALID_BUCKET_FIRST_CHAR =
             CharMatcher.inRange('a', 'z')
                     .or(CharMatcher.inRange('A', 'Z'))
@@ -363,8 +363,7 @@ public class S3ProxyHandler {
             }
         }
 
-        // TODO: fake
-        response.addHeader(AwsHttpHeaders.REQUEST_ID, FAKE_REQUEST_ID);
+        response.addHeader(AwsHttpHeaders.REQUEST_ID, generateRequestId());
 
         boolean hasDateHeader = false;
         boolean hasXAmzDateHeader = false;
@@ -3297,6 +3296,10 @@ public class S3ProxyHandler {
 
     // cannot call BlobStore.getContext().utils().date().iso8601DateFormat since
     // it has unwanted millisecond precision
+    private static String generateRequestId() {
+        return String.format("%016X", ThreadLocalRandom.current().nextLong());
+    }
+
     private static String formatDate(Date date) {
         var formatter = new SimpleDateFormat(
                 "yyyy-MM-dd'T'HH:mm:ss'Z'");
@@ -3338,7 +3341,11 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, entry.getKey(), entry.getValue());
             }
 
-            writeSimpleElement(xml, "RequestId", FAKE_REQUEST_ID);
+            String requestId = response.getHeader(AwsHttpHeaders.REQUEST_ID);
+            if (requestId == null) {
+                requestId = generateRequestId();
+            }
+            writeSimpleElement(xml, "RequestId", requestId);
 
             xml.writeEndElement();
             xml.flush();
