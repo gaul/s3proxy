@@ -338,11 +338,6 @@
           </dependency>
           <dependency>
             <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-testng</artifactId>
-            <version>${surefire.version}</version>
-          </dependency>
-          <dependency>
-            <groupId>org.apache.maven.surefire</groupId>
             <artifactId>surefire-junit-platform</artifactId>
             <version>${surefire.version}</version>
           </dependency>
@@ -617,12 +612,6 @@
       <version>${slf4j.version}</version>
     </dependency>
     <!-- tests dependencies -->
-    <dependency>
-      <groupId>org.testng</groupId>
-      <artifactId>testng</artifactId>
-      <version>7.5.1</version>
-      <scope>test</scope>
-    </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
