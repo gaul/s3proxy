@@ -255,8 +255,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                                 StorageType.RELATIVE_PATH,
                                 /*id=*/ null, name + "/",
                                 /*location=*/ null, /*uri=*/ null,
-                                /*eTag=*/ null, /*creationTime=*/ null,
-                                /*lastModifiedTime=*/ null,
+                                /*eTag=*/ null, /*creationDate=*/ null,
+                                /*lastModified=*/ null,
                                 Map.of(), /*size=*/ null, Tier.STANDARD));
                     }
                 } else {
