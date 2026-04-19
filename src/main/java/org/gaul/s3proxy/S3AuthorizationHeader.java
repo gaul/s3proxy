@@ -19,9 +19,9 @@ package org.gaul.s3proxy;
 import java.util.List;
 import java.util.Map;
 
-import javax.annotation.Nullable;
-
 import com.google.common.base.Splitter;
+
+import org.jspecify.annotations.Nullable;
 
 final class S3AuthorizationHeader {
     private static final Map<String, String> DIGEST_MAP = Map.of(

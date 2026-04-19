@@ -16,12 +16,11 @@
 
 package org.gaul.s3proxy;
 
-import javax.annotation.Nullable;
-
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This class extends jclouds' PutOptions to support conditional put operations via

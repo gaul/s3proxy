@@ -52,7 +52,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
-import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.xml.stream.XMLOutputFactory;
@@ -113,6 +112,7 @@ import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -275,9 +275,8 @@ public class S3ProxyHandler {
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
-                @Nullable
                 @Override
-                public Map.Entry<String, BlobStore> locateBlobStore(
+                public Map.@Nullable Entry<String, BlobStore> locateBlobStore(
                         String identityArg, String container, String blob) {
                     if (!identity.equals(identityArg)) {
                         return null;
@@ -410,7 +409,6 @@ public class S3ProxyHandler {
                     "AWS authentication requires a valid Date or" +
                     " x-amz-date header");
         }
-
 
         BlobStore blobStore;
         String requestIdentity = null;
@@ -2351,7 +2349,6 @@ public class S3ProxyHandler {
             parts.close();
         }
 
-
         if (blobName == null || policy == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -2567,7 +2564,6 @@ public class S3ProxyHandler {
         final MultipartUpload mpu = MultipartUpload.create(containerName,
                 blobName, uploadId, metadata, options);
 
-
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob")) {
@@ -2761,7 +2757,6 @@ public class S3ProxyHandler {
 
             blobStore.removeBlob(containerName, uploadId);
         }
-
 
         addCorsResponseHeader(request, response);
 

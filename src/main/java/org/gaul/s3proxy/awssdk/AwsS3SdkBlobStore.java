@@ -27,8 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.annotation.Nullable;
-
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -76,6 +74,7 @@ import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
 import org.jclouds.rest.AuthorizationException;
+import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -1086,8 +1085,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     }
 
     private static Tier toTier(
-            @Nullable software.amazon.awssdk.services.s3.model.ObjectStorageClass
-                storageClass) {
+            software.amazon.awssdk.services.s3.model.@Nullable
+                ObjectStorageClass storageClass) {
         if (storageClass == null) {
             return Tier.STANDARD;
         }

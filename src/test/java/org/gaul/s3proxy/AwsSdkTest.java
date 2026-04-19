@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nullable;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -98,6 +97,7 @@ import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.rest.HttpClient;
+import org.jspecify.annotations.Nullable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -1684,9 +1684,8 @@ public final class AwsSdkTest {
                 .build(BlobStoreContext.class)
                 .getBlobStore();
         s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
-            @Nullable
             @Override
-            public Map.Entry<String, BlobStore> locateBlobStore(
+            public Map.@Nullable Entry<String, BlobStore> locateBlobStore(
                     String identity, String container, String blob) {
                 if (identity.equals(awsCreds.getAWSAccessKeyId())) {
                     return Map.entry(awsCreds.getAWSSecretKey(), blobStore1);

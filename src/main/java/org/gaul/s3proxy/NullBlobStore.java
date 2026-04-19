@@ -22,8 +22,6 @@ import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 
-import javax.annotation.Nullable;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -44,6 +42,7 @@ import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.ByteSourcePayload;
+import org.jspecify.annotations.Nullable;
 
 final class NullBlobStore extends ForwardingBlobStore {
     private NullBlobStore(BlobStore blobStore) {

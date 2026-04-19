@@ -21,8 +21,6 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
-import javax.annotation.Nullable;
-
 import com.google.common.net.HttpHeaders;
 
 import jakarta.servlet.http.HttpServlet;
@@ -36,9 +34,9 @@ import org.jclouds.http.HttpResponse;
 import org.jclouds.http.HttpResponseException;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.util.Throwables2;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 /** Jetty-specific handler for S3 requests. */
 final class S3ProxyHandlerJetty extends HttpServlet {

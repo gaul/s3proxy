@@ -32,8 +32,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import javax.annotation.Nullable;
-
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.identity.DefaultAzureCredentialBuilder;
@@ -113,6 +111,7 @@ import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
+import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 
@@ -845,7 +844,6 @@ public final class AzureBlobStore extends BaseBlobStore {
                     "Part size exceeds maximum of " + getMaximumMultipartPartSize() +
                     " bytes: " + contentLength);
         }
-
 
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());

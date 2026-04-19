@@ -29,8 +29,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import javax.annotation.Nullable;
-
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.NoCredentials;
@@ -99,6 +97,7 @@ import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
+import org.jspecify.annotations.Nullable;
 
 @Singleton
 public final class GCloudBlobStore extends BaseBlobStore {
@@ -1009,7 +1008,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
     }
 
     private static Date toDate(
-            @Nullable java.time.OffsetDateTime offsetDateTime) {
+            java.time.@Nullable OffsetDateTime offsetDateTime) {
         if (offsetDateTime == null) {
             return null;
         }
@@ -1030,7 +1029,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
     }
 
     private static Tier toTier(
-            @Nullable com.google.cloud.storage.StorageClass storageClass) {
+            com.google.cloud.storage.@Nullable StorageClass storageClass) {
         if (storageClass == null) {
             return Tier.STANDARD;
         } else if (storageClass.equals(

@@ -21,12 +21,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.SortedMap;
 
-import javax.annotation.concurrent.ThreadSafe;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 
-@ThreadSafe
 public class DecryptionInputStream extends FilterInputStream {
 
     // the cipher engine to use to process stream data

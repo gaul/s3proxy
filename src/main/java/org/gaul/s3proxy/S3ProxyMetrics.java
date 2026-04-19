@@ -18,8 +18,6 @@ package org.gaul.s3proxy;
 
 import java.util.List;
 
-import javax.annotation.Nullable;
-
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
@@ -29,6 +27,8 @@ import io.opentelemetry.exporter.prometheus.PrometheusHttpServer;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.semconv.HttpAttributes;
 import io.opentelemetry.semconv.UrlAttributes;
+
+import org.jspecify.annotations.Nullable;
 
 public final class S3ProxyMetrics {
     /** Default metrics port (0 = ephemeral). */

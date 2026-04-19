@@ -20,11 +20,10 @@ import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.util.Map;
 
-import javax.annotation.Nullable;
-
 import com.google.common.collect.Maps;
 
 import org.jclouds.blobstore.BlobStore;
+import org.jspecify.annotations.Nullable;
 
 public final class GlobBlobStoreLocator implements BlobStoreLocator {
     private final Map<String, Map.Entry<String, BlobStore>> locator;

@@ -22,7 +22,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.TreeMap;
 
-import javax.annotation.concurrent.ThreadSafe;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -33,7 +32,6 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.options.GetOptions;
 
-@ThreadSafe
 public class Decryption {
     private final SecretKey encryptionKey;
     private TreeMap<Integer, PartPadding> partList;
