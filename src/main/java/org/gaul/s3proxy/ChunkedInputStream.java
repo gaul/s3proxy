@@ -50,7 +50,7 @@ final class ChunkedInputStream extends FilterInputStream {
     private String currentSignature;
     private final int maxChunkSize;
     private final Hasher hasher;
-    @Nullable private final byte[] signingKey;
+    private final byte @Nullable [] signingKey;
     @Nullable private final String hmacAlgorithm;
     @Nullable private final String timestamp;
     @Nullable private final String scope;
