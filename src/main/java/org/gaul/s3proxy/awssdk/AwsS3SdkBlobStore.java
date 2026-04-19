@@ -144,13 +144,13 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             @Named(AwsS3SdkApiMetadata.CHUNKED_ENCODING_ENABLED)
                 String chunkedEncodingEnabled,
             @Named(AwsS3SdkApiMetadata.STRIP_ETAG_QUOTES)
-                String stripEtagQuotes) {
+                String stripETagQuotes) {
         super(context, blobUtils, defaultLocation, locations, slicer);
         this.endpoint = provider.getEndpoint();
         this.awsRegion = Region.of(region);
         this.useNativeConditionalWrites = !"emulated".equalsIgnoreCase(
                 conditionalWrites);
-        this.stripETagQuotes = Boolean.parseBoolean(stripEtagQuotes);
+        this.stripETagQuotes = Boolean.parseBoolean(stripETagQuotes);
         var cred = creds.get();
 
         S3ClientBuilder builder = S3Client.builder();
