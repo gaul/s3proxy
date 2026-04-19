@@ -1767,7 +1767,7 @@ public final class AwsSdkTest {
         try {
             var metadata = new ObjectMetadata();
             metadata.setContentLength(BYTE_SOURCE.size());
-            PutObjectResult result = client.putObject(containerName, "../evil.txt",
+            client.putObject(containerName, "../evil.txt",
                     BYTE_SOURCE.openStream(), metadata);
             if (blobStoreType.equals("filesystem") || blobStoreType.equals("filesystem-nio2") || blobStoreType.equals("transient-nio2")) {
                 Fail.failBecauseExceptionWasNotThrown(AmazonS3Exception.class);

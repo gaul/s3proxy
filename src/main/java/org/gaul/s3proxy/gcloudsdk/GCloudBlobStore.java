@@ -323,7 +323,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
         Long rangeOffset = null;
         Long rangeEnd = null;
-        boolean trailingRange = false;
         if (!options.getRanges().isEmpty()) {
             var ranges = options.getRanges().get(0).split("-", 2);
             if (ranges[0].isEmpty()) {
@@ -332,7 +331,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 long blobSz = gcsBlob.getSize();
                 rangeOffset = Math.max(0, blobSz - trailing);
                 rangeEnd = blobSz - 1;
-                trailingRange = true;
             } else if (ranges[1].isEmpty()) {
                 rangeOffset = Long.parseLong(ranges[0]);
             } else {

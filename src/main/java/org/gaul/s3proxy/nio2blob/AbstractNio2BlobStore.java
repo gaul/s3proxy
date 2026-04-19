@@ -611,7 +611,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var metadata = blob.getMetadata().getContentMetadata();
         try (var is = new HashingInputStream(md5, blob.getPayload().openStream());
              var os = Files.newOutputStream(tmpPath)) {
-            var count = is.transferTo(os);
+            is.transferTo(os);
             var actualHashCode = is.hash();
             var expectedHashCode = metadata.getContentMD5AsHashCode();
             if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
