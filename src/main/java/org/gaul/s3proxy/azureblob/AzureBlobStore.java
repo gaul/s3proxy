@@ -921,12 +921,12 @@ public final class AzureBlobStore extends BaseBlobStore {
 
         } catch (BlobStorageException bse) {
             translateAndRethrowException(bse, mpu.containerName(), mpu.blobName());
-            throw new RuntimeException((
-                    "Failed to upload part %d for blob '%s' in container '%s': %s").formatted(
+            throw new RuntimeException(
+                    "Failed to upload part %d for blob '%s' in container '%s': %s".formatted(
                     partNumber, mpu.blobName(), mpu.containerName(), bse.getMessage()), bse);
         } catch (IOException ioe) {
-            throw new RuntimeException((
-                    "Failed to upload part %d for blob '%s' in container '%s': %s").formatted(
+            throw new RuntimeException(
+                    "Failed to upload part %d for blob '%s' in container '%s': %s".formatted(
                     partNumber, mpu.blobName(), mpu.containerName(), ioe.getMessage()), ioe);
         }
 
