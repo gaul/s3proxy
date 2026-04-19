@@ -16,8 +16,6 @@
 
 package org.gaul.s3proxy.nio2blob;
 
-import static java.util.Objects.requireNonNull;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -118,7 +116,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private static final byte[] DIRECTORY_MD5 =
             md5.hashBytes(new byte[0]).asBytes();
 
-    private final Supplier<Set<? extends Location>> locations;
     private final Path root;
 
     protected AbstractNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
@@ -128,17 +125,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             @org.jclouds.location.Provider Supplier<Credentials> creds,
             Path root) {
         super(context, blobUtils, defaultLocation, locations, slicer);
-        this.locations = requireNonNull(locations, "locations");
         this.root = root;
     }
 
     protected final Path getRoot() {
         return root;
-    }
-
-    @Override
-    public final Set<? extends Location> listAssignableLocations() {
-        return locations.get();
     }
 
     @Override
