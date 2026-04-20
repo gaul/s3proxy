@@ -1490,8 +1490,12 @@ public class S3ProxyHandler {
                 locationString = null;
             } else {
                 pis.unread(ch);
-                CreateBucketRequest cbr = mapper.readValue(
-                        pis, CreateBucketRequest.class);
+                CreateBucketRequest cbr;
+                try {
+                    cbr = mapper.readValue(pis, CreateBucketRequest.class);
+                } catch (JsonParseException jpe) {
+                    throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
+                }
                 locationString = cbr.locationConstraint;
             }
         }
