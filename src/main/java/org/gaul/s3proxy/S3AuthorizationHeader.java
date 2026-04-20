@@ -63,6 +63,23 @@ final class S3AuthorizationHeader {
             authenticationType = AuthenticationType.AWS_V4;
             signature = extractSignature(header);
 
+            int spaceIndex = header.indexOf(' ');
+            if (spaceIndex < 0) {
+                throw new IllegalArgumentException("Invalid header");
+            }
+            List<String> versionParts = Splitter.on('-').splitToList(
+                    header.substring(0, spaceIndex));
+            if (versionParts.size() < 3) {
+                throw new IllegalArgumentException("Invalid header");
+            }
+            String algorithm = versionParts.get(2);
+            hashAlgorithm = DIGEST_MAP.get(algorithm);
+            if (hashAlgorithm == null) {
+                throw new IllegalArgumentException(
+                        "Unsupported signing algorithm: " + algorithm);
+            }
+            hmacAlgorithm = "Hmac" + algorithm;
+
             int credentialIndex = header.indexOf(CREDENTIAL_FIELD);
             if (credentialIndex < 0) {
                 throw new IllegalArgumentException("Invalid header");
@@ -82,12 +99,6 @@ final class S3AuthorizationHeader {
             date = fields.get(1);
             region = fields.get(2);
             service = fields.get(3);
-            String awsSignatureVersion = header.substring(
-                    0, header.indexOf(' '));
-            hashAlgorithm = DIGEST_MAP.get(Splitter.on('-').splitToList(
-                    awsSignatureVersion).get(2));
-            hmacAlgorithm = "Hmac" + Splitter.on('-').splitToList(
-                    awsSignatureVersion).get(2);
         } else {
             throw new IllegalArgumentException("Invalid header");
         }
