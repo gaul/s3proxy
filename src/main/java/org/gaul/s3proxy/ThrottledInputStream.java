@@ -47,11 +47,14 @@ final class ThrottledInputStream extends FilterInputStream {
     }
 
     private void simulateLatency(int size) {
-        if (size == 0 || speed == null) {
+        if (size == 0 || speed == null || speed == 0) {
             return;
         }
+        long totalNanos = (long) size * 1_000_000L / speed;
+        long millis = totalNanos / 1_000_000L;
+        int nanos = (int) (totalNanos % 1_000_000L);
         try {
-            Thread.sleep(size / speed, (int) (size % speed) * 1_000_000);
+            Thread.sleep(millis, nanos);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
