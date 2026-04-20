@@ -183,8 +183,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         checkValidPath(containerPath, pathPrefix);
         logger.debug("Listing blobs at: {}", pathPrefix);
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
+        var filterMultipart = !prefix.startsWith(MULTIPART_PREFIX);
         try {
-            listHelper(set, container, dirPrefix, pathPrefix, delimiter);
+            listHelper(set, container, dirPrefix, pathPrefix, delimiter,
+                    filterMultipart);
             var sorted = set.build();
             if (options.getMarker() != null) {
                 var found = false;
@@ -219,7 +221,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
-            String container, Path parent, Path prefix, String delimiter)
+            String container, Path parent, Path prefix, String delimiter,
+            boolean filterMultipart)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, prefix);
         if (!Files.isDirectory(parent)) {  // TODO: TOCTOU
@@ -228,11 +231,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try (var stream = Files.newDirectoryStream(parent)) {
             for (var path : stream) {
                 logger.debug("examining: {}", path);
+                if (filterMultipart && path.getFileName().toString()
+                        .startsWith(MULTIPART_PREFIX)) {
+                    continue;
+                }
                 if (!path.toAbsolutePath().toString().startsWith(root.resolve(prefix).toAbsolutePath().toString())) {
                     // ignore
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
-                        listHelper(builder, container, path, prefix, delimiter);
+                        listHelper(builder, container, path, prefix, delimiter,
+                                filterMultipart);
                     }
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
