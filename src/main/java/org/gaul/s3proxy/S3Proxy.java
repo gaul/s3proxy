@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Objects;
 import java.util.Properties;
@@ -30,7 +31,6 @@ import javax.net.ssl.SSLContext;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
@@ -311,8 +311,8 @@ public final class S3Proxy {
                         .omitEmptyStrings();
 
                 //Validate configured methods
-                Collection<String> allowedMethods = Lists.newArrayList(
-                        splitter.split(corsAllowMethods));
+                Collection<String> allowedMethods = new ArrayList<>(
+                        splitter.splitToList(corsAllowMethods));
                 allowedMethods.removeAll(
                         CrossOriginResourceSharing.SUPPORTED_METHODS);
                 if (!allowedMethods.isEmpty()) {

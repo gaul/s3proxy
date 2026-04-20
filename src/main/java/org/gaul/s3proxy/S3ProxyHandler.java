@@ -2421,7 +2421,7 @@ public class S3ProxyHandler {
         response.setContentType("application/json");
         response.setCharacterEncoding(UTF_8);
 
-        Map<String, String> body = ImmutableMap.of(
+        Map<String, String> body = Map.of(
                 "status", "OK",
                 "gitHash", GIT_HASH,
                 "launchTime", launchTime.toString(),

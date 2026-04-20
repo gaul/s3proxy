@@ -225,7 +225,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         int maxKeys = options.getMaxResults() != null ?
                 options.getMaxResults() : 1000;
         if (maxKeys == 0) {
-            return new PageSetImpl<StorageMetadata>(ImmutableSet.of(), null);
+            return new PageSetImpl<StorageMetadata>(Set.of(), null);
         }
         requestBuilder.maxKeys(maxKeys);
 
@@ -962,7 +962,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             return parts.build();
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
-                return ImmutableList.of();
+                return List.of();
             }
             translateAndRethrowException(e, mpu.containerName(), mpu.blobName());
             throw e;

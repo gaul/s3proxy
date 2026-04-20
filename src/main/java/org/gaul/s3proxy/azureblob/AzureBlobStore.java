@@ -991,7 +991,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             blockList = client.listBlocks(BlockListType.ALL);
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() == 404) {
-                return ImmutableList.of();
+                return List.of();
             }
             throw bse;
         }

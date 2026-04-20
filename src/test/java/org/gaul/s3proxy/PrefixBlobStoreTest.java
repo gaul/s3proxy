@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
@@ -106,9 +105,9 @@ public final class PrefixBlobStoreTest {
 
         PageSet<? extends StorageMetadata> listing =
                 prefixBlobStore.list(containerName);
-        List<String> names = ImmutableList.copyOf(listing).stream()
+        List<String> names = List.copyOf(listing).stream()
                 .map(StorageMetadata::getName)
-                .collect(ImmutableList.toImmutableList());
+                .toList();
         assertThat(names).containsExactlyInAnyOrder(
                 "file-one.txt", "file-two.txt");
         assertThat(listing.getNextMarker()).isNull();

@@ -26,7 +26,6 @@ import java.util.Properties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
@@ -54,7 +53,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     private PrefixBlobStore(BlobStore delegate, Map<String, String> prefixes) {
         super(delegate);
-        this.prefixes = ImmutableMap.copyOf(requireNonNull(prefixes));
+        this.prefixes = Map.copyOf(requireNonNull(prefixes));
     }
 
     static BlobStore newPrefixBlobStore(BlobStore delegate,
@@ -84,7 +83,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             checkArgument(prefixMap.put(bucket, prefix) == null,
                     "Multiple prefixes configured for bucket %s", bucket);
         }
-        return ImmutableMap.copyOf(prefixMap);
+        return Map.copyOf(prefixMap);
     }
 
     private boolean hasPrefix(String container) {
