@@ -330,7 +330,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             } else {
                 // if there is also no eTag suffix then get the number of parts from last padding
                 var options = new GetOptions()
-                    .range(blobMeta.getSize() - Constants.PADDING_BLOCK_SIZE, blobMeta.getSize());
+                    .range(blobMeta.getSize() - Constants.PADDING_BLOCK_SIZE, blobMeta.getSize() - 1);
                 var name = blobNameWithSuffix(blobMeta.getName());
                 var blob = delegate().getBlob(blobMeta.getContainer(), name, options);
                 try {

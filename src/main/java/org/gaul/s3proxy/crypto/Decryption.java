@@ -62,7 +62,7 @@ public class Decryption {
         // get the 64 byte of part padding from the end of the blob
         var options = new GetOptions();
         options.range(meta.getSize() - Constants.PADDING_BLOCK_SIZE,
-            meta.getSize());
+            meta.getSize() - 1);
         Blob blob =
             blobStore.getBlob(meta.getContainer(), meta.getName(), options);
 
