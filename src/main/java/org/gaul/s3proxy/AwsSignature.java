@@ -296,7 +296,7 @@ final class AwsSignature {
         String xAmzContentSha256 = request.getHeader(
                 AwsHttpHeaders.CONTENT_SHA256);
         if (xAmzContentSha256 == null) {
-            xAmzContentSha256 = request.getParameter("X-Amz-SignedHeaders");
+            xAmzContentSha256 = request.getParameter("X-Amz-Content-Sha256");
         }
         String digest;
         if (authorizationHeader == null) {
