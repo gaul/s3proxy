@@ -2681,7 +2681,7 @@ public class S3ProxyHandler {
                 //  sort by part number and deduplicate (last occurrence wins)
                 SortedMap<Integer, MultipartPart> partsMap = new TreeMap<>();
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
-                    if (part.partNumber <= 0) {
+                    if (part.partNumber < 1 || part.partNumber > 10_000) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
@@ -2735,7 +2735,7 @@ public class S3ProxyHandler {
             SortedMap<Integer, String> requestParts = new TreeMap<>();
             if (cmu.parts != null) {
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
-                    if (part.partNumber <= 0) {
+                    if (part.partNumber < 1 || part.partNumber > 10_000) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
