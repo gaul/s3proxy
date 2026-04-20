@@ -669,9 +669,8 @@ public class S3ProxyHandler {
                         MessageDigest md = MessageDigest.getInstance(
                             authHeader.getHashAlgorithm());
                         byte[] hash = md.digest(payload);
-                        if  (!contentSha256.equals(
-                              BaseEncoding.base16().lowerCase()
-                              .encode(hash))) {
+                        if (!BaseEncoding.base16().lowerCase().encode(hash)
+                                .equals(contentSha256)) {
                             throw new S3Exception(
                                     S3ErrorCode
                                     .X_AMZ_CONTENT_S_H_A_256_MISMATCH);
