@@ -69,6 +69,8 @@ public enum S3ErrorCode {
             "The list of parts must be specified in ascending" +
             " PartNumber order."),
     INVALID_REQUEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
+    INVALID_STORAGE_CLASS(HttpServletResponse.SC_BAD_REQUEST,
+            "The storage class you specified is not valid."),
     MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
             " against our published schema."),

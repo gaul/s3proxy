@@ -2340,7 +2340,11 @@ public class S3ProxyHandler {
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
         } else {
-            builder.tier(StorageClass.valueOf(storageClass).toTier());
+            try {
+                builder.tier(StorageClass.valueOf(storageClass).toTier());
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
+            }
         }
 
         addContentMetadataFromHttpRequest(builder, request);
@@ -2584,7 +2588,11 @@ public class S3ProxyHandler {
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
         } else {
-            builder.tier(StorageClass.valueOf(storageClass).toTier());
+            try {
+                builder.tier(StorageClass.valueOf(storageClass).toTier());
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
+            }
         }
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
