@@ -1907,12 +1907,12 @@ public class S3ProxyHandler {
         if (lastModified != null) {
             if (ifModifiedSince != -1 && lastModified.compareTo(
                     new Date(ifModifiedSince)) <= 0) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-            }
-            if (ifUnmodifiedSince != -1 && lastModified.compareTo(
-                    new Date(ifUnmodifiedSince)) >= 0) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
                 return;
+            }
+            if (ifUnmodifiedSince != -1 && lastModified.compareTo(
+                    new Date(ifUnmodifiedSince)) > 0) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
 
