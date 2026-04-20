@@ -126,10 +126,9 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
             String toChars) {
         var builder = new StringBuilder(/*capacity=*/ value.length());
         for (int i = 0; i < value.length(); ++i) {
-            for (int j = 0; j < fromChars.length(); ++j) {
-                builder.append(value.charAt(i) == fromChars.charAt(j) ?
-                        toChars.charAt(j) : value.charAt(i));
-            }
+            char c = value.charAt(i);
+            int idx = fromChars.indexOf(c);
+            builder.append(idx < 0 ? c : toChars.charAt(idx));
         }
         return builder.toString();
     }
