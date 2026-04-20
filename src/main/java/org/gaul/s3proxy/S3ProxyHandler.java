@@ -2008,12 +2008,24 @@ public class S3ProxyHandler {
             range = range.substring("bytes=".length());
             String[] ranges = range.split("-", 2);
             if (ranges[0].isEmpty()) {
-                options.tail(Long.parseLong(ranges[1]));
+                long tail = Long.parseLong(ranges[1]);
+                if (tail < 0) {
+                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                }
+                options.tail(tail);
             } else if (ranges[1].isEmpty()) {
-                options.startAt(Long.parseLong(ranges[0]));
+                long startAt = Long.parseLong(ranges[0]);
+                if (startAt < 0) {
+                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                }
+                options.startAt(startAt);
             } else {
-                options.range(Long.parseLong(ranges[0]),
-                        Long.parseLong(ranges[1]));
+                long start = Long.parseLong(ranges[0]);
+                long end = Long.parseLong(ranges[1]);
+                if (start < 0 || end < start) {
+                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                }
+                options.range(start, end);
             }
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
