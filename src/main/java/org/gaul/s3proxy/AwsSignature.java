@@ -281,7 +281,7 @@ final class AwsSignature {
                 continue;
             }
             // re-encode keys and values in AWS normalized form
-            String value = request.getParameter(key);
+            String value = Strings.nullToEmpty(request.getParameter(key));
             queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
                     "=" + AWS_URL_PARAMETER_ESCAPER.escape(value));
         }
