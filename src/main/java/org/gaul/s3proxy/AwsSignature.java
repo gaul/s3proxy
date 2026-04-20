@@ -291,7 +291,7 @@ final class AwsSignature {
     private static String createCanonicalRequest(HttpServletRequest request,
                                                  String uri, byte[] payload,
                                                  String hashAlgorithm)
-            throws IOException, NoSuchAlgorithmException {
+            throws IOException, NoSuchAlgorithmException, S3Exception {
         String authorizationHeader = request.getHeader("Authorization");
         String xAmzContentSha256 = request.getHeader(
                 AwsHttpHeaders.CONTENT_SHA256);
@@ -315,8 +315,12 @@ final class AwsSignature {
         if (authorizationHeader != null) {
             signedHeaders = extractSignedHeaders(authorizationHeader);
         } else {
-            signedHeaders = Splitter.on(';').splitToList(request.getParameter(
-                    "X-Amz-SignedHeaders"));
+            String signedHeadersParam = request.getParameter(
+                    "X-Amz-SignedHeaders");
+            if (signedHeadersParam == null) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+            signedHeaders = Splitter.on(';').splitToList(signedHeadersParam);
         }
 
         /*
