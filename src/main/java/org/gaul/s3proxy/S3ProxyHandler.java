@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -1317,11 +1318,28 @@ public class S3ProxyHandler {
     private void handleListMultipartUploads(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String container) throws IOException, S3Exception {
-        if (request.getParameter("delimiter") != null ||
-                request.getParameter("max-uploads") != null ||
-                request.getParameter("key-marker") != null ||
-                request.getParameter("upload-id-marker") != null) {
-            throw new UnsupportedOperationException();
+        String delimiter = request.getParameter("delimiter");
+        if (delimiter != null && !delimiter.isEmpty() &&
+                !delimiter.equals("/")) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+        String keyMarker = request.getParameter("key-marker");
+        String uploadIdMarker = request.getParameter("upload-id-marker");
+
+        int maxUploads = 1000;
+        String maxUploadsString = request.getParameter("max-uploads");
+        if (maxUploadsString != null) {
+            try {
+                maxUploads = Integer.parseInt(maxUploadsString);
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            }
+            if (maxUploads < 0) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            }
+            if (maxUploads > 1000) {
+                maxUploads = 1000;
+            }
         }
 
         String encodingType = request.getParameter("encoding-type");
@@ -1329,6 +1347,30 @@ public class S3ProxyHandler {
 
         List<MultipartUpload> uploads = blobStore.listMultipartUploads(
                 container);
+
+        List<MultipartUpload> filtered = uploads.stream()
+                .filter(u -> prefix == null || u.blobName().startsWith(prefix))
+                .filter(u -> {
+                    if (keyMarker == null) {
+                        return true;
+                    }
+                    int cmp = u.blobName().compareTo(keyMarker);
+                    if (cmp > 0) {
+                        return true;
+                    }
+                    if (cmp == 0 && uploadIdMarker != null) {
+                        return u.id().compareTo(uploadIdMarker) > 0;
+                    }
+                    return false;
+                })
+                .sorted(Comparator.comparing(MultipartUpload::blobName)
+                        .thenComparing(MultipartUpload::id))
+                .collect(Collectors.toList());
+
+        boolean isTruncated = filtered.size() > maxUploads;
+        List<MultipartUpload> page = isTruncated ?
+                filtered.subList(0, maxUploads) :
+                filtered;
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -1342,12 +1384,29 @@ public class S3ProxyHandler {
 
             writeSimpleElement(xml, "Bucket", container);
 
-            // TODO: bogus values
-            xml.writeEmptyElement("KeyMarker");
-            xml.writeEmptyElement("UploadIdMarker");
-            xml.writeEmptyElement("NextKeyMarker");
-            xml.writeEmptyElement("NextUploadIdMarker");
-            xml.writeEmptyElement("Delimiter");
+            if (Strings.isNullOrEmpty(keyMarker)) {
+                xml.writeEmptyElement("KeyMarker");
+            } else {
+                writeSimpleElement(xml, "KeyMarker", keyMarker);
+            }
+            if (Strings.isNullOrEmpty(uploadIdMarker)) {
+                xml.writeEmptyElement("UploadIdMarker");
+            } else {
+                writeSimpleElement(xml, "UploadIdMarker", uploadIdMarker);
+            }
+            if (isTruncated && !page.isEmpty()) {
+                MultipartUpload last = page.get(page.size() - 1);
+                writeSimpleElement(xml, "NextKeyMarker", last.blobName());
+                writeSimpleElement(xml, "NextUploadIdMarker", last.id());
+            } else {
+                xml.writeEmptyElement("NextKeyMarker");
+                xml.writeEmptyElement("NextUploadIdMarker");
+            }
+            if (Strings.isNullOrEmpty(delimiter)) {
+                xml.writeEmptyElement("Delimiter");
+            } else {
+                writeSimpleElement(xml, "Delimiter", delimiter);
+            }
 
             if (Strings.isNullOrEmpty(prefix)) {
                 xml.writeEmptyElement("Prefix");
@@ -1356,15 +1415,11 @@ public class S3ProxyHandler {
                         encodingType, prefix));
             }
 
-            writeSimpleElement(xml, "MaxUploads", "1000");
-            writeSimpleElement(xml, "IsTruncated", "false");
+            writeSimpleElement(xml, "MaxUploads", String.valueOf(maxUploads));
+            writeSimpleElement(xml, "IsTruncated",
+                    String.valueOf(isTruncated));
 
-            for (MultipartUpload upload : uploads) {
-                if (prefix != null &&
-                    !upload.blobName().startsWith(prefix)) {
-                    continue;
-                }
-
+            for (MultipartUpload upload : page) {
                 xml.writeStartElement("Upload");
 
                 writeSimpleElement(xml, "Key", upload.blobName());
