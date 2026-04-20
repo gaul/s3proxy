@@ -54,12 +54,14 @@ import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.xml.XmlFactory;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
@@ -241,7 +243,7 @@ public class S3ProxyHandler {
     private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
     private final int maximumTimeSkew;
-    private final XmlMapper mapper = new XmlMapper();
+    private final XmlMapper mapper = createXmlMapper();
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
@@ -306,6 +308,14 @@ public class S3ProxyHandler {
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces", false);
         this.servicePath = Strings.nullToEmpty(servicePath);
         this.maximumTimeSkew = maximumTimeSkew;
+    }
+
+    private static XmlMapper createXmlMapper() {
+        XMLInputFactory inputFactory = XMLInputFactory.newFactory();
+        inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        inputFactory.setProperty(
+                XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        return new XmlMapper(new XmlFactory(inputFactory));
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
