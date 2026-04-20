@@ -370,6 +370,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                                    ContainerAccess containerAccess) {
         if (!this.buckets.containsKey(container)) {
             this.delegate().setContainerAccess(container, containerAccess);
+            return;
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
