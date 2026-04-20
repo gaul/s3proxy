@@ -51,6 +51,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
@@ -225,6 +226,10 @@ public class S3ProxyHandler {
     );
     private static final String XML_CONTENT_TYPE = "application/xml";
     private static final String UTF_8 = "UTF-8";
+    // Matches the UUID string used to name multipart-upload stub blobs for
+    // MULTIPART_REQUIRES_STUB backends so they can be hidden from list().
+    private static final Pattern UUID_STUB_PATTERN = Pattern.compile(
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     /** URLEncoder escapes / which we do not want. */
     private static final Escaper urlEscaper = new PercentEscaper(
             "*-./_", /*plusForSpace=*/ false);
@@ -1628,6 +1633,18 @@ public class S3ProxyHandler {
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
                 options);
 
+        boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
+                blobStoreType);
+        int filteredCount = set.size();
+        if (filterStub) {
+            filteredCount = 0;
+            for (StorageMetadata sm : set) {
+                if (!UUID_STUB_PATTERN.matcher(sm.getName()).matches()) {
+                    filteredCount++;
+                }
+            }
+        }
+
         addCorsResponseHeader(request, response);
 
         response.setCharacterEncoding(UTF_8);
@@ -1649,7 +1666,8 @@ public class S3ProxyHandler {
             }
 
             if (isListV2) {
-                writeSimpleElement(xml, "KeyCount", String.valueOf(set.size()));
+                writeSimpleElement(xml, "KeyCount",
+                        String.valueOf(filteredCount));
             }
             writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
 
@@ -1706,6 +1724,10 @@ public class S3ProxyHandler {
 
             Set<String> commonPrefixes = new TreeSet<>();
             for (StorageMetadata metadata : set) {
+                if (filterStub && UUID_STUB_PATTERN.matcher(
+                        metadata.getName()).matches()) {
+                    continue;
+                }
                 switch (metadata.getType()) {
                 case FOLDER:
                     // fallthrough
