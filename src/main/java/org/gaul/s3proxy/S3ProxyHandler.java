@@ -1815,6 +1815,9 @@ public class S3ProxyHandler {
         Collection<String> blobNames = new ArrayList<>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects) {
+            if (Strings.isNullOrEmpty(s3Object.key)) {
+                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+            }
             blobNames.add(s3Object.key);
         }
 
