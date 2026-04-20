@@ -20,11 +20,14 @@ import java.util.List;
 
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.CreateContainerOptions;
+import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.jclouds.domain.Location;
@@ -47,12 +50,38 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public void setContainerAccess(String container,
+            ContainerAccess containerAccess) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void clearContainer(String container) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void clearContainer(String container, ListContainerOptions options) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
     public void deleteContainer(String container) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
     @Override
     public boolean deleteContainerIfEmpty(String container) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void createDirectory(String container, String directory) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void deleteDirectory(String container, String directory) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
@@ -75,6 +104,12 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     @Override
     public void removeBlobs(final String containerName,
             final Iterable<String> blobNames) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void setBlobAccess(String container, String name,
+            BlobAccess access) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
