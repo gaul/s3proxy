@@ -2404,14 +2404,35 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName)
             throws IOException, S3Exception {
-        String boundaryHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        if (boundaryHeader == null ||
-                !boundaryHeader.startsWith("multipart/form-data; boundary=")) {
+        String contentTypeHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
+        if (contentTypeHeader == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        String boundary =
-                boundaryHeader.substring(boundaryHeader.indexOf('=') + 1);
+        String[] contentTypeParts = contentTypeHeader.split(";");
+        if (contentTypeParts.length < 2 || !contentTypeParts[0].trim()
+                .equalsIgnoreCase("multipart/form-data")) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+        String boundary = null;
+        for (int i = 1; i < contentTypeParts.length; i++) {
+            String param = contentTypeParts[i].trim();
+            int eq = param.indexOf('=');
+            if (eq > 0 && param.substring(0, eq).trim()
+                    .equalsIgnoreCase("boundary")) {
+                boundary = param.substring(eq + 1).trim();
+                if (boundary.length() >= 2 && boundary.startsWith("\"") &&
+                        boundary.endsWith("\"")) {
+                    boundary = boundary.substring(1, boundary.length() - 1);
+                }
+                break;
+            }
+        }
+        if (Strings.isNullOrEmpty(boundary)) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
 
         String blobName = null;
         String contentType = null;
