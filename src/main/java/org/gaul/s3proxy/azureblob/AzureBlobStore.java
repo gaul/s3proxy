@@ -119,6 +119,8 @@ import reactor.core.publisher.Flux;
 public final class AzureBlobStore extends BaseBlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
+    private static final String BASE64URL_PREFIX = "base64url:";
+    private static final String TARGET_BLOB_NAME_MARKER = "s3proxy-v1:";
     private static final HashFunction MD5 = Hashing.md5();
     // Disable retries since client should retry on errors.
     private static final RequestRetryOptions NO_RETRY_OPTIONS = new RequestRetryOptions(
@@ -642,7 +644,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);
 
         var tags = new java.util.HashMap<String, String>();
-        tags.put(TARGET_BLOB_NAME_TAG, targetBlobName);
+        tags.put(TARGET_BLOB_NAME_TAG,
+                encodeTargetBlobNameTagValue(targetBlobName));
         stubBlobClient.setTags(tags);
 
         return MultipartUpload.create(container, targetBlobName,
@@ -711,7 +714,8 @@ public final class AzureBlobStore extends BaseBlobStore {
             throw bse;
         }
 
-        String targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
+        String targetBlobName = decodeTargetBlobNameTagValue(
+                stubTags.get(TARGET_BLOB_NAME_TAG));
         if (targetBlobName == null) {
             throw new IllegalArgumentException(
                     "Stub blob missing target name tag: uploadId=" + uploadKey);
@@ -974,7 +978,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         String targetBlobName;
         try {
             var stubTags = stubBlobClient.getTags();
-            targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
+            targetBlobName = decodeTargetBlobNameTagValue(
+                    stubTags.get(TARGET_BLOB_NAME_TAG));
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
                 throw new IllegalArgumentException(
@@ -1052,7 +1057,8 @@ public final class AzureBlobStore extends BaseBlobStore {
                 continue;
             }
 
-            String targetBlobName = tags.get(TARGET_BLOB_NAME_TAG);
+            String targetBlobName = decodeTargetBlobNameTagValue(
+                    tags.get(TARGET_BLOB_NAME_TAG));
             builder.add(MultipartUpload.create(container, targetBlobName,
                     uploadKey, null, null));
         }
@@ -1146,6 +1152,33 @@ public final class AzureBlobStore extends BaseBlobStore {
         String rawId = "%s:%05d".formatted(nonce, partNumber);
         return Base64.getEncoder().encodeToString(
                 rawId.getBytes(StandardCharsets.UTF_8));
+    }
+
+    static String encodeTargetBlobNameTagValue(String blobName) {
+        String raw = TARGET_BLOB_NAME_MARKER + blobName;
+        return BASE64URL_PREFIX + Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    static String decodeTargetBlobNameTagValue(@Nullable String tagValue) {
+        if (tagValue == null || !tagValue.startsWith(BASE64URL_PREFIX)) {
+            return tagValue;
+        }
+        String decodedValue;
+        try {
+            decodedValue = new String(Base64.getUrlDecoder().decode(
+                    tagValue.substring(BASE64URL_PREFIX.length())),
+                    StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException iae) {
+            // Allow legacy/plain values that happen to start with the prefix.
+            return tagValue;
+        }
+        if (!decodedValue.startsWith(TARGET_BLOB_NAME_MARKER)) {
+            // Allow legacy/plain values that decode to arbitrary strings.
+            return tagValue;
+        }
+        return decodedValue.substring(TARGET_BLOB_NAME_MARKER.length());
     }
 
     /**
