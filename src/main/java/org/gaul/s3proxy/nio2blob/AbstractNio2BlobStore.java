@@ -597,12 +597,12 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 throw new RuntimeException(ioe);
             }
 
-            var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+            var view = getXattrView(path);
             if (view != null) {
                 try {
                     writeCommonMetadataAttr(view, blob);
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
-                } catch (IOException ioe) {
+                } catch (IOException | UnsupportedOperationException ioe) {
                     logger.debug("xattrs not supported on {}", path);
                 }
             }
@@ -635,7 +635,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 throw returnResponseException(400);
             }
 
-            var view = Files.getFileAttributeView(tmpPath, UserDefinedFileAttributeView.class);
+            var view = getXattrView(tmpPath);
             if (view != null) {
                 try {
                     var eTag = actualHashCode.asBytes();
@@ -655,9 +655,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
-                } catch (IOException e) {
-                    // TODO:
-                    //logger.debug("xattrs not supported on %s", path);
+                } catch (IOException | UnsupportedOperationException e) {
+                    logger.debug("xattrs not supported on {}", tmpPath);
                 }
             }
 
@@ -1210,13 +1209,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
      * (e.g., Docker Desktop bind mounts via VirtioFS, some NFS/NAS mounts).
      */
     private static XattrState safeGetXattrs(Path path) {
-        var view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+        var view = getXattrView(path);
         if (view == null) {
             return XattrState.EMPTY;
         }
         try {
             return new XattrState(view, Set.copyOf(view.list()));
-        } catch (IOException e) {
+        } catch (IOException | UnsupportedOperationException e) {
             logger.debug("xattrs not supported on {}", path);
             return XattrState.EMPTY;
         }
@@ -1226,6 +1225,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var sep = path.getFileSystem().getSeparator();
         var name = containerPath.relativize(path).toString();
         return sep.equals("/") ? name : name.replace(sep, "/");
+    }
+
+    private static UserDefinedFileAttributeView getXattrView(Path path) {
+        try {
+            return Files.getFileAttributeView(path,
+                    UserDefinedFileAttributeView.class);
+        } catch (UnsupportedOperationException uoe) {
+            logger.debug("xattrs not supported on {}", path);
+            return null;
+        }
     }
 
     private static void checkValidPath(Path container, Path path) {

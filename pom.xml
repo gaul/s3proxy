@@ -424,6 +424,7 @@
     <opentelemetry-semconv.version>1.41.0</opentelemetry-semconv.version>
     <slf4j.version>2.0.17</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
+    <sshd.version>2.17.1</sshd.version>
     <surefire.version>3.5.5</surefire.version>
   </properties>
 
@@ -563,6 +564,11 @@
       <groupId>org.apache.jclouds.driver</groupId>
       <artifactId>jclouds-slf4j</artifactId>
       <version>${jclouds.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.sshd</groupId>
+      <artifactId>sshd-sftp</artifactId>
+      <version>${sshd.version}</version>
     </dependency>
     <dependency>
       <groupId>org.assertj</groupId>

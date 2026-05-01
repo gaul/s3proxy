@@ -89,6 +89,7 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3 (non-Amazon, alias for aws-s3-sdk)
 * s3-jclouds (non-Amazon S3 via jclouds, deprecated)
+* sftp (SFTP storage via Apache MINA SSHD)
 * transient (in-memory storage, alias for transient-nio2)
 * transient-nio2 (in-memory storage, recommended)
 * transient-jclouds (in-memory storage via jclouds, deprecated)
