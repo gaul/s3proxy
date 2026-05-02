@@ -89,6 +89,7 @@ public final class S3Proxy {
         var httpConfiguration = new HttpConfiguration();
         httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
         httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
+        httpConfiguration.setHeaderCacheCaseSensitive(true);
 
         var src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
