@@ -462,6 +462,7 @@
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-sdk</artifactId>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>io.opentelemetry</groupId>
@@ -494,6 +495,7 @@
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
       <version>1.5.32</version>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>com.google.cloud</groupId>
@@ -601,22 +603,25 @@
       <groupId>org.slf4j</groupId>
       <artifactId>jcl-over-slf4j</artifactId>
       <version>${slf4j.version}</version>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>auth</artifactId>
       <version>${aws-sdkv2.version}</version>
     </dependency>
-    <!-- tests dependencies -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
       <version>${aws-sdkv2.version}</version>
     </dependency>
+    <!-- Required at runtime by DefaultCredentialsProvider's
+         WebIdentityTokenFileCredentialsProvider (e.g. EKS IRSA). -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sts</artifactId>
       <version>${aws-sdkv2.version}</version>
+      <scope>runtime</scope>
     </dependency>
   </dependencies>
 </project>
