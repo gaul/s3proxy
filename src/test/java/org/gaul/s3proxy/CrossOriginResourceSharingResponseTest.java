@@ -25,19 +25,9 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.util.Date;
+import java.time.Duration;
 import java.util.Random;
-import java.util.concurrent.TimeUnit;
 
-import com.amazonaws.HttpMethod;
-import com.amazonaws.SDKGlobalConfiguration;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.CannedAccessControlList;
 import com.google.common.io.ByteSource;
 import com.google.common.net.HttpHeaders;
 
@@ -62,21 +52,29 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.SdkHttpConfigurationOption;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.utils.AttributeMap;
+
 public final class CrossOriginResourceSharingResponseTest {
     static {
-        System.setProperty(
-                SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
-                "true");
         AwsSdkTest.disableSslVerification();
     }
 
     private URI s3Endpoint;
-    private EndpointConfiguration s3EndpointConfig;
+    private URI s3EndpointUri;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
     private String containerName;
-    private AWSCredentials awsCreds;
-    private AmazonS3 s3Client;
+    private S3Client s3Client;
     private String servicePath;
     private CloseableHttpClient httpClient;
     private URI presignedGET;
@@ -86,25 +84,36 @@ public final class CrossOriginResourceSharingResponseTest {
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-cors.conf");
-        awsCreds = new BasicAWSCredentials(info.getS3Identity(),
+        var creds = AwsBasicCredentials.create(info.getS3Identity(),
                 info.getS3Credential());
+        var credsProvider = StaticCredentialsProvider.create(creds);
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
         s3Endpoint = info.getSecureEndpoint();
         servicePath = info.getServicePath();
-        s3EndpointConfig = new EndpointConfiguration(
-                s3Endpoint.toString() + servicePath, "us-east-1");
-        s3Client = AmazonS3ClientBuilder.standard()
-                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
-                .withEndpointConfiguration(s3EndpointConfig)
+        s3EndpointUri = URI.create(s3Endpoint.toString() + servicePath);
+
+        var attributeMap = AttributeMap.builder()
+                .put(SdkHttpConfigurationOption.TRUST_ALL_CERTIFICATES, true)
+                .build();
+        var serviceConfig = S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .build();
+        s3Client = S3Client.builder()
+                .credentialsProvider(credsProvider)
+                .region(Region.US_EAST_1)
+                .endpointOverride(s3EndpointUri)
+                .httpClient(ApacheHttpClient.builder()
+                        .buildWithDefaults(attributeMap))
+                .serviceConfiguration(serviceConfig)
                 .build();
         httpClient = getHttpClient();
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
 
-        s3Client.setBucketAcl(containerName,
-                CannedAccessControlList.PublicRead);
+        s3Client.putBucketAcl(b -> b.bucket(containerName)
+                .acl(BucketCannedACL.PUBLIC_READ));
 
         String blobName = "test";
         ByteSource payload = ByteSource.wrap("blob-content".getBytes(
@@ -113,16 +122,29 @@ public final class CrossOriginResourceSharingResponseTest {
                 .payload(payload).contentLength(payload.size()).build();
         info.getBlobStore().putBlob(containerName, blob);
 
-        var expiration = new Date(System.currentTimeMillis() +
-                TimeUnit.HOURS.toMillis(1));
-        presignedGET = s3Client.generatePresignedUrl(containerName, blobName,
-                expiration, HttpMethod.GET).toURI();
+        try (S3Presigner presigner = S3Presigner.builder()
+                .credentialsProvider(credsProvider)
+                .region(Region.US_EAST_1)
+                .endpointOverride(s3EndpointUri)
+                .serviceConfiguration(serviceConfig)
+                .build()) {
+            presignedGET = presigner.presignGetObject(
+                    GetObjectPresignRequest.builder()
+                            .signatureDuration(Duration.ofHours(1))
+                            .getObjectRequest(b -> b.bucket(containerName)
+                                    .key(blobName))
+                            .build()).url().toURI();
+        }
 
-        publicGET = s3Client.getUrl(containerName, blobName).toURI();
+        publicGET = URI.create(s3EndpointUri + "/" + containerName + "/" +
+                blobName);
     }
 
     @After
     public void tearDown() throws Exception {
+        if (s3Client != null) {
+            s3Client.close();
+        }
         if (s3Proxy != null) {
             s3Proxy.stop();
         }

@@ -415,7 +415,6 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
-    <aws-sdk.version>1.12.797</aws-sdk.version>
     <aws-sdkv2.version>2.43.2</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>12.1.8</jetty.version>
@@ -473,18 +472,6 @@
       <groupId>io.opentelemetry.semconv</groupId>
       <artifactId>opentelemetry-semconv</artifactId>
       <version>${opentelemetry-semconv.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.amazonaws</groupId>
-      <artifactId>aws-java-sdk-s3</artifactId>
-      <version>${aws-sdk.version}</version>
-      <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>commons-logging</groupId>
-          <artifactId>commons-logging</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>args4j</groupId>

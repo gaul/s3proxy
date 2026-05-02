@@ -24,17 +24,6 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
 
-import com.amazonaws.SDKGlobalConfiguration;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.AnonymousAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.internal.SkipMd5CheckStrategy;
-import com.amazonaws.services.s3.model.ListBucketsPaginatedRequest;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.S3Object;
 import com.google.common.io.ByteSource;
 
 import org.jclouds.blobstore.BlobStoreContext;
@@ -42,11 +31,20 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.SdkHttpConfigurationOption;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.utils.AttributeMap;
+
 public final class AwsSdkAnonymousTest {
     static {
-        System.setProperty(
-                SDKGlobalConfiguration.DISABLE_CERT_CHECKING_SYSTEM_PROPERTY,
-                "true");
         AwsSdkTest.disableSslVerification();
     }
 
@@ -54,50 +52,35 @@ public final class AwsSdkAnonymousTest {
 
     private URI s3Endpoint;
     private URI httpEndpoint;
-    private EndpointConfiguration s3EndpointConfig;
+    private URI s3EndpointUri;
     private S3Proxy s3Proxy;
     private BlobStoreContext context;
-    private String blobStoreType;
     private String containerName;
-    private AWSCredentials awsCreds;
-    private AmazonS3 client;
+    private S3Client client;
     private String servicePath;
 
     @Before
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-anonymous.conf");
-        awsCreds = new AnonymousAWSCredentials();
         context = info.getBlobStore().getContext();
         s3Proxy = info.getS3Proxy();
         httpEndpoint = info.getEndpoint();
         s3Endpoint = info.getSecureEndpoint();
         servicePath = info.getServicePath();
-        s3EndpointConfig = new EndpointConfiguration(
-                s3Endpoint.toString() + servicePath, "us-east-1");
-        client = AmazonS3ClientBuilder.standard()
-                .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
-                .withEndpointConfiguration(s3EndpointConfig)
-                .build();
+        s3EndpointUri = URI.create(s3Endpoint.toString() + servicePath);
+
+        client = buildClient(AnonymousCredentialsProvider.create());
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainerInLocation(null, containerName);
-
-        blobStoreType = context.unwrap().getProviderMetadata().getId();
-        if (Quirks.OPAQUE_ETAG.contains(blobStoreType)) {
-            System.setProperty(
-                    SkipMd5CheckStrategy
-                            .DISABLE_GET_OBJECT_MD5_VALIDATION_PROPERTY,
-                    "true");
-            System.setProperty(
-                    SkipMd5CheckStrategy
-                            .DISABLE_PUT_OBJECT_MD5_VALIDATION_PROPERTY,
-                    "true");
-        }
     }
 
     @After
     public void tearDown() throws Exception {
+        if (client != null) {
+            client.close();
+        }
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
@@ -109,27 +92,25 @@ public final class AwsSdkAnonymousTest {
 
     @Test
     public void testListBuckets() throws Exception {
-        client.listBuckets(new ListBucketsPaginatedRequest());
+        client.listBuckets();
     }
 
     @Test
     public void testAwsV4SignatureChunkedAnonymous() throws Exception {
-        client = AmazonS3ClientBuilder.standard()
-            .withChunkedEncodingDisabled(false)
-            .withEndpointConfiguration(s3EndpointConfig)
-            .build();
+        client.close();
+        client = buildClient(AnonymousCredentialsProvider.create());
 
-        var metadata = new ObjectMetadata();
-        metadata.setContentLength(BYTE_SOURCE.size());
-        client.putObject(containerName, "foo", BYTE_SOURCE.openStream(),
-                metadata);
+        client.putObject(b -> b.bucket(containerName).key("foo"),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
 
-        S3Object object = client.getObject(containerName, "foo");
-        assertThat(object.getObjectMetadata().getContentLength()).isEqualTo(
-                BYTE_SOURCE.size());
-        try (InputStream actual = object.getObjectContent();
-            InputStream expected = BYTE_SOURCE.openStream()) {
-            assertThat(actual).hasSameContentAs(expected);
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key("foo"))) {
+            assertThat(object.response().contentLength()).isEqualTo(
+                    BYTE_SOURCE.size());
+            try (InputStream expected = BYTE_SOURCE.openStream()) {
+                assertThat((InputStream) object).hasSameContentAs(expected);
+            }
         }
     }
 
@@ -159,6 +140,22 @@ public final class AwsSdkAnonymousTest {
         assertThat(body).contains("\"launchTime\":\"");
         assertThat(body).contains("\"currentTime\":\"");
         assertThat(body).startsWith("{").endsWith("}");
+    }
+
+    private S3Client buildClient(AwsCredentialsProvider credentialsProvider) {
+        var attributeMap = AttributeMap.builder()
+                .put(SdkHttpConfigurationOption.TRUST_ALL_CERTIFICATES, true)
+                .build();
+        return S3Client.builder()
+                .credentialsProvider(credentialsProvider)
+                .region(Region.US_EAST_1)
+                .endpointOverride(s3EndpointUri)
+                .httpClient(ApacheHttpClient.builder()
+                        .buildWithDefaults(attributeMap))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .build();
     }
 
     private static String createRandomContainerName() {
