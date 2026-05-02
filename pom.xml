@@ -164,6 +164,7 @@
           <compilerArgs>
             <arg>-Xlint</arg>
             <arg>-XDcompilePolicy=simple</arg>
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
             <arg>--should-stop=ifError=FLOW</arg>
             <arg>-Xplugin:ErrorProne -Xep:JavaUtilDate:OFF -Xep:DefaultCharset:OFF -Xep:StringCaseLocaleUsage:OFF -Xep:ProtectedMembersInFinalClass:OFF -Xep:JavaTimeDefaultTimeZone:OFF</arg>
             <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
