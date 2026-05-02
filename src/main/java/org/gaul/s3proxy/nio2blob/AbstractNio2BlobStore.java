@@ -52,7 +52,6 @@ import com.google.common.io.ByteStreams;
 import com.google.common.net.HttpHeaders;
 import com.google.common.primitives.Longs;
 
-import jakarta.inject.Singleton;
 import jakarta.ws.rs.core.Response.Status;
 
 import org.jclouds.blobstore.BlobStore;
@@ -92,7 +91,6 @@ import org.jclouds.io.PayloadSlicer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@Singleton
 public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
             AbstractNio2BlobStore.class);
