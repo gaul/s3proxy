@@ -1805,30 +1805,77 @@ public class S3ProxyHandler {
         response.sendError(HttpServletResponse.SC_NO_CONTENT);
     }
 
+    /**
+     * Validate the request body against Content-MD5 (legacy) or any
+     * x-amz-checksum-* header (modern AWS SDKs).  Throws if no checksum is
+     * present or if validation fails.
+     */
+    @SuppressWarnings("deprecation")
+    private static void validateMultiBlobRemoveChecksum(
+            HttpServletRequest request, byte[] body) throws S3Exception {
+        String contentMD5 = request.getHeader(HttpHeaders.CONTENT_MD5);
+        if (contentMD5 != null) {
+            HashCode expected;
+            try {
+                expected = HashCode.fromBytes(
+                        Base64.getDecoder().decode(contentMD5));
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+            }
+            if (expected.bits() != MD5.bits()) {
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
+            }
+            if (!expected.equals(MD5.hashBytes(body))) {
+                throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+            }
+            return;
+        }
+        // Match modern AWS SDKs that send a flexible checksum header in
+        // place of Content-MD5.  Try each algorithm we recognise; the SDK
+        // sends only one.
+        if (validateChecksumHeader(request, body, "x-amz-checksum-crc32",
+                Hashing.crc32(), /*bigEndianInt=*/ true) ||
+                validateChecksumHeader(request, body, "x-amz-checksum-crc32c",
+                        Hashing.crc32c(), /*bigEndianInt=*/ true) ||
+                validateChecksumHeader(request, body, "x-amz-checksum-sha1",
+                        Hashing.sha1(), /*bigEndianInt=*/ false) ||
+                validateChecksumHeader(request, body, "x-amz-checksum-sha256",
+                        Hashing.sha256(), /*bigEndianInt=*/ false)) {
+            return;
+        }
+        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                "Missing required header for this request: Content-Md5");
+    }
+
+    private static boolean validateChecksumHeader(HttpServletRequest request,
+            byte[] body, String header, HashFunction hashFunction,
+            boolean bigEndianInt) throws S3Exception {
+        String value = request.getHeader(header);
+        if (value == null) {
+            return false;
+        }
+        byte[] expected;
+        try {
+            expected = Base64.getDecoder().decode(value);
+        } catch (IllegalArgumentException iae) {
+            throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+        }
+        HashCode hash = hashFunction.hashBytes(body);
+        byte[] actual = bigEndianInt ?
+                java.nio.ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
+                hash.asBytes();
+        if (!java.util.Arrays.equals(expected, actual)) {
+            throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+        }
+        return true;
+    }
+
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
-        String contentMD5String = request.getHeader(HttpHeaders.CONTENT_MD5);
-        if (contentMD5String == null) {
-            throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
-                    "Missing required header for this request: Content-Md5");
-        }
-        HashCode expected;
-        try {
-            expected = HashCode.fromBytes(
-                    Base64.getDecoder().decode(contentMD5String));
-        } catch (IllegalArgumentException iae) {
-            throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
-        }
-        if (expected.bits() != MD5.bits()) {
-            throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
-        }
         byte[] body = is.readAllBytes();
-        HashCode actual = MD5.hashBytes(body);
-        if (!expected.equals(actual)) {
-            throw new S3Exception(S3ErrorCode.BAD_DIGEST);
-        }
+        validateMultiBlobRemoveChecksum(request, body);
         DeleteMultipleObjectsRequest dmor = mapper.readValue(
                 body, DeleteMultipleObjectsRequest.class);
         if (dmor.objects == null) {

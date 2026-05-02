@@ -612,19 +612,11 @@ public final class AwsSdkTest {
                     .delete(d -> d.objects(List.of())));
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {
-            // The proxy requires Content-MD5 for DeleteObjects; v2 SDK
-            // does not send it, so an empty request is rejected as
-            // InvalidRequest before reaching the XML parser.  The original
-            // v1 test got MalformedXML because v1 sent the MD5.
             assertThat(e.awsErrorDetails().errorCode())
-                    .isIn("MalformedXML", "InvalidRequest");
+                    .isEqualTo("MalformedXML");
         }
     }
 
-    // TODO: v2 SDK does not send Content-MD5 for DeleteObjects, while the
-    // proxy currently requires it.  The proxy should accept x-amz-checksum-*
-    // alternatives.
-    @Ignore
     @Test
     public void testDeleteMultipleObjects() throws Exception {
         String blobName = "foo";
