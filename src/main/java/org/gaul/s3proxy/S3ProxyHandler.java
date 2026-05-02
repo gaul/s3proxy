@@ -650,6 +650,8 @@ public class S3ProxyHandler {
                     if (request.getParameter("X-Amz-Algorithm") != null) {
                         payload = new byte[0];
                     } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
+                            contentSha256) ||
+                            "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
                             contentSha256)) {
                         payload = new byte[0];
                         // ChunkedInputStream constructed below after deriving
@@ -691,6 +693,8 @@ public class S3ProxyHandler {
                             baseRequest, authHeader, payload, uriForSigning,
                             credential);
                     if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
+                            contentSha256) ||
+                            "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
                             contentSha256)) {
                         byte[] signingKey = AwsSignature.deriveSigningKeyV4(
                                 authHeader, credential);
@@ -702,10 +706,14 @@ public class S3ProxyHandler {
                         if (timestamp == null) {
                             timestamp = request.getParameter("X-Amz-Date");
                         }
+                        String trailer = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER"
+                                .equals(contentSha256) ?
+                                request.getHeader(AwsHttpHeaders.TRAILER) :
+                                null;
                         is = new ChunkedInputStream(is, v4MaxChunkSize,
                                 expectedSignature, signingKey,
                                 authHeader.getHmacAlgorithm(), timestamp,
-                                scope);
+                                scope, trailer);
                     }
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
                     throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, e);

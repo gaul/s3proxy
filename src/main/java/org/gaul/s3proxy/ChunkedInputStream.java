@@ -102,9 +102,33 @@ final class ChunkedInputStream extends FilterInputStream {
     ChunkedInputStream(InputStream is, int maxChunkSize,
             String seedSignature, byte[] signingKey, String hmacAlgorithm,
             String timestamp, String scope) {
+        this(is, maxChunkSize, seedSignature, signingKey, hmacAlgorithm,
+                timestamp, scope, /*trailer=*/ null);
+    }
+
+    /**
+     * Construct a chunked stream that verifies the per-chunk signature chain
+     * AND validates the flexible-checksum trailer used by
+     * STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER.
+     */
+    @SuppressWarnings("deprecation")
+    ChunkedInputStream(InputStream is, int maxChunkSize,
+            String seedSignature, byte[] signingKey, String hmacAlgorithm,
+            String timestamp, String scope, @Nullable String trailer) {
         super(is);
         this.maxChunkSize = maxChunkSize;
-        this.hasher = null;
+        if ("x-amz-checksum-crc32".equals(trailer)) {
+            hasher = Hashing.crc32().newHasher();
+        } else if ("x-amz-checksum-crc32c".equals(trailer)) {
+            hasher = Hashing.crc32c().newHasher();
+        } else if ("x-amz-checksum-sha1".equals(trailer)) {
+            hasher = Hashing.sha1().newHasher();
+        } else if ("x-amz-checksum-sha256".equals(trailer)) {
+            hasher = Hashing.sha256().newHasher();
+        } else {
+            // TODO: Guava does not support x-amz-checksum-crc64nvme
+            hasher = null;
+        }
         this.signingKey = signingKey.clone();
         this.hmacAlgorithm = hmacAlgorithm;
         this.timestamp = timestamp;
