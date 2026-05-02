@@ -2402,15 +2402,16 @@ public class S3ProxyHandler {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        String[] contentTypeParts = contentTypeHeader.split(";");
-        if (contentTypeParts.length < 2 || !contentTypeParts[0].trim()
+        List<String> contentTypeParts = Splitter.on(';').splitToList(
+                contentTypeHeader);
+        if (contentTypeParts.size() < 2 || !contentTypeParts.get(0).trim()
                 .equalsIgnoreCase("multipart/form-data")) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
         String boundary = null;
-        for (int i = 1; i < contentTypeParts.length; i++) {
-            String param = contentTypeParts[i].trim();
+        for (int i = 1; i < contentTypeParts.size(); i++) {
+            String param = contentTypeParts.get(i).trim();
             int eq = param.indexOf('=');
             if (eq > 0 && param.substring(0, eq).trim()
                     .equalsIgnoreCase("boundary")) {
