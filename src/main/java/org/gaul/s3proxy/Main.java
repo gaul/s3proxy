@@ -83,7 +83,7 @@ public final class Main {
         private boolean version;
     }
 
-    @SuppressWarnings("EqualsIncompatibleType")
+    @SuppressWarnings({"EqualsIncompatibleType", "SystemConsoleNull"})
     public static void main(String[] args) throws Exception {
         Console console = System.console();
         if (console == null) {
