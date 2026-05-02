@@ -465,7 +465,7 @@
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-exporter-prometheus</artifactId>
-      <version>1.60.1-alpha</version>
+      <version>1.61.0-alpha</version>
     </dependency>
     <dependency>
       <groupId>io.opentelemetry.semconv</groupId>
