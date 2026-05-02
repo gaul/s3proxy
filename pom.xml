@@ -486,11 +486,6 @@
       </exclusions>
     </dependency>
     <dependency>
-      <groupId>com.amazonaws</groupId>
-      <artifactId>aws-java-sdk-sts</artifactId>
-      <version>${aws-sdk.version}</version>
-    </dependency>
-    <dependency>
       <groupId>args4j</groupId>
       <artifactId>args4j</artifactId>
       <version>2.37</version>
@@ -611,6 +606,11 @@
       <groupId>org.slf4j</groupId>
       <artifactId>jcl-over-slf4j</artifactId>
       <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>auth</artifactId>
+      <version>${aws-sdkv2.version}</version>
     </dependency>
     <!-- tests dependencies -->
     <dependency>

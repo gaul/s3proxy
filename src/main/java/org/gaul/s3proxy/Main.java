@@ -35,10 +35,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.AWSSessionCredentials;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableBiMap;
@@ -66,6 +62,11 @@ import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 
 public final class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
@@ -438,27 +439,21 @@ public final class Main {
         }
 
         if ((identity.isEmpty() || credential.isEmpty()) && provider.equals("aws-s3")) {
+            AwsCredentialsProvider authChain = DefaultCredentialsProvider.create();
             @SuppressModernizer
             Supplier<Credentials> credentialsSupplier = new Supplier<Credentials>() {
                 @Override
                 public Credentials get() {
-                    AWSCredentialsProvider authChain = DefaultAWSCredentialsProviderChain.getInstance();
-                    AWSCredentials newCreds = authChain.getCredentials();
-                    Credentials jcloudsCred = null;
-
-                    if (newCreds instanceof AWSSessionCredentials sessionCreds) {
-                        jcloudsCred = SessionCredentials.builder()
-                                .accessKeyId(newCreds.getAWSAccessKeyId())
-                                .secretAccessKey(newCreds.getAWSSecretKey())
-                                .sessionToken(sessionCreds.getSessionToken())
+                    AwsCredentials newCreds = authChain.resolveCredentials();
+                    if (newCreds instanceof AwsSessionCredentials sessionCreds) {
+                        return SessionCredentials.builder()
+                                .accessKeyId(newCreds.accessKeyId())
+                                .secretAccessKey(newCreds.secretAccessKey())
+                                .sessionToken(sessionCreds.sessionToken())
                                 .build();
-                    } else {
-                        jcloudsCred = new Credentials(
-                                newCreds.getAWSAccessKeyId(), newCreds.getAWSSecretKey()
-                        );
                     }
-
-                    return jcloudsCred;
+                    return new Credentials(
+                            newCreds.accessKeyId(), newCreds.secretAccessKey());
                 }
             };
             builder = builder.credentialsSupplier(credentialsSupplier);
