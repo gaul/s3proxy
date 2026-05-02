@@ -535,8 +535,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
 
         String ifMatch = null;
         String ifNoneMatch = null;
-        if (options instanceof PutOptions2) {
-            var putOptions2 = (PutOptions2) options;
+        if (options instanceof PutOptions2 putOptions2) {
             ifMatch = putOptions2.getIfMatch();
             ifNoneMatch = putOptions2.getIfNoneMatch();
         }

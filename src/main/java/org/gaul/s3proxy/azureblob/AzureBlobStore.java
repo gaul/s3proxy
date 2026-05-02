@@ -785,8 +785,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
 
         // Support conditional writes (If-Match/If-None-Match)
-        if (mpu.putOptions() instanceof PutOptions2) {
-            var putOptions2 = (PutOptions2) mpu.putOptions();
+        if (mpu.putOptions() instanceof PutOptions2 putOptions2) {
             String ifMatch = putOptions2.getIfMatch();
             String ifNoneMatch = putOptions2.getIfNoneMatch();
             if (ifMatch != null || ifNoneMatch != null) {
