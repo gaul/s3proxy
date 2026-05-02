@@ -420,7 +420,7 @@
     <jetty.version>12.1.8</jetty.version>
     <modernizer.version>3.3.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
-    <opentelemetry.version>1.60.1</opentelemetry.version>
+    <opentelemetry.version>1.61.0</opentelemetry.version>
     <opentelemetry-semconv.version>1.41.0</opentelemetry-semconv.version>
     <slf4j.version>2.0.17</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
