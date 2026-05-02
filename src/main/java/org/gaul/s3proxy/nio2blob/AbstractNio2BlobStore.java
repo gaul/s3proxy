@@ -762,7 +762,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
-        return blob != null ? (BlobMetadata) BlobStoreUtils.copy(blob.getMetadata()) : null;
+        return (BlobMetadata) BlobStoreUtils.copy(blob.getMetadata());
     }
 
     @Override
