@@ -236,9 +236,9 @@ public class S3ProxyHandler {
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
-    private static final Instant LAUNCH_TIME = Instant.now();
     private static final String GIT_HASH = loadGitHash();
 
+    private final Instant launchTime = Instant.now();
     private final boolean anonymousIdentity;
     private final AuthenticationType authenticationType;
     private final Optional<String> virtualHost;
@@ -2366,7 +2366,7 @@ public class S3ProxyHandler {
         Map<String, String> body = ImmutableMap.of(
                 "status", "OK",
                 "gitHash", GIT_HASH,
-                "launchTime", LAUNCH_TIME.toString(),
+                "launchTime", launchTime.toString(),
                 "currentTime", Instant.now().toString());
 
         try (PrintWriter writer = response.getWriter()) {
