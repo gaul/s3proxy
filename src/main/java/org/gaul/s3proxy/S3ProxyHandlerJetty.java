@@ -102,23 +102,18 @@ final class S3ProxyHandlerJetty extends HttpServlet {
 
             int status = hr.getStatusCode();
             switch (status) {
-            case 412:
-                sendS3Exception(request, response,
-                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
-                break;
-            case 416:
-                sendS3Exception(request, response,
-                        new S3Exception(S3ErrorCode.INVALID_RANGE));
-                break;
-            case HttpServletResponse.SC_BAD_REQUEST:
-            case 422:  // Swift returns 422 Unprocessable Entity
-                sendS3Exception(request, response,
+            case 412 -> sendS3Exception(request, response,
+                    new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+            case 416 -> sendS3Exception(request, response,
+                    new S3Exception(S3ErrorCode.INVALID_RANGE));
+            // Swift returns 422 Unprocessable Entity
+            case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendS3Exception(
+                    request, response,
                     new S3Exception(S3ErrorCode.BAD_DIGEST));
-                break;
-            default:
+            default -> {
                 logger.debug("HttpResponseException:", hre);
                 response.setStatus(status);
-                break;
+            }
             }
             return;
         } catch (IllegalArgumentException iae) {

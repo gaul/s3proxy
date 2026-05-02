@@ -1061,7 +1061,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
     private static void translateAndRethrowException(StorageException se,
             String container, @Nullable String key) {
         switch (se.getCode()) {
-        case 404:
+        case 404 -> {
             if (key != null) {
                 var keyEx = new KeyNotFoundException(container, key, "");
                 keyEx.initCause(se);
@@ -1072,7 +1072,8 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 containerEx.initCause(se);
                 throw containerEx;
             }
-        case 412:
+        }
+        case 412 -> {
             var request = HttpRequest.builder()
                     .method("GET")
                     .endpoint("https://storage.googleapis.com")
@@ -1082,8 +1083,8 @@ public final class GCloudBlobStore extends BaseBlobStore {
                     .build();
             throw new HttpResponseException(
                     new HttpCommand(request), response, se);
-        default:
-            break;
+        }
+        default -> { }
         }
     }
 }

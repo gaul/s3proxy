@@ -219,9 +219,7 @@ public final class S3Proxy {
             String localIdentity = null;
             String localCredential = null;
             switch (authorization) {
-            case AWS_V2:
-            case AWS_V4:
-            case AWS_V2_OR_V4:
+            case AWS_V2, AWS_V4, AWS_V2_OR_V4 -> {
                 localIdentity = properties.getProperty(
                         S3ProxyConstants.PROPERTY_IDENTITY);
                 localCredential = properties.getProperty(
@@ -232,13 +230,11 @@ public final class S3Proxy {
                             S3ProxyConstants.PROPERTY_CREDENTIAL +
                             " when using authentication");
                 }
-                break;
-            case NONE:
-                break;
-            default:
-                throw new IllegalArgumentException(
-                        S3ProxyConstants.PROPERTY_AUTHORIZATION +
-                        " invalid value, was: " + authorization);
+            }
+            case NONE -> { }
+            default -> throw new IllegalArgumentException(
+                    S3ProxyConstants.PROPERTY_AUTHORIZATION +
+                    " invalid value, was: " + authorization);
             }
 
             if (localIdentity != null || localCredential != null) {

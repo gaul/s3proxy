@@ -615,31 +615,21 @@ public class S3ProxyHandler {
             }
             // The aim ?
             switch (authHeader.getAuthenticationType()) {
-            case AWS_V2:
+            case AWS_V2 -> {
                 switch (authenticationType) {
-                case AWS_V2:
-                case AWS_V2_OR_V4:
-                case NONE:
-                    break;
-                default:
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                case AWS_V2, AWS_V2_OR_V4, NONE -> { }
+                default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
-                break;
-            case AWS_V4:
+            }
+            case AWS_V4 -> {
                 switch (authenticationType) {
-                case AWS_V4:
-                case AWS_V2_OR_V4:
-                case NONE:
-                    break;
-                default:
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                case AWS_V4, AWS_V2_OR_V4, NONE -> { }
+                default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
                 }
-                break;
-            case NONE:
-                break;
-            default:
-                throw new IllegalArgumentException("Unhandled type: " +
-                        authHeader.getAuthenticationType());
+            }
+            case NONE -> { }
+            default -> throw new IllegalArgumentException("Unhandled type: " +
+                    authHeader.getAuthenticationType());
             }
 
             String expectedSignature = null;
@@ -747,7 +737,7 @@ public class S3ProxyHandler {
         }
 
         switch (method) {
-        case "DELETE":
+        case "DELETE" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 setOperation(ctx, S3Operation.DELETE_BUCKET);
                 handleContainerDelete(request, response, blobStore, path[1]);
@@ -763,7 +753,8 @@ public class S3ProxyHandler {
                         path[2]);
                 return;
             }
-        case "GET":
+        }
+        case "GET" -> {
             if (uri.equals("/")) {
                 setOperation(ctx, S3Operation.LIST_BUCKETS);
                 handleContainerList(request, response, blobStore);
@@ -808,7 +799,8 @@ public class S3ProxyHandler {
                         path[2]);
                 return;
             }
-        case "HEAD":
+        }
+        case "HEAD" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 setOperation(ctx, S3Operation.HEAD_BUCKET);
                 handleContainerExists(request, response, blobStore, path[1]);
@@ -819,7 +811,8 @@ public class S3ProxyHandler {
                         path[2]);
                 return;
             }
-        case "POST":
+        }
+        case "POST" -> {
             if (request.getParameter("delete") != null) {
                 setOperation(ctx, S3Operation.DELETE_OBJECTS);
                 handleMultiBlobRemove(request, response, is, blobStore,
@@ -837,8 +830,8 @@ public class S3ProxyHandler {
                         path[1], path[2], uploadId);
                 return;
             }
-            break;
-        case "PUT":
+        }
+        case "PUT" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
                     setOperation(ctx, S3Operation.PUT_BUCKET_ACL);
@@ -878,12 +871,13 @@ public class S3ProxyHandler {
                         path[2]);
                 return;
             }
-        case "OPTIONS":
+        }
+        case "OPTIONS" -> {
             setOperation(ctx, S3Operation.OPTIONS_OBJECT);
             handleOptionsBlob(request, response, blobStore, path[1]);
             return;
-        default:
-            break;
+        }
+        default -> { }
         }
         setOperation(ctx, S3Operation.UNKNOWN);
         logger.error("Unknown method {} with URI {}",
@@ -929,7 +923,7 @@ public class S3ProxyHandler {
         }
 
         switch (method) {
-        case "GET":
+        case "GET" -> {
             if (uri.equals("/")) {
                 setOperation(ctx, S3Operation.LIST_BUCKETS);
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
@@ -956,7 +950,8 @@ public class S3ProxyHandler {
                         blobName);
                 return;
             }
-        case "HEAD":
+        }
+        case "HEAD" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
                 ContainerAccess access = blobStore.getContainerAccess(
@@ -981,14 +976,15 @@ public class S3ProxyHandler {
                         blobName);
             }
             return;
-        case "POST":
+        }
+        case "POST" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 setOperation(ctx, S3Operation.PUT_OBJECT);
                 handlePostBlob(request, response, is, blobStore, path[1]);
                 return;
             }
-            break;
-        case "OPTIONS":
+        }
+        case "OPTIONS" -> {
             if (uri.equals("/")) {
                 setOperation(ctx, S3Operation.OPTIONS_OBJECT);
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
@@ -998,8 +994,8 @@ public class S3ProxyHandler {
                 handleOptionsBlob(request, response, blobStore, containerName);
                 return;
             }
-        default:
-            break;
+        }
+        default -> { }
         }
         setOperation(ctx, S3Operation.UNKNOWN);
         logger.error("Unknown method {} with URI {}",
@@ -1733,16 +1729,13 @@ public class S3ProxyHandler {
                     continue;
                 }
                 switch (metadata.getType()) {
-                case FOLDER:
-                    // fallthrough
-                case RELATIVE_PATH:
+                case FOLDER, RELATIVE_PATH -> {
                     if (delimiter != null) {
                         commonPrefixes.add(metadata.getName());
                         continue;
                     }
-                    break;
-                default:
-                    break;
+                }
+                default -> { }
                 }
 
                 xml.writeStartElement("Contents");
@@ -2518,31 +2511,21 @@ public class S3ProxyHandler {
         }
 
         switch (authHeader.getAuthenticationType()) {
-        case AWS_V2:
+        case AWS_V2 -> {
             switch (authenticationType) {
-            case AWS_V2:
-            case AWS_V2_OR_V4:
-            case NONE:
-                break;
-            default:
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            case AWS_V2, AWS_V2_OR_V4, NONE -> { }
+            default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
-            break;
-        case AWS_V4:
+        }
+        case AWS_V4 -> {
             switch (authenticationType) {
-            case AWS_V4:
-            case AWS_V2_OR_V4:
-            case NONE:
-                break;
-            default:
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            case AWS_V4, AWS_V2_OR_V4, NONE -> { }
+            default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
-            break;
-        case NONE:
-            break;
-        default:
-            throw new IllegalArgumentException("Unhandled type: " +
-                    authHeader.getAuthenticationType());
+        }
+        case NONE -> { }
+        default -> throw new IllegalArgumentException("Unhandled type: " +
+                authHeader.getAuthenticationType());
         }
 
         Map.Entry<String, BlobStore> provider =
