@@ -6,7 +6,7 @@ set -o nounset
 # Optional first argument selects a config; remaining args pass through to pytest via tox.
 # Example single test: ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf \
 #     s3tests_boto3/functional/test_s3.py::test_bucket_list_delimiter_prefix
-S3PROXY_CONF="s3proxy.conf"
+S3PROXY_CONF="s3proxy-transient-nio2.conf"
 if (($# > 0)) && [[ "$1" == *.conf ]]; then
     S3PROXY_CONF="$1"
     shift
