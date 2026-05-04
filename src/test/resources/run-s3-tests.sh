@@ -24,11 +24,18 @@ TOX_TEST_ARGS=("$@")
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
         < "src/test/resources/$S3PROXY_CONF" | grep -v secure-endpoint > target/s3proxy.conf
-java -DLOG_LEVEL=${LOG_LEVEL:-info} -jar $S3PROXY_BIN --properties target/s3proxy.conf &
+S3PROXY_LOG="${PWD}/target/s3proxy.log"
+java -DLOG_LEVEL=${LOG_LEVEL:-info} -jar $S3PROXY_BIN --properties target/s3proxy.conf > "$S3PROXY_LOG" 2>&1 &
 S3PROXY_PID=$!
 
 function finish {
-    kill $S3PROXY_PID
+    rc=$?
+    if [ "$rc" -ne 0 ] && [ -s "$S3PROXY_LOG" ]; then
+        echo "===== last 200 lines of s3proxy.log (script exit $rc) =====" >&2
+        tail -200 "$S3PROXY_LOG" >&2
+        echo "===== end of s3proxy.log =====" >&2
+    fi
+    kill "$S3PROXY_PID" 2>/dev/null || true
 }
 trap finish EXIT
 
@@ -74,7 +81,9 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-minio.conf" ]; then
     tags="${tags} and not fails_on_s3proxy_minio"
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     tags="${tags} and not fails_on_s3proxy_localstack and not fails_on_s3proxy_minio and not fails_on_aws"
-elif [[ "${S3PROXY_CONF}" == s3proxy-*-nio2.conf ]]; then
+elif [[ "${S3PROXY_CONF}" == s3proxy-*-nio2.conf ]] ||
+        [[ "${S3PROXY_CONF}" == s3proxy.conf ]]; then
+    # s3proxy.conf defaults to the transient-nio2 backend.
     tags="${tags} and not fails_on_s3proxy_nio2"
 fi
 
