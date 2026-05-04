@@ -26,9 +26,9 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class UserMetadataReplacerBlobStoreTest {
@@ -38,7 +38,7 @@ public final class UserMetadataReplacerBlobStoreTest {
     // TODO: better name?
     private BlobStore userMetadataReplacerBlobStore;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         containerName = TestUtils.createRandomContainerName();
 
@@ -55,7 +55,7 @@ public final class UserMetadataReplacerBlobStoreTest {
                 .newUserMetadataReplacerBlobStore(blobStore, "-", "_");
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (context != null) {
             blobStore.deleteContainer(containerName);

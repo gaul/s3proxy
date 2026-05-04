@@ -28,9 +28,9 @@ import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class TierBlobStoreTest {
@@ -39,7 +39,7 @@ public final class TierBlobStoreTest {
     private String containerName;
     private BlobStore tierBlobStore;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         containerName = TestUtils.createRandomContainerName();
 
@@ -56,7 +56,7 @@ public final class TierBlobStoreTest {
                 blobStore, StorageClass.DEEP_ARCHIVE.toString());
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (context != null) {
             blobStore.deleteContainer(containerName);

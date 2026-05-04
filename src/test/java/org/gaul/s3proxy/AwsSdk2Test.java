@@ -17,9 +17,9 @@
 package org.gaul.s3proxy;
 
 import org.jclouds.blobstore.BlobStoreContext;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -39,7 +39,7 @@ public final class AwsSdk2Test {
     private S3Client s3Client;
     private String containerName;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         var info = TestUtils.startS3Proxy(System.getProperty("s3proxy.test.conf", "s3proxy.conf"));
         context = info.getBlobStore().getContext();
@@ -64,7 +64,7 @@ public final class AwsSdk2Test {
         info.getBlobStore().createContainerInLocation(null, containerName);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (s3Client != null) {
             s3Client.close();

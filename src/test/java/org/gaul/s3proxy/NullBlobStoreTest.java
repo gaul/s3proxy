@@ -42,9 +42,9 @@ import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public final class NullBlobStoreTest {
     private static final ByteSource BYTE_SOURCE =
@@ -54,7 +54,7 @@ public final class NullBlobStoreTest {
     private String containerName;
     private BlobStore nullBlobStore;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         containerName = createRandomContainerName();
 
@@ -69,7 +69,7 @@ public final class NullBlobStoreTest {
         nullBlobStore = NullBlobStore.newNullBlobStore(blobStore);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (context != null) {
             blobStore.deleteContainer(containerName);

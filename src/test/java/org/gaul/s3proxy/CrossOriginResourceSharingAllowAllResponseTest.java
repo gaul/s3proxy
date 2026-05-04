@@ -48,9 +48,9 @@ import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -79,7 +79,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
     private CloseableHttpClient httpClient;
     private URI presignedGET;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-cors-allow-all.conf");
@@ -136,7 +136,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
         }
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (s3Client != null) {
             s3Client.close();

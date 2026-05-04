@@ -21,7 +21,7 @@ package org.gaul.s3proxy;
 // implements SigV2 and is exercised via the v1 jclouds backend.
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assume.assumeTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -51,10 +51,10 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.rest.HttpClient;
 import org.jspecify.annotations.Nullable;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -118,7 +118,7 @@ public final class AwsSdkTest {
     private S3Client client;
     private String servicePath;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 System.getProperty("s3proxy.test.conf", "s3proxy.conf"));
@@ -139,7 +139,7 @@ public final class AwsSdkTest {
         blobStoreType = context.unwrap().getProviderMetadata().getId();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (client != null) {
             client.close();
@@ -270,7 +270,7 @@ public final class AwsSdkTest {
     }
 
     // This randomly fails with SocketException: Broken pipe
-    @Ignore
+    @Disabled
     @Test
     public void testAwsV4SignatureBadCredential() throws Exception {
         client.close();
@@ -1079,7 +1079,7 @@ public final class AwsSdkTest {
     }
 
     // this test runs for several minutes
-    @Ignore
+    @Disabled
     @Test
     public void testMaximumMultipartUpload() throws Exception {
         // skip with remote blobstores to avoid excessive run-times

@@ -27,9 +27,9 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public final class ReadOnlyBlobStoreTest {
     private BlobStoreContext context;
@@ -37,7 +37,7 @@ public final class ReadOnlyBlobStoreTest {
     private String containerName;
     private BlobStore readOnlyBlobStore;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         containerName = createRandomContainerName();
 
@@ -51,7 +51,7 @@ public final class ReadOnlyBlobStoreTest {
         readOnlyBlobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (context != null) {
             blobStore.deleteContainer(containerName);

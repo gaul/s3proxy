@@ -43,9 +43,9 @@ import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public final class AliasBlobStoreTest {
     private String containerName;
@@ -55,7 +55,7 @@ public final class AliasBlobStoreTest {
     private BlobStore aliasBlobStore;
     private List<String> createdContainers;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         containerName = TestUtils.createRandomContainerName();
         aliasContainerName = String.format("alias-%s", containerName);
@@ -72,7 +72,7 @@ public final class AliasBlobStoreTest {
         createdContainers = new ArrayList<>();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (this.context != null) {
             for (String container : this.createdContainers) {

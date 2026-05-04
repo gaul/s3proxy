@@ -39,9 +39,9 @@ import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public final class PrefixBlobStoreTest {
     private String containerName;
@@ -50,7 +50,7 @@ public final class PrefixBlobStoreTest {
     private BlobStore blobStore;
     private BlobStore prefixBlobStore;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         containerName = TestUtils.createRandomContainerName();
         prefix = "forward-prefix/";
@@ -65,7 +65,7 @@ public final class PrefixBlobStoreTest {
                 blobStore, Map.of(containerName, prefix));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (context != null) {
             blobStore.clearContainer(containerName);

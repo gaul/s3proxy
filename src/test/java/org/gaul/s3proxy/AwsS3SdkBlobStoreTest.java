@@ -22,7 +22,7 @@ import java.util.Properties;
 
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStoreContext;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public final class AwsS3SdkBlobStoreTest {
 

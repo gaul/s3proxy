@@ -27,9 +27,9 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 
 import org.jclouds.blobstore.BlobStoreContext;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -59,7 +59,7 @@ public final class AwsSdkAnonymousTest {
     private S3Client client;
     private String servicePath;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-anonymous.conf");
@@ -76,7 +76,7 @@ public final class AwsSdkAnonymousTest {
         info.getBlobStore().createContainerInLocation(null, containerName);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (client != null) {
             client.close();

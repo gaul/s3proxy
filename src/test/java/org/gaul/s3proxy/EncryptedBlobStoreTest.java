@@ -52,10 +52,10 @@ import org.jclouds.http.HttpResponseException;
 import org.jclouds.io.Payload;
 import org.jclouds.io.Payloads;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -100,7 +100,7 @@ public final class EncryptedBlobStoreTest {
             .build();
     }
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         String password = "Password1234567!";
         String salt = "12345678";
@@ -127,7 +127,7 @@ public final class EncryptedBlobStoreTest {
             EncryptedBlobStore.newEncryptedBlobStore(blobStore, properties);
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (context != null) {
             blobStore.deleteContainer(containerName);
@@ -855,7 +855,7 @@ public final class EncryptedBlobStoreTest {
         String etag = blob.getMetadata().getETag();
 
         GetOptions conditionalOptions = GetOptions.Builder.ifETagDoesntMatch(etag);
-        var e = Assert.assertThrows(HttpResponseException.class,
+        var e = Assertions.assertThrows(HttpResponseException.class,
             () -> encryptedBlobStore.getBlob(containerName, blobName, conditionalOptions));
         assertThat(e.getResponse().getStatusCode()).isEqualTo(304);
     }

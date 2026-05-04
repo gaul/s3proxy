@@ -33,9 +33,9 @@ import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public final class ShardedBlobStoreTest {
     private int shards;
@@ -47,7 +47,7 @@ public final class ShardedBlobStoreTest {
     private List<String> createdContainers;
     private Map<String, String> prefixesMap;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         containerName = TestUtils.createRandomContainerName();
         shards = 10;
@@ -65,7 +65,7 @@ public final class ShardedBlobStoreTest {
         createdContainers = new ArrayList<>();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (this.context != null) {
             for (String container : this.createdContainers) {
