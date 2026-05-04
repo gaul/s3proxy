@@ -72,20 +72,26 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 ## Supported storage backends
 
 * atmos
-* aws-s3 (Amazon-only, deprecated)
+* aws-s3 (Amazon-only, alias for aws-s3-sdk)
 * aws-s3-sdk (S3-compatible backends via AWS SDK, recommended)
-* azureblob (deprecated)
+* aws-s3-jclouds (Amazon-only via jclouds, deprecated)
+* azureblob (alias for azureblob-sdk)
 * azureblob-sdk (recommended)
+* azureblob-jclouds (Azure Blob via jclouds, deprecated)
 * b2
-* filesystem (on-disk storage, deprecated)
+* filesystem (on-disk storage, alias for filesystem-nio2)
 * filesystem-nio2 (on-disk storage, recommended)
-* google-cloud-storage (deprecated)
+* filesystem-jclouds (on-disk storage via jclouds, deprecated)
+* google-cloud-storage (alias for google-cloud-storage-sdk)
 * google-cloud-storage-sdk (recommended)
+* google-cloud-storage-jclouds (Google Cloud Storage via jclouds, deprecated)
 * openstack-swift
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
-* s3 (non-Amazon, deprecated)
-* transient (in-memory storage, deprecated)
+* s3 (non-Amazon, alias for aws-s3-sdk)
+* s3-jclouds (non-Amazon S3 via jclouds, deprecated)
+* transient (in-memory storage, alias for transient-nio2)
 * transient-nio2 (in-memory storage, recommended)
+* transient-jclouds (in-memory storage via jclouds, deprecated)
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 

@@ -127,20 +127,6 @@ public final class Main {
             properties.putAll(System.getProperties());
 
             BlobStore blobStore = createBlobStore(properties, executorService);
-            var blobStoreType = blobStore.getContext().unwrap().getProviderMetadata().getId();
-            if (blobStoreType.equals("aws-s3")) {
-                System.err.println("WARNING: aws-s3 storage backend deprecated -- please use aws-s3-sdk instead");
-            } else if (blobStoreType.equals("azureblob")) {
-                System.err.println("WARNING: azureblob storage backend deprecated -- please use azureblob-sdk instead");
-            } else if (blobStoreType.equals("filesystem")) {
-                System.err.println("WARNING: filesystem storage backend deprecated -- please use filesystem-nio2 instead");
-            } else if (blobStoreType.equals("google-cloud-storage")) {
-                System.err.println("WARNING: google-cloud-storage storage backend deprecated -- please use google-cloud-storage-sdk instead");
-            } else if (blobStoreType.equals("s3")) {
-                System.err.println("WARNING: s3 storage backend deprecated -- please use aws-s3-sdk instead");
-            } else if (blobStoreType.equals("transient")) {
-                System.err.println("WARNING: transient storage backend deprecated -- please use transient-nio2 instead");
-            }
 
             blobStore = parseMiddlewareProperties(blobStore, executorService,
                     properties);
@@ -390,6 +376,9 @@ public final class Main {
             System.exit(1);
         }
 
+        provider = resolveProviderAlias(provider);
+        properties.setProperty(Constants.PROPERTY_PROVIDER, provider);
+
         if (provider.equals("filesystem") ||
                 provider.equals("filesystem-nio2") ||
                 provider.equals("transient") ||
@@ -470,6 +459,52 @@ public final class Main {
             blobStore = context.getBlobStore();
         }
         return blobStore;
+    }
+
+    /**
+     * Map deprecated jclouds provider names to their modern replacements, and
+     * accept "*-jclouds" suffixes as opt-in aliases for the legacy paths.
+     */
+    private static String resolveProviderAlias(String provider) {
+        if (provider.equals("transient")) {
+            return "transient-nio2";
+        } else if (provider.equals("filesystem")) {
+            return "filesystem-nio2";
+        } else if (provider.equals("aws-s3")) {
+            return "aws-s3-sdk";
+        } else if (provider.equals("azureblob")) {
+            return "azureblob-sdk";
+        } else if (provider.equals("google-cloud-storage")) {
+            return "google-cloud-storage-sdk";
+        } else if (provider.equals("s3")) {
+            return "aws-s3-sdk";
+        } else if (provider.equals("transient-jclouds")) {
+            System.err.println("WARNING: transient-jclouds storage backend" +
+                    " deprecated -- please use transient-nio2 instead");
+            return "transient";
+        } else if (provider.equals("filesystem-jclouds")) {
+            System.err.println("WARNING: filesystem-jclouds storage backend" +
+                    " deprecated -- please use filesystem-nio2 instead");
+            return "filesystem";
+        } else if (provider.equals("aws-s3-jclouds")) {
+            System.err.println("WARNING: aws-s3-jclouds storage backend" +
+                    " deprecated -- please use aws-s3-sdk instead");
+            return "aws-s3";
+        } else if (provider.equals("azureblob-jclouds")) {
+            System.err.println("WARNING: azureblob-jclouds storage backend" +
+                    " deprecated -- please use azureblob-sdk instead");
+            return "azureblob";
+        } else if (provider.equals("google-cloud-storage-jclouds")) {
+            System.err.println("WARNING: google-cloud-storage-jclouds storage" +
+                    " backend deprecated -- please use" +
+                    " google-cloud-storage-sdk instead");
+            return "google-cloud-storage";
+        } else if (provider.equals("s3-jclouds")) {
+            System.err.println("WARNING: s3-jclouds storage backend" +
+                    " deprecated -- please use aws-s3-sdk instead");
+            return "s3";
+        }
+        return provider;
     }
 
     private static void usage(CmdLineParser parser) {
