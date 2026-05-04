@@ -102,8 +102,27 @@ final class S3ProxyHandlerJetty extends HttpServlet {
 
             int status = hr.getStatusCode();
             switch (status) {
-            case 412 -> sendS3Exception(request, response,
-                    new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+            case 412 -> {
+                // Backends report any conditional-header failure as 412.
+                // Per the S3/HTTP spec, GET/HEAD with If-None-Match (or
+                // If-Modified-Since) failing maps to 304 Not Modified, not
+                // 412.  Disambiguate by inspecting the original request.
+                String method = request.getMethod();
+                boolean notModified =
+                        ("GET".equals(method) || "HEAD".equals(method)) &&
+                        request.getHeader(HttpHeaders.IF_MATCH) == null &&
+                        request.getDateHeader(
+                                HttpHeaders.IF_UNMODIFIED_SINCE) == -1 &&
+                        (request.getHeader(HttpHeaders.IF_NONE_MATCH) != null ||
+                         request.getDateHeader(
+                                 HttpHeaders.IF_MODIFIED_SINCE) != -1);
+                if (notModified) {
+                    response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+                } else {
+                    sendS3Exception(request, response,
+                            new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+                }
+            }
             case 416 -> sendS3Exception(request, response,
                     new S3Exception(S3ErrorCode.INVALID_RANGE));
             // Swift returns 422 Unprocessable Entity
