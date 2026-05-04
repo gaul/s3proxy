@@ -180,6 +180,18 @@ final class ChunkedInputStream extends FilterInputStream {
                 verifyChunkSignature(chunk, currentSignature);
             }
             if (currentLength == 0) {
+                // AWS aws-chunked sends trailing-headers AFTER the zero-
+                // length chunk, terminated by an empty line.  Drain and
+                // validate them before signaling EOF.
+                if (hasher != null) {
+                    while (true) {
+                        String trailerLine = readLine(in);
+                        if (trailerLine.isEmpty()) {
+                            break;
+                        }
+                        validateTrailerHash(trailerLine);
+                    }
+                }
                 return -1;
             }
             // consume trailing \r\n
@@ -238,6 +250,31 @@ final class ChunkedInputStream extends FilterInputStream {
                     S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
         }
         previousSignature = signature;
+    }
+
+    /**
+     * If {@code line} is an x-amz-checksum-* trailer, validate the encoded
+     * hash against the running hasher.  Other trailer lines (e.g.
+     * x-amz-trailer-signature) are ignored.
+     */
+    @SuppressWarnings("deprecation")
+    private void validateTrailerHash(String line) throws IOException {
+        String[] parts = line.split(":", 2);
+        if (parts.length != 2 || !parts[0].startsWith("x-amz-checksum-")) {
+            return;
+        }
+        String expectedHash = parts[1];
+        var actualHash = switch (parts[0]) {
+        case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer
+                .allocate(4).putInt(hasher.hash().asInt()).array();
+        case "x-amz-checksum-sha1", "x-amz-checksum-sha256" ->
+            hasher.hash().asBytes();
+        default -> throw new IOException("unknown trailer: " + parts[0]);
+        };
+        if (!expectedHash.equals(
+                Base64.getEncoder().encodeToString(actualHash))) {
+            throw new IOException(new S3Exception(S3ErrorCode.BAD_DIGEST));
+        }
     }
 
     private static boolean constantTimeEquals(String a, String b) {
