@@ -2176,7 +2176,10 @@ public class S3ProxyHandler {
                     contentMetadata.contentDisposition(headerValue);
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_ENCODING)) {
-                    contentMetadata.contentEncoding(headerValue);
+                    String stripped = stripAwsChunked(headerValue);
+                    if (!stripped.isEmpty()) {
+                        contentMetadata.contentEncoding(stripped);
+                    }
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_LANGUAGE)) {
                     contentMetadata.contentLanguage(headerValue);
@@ -3575,12 +3578,19 @@ public class S3ProxyHandler {
                         Strings.nullToEmpty(request.getHeader(headerName)));
             }
         }
+        String contentEncoding = request.getHeader(
+                HttpHeaders.CONTENT_ENCODING);
+        if (contentEncoding != null) {
+            contentEncoding = stripAwsChunked(contentEncoding);
+            if (contentEncoding.isEmpty()) {
+                contentEncoding = null;
+            }
+        }
         builder.cacheControl(request.getHeader(
                         HttpHeaders.CACHE_CONTROL))
                 .contentDisposition(request.getHeader(
                         HttpHeaders.CONTENT_DISPOSITION))
-                .contentEncoding(request.getHeader(
-                        HttpHeaders.CONTENT_ENCODING))
+                .contentEncoding(contentEncoding)
                 .contentLanguage(request.getHeader(
                         HttpHeaders.CONTENT_LANGUAGE))
                 .userMetadata(userMetadata.build());
@@ -3650,6 +3660,24 @@ public class S3ProxyHandler {
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
+    }
+
+    /**
+     * Remove the transport-only "aws-chunked" token from a Content-Encoding
+     * value, returning whatever real encodings remain.  Modern AWS SDKs send
+     * Content-Encoding: aws-chunked when uploading via aws-chunked, but the
+     * proxy decodes the body before storing, so the token must not be carried
+     * forward as object metadata.
+     */
+    private static String stripAwsChunked(String contentEncoding) {
+        var parts = new ArrayList<String>();
+        for (String part : Splitter.on(',').split(contentEncoding)) {
+            String trimmed = part.trim();
+            if (!trimmed.equalsIgnoreCase("aws-chunked") && !trimmed.isEmpty()) {
+                parts.add(trimmed);
+            }
+        }
+        return String.join(",", parts);
     }
 
     private static byte[] hmac(String algorithm, byte[] data, byte[] key) {
