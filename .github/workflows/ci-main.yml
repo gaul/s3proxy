@@ -79,11 +79,6 @@ jobs:
         run: |
           mvn test
 
-      - name: Maven Test with transient-nio2
-        run: |
-          # TODO: run other test classes
-          mvn test -Ds3proxy.test.conf=s3proxy-transient-nio2.conf -Dtest=AwsSdkTest
-
       - name: Maven Test with filesystem-nio2
         run: |
           # TODO: run other test classes
@@ -96,7 +91,7 @@ jobs:
           pip install tox tox-gh-actions
       - name: Run s3-tests with transient-nio2
         run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-transient-nio2.conf
+          ./src/test/resources/run-s3-tests.sh s3proxy.conf
       - name: Run s3-tests with filesystem-nio2
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-filesystem-nio2.conf
