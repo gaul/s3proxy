@@ -55,6 +55,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -69,6 +71,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
@@ -304,6 +307,18 @@ public final class AwsSdkTest {
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ChecksumAlgorithm.class,
+            names = {"CRC32", "CRC32_C", "SHA1", "SHA256"})
+    public void testPutObjectWithChecksumAlgorithm(ChecksumAlgorithm algorithm)
+            throws Exception {
+        var key = "testPutObjectChecksum-" + algorithm.toString();
+        var byteSource = TestUtils.randomByteSource().slice(0, 1024);
+        client.putObject(b -> b.bucket(containerName).key(key)
+                        .checksumAlgorithm(algorithm),
+                RequestBody.fromBytes(byteSource.read()));
     }
 
     @Test
