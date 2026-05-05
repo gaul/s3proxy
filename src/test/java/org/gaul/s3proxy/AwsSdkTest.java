@@ -269,8 +269,6 @@ public final class AwsSdkTest {
         }
     }
 
-    // This randomly fails with SocketException: Broken pipe
-    @Disabled
     @Test
     public void testAwsV4SignatureBadCredential() throws Exception {
         client.close();
@@ -457,8 +455,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
-        // TODO:
-        assumeTrue(!blobStoreType.equals("transient-nio2"));
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
@@ -820,7 +816,6 @@ public final class AwsSdkTest {
     @Test
     public void testBlobListRecursiveImplicitMarker() throws Exception {
         assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
-        assumeTrue(!blobStoreType.equals("transient-nio2"));  // TODO:
 
         ListObjectsResponse listing = client.listObjects(
                 b -> b.bucket(containerName));
@@ -1329,7 +1324,6 @@ public final class AwsSdkTest {
         assumeTrue(!blobStoreType.equals("b2"));
         // TODO:
         assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
-        assumeTrue(!blobStoreType.equals("transient-nio2"));
 
         String blobName = "blob-name";
         PutObjectResponse result = client.putObject(b -> b.bucket(containerName)
@@ -1432,7 +1426,9 @@ public final class AwsSdkTest {
     @Test
     public void testBlobStoreLocator() throws Exception {
         assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+                blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient") ||
+                blobStoreType.equals("transient-nio2"));
         final BlobStore blobStore1 = context.getBlobStore();
         final BlobStore blobStore2 = ContextBuilder
                 .newBuilder(blobStoreType)
