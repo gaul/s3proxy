@@ -3513,6 +3513,19 @@ public class S3ProxyHandler {
             return;
         }
 
+        // Errors triggered by request-body validation may have left the body
+        // partially unread (e.g. the client declared Content-Length=N but
+        // sent N+k bytes; we read exactly N per the HTTP framing rules and
+        // the leftover k bytes would corrupt the next request on a keep-
+        // alive connection).  Close the connection on those cases so the
+        // client retries on a fresh socket.
+        if (code == S3ErrorCode.BAD_DIGEST ||
+                code == S3ErrorCode.INVALID_DIGEST ||
+                code == S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED ||
+                code == S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH) {
+            response.setHeader(HttpHeaders.CONNECTION, "close");
+        }
+
         response.setStatus(code.getHttpStatusCode());
 
         if (request.getMethod().equals("HEAD")) {
