@@ -1440,9 +1440,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobStoreLocator() throws Exception {
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient") ||
+        // The test builds a second BlobStoreContext without supplying any
+        // properties; only the in-memory backends work without config.
+        assumeTrue(blobStoreType.equals("transient") ||
                 blobStoreType.equals("transient-nio2"));
         final BlobStore blobStore1 = context.getBlobStore();
         final BlobStore blobStore2 = ContextBuilder
