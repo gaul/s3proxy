@@ -182,6 +182,7 @@ for specific storage backends.
 * [fake-s3](https://github.com/jubos/fake-s3), [gofakes3](https://github.com/johannesboyne/gofakes3), [minio](https://github.com/minio/minio), [S3 ninja](https://github.com/scireum/s3ninja), and [s3rver](https://github.com/jamhall/s3rver) provide functionality similar to S3Proxy when using the filesystem backend
 * [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs
 * [s3mock](https://github.com/adobe/S3Mock) - Adobe's s3 mock implementation
+* [s3proxy-chart](https://github.com/comet-ml/s3proxy-chart) - Helm chart for deploying S3Proxy
 * [sbt-s3](https://github.com/localytics/sbt-s3) runs S3Proxy via the Scala Build Tool
 * [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
 * [Zenko](https://www.zenko.io/) provide similar multi-cloud functionality
