@@ -931,6 +931,62 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testDirectoryMarkerWithoutTrailingSlash() throws Exception {
+        // Real S3 distinguishes "foo" from "foo/" as literal keys. The
+        // nio2blob backends use POSIX paths and used to conflate them.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        String dirName = "testrun-7560";
+        String marker = dirName + "/";
+        client.putObject(b -> b.bucket(containerName).key(marker),
+                RequestBody.empty());
+
+        // sanity: HEAD/GET on the marker itself works
+        assertThat(client.headObject(
+                b -> b.bucket(containerName).key(marker))).isNotNull();
+
+        // HEAD without trailing slash must 404
+        try {
+            client.headObject(b -> b.bucket(containerName).key(dirName));
+            Fail.failBecauseExceptionWasNotThrown(NoSuchKeyException.class);
+        } catch (NoSuchKeyException e) {
+            // expected
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+
+        // GET without trailing slash must 404
+        try {
+            client.getObject(b -> b.bucket(containerName).key(dirName));
+            Fail.failBecauseExceptionWasNotThrown(NoSuchKeyException.class);
+        } catch (NoSuchKeyException e) {
+            // expected
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+
+        // CopyObject with non-slash source must 404
+        try {
+            client.copyObject(b -> b.sourceBucket(containerName)
+                    .sourceKey(dirName)
+                    .destinationBucket(containerName)
+                    .destinationKey("copy-dest"));
+            Fail.failBecauseExceptionWasNotThrown(NoSuchKeyException.class);
+        } catch (NoSuchKeyException e) {
+            // expected
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+
+        // DELETE without trailing slash must NOT remove the marker.
+        // (S3 DeleteObject is idempotent, so the call itself succeeds.)
+        client.deleteObject(b -> b.bucket(containerName).key(dirName));
+        assertThat(client.headObject(
+                b -> b.bucket(containerName).key(marker))).isNotNull();
+    }
+
+    @Test
     public void testSinglepartUploadJettyCachedHeader() throws Exception {
         String blobName = "singlepart-upload-jetty-cached";
         String contentType = "text/plain";

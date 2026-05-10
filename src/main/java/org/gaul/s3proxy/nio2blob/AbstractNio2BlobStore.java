@@ -398,8 +398,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
 
             if (isDirectory) {
-                if (!attributes.contains(XATTR_CONTENT_MD5)) {
-                    // Lacks directory marker -- implicit directory.
+                if (!key.endsWith("/") ||
+                        !attributes.contains(XATTR_CONTENT_MD5)) {
+                    // Implicit directory, or caller asked for a non-slash
+                    // variant that POSIX path normalization conflated with
+                    // a directory-marker key.
                     return null;
                 }
             } else if (attributes.contains(XATTR_CONTENT_MD5)) {
@@ -740,6 +743,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 path = containerPath;
             }
             checkValidPath(containerPath, path);
+            if (!key.endsWith("/") && Files.isDirectory(path)) {
+                // POSIX path normalization conflates "key" with "key/";
+                // a non-slash key must not match a directory marker.
+                return;
+            }
             logger.debug("Deleting blob at: {}", path);
             Files.delete(path);
             removeEmptyParentDirectories(containerPath, path.getParent());
