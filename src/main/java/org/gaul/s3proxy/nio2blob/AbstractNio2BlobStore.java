@@ -350,9 +350,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
-        if (path.toString().equals("/")) {
-            path = containerPath;
-        }
         checkValidPath(containerPath, path);
         logger.debug("Getting blob at: {}", path);
 
@@ -586,9 +583,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = resolveContainer(container);
         var path = containerPath.resolve(blob.getMetadata().getName()).normalize();
-        if (path.toString().equals("/")) {
-            path = containerPath;
-        }
         checkValidPath(containerPath, path);
         // TODO: should we use a known suffix to filter these out during list?
         var tmpPath = containerPath.resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
@@ -774,9 +768,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try {
             var containerPath = resolveContainer(container);
             var path = containerPath.resolve(key).normalize();
-            if (path.toString().equals("/")) {
-                path = containerPath;
-            }
             checkValidPath(containerPath, path);
             if (!key.endsWith("/") && Files.isDirectory(path)) {
                 // POSIX path normalization conflates "key" with "key/";
@@ -864,9 +855,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
-        if (path.toString().equals("/")) {
-            path = containerPath;
-        }
         checkValidPath(containerPath, path);
 
         Set<PosixFilePermission> permissions;
@@ -893,9 +881,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
-        if (path.toString().equals("/")) {
-            path = containerPath;
-        }
         checkValidPath(containerPath, path);
 
         setBlobAccessHelper(path, access);
