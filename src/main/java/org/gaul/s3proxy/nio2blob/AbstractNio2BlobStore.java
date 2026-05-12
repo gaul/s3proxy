@@ -923,6 +923,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         for (var part : parts) {
             var meta = blobMetadata(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+            if (meta == null) {
+                // S3 returns InvalidPart (400) when the manifest references
+                // a part that was never uploaded.
+                throw returnResponseException(400);
+            }
             contentLength += meta.getContentMetadata().getContentLength();
             metas.add(meta);
             if (meta.getETag() != null) {
