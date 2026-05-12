@@ -108,6 +108,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             "user.user-metadata.";
     private static final Set<String> NO_ATTRIBUTES = Set.of();
     private static final String MULTIPART_PREFIX = ".mpus-";
+    private static final int UUID_STRING_LENGTH =
+            UUID.randomUUID().toString().length();
     @SuppressWarnings("deprecation")
     private static final HashFunction md5 = Hashing.md5();
     private static final byte[] DIRECTORY_MD5 =
@@ -1040,15 +1042,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     public final List<MultipartUpload> listMultipartUploads(String container) {
         var mpus = ImmutableList.<MultipartUpload>builder();
         var options = new ListContainerOptions().prefix(MULTIPART_PREFIX).recursive();
-        int uuidLength = UUID.randomUUID().toString().length();
         while (true) {
             var pageSet = list(container, options);
             for (StorageMetadata sm : pageSet) {
                 if (!sm.getName().endsWith("-stub")) {
                     continue;
                 }
-                var uploadId = sm.getName().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + uuidLength);
-                var blobName = sm.getName().substring(MULTIPART_PREFIX.length() + uuidLength + 1);
+                var uploadId = sm.getName().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
+                var blobName = sm.getName().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
                 int index = blobName.lastIndexOf('-');
                 blobName = blobName.substring(0, index);
 
