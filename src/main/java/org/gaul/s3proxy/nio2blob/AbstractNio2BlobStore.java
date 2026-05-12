@@ -953,38 +953,42 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
         var mpuETag = "\"" + md5Hasher.hash() + "-" + parts.size() + "\"";
         var blobBuilder = blobBuilder(mpu.blobName())
-                .userMetadata(mpu.blobMetadata().getUserMetadata())
                 .payload(new MultiBlobInputStream(this, metas.build()))
                 .contentLength(contentLength)
                 .eTag(mpuETag);
-        var cacheControl = mpu.blobMetadata().getContentMetadata().getCacheControl();
-        if (cacheControl != null) {
-            blobBuilder.cacheControl(cacheControl);
-        }
-        var contentDisposition = mpu.blobMetadata().getContentMetadata().getContentDisposition();
-        if (contentDisposition != null) {
-            blobBuilder.contentDisposition(contentDisposition);
-        }
-        var contentEncoding = mpu.blobMetadata().getContentMetadata().getContentEncoding();
-        if (contentEncoding != null) {
-            blobBuilder.contentEncoding(contentEncoding);
-        }
-        var contentLanguage = mpu.blobMetadata().getContentMetadata().getContentLanguage();
-        if (contentLanguage != null) {
-            blobBuilder.contentLanguage(contentLanguage);
-        }
-        // intentionally not copying MD5
-        var contentType = mpu.blobMetadata().getContentMetadata().getContentType();
-        if (contentType != null) {
-            blobBuilder.contentType(contentType);
-        }
-        var expires = mpu.blobMetadata().getContentMetadata().getExpires();
-        if (expires != null) {
-            blobBuilder.expires(expires);
-        }
-        var tier = mpu.blobMetadata().getTier();
-        if (tier != null) {
-            blobBuilder.tier(tier);
+        var mpuBlobMetadata = mpu.blobMetadata();
+        if (mpuBlobMetadata != null) {
+            blobBuilder.userMetadata(mpuBlobMetadata.getUserMetadata());
+            var contentMetadata = mpuBlobMetadata.getContentMetadata();
+            var cacheControl = contentMetadata.getCacheControl();
+            if (cacheControl != null) {
+                blobBuilder.cacheControl(cacheControl);
+            }
+            var contentDisposition = contentMetadata.getContentDisposition();
+            if (contentDisposition != null) {
+                blobBuilder.contentDisposition(contentDisposition);
+            }
+            var contentEncoding = contentMetadata.getContentEncoding();
+            if (contentEncoding != null) {
+                blobBuilder.contentEncoding(contentEncoding);
+            }
+            var contentLanguage = contentMetadata.getContentLanguage();
+            if (contentLanguage != null) {
+                blobBuilder.contentLanguage(contentLanguage);
+            }
+            // intentionally not copying MD5
+            var contentType = contentMetadata.getContentType();
+            if (contentType != null) {
+                blobBuilder.contentType(contentType);
+            }
+            var expires = contentMetadata.getExpires();
+            if (expires != null) {
+                blobBuilder.expires(expires);
+            }
+            var tier = mpuBlobMetadata.getTier();
+            if (tier != null) {
+                blobBuilder.tier(tier);
+            }
         }
 
         putBlob(mpu.containerName(), blobBuilder.build());
@@ -996,7 +1000,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
 
-        setBlobAccess(mpu.containerName(), mpu.blobName(), mpu.putOptions().getBlobAccess());
+        var mpuPutOptions = mpu.putOptions();
+        if (mpuPutOptions != null) {
+            setBlobAccess(mpu.containerName(), mpu.blobName(), mpuPutOptions.getBlobAccess());
+        }
 
         return mpuETag;
     }
