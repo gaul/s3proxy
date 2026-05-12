@@ -306,7 +306,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final boolean containerExists(String container) {
-        return Files.exists(resolveContainer(container));
+        return Files.isDirectory(resolveContainer(container));
     }
 
     @Override
