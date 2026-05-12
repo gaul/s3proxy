@@ -242,7 +242,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     }
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
-                    if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5) || "/".equals(delimiter)) {
+                    if ("/".equals(delimiter) || safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
                         var name = path.toString().substring((containerPath + "/").length());
                         if (path.getFileSystem().getSeparator().equals("\\")) {
                             name = name.replace('\\', '/');
