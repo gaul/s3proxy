@@ -156,9 +156,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
+        var containerPath = requireContainerPath(container);
 
         var delimiter = options.getDelimiter();
         if ("".equals(delimiter)) {
@@ -167,7 +165,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new IllegalArgumentException("Delimiters other than / not supported");
         }
 
-        var containerPath = resolveContainer(container);
         var prefix = options.getPrefix();
         var dirPrefix = containerPath;
         if (prefix != null) {
@@ -349,11 +346,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     private Blob getBlobInternal(String container, String key,
             GetOptions options, boolean openStream) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
-
-        var containerPath = resolveContainer(container);
+        var containerPath = requireContainerPath(container);
         var path = containerPath.resolve(key).normalize();
         checkValidPath(containerPath, path);
         logger.debug("Getting blob at: {}", path);
@@ -587,11 +580,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final String putBlob(String container, Blob blob, PutOptions options) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
-
-        var containerPath = resolveContainer(container);
+        var containerPath = requireContainerPath(container);
         var path = containerPath.resolve(blob.getMetadata().getName()).normalize();
         checkValidPath(containerPath, path);
         // TODO: should we use a known suffix to filter these out during list?
@@ -812,11 +801,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final ContainerAccess getContainerAccess(String container) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
-
-        var path = resolveContainer(container);
+        var path = requireContainerPath(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
@@ -832,11 +817,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final void setContainerAccess(String container, ContainerAccess access) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
-
-        var path = resolveContainer(container);
+        var path = requireContainerPath(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
@@ -856,14 +837,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final BlobAccess getBlobAccess(String container, String key) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
+        var containerPath = requireContainerPath(container);
         if (!blobExists(container, key)) {
             throw new KeyNotFoundException(container, key, "");
         }
-
-        var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
         checkValidPath(containerPath, path);
 
@@ -882,14 +859,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final void setBlobAccess(String container, String key, BlobAccess access) {
-        if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
+        var containerPath = requireContainerPath(container);
         if (!blobExists(container, key)) {
             throw new KeyNotFoundException(container, key, "");
         }
-
-        var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
         checkValidPath(containerPath, path);
 
@@ -1266,6 +1239,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private Path resolveContainer(String container) {
         var path = root.resolve(container);
         checkValidPath(root, path);
+        return path;
+    }
+
+    /** Resolves a container name and throws ContainerNotFoundException if
+     *  the resolved path is not an existing directory. */
+    private Path requireContainerPath(String container) {
+        var path = resolveContainer(container);
+        if (!Files.isDirectory(path)) {
+            throw new ContainerNotFoundException(container, "");
+        }
         return path;
     }
 
