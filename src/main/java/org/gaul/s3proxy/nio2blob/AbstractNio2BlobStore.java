@@ -238,10 +238,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
                     if ("/".equals(delimiter) || safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
-                        var name = path.toString().substring((containerPath + "/").length());
-                        if (path.getFileSystem().getSeparator().equals("\\")) {
-                            name = name.replace('\\', '/');
-                        }
+                        var name = relativeName(containerPath, path);
                         logger.debug("adding prefix: {}", name);
                         builder.add(new StorageMetadataImpl(
                                 StorageType.RELATIVE_PATH,
@@ -252,10 +249,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                                 Map.of(), /*size=*/ null, Tier.STANDARD));
                     }
                 } else {
-                    var name = path.toString().substring((containerPath + "/").length());
-                    if (path.getFileSystem().getSeparator().equals("\\")) {
-                        name = name.replace('\\', '/');
-                    }
+                    var name = relativeName(containerPath, path);
                     logger.debug("adding: {}", name);
                     var attr = Files.readAttributes(path, BasicFileAttributes.class);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
@@ -1253,6 +1247,12 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             logger.debug("xattrs not supported on {}", path);
             return XattrState.EMPTY;
         }
+    }
+
+    private static String relativeName(Path containerPath, Path path) {
+        var sep = path.getFileSystem().getSeparator();
+        var name = containerPath.relativize(path).toString();
+        return sep.equals("/") ? name : name.replace(sep, "/");
     }
 
     private static void checkValidPath(Path container, Path path) {
