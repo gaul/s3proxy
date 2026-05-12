@@ -633,10 +633,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         var metadata = blob.getMetadata().getContentMetadata();
-        try (var is = new HashingInputStream(md5, blob.getPayload().openStream());
-             var os = Files.newOutputStream(tmpPath)) {
-            is.transferTo(os);
-            var actualHashCode = is.hash();
+        try {
+            HashCode actualHashCode;
+            // Close the streams before doing xattr writes, setBlobAccess,
+            // and Files.move: Windows refuses to atomically move a file
+            // that still has an open OutputStream.
+            try (var is = new HashingInputStream(md5, blob.getPayload().openStream());
+                 var os = Files.newOutputStream(tmpPath)) {
+                is.transferTo(os);
+                actualHashCode = is.hash();
+            }
             var expectedHashCode = metadata.getContentMD5AsHashCode();
             if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
                 throw returnResponseException(400);
