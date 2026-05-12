@@ -1135,6 +1135,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
+            // Per InputStream's contract, return 0 for a zero-length read
+            // regardless of whether EOF has been reached.
+            if (len == 0) {
+                return 0;
+            }
             while (true) {
                 if (current == null) {
                     if (!metas.hasNext()) {
