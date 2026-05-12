@@ -1199,11 +1199,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
      */
     private static void removeEmptyParentDirectories(Path containerPath, Path path) throws IOException {
         logger.debug("removing empty parents: {}", path);
-        while (true) {
-            var parent = path.getParent();
-            if (parent == null || path.equals(containerPath)) {
-                break;
-            }
+        while (path != null && !path.equals(containerPath)) {
             if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
                 break;
             }
