@@ -552,7 +552,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     .contentEncoding(contentEncoding)
                     .contentLanguage(contentLanguage)
                     .contentLength(size)
-                    .contentMD5(hashCode)
+                    // Content-MD5 covers the full object; omit it for
+                    // ranged responses so it does not mismatch the partial
+                    // body the client receives.
+                    .contentMD5(contentRange == null ? hashCode : null)
                     .contentType(contentType)
                     .eTag(eTag)
                     .expires(expires)
