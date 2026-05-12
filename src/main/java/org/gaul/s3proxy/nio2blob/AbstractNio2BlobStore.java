@@ -230,7 +230,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
                 if (!path.toAbsolutePath().toString().startsWith(root.resolve(prefix).toAbsolutePath().toString())) {
                     // ignore
-                } else if (Files.isDirectory(path)) {
+                    continue;
+                }
+                var attr = Files.readAttributes(path, BasicFileAttributes.class);
+                if (attr.isDirectory()) {
                     if (!"/".equals(delimiter)) {
                         listHelper(builder, containerPath, path, prefix, delimiter,
                                 filterMultipart);
@@ -251,7 +254,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 } else {
                     var name = relativeName(containerPath, path);
                     logger.debug("adding: {}", name);
-                    var attr = Files.readAttributes(path, BasicFileAttributes.class);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
                     var creationTime = new Date(attr.creationTime().toMillis());
 
@@ -354,8 +356,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         logger.debug("Getting blob at: {}", path);
 
         try {
-            var isDirectory = Files.isDirectory(path);
             var attr = Files.readAttributes(path, BasicFileAttributes.class);
+            var isDirectory = attr.isDirectory();
             var xattrs = safeGetXattrs(path);
             var view = xattrs.view();
             var attributes = xattrs.attributes();
