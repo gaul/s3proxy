@@ -31,8 +31,8 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +56,7 @@ public final class AwsSdkVirtualHostTest {
             ByteSource.wrap(new byte[1]);
 
     private S3Proxy s3Proxy;
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private URI endpoint;
     private String virtualHost;
     private AwsBasicCredentials awsCreds;
@@ -68,7 +68,7 @@ public final class AwsSdkVirtualHostTest {
                 "s3proxy-virtual-host.conf");
         awsCreds = AwsBasicCredentials.create(info.getS3Identity(),
                 info.getS3Credential());
-        context = info.getBlobStore().getContext();
+        blobStore = info.getBlobStore();
         s3Proxy = info.getS3Proxy();
         endpoint = info.getEndpoint();
         virtualHost = info.getProperties().getProperty(
@@ -76,8 +76,8 @@ public final class AwsSdkVirtualHostTest {
         assertThat(virtualHost).isNotEmpty();
 
         containerName = AwsSdkTest.createRandomContainerName();
-        info.getBlobStore().createContainerInLocation(null, containerName);
-        Blob blob = info.getBlobStore().blobBuilder("foo")
+        info.getBlobStore().createContainer(containerName);
+        Blob blob = Blob.builder("foo")
                 .payload(BYTE_SOURCE).contentLength(BYTE_SOURCE.size()).build();
         info.getBlobStore().putBlob(containerName, blob);
     }
@@ -87,9 +87,8 @@ public final class AwsSdkVirtualHostTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.getBlobStore().deleteContainer(containerName);
-            context.close();
+        if (blobStore != null) {
+            blobStore.deleteContainer(containerName);
         }
     }
 

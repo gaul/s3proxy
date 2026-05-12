@@ -22,7 +22,7 @@ import java.util.Map;
 
 import com.google.common.collect.Maps;
 
-import org.jclouds.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.jspecify.annotations.Nullable;
 
 public final class GlobBlobStoreLocator implements BlobStoreLocator {

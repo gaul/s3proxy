@@ -24,24 +24,22 @@ import java.util.List;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
 import com.google.common.primitives.Longs;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.io.Payload;
-import org.jclouds.io.payloads.ByteSourcePayload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ByteSourcePayload;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 final class NullBlobStore extends ForwardingBlobStore {
@@ -73,17 +71,17 @@ final class NullBlobStore extends ForwardingBlobStore {
     @Nullable
     public Blob getBlob(String container, String name, GetOptions options) {
         // Ranges apply to the virtual content, not the 8-byte length stub.
-        List<String> originalRanges = options.getRanges();
+        List<String> originalRanges = options.ranges();
         Blob blob;
         if (originalRanges.isEmpty()) {
             blob = super.getBlob(container, name, options);
         } else {
             originalRanges = List.copyOf(originalRanges);
-            options.getRanges().clear();
+            options.ranges().clear();
             try {
                 blob = super.getBlob(container, name, options);
             } finally {
-                options.getRanges().addAll(originalRanges);
+                options.ranges().addAll(originalRanges);
             }
         }
         if (blob == null) {
@@ -117,14 +115,15 @@ final class NullBlobStore extends ForwardingBlobStore {
             }
         }
 
+        var contentMetadata = blob.getPayload().getContentMetadata().toBuilder()
+                .contentLength(length)
+                .contentMD5(null)
+                .build();
         var payload = new ByteSourcePayload(
-                new NullByteSource().slice(0, length));
-        payload.setContentMetadata(blob.getPayload().getContentMetadata());
-        payload.getContentMetadata().setContentLength(length);
-        payload.getContentMetadata().setContentMD5((HashCode) null);
-        blob.setPayload(payload);
-        blob.getMetadata().setSize(fullLength);
-        return blob;
+                new NullByteSource().slice(0, length), contentMetadata);
+        return blob.toBuilder()
+                .payload(payload)
+                .build();
     }
 
     @Override
@@ -132,11 +131,13 @@ final class NullBlobStore extends ForwardingBlobStore {
         var builder = ImmutableSet.<StorageMetadata>builder();
         PageSet<? extends StorageMetadata> pageSet = super.list(container);
         for (StorageMetadata sm : pageSet) {
-            var msm = new MutableStorageMetadataImpl(sm);
-            msm.setSize(0L);
-            builder.add(msm);
+            if (sm instanceof BlobMetadata bm) {
+                builder.add(bm.toBuilder().contentLength(0L).build());
+            } else if (sm instanceof ContainerMetadata cm) {
+                builder.add(cm.toBuilder().size(0L).build());
+            }
         }
-        return new PageSetImpl<>(builder.build(), pageSet.getNextMarker());
+        return new PageSet<>(builder.build(), pageSet.getNextMarker());
     }
 
     @Override
@@ -155,14 +156,15 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
+        var contentMetadata = blob.getPayload().getContentMetadata().toBuilder()
+                .contentLength((long) array.length)
+                .contentMD5(null)
+                .build();
         var payload = new ByteSourcePayload(
-                ByteSource.wrap(array));
-        payload.setContentMetadata(blob.getPayload().getContentMetadata());
-        payload.getContentMetadata().setContentLength((long) array.length);
-        payload.getContentMetadata().setContentMD5((HashCode) null);
-        blob.setPayload(payload);
+                ByteSource.wrap(array), contentMetadata);
 
-        return super.putBlob(containerName, blob, options);
+        return super.putBlob(containerName,
+                blob.toBuilder().payload(payload).build(), options);
     }
 
     @Override
@@ -176,9 +178,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
-        var payload = new ByteSourcePayload(
-                ByteSource.wrap(array));
-        payload.getContentMetadata().setContentLength((long) array.length);
+        var payload = new ByteSourcePayload(ByteSource.wrap(array));
 
         super.abortMultipartUpload(mpu);
 
@@ -211,22 +211,23 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
+        var newContentMetadata = payload.getContentMetadata().toBuilder()
+                .contentLength((long) array.length)
+                .contentMD5(null)
+                .build();
         var newPayload = new ByteSourcePayload(
-                ByteSource.wrap(array));
-        newPayload.setContentMetadata(payload.getContentMetadata());
-        newPayload.getContentMetadata().setContentLength((long) array.length);
-        newPayload.getContentMetadata().setContentMD5((HashCode) null);
+                ByteSource.wrap(array), newContentMetadata);
 
         // create a single-part object which contains the logical length which
         // list and complete will read later
-        Blob blob = blobBuilder(mpu.id() + "-" + partNumber)
+        Blob blob = Blob.builder(mpu.id() + "-" + partNumber)
                 .payload(newPayload)
                 .build();
         super.putBlob(mpu.containerName(), blob);
 
         MultipartPart part = super.uploadMultipartPart(mpu, partNumber,
                 newPayload);
-        return MultipartPart.create(part.partNumber(), length, part.partETag(),
+        return new MultipartPart(part.partNumber(), length, part.partETag(),
                 part.lastModified());
     }
 
@@ -238,8 +239,8 @@ final class NullBlobStore extends ForwardingBlobStore {
             Blob blob = getBlob(mpu.containerName(),
                     mpu.id() + "-" + part.partNumber());
             long length = blob.getPayload().getContentMetadata()
-                    .getContentLength();
-            builder.add(MultipartPart.create(part.partNumber(), length,
+                    .contentLength();
+            builder.add(new MultipartPart(part.partNumber(), length,
                     part.partETag(), part.lastModified()));
         }
         return builder.build();

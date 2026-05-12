@@ -1,5 +1,6 @@
 /*
- * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2009-2025 The Apache Software Foundation
+ * Copyright 2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +15,15 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.nio2blob;
+package org.gaul.s3proxy.blobstore.domain;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Scopes;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.attr.ConsistencyModel;
-
-public final class FilesystemNio2BlobStoreContextModule extends AbstractModule {
-    @Override
-    protected void configure() {
-        bind(ConsistencyModel.class).toInstance(ConsistencyModel.STRICT);
-        bind(BlobStore.class).to(FilesystemNio2BlobStore.class).in(Scopes.SINGLETON);
-    }
+public record MultipartUpload(
+        String containerName,
+        String blobName,
+        String id,
+        @Nullable BlobMetadata blobMetadata,
+        @Nullable PutOptions putOptions) {
 }

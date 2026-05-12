@@ -24,7 +24,7 @@ import java.time.Duration;
 
 import com.google.common.io.ByteSource;
 
-import org.jclouds.blobstore.BlobStoreContext;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +58,7 @@ public final class AwsSdkServicePathTest {
             ByteSource.wrap(new byte[1]);
 
     private S3Proxy s3Proxy;
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private URI s3EndpointUri;
     private AwsBasicCredentials awsCreds;
     private S3Client client;
@@ -70,7 +70,7 @@ public final class AwsSdkServicePathTest {
                 "s3proxy-service-path.conf");
         awsCreds = AwsBasicCredentials.create(info.getS3Identity(),
                 info.getS3Credential());
-        context = info.getBlobStore().getContext();
+        blobStore = info.getBlobStore();
         s3Proxy = info.getS3Proxy();
         // service path is a non-empty prefix such as "/s3proxy"
         assertThat(info.getServicePath()).isNotEmpty();
@@ -79,7 +79,7 @@ public final class AwsSdkServicePathTest {
         client = buildClient(true);
 
         containerName = AwsSdkTest.createRandomContainerName();
-        info.getBlobStore().createContainerInLocation(null, containerName);
+        info.getBlobStore().createContainer(containerName);
     }
 
     @AfterEach
@@ -90,9 +90,8 @@ public final class AwsSdkServicePathTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.getBlobStore().deleteContainer(containerName);
-            context.close();
+        if (blobStore != null) {
+            blobStore.deleteContainer(containerName);
         }
     }
 

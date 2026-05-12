@@ -1,5 +1,6 @@
 /*
- * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2009-2025 The Apache Software Foundation
+ * Copyright 2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +15,11 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.awssdk;
+package org.gaul.s3proxy.blobstore.domain;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Scopes;
-
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.attr.ConsistencyModel;
-
-public final class AwsS3SdkBlobStoreContextModule extends AbstractModule {
-    @Override
-    protected void configure() {
-        bind(ConsistencyModel.class).toInstance(ConsistencyModel.STRICT);
-        bind(BlobStore.class).to(AwsS3SdkBlobStore.class).in(Scopes.SINGLETON);
-    }
+public enum BlobAccess {
+   /** Only allow bucket owner to read and write objects. */
+   PRIVATE,
+   /** Allow all users to read object but only allow owner to write object. */
+   PUBLIC_READ;
 }

@@ -1,5 +1,6 @@
 /*
- * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2009-2025 The Apache Software Foundation
+ * Copyright 2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,19 +15,16 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.openstackswift;
+package org.gaul.s3proxy.blobstore;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Scopes;
+public final class Constants {
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.attr.ConsistencyModel;
+    public static final String PROPERTY_PROVIDER = "jclouds.provider";
+    public static final String PROPERTY_ENDPOINT = "jclouds.endpoint";
+    public static final String PROPERTY_IDENTITY = "jclouds.identity";
+    public static final String PROPERTY_CREDENTIAL = "jclouds.credential";
+    public static final String PROPERTY_REGION = "jclouds.region";
 
-public final class OpenStackSwiftBlobStoreContextModule extends AbstractModule {
-    @Override
-    protected void configure() {
-        bind(ConsistencyModel.class).toInstance(ConsistencyModel.STRICT);
-        bind(BlobStore.class).to(OpenStackSwiftBlobStore.class)
-                .in(Scopes.SINGLETON);
+    private Constants() {
     }
 }

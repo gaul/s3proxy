@@ -28,21 +28,18 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.io.Payload;
-import org.jclouds.io.Payloads;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ByteSourcePayload;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +47,6 @@ import org.junit.jupiter.api.Test;
 public final class NullBlobStoreTest {
     private static final ByteSource BYTE_SOURCE =
             TestUtils.randomByteSource().slice(0, 1024);
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private String containerName;
     private BlobStore nullBlobStore;
@@ -59,29 +55,23 @@ public final class NullBlobStoreTest {
     public void setUp() throws Exception {
         containerName = createRandomContainerName();
 
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
-        blobStore.createContainerInLocation(null, containerName);
+        blobStore = TestUtils.createTransientBlobStore();
+        blobStore.createContainer(containerName);
 
         nullBlobStore = NullBlobStore.newNullBlobStore(blobStore);
     }
 
     @AfterEach
     public void tearDown() throws Exception {
-        if (context != null) {
+        if (blobStore != null) {
             blobStore.deleteContainer(containerName);
-            context.close();
         }
     }
 
     @Test
     public void testCreateBlobGetBlob() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(nullBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         nullBlobStore.putBlob(containerName, blob);
 
         blob = nullBlobStore.getBlob(containerName, blobName);
@@ -108,13 +98,12 @@ public final class NullBlobStoreTest {
     @Test
     public void testGetBlobRange() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(nullBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         nullBlobStore.putBlob(containerName, blob);
         long size = BYTE_SOURCE.size();
 
         // bytes=A-B
-        GetOptions explicit = new GetOptions();
-        explicit.range(100, 199);
+        GetOptions explicit = GetOptions.builder().range(100, 199).build();
         blob = nullBlobStore.getBlob(containerName, blobName, explicit);
         try (InputStream is = blob.getPayload().openStream()) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
@@ -122,8 +111,7 @@ public final class NullBlobStoreTest {
         }
 
         // bytes=A-
-        GetOptions suffix = new GetOptions();
-        suffix.startAt(500);
+        GetOptions suffix = GetOptions.builder().startAt(500).build();
         blob = nullBlobStore.getBlob(containerName, blobName, suffix);
         try (InputStream is = blob.getPayload().openStream()) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
@@ -131,8 +119,7 @@ public final class NullBlobStoreTest {
         }
 
         // bytes=-N
-        GetOptions tail = new GetOptions();
-        tail.tail(128);
+        GetOptions tail = GetOptions.builder().tail(128).build();
         blob = nullBlobStore.getBlob(containerName, blobName, tail);
         try (InputStream is = blob.getPayload().openStream()) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
@@ -143,7 +130,7 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateBlobBlobMetadata() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(nullBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         nullBlobStore.putBlob(containerName, blob);
         BlobMetadata metadata = nullBlobStore.blobMetadata(containerName,
                 blobName);
@@ -153,10 +140,10 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateMultipartBlobGetBlob() throws Exception {
         String blobName = "multipart-upload";
-        BlobMetadata blobMetadata = makeBlob(nullBlobStore, blobName)
+        BlobMetadata blobMetadata = makeBlob(blobName)
                 .getMetadata();
         MultipartUpload mpu = nullBlobStore.initiateMultipartUpload(
-                containerName, blobMetadata, new PutOptions());
+                containerName, blobMetadata, PutOptions.NONE);
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, nullBlobStore.getMinimumMultipartPartSize() + 1);
@@ -164,10 +151,8 @@ public final class NullBlobStoreTest {
                 0, nullBlobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
                 nullBlobStore.getMinimumMultipartPartSize(), 1);
-        Payload payload1 = Payloads.newByteSourcePayload(byteSource1);
-        Payload payload2 = Payloads.newByteSourcePayload(byteSource2);
-        payload1.getContentMetadata().setContentLength(byteSource1.size());
-        payload2.getContentMetadata().setContentLength(byteSource2.size());
+        Payload payload1 = new ByteSourcePayload(byteSource1);
+        Payload payload2 = new ByteSourcePayload(byteSource2);
         MultipartPart part1 = nullBlobStore.uploadMultipartPart(mpu, 1,
                 payload1);
         MultipartPart part2 = nullBlobStore.uploadMultipartPart(mpu, 2,
@@ -210,14 +195,13 @@ public final class NullBlobStoreTest {
         return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 
-    private static Blob makeBlob(BlobStore blobStore, String blobName)
-            throws IOException {
-        return blobStore.blobBuilder(blobName)
+    private static Blob makeBlob(String blobName) throws IOException {
+        return Blob.builder(blobName)
                 .payload(BYTE_SOURCE)
                 .contentDisposition("attachment; filename=foo.mp4")
                 .contentEncoding("compress")
                 .contentLength(BYTE_SOURCE.size())
-                .contentType(MediaType.MP4_AUDIO)
+                .contentType(MediaType.MP4_AUDIO.toString())
                 .contentMD5(BYTE_SOURCE.hash(TestUtils.MD5))
                 .userMetadata(Map.of("key", "value"))
                 .build();
@@ -228,11 +212,11 @@ public final class NullBlobStoreTest {
         assertThat(metadata).isNotNull();
 
         ContentMetadata contentMetadata = metadata.getContentMetadata();
-        assertThat(contentMetadata.getContentDisposition())
+        assertThat(contentMetadata.contentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
-        assertThat(contentMetadata.getContentEncoding())
+        assertThat(contentMetadata.contentEncoding())
                 .isEqualTo("compress");
-        assertThat(contentMetadata.getContentType())
+        assertThat(contentMetadata.contentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
         assertThat(metadata.getUserMetadata())

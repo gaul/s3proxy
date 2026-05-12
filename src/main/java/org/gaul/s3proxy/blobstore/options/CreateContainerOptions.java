@@ -1,5 +1,6 @@
 /*
- * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2009-2025 The Apache Software Foundation
+ * Copyright 2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +15,11 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.sftp;
+package org.gaul.s3proxy.blobstore.options;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Scopes;
+/** Options for the create container operation. */
+public record CreateContainerOptions(boolean publicRead) {
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.attr.ConsistencyModel;
-
-public final class SftpBlobStoreContextModule extends AbstractModule {
-    @Override
-    protected void configure() {
-        bind(ConsistencyModel.class).toInstance(ConsistencyModel.EVENTUAL);
-        bind(BlobStore.class).to(SftpBlobStore.class).in(Scopes.SINGLETON);
-    }
+    public static final CreateContainerOptions NONE =
+            new CreateContainerOptions(false);
 }
