@@ -166,8 +166,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new IllegalArgumentException("Delimiters other than / not supported");
         }
 
+        var containerPath = resolveContainer(container);
         var prefix = options.getPrefix();
-        var dirPrefix = root.resolve(container);
+        var dirPrefix = containerPath;
         if (prefix != null) {
             int idx = prefix.lastIndexOf('/');
             if (idx != -1) {
@@ -176,14 +177,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         } else {
             prefix = "";
         }
-        var containerPath = root.resolve(container);
         var pathPrefix = containerPath.resolve(prefix).normalize();
         checkValidPath(containerPath, pathPrefix);
         logger.debug("Listing blobs at: {}", pathPrefix);
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         var filterMultipart = !prefix.startsWith(MULTIPART_PREFIX);
         try {
-            listHelper(set, container, dirPrefix, pathPrefix, delimiter,
+            listHelper(set, containerPath, dirPrefix, pathPrefix, delimiter,
                     filterMultipart);
             var sorted = set.build();
             if (options.getMarker() != null) {
@@ -219,7 +219,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
-            String container, Path parent, Path prefix, String delimiter,
+            Path containerPath, Path parent, Path prefix, String delimiter,
             boolean filterMultipart)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, prefix);
@@ -237,13 +237,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     // ignore
                 } else if (Files.isDirectory(path)) {
                     if (!"/".equals(delimiter)) {
-                        listHelper(builder, container, path, prefix, delimiter,
+                        listHelper(builder, containerPath, path, prefix, delimiter,
                                 filterMultipart);
                     }
 
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
                     if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5) || "/".equals(delimiter)) {
-                        var name = path.toString().substring((root.resolve(container) + "/").length());
+                        var name = path.toString().substring((containerPath + "/").length());
                         if (path.getFileSystem().getSeparator().equals("\\")) {
                             name = name.replace('\\', '/');
                         }
@@ -257,7 +257,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                                 Map.of(), /*size=*/ null, Tier.STANDARD));
                     }
                 } else {
-                    var name = path.toString().substring((root.resolve(container) + "/").length());
+                    var name = path.toString().substring((containerPath + "/").length());
                     if (path.getFileSystem().getSeparator().equals("\\")) {
                         name = name.replace('\\', '/');
                     }
@@ -306,7 +306,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final boolean containerExists(String container) {
-        return Files.exists(root.resolve(container));
+        return Files.exists(resolveContainer(container));
     }
 
     @Override
@@ -320,7 +320,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     public final boolean createContainerInLocation(Location location,
             String container, CreateContainerOptions options) {
         try {
-            Files.createDirectory(root.resolve(container));
+            Files.createDirectory(resolveContainer(container));
         } catch (FileAlreadyExistsException faee) {
             return false;
         } catch (IOException ioe) {
@@ -335,7 +335,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final void deleteContainer(String container) {
         try {
-            Files.deleteIfExists(root.resolve(container));
+            Files.deleteIfExists(resolveContainer(container));
         } catch (DirectoryNotEmptyException dnee) {
             // TODO: what to do?
         } catch (IOException ioe) {
@@ -354,7 +354,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var containerPath = root.resolve(container);
+        var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key);
         if (path.toString().equals("/")) {
             path = containerPath;
@@ -587,14 +587,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var containerPath = root.resolve(container);
+        var containerPath = resolveContainer(container);
         var path = containerPath.resolve(blob.getMetadata().getName()).normalize();
         if (path.toString().equals("/")) {
             path = containerPath;
         }
         checkValidPath(containerPath, path);
         // TODO: should we use a known suffix to filter these out during list?
-        var tmpPath = root.resolve(container).resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
+        var tmpPath = containerPath.resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
         logger.debug("Creating blob at: {}", path);
 
         if (blob.getMetadata().getName().endsWith("/")) {
@@ -769,7 +769,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final void removeBlob(String container, String key) {
         try {
-            var containerPath = root.resolve(container);
+            var containerPath = resolveContainer(container);
             var path = containerPath.resolve(key).normalize();
             if (path.toString().equals("/")) {
                 path = containerPath;
@@ -817,7 +817,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = root.resolve(container);
+        var path = resolveContainer(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
@@ -837,7 +837,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, "");
         }
 
-        var path = root.resolve(container);
+        var path = resolveContainer(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
@@ -864,7 +864,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
-        var containerPath = root.resolve(container);
+        var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
         if (path.toString().equals("/")) {
             path = containerPath;
@@ -893,7 +893,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
-        var containerPath = root.resolve(container);
+        var containerPath = resolveContainer(container);
         var path = containerPath.resolve(key).normalize();
         if (path.toString().equals("/")) {
             path = containerPath;
@@ -1245,8 +1245,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     private static void checkValidPath(Path container, Path path) {
         if (!path.normalize().startsWith(container)) {
-            throw new IllegalArgumentException("Invalid key name: path traversal attempt detected: " + container + " " + path);
+            throw new IllegalArgumentException("Path traversal attempt detected: " + container + " " + path);
         }
+    }
+
+    /** Resolves a container name relative to root and rejects names that
+     *  normalize to a path outside root (e.g. "..", "../foo", "/abs"). */
+    private Path resolveContainer(String container) {
+        var path = root.resolve(container);
+        checkValidPath(root, path);
+        return path;
     }
 
     private static void setBlobAccessHelper(Path path, BlobAccess access) {

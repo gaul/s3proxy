@@ -56,7 +56,10 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
             @org.jclouds.location.Provider Supplier<Credentials> creds,
             FileSystem fs) {
         // TODO: close fs?
+        // Use Jimfs's actual root rather than the empty path: Path.startsWith
+        // against the empty path returns false in Jimfs, which would defeat
+        // the path-traversal check in AbstractNio2BlobStore.
         super(context, blobUtils, defaultLocation, locations, slicer, creds,
-                fs.getPath(""));
+                fs.getPath("/"));
     }
 }
