@@ -494,24 +494,29 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 boolean hasRange = !options.getRanges().isEmpty();
                 if (hasRange) {
                     var range = options.getRanges().get(0);
+                    if (!range.contains("-")) {
+                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
+                    }
                     // HTTP uses a closed interval while Java array indexing uses a
                     // half-open interval.
-                    if (range.startsWith("-")) {
-                        offset = last - Long.parseLong(range.substring(1));
-                        if (offset < 0) {
-                            offset = 0;
+                    try {
+                        if (range.startsWith("-")) {
+                            offset = last - Long.parseLong(range.substring(1));
+                            if (offset < 0) {
+                                offset = 0;
+                            }
+                        } else if (range.endsWith("-")) {
+                            offset = Long.parseLong(range.substring(0, range.length() - 1));
+                        } else {
+                            String[] firstLast = range.split("\\-", 2);
+                            offset = Long.parseLong(firstLast[0]);
+                            last = Long.parseLong(firstLast[1]);
                         }
-                    } else if (range.endsWith("-")) {
-                        offset = Long.parseLong(range.substring(0, range.length() - 1));
-                    } else if (range.contains("-")) {
-                        String[] firstLast = range.split("\\-", 2);
-                        offset = Long.parseLong(firstLast[0]);
-                        last = Long.parseLong(firstLast[1]);
-                    } else {
+                    } catch (NumberFormatException nfe) {
                         throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
                     }
 
-                    if (offset >= size) {
+                    if (offset >= size || offset > last) {
                         throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
                     }
                     if (last + 1 > size) {
