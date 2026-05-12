@@ -345,6 +345,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final Blob getBlob(String container, String key, GetOptions options) {
+        return getBlobInternal(container, key, options, /*openStream=*/ true);
+    }
+
+    private Blob getBlobInternal(String container, String key,
+            GetOptions options, boolean openStream) {
         if (!containerExists(container)) {
             throw new ContainerNotFoundException(container, "");
         }
@@ -479,9 +484,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             String contentRange = null;
             InputStream inputStream;
             long size;
-            if (isDirectory) {
+            if (isDirectory || !openStream) {
                 inputStream = ByteSource.empty().openStream();
-                size = 0;
+                size = isDirectory ? 0 : attr.size();
             } else {
                 size = attr.size();
                 long offset = 0;
@@ -796,15 +801,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final BlobMetadata blobMetadata(String container, String key) {
-        Blob blob = getBlob(container, key);
+        Blob blob = getBlobInternal(container, key, GetOptions.NONE,
+                /*openStream=*/ false);
         if (blob == null) {
             return null;
-        }
-
-        try {
-            blob.getPayload().openStream().close();
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
         }
         return (BlobMetadata) BlobStoreUtils.copy(blob.getMetadata());
     }
