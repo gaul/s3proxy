@@ -181,8 +181,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         logger.debug("Listing blobs at: {}", pathPrefix);
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         var filterMultipart = !prefix.startsWith(MULTIPART_PREFIX);
+        var pathPrefixString = root.resolve(pathPrefix).toAbsolutePath().toString();
         try {
-            listHelper(set, containerPath, dirPrefix, pathPrefix, delimiter,
+            listHelper(set, containerPath, dirPrefix, pathPrefixString, delimiter,
                     filterMultipart);
             var sorted = set.build();
             if (options.getMarker() != null) {
@@ -214,10 +215,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
-            Path containerPath, Path parent, Path prefix, String delimiter,
-            boolean filterMultipart)
+            Path containerPath, Path parent, String pathPrefixString,
+            String delimiter, boolean filterMultipart)
             throws IOException {
-        logger.debug("recursing at: {} with prefix: {}", parent, prefix);
+        logger.debug("recursing at: {} with prefix: {}", parent, pathPrefixString);
         if (!Files.isDirectory(parent)) {  // TODO: TOCTOU
             return;
         }
@@ -228,14 +229,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                         .startsWith(MULTIPART_PREFIX)) {
                     continue;
                 }
-                if (!path.toAbsolutePath().toString().startsWith(root.resolve(prefix).toAbsolutePath().toString())) {
+                if (!path.toAbsolutePath().toString().startsWith(pathPrefixString)) {
                     // ignore
                     continue;
                 }
                 var attr = Files.readAttributes(path, BasicFileAttributes.class);
                 if (attr.isDirectory()) {
                     if (!"/".equals(delimiter)) {
-                        listHelper(builder, containerPath, path, prefix, delimiter,
+                        listHelper(builder, containerPath, path, pathPrefixString, delimiter,
                                 filterMultipart);
                     }
 
