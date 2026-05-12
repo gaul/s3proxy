@@ -977,7 +977,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         putBlob(mpu.containerName(), blobBuilder.build());
 
-        for (var part : parts) {
+        // Remove every uploaded part, not just the ones referenced by the
+        // manifest, so parts excluded from the final object do not leak.
+        for (var part : listMultipartUpload(mpu)) {
             removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
         }
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
