@@ -438,50 +438,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
             }
 
-            // Handle range.
-            String contentRange = null;
-            InputStream inputStream;
-            long size;
-            if (isDirectory) {
-                inputStream = ByteSource.empty().openStream();
-                size = 0;
-            } else {
-                inputStream = Files.newInputStream(path);  // TODO: leaky on exception
-                size = attr.size();
-                if (options.getRanges().size() > 0) {
-                    var range = options.getRanges().get(0);
-                    // HTTP uses a closed interval while Java array indexing uses a
-                    // half-open interval.
-                    long offset = 0;
-                    long last = size;
-                    if (range.startsWith("-")) {
-                        offset = last - Long.parseLong(range.substring(1));
-                        if (offset < 0) {
-                            offset = 0;
-                        }
-                    } else if (range.endsWith("-")) {
-                        offset = Long.parseLong(range.substring(0, range.length() - 1));
-                    } else if (range.contains("-")) {
-                        String[] firstLast = range.split("\\-", 2);
-                        offset = Long.parseLong(firstLast[0]);
-                        last = Long.parseLong(firstLast[1]);
-                    } else {
-                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
-                    }
-
-                    if (offset >= size) {
-                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
-                    }
-                    if (last + 1 > size) {
-                        last = size - 1;
-                    }
-                    inputStream.skipNBytes(offset);
-                    size = last - offset + 1;
-                    inputStream = ByteStreams.limit(inputStream, size);
-                    contentRange = "bytes " + offset + "-" + last + "/" + attr.size();
-                }
-            }
-
+            // Evaluate conditional headers and range bounds before opening
+            // the file so that failing preconditions do not leak the
+            // InputStream.
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
                 if (options.getIfMatch() != null) {
@@ -518,6 +477,63 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                         response.addHeader(HttpHeaders.ETAG, eTag);
                     }
                     throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), null, response.build());
+                }
+            }
+
+            // Handle range and open stream.
+            String contentRange = null;
+            InputStream inputStream;
+            long size;
+            if (isDirectory) {
+                inputStream = ByteSource.empty().openStream();
+                size = 0;
+            } else {
+                size = attr.size();
+                long offset = 0;
+                long last = size;
+                boolean hasRange = !options.getRanges().isEmpty();
+                if (hasRange) {
+                    var range = options.getRanges().get(0);
+                    // HTTP uses a closed interval while Java array indexing uses a
+                    // half-open interval.
+                    if (range.startsWith("-")) {
+                        offset = last - Long.parseLong(range.substring(1));
+                        if (offset < 0) {
+                            offset = 0;
+                        }
+                    } else if (range.endsWith("-")) {
+                        offset = Long.parseLong(range.substring(0, range.length() - 1));
+                    } else if (range.contains("-")) {
+                        String[] firstLast = range.split("\\-", 2);
+                        offset = Long.parseLong(firstLast[0]);
+                        last = Long.parseLong(firstLast[1]);
+                    } else {
+                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
+                    }
+
+                    if (offset >= size) {
+                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
+                    }
+                    if (last + 1 > size) {
+                        last = size - 1;
+                    }
+                    contentRange = "bytes " + offset + "-" + last + "/" + attr.size();
+                    size = last - offset + 1;
+                }
+
+                inputStream = Files.newInputStream(path);
+                if (hasRange) {
+                    try {
+                        inputStream.skipNBytes(offset);
+                    } catch (IOException ioe) {
+                        try {
+                            inputStream.close();
+                        } catch (IOException ce) {
+                            ioe.addSuppressed(ce);
+                        }
+                        throw ioe;
+                    }
+                    inputStream = ByteStreams.limit(inputStream, size);
                 }
             }
 
@@ -663,28 +679,31 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(fromContainer, fromName, "while copying");
         }
 
-        var eTag = blob.getMetadata().getETag();
-        if (eTag != null) {
-            eTag = maybeQuoteETag(eTag);
-            if (options.ifMatch() != null && !maybeQuoteETag(options.ifMatch()).equals(eTag)) {
-                throw returnResponseException(412);
-            }
-            if (options.ifNoneMatch() != null && maybeQuoteETag(options.ifNoneMatch()).equals(eTag)) {
-                throw returnResponseException(412);
-            }
-        }
-
-        var lastModified = blob.getMetadata().getLastModified();
-        if (lastModified != null) {
-            if (options.ifModifiedSince() != null && lastModified.compareTo(options.ifModifiedSince()) <= 0) {
-                throw returnResponseException(412);
-            }
-            if (options.ifUnmodifiedSince() != null && lastModified.compareTo(options.ifUnmodifiedSince()) >= 0) {
-                throw returnResponseException(412);
-            }
-        }
-
+        // Evaluate preconditions inside the try-with-resources so that a
+        // failing check still closes the file InputStream returned by
+        // getBlob.
         try (var is = blob.getPayload().openStream()) {
+            var eTag = blob.getMetadata().getETag();
+            if (eTag != null) {
+                eTag = maybeQuoteETag(eTag);
+                if (options.ifMatch() != null && !maybeQuoteETag(options.ifMatch()).equals(eTag)) {
+                    throw returnResponseException(412);
+                }
+                if (options.ifNoneMatch() != null && maybeQuoteETag(options.ifNoneMatch()).equals(eTag)) {
+                    throw returnResponseException(412);
+                }
+            }
+
+            var lastModified = blob.getMetadata().getLastModified();
+            if (lastModified != null) {
+                if (options.ifModifiedSince() != null && lastModified.compareTo(options.ifModifiedSince()) <= 0) {
+                    throw returnResponseException(412);
+                }
+                if (options.ifUnmodifiedSince() != null && lastModified.compareTo(options.ifUnmodifiedSince()) >= 0) {
+                    throw returnResponseException(412);
+                }
+            }
+
             var metadata = blob.getMetadata().getContentMetadata();
             var builder = blobBuilder(toName).payload(is);
             Long contentLength = metadata.getContentLength();
