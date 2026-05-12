@@ -458,7 +458,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
             if (options.getIfModifiedSince() != null) {
                 Date modifiedSince = options.getIfModifiedSince();
-                if (lastModifiedTime.before(modifiedSince)) {
+                if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
                     @SuppressWarnings("rawtypes")
                     HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode());
                     if (eTag != null) {
@@ -721,7 +721,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 if (options.ifModifiedSince() != null && lastModified.compareTo(options.ifModifiedSince()) <= 0) {
                     throw returnResponseException(412);
                 }
-                if (options.ifUnmodifiedSince() != null && lastModified.compareTo(options.ifUnmodifiedSince()) >= 0) {
+                if (options.ifUnmodifiedSince() != null && lastModified.compareTo(options.ifUnmodifiedSince()) > 0) {
                     throw returnResponseException(412);
                 }
             }
