@@ -349,7 +349,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         var containerPath = resolveContainer(container);
-        var path = containerPath.resolve(key);
+        var path = containerPath.resolve(key).normalize();
         if (path.toString().equals("/")) {
             path = containerPath;
         }
