@@ -1009,15 +1009,21 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         var parts = ImmutableList.<MultipartPart>builder();
-        var options =
-                new ListContainerOptions().prefix(MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-").recursive();
+        var partPrefix = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-";
+        var options = new ListContainerOptions().prefix(partPrefix).recursive();
         while (true) {
             var pageSet = list(mpu.containerName(), options);
             for (var sm : pageSet) {
                 if (sm.getName().endsWith("-stub")) {
                     continue;
                 }
-                int partNumber = Integer.parseInt(sm.getName().substring((MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-").length()));
+                int partNumber;
+                try {
+                    partNumber = Integer.parseInt(sm.getName().substring(partPrefix.length()));
+                } catch (NumberFormatException nfe) {
+                    logger.warn("ignoring multipart entry with non-numeric suffix: {}", sm.getName());
+                    continue;
+                }
                 long partSize = sm.getSize();
                 parts.add(MultipartPart.create(partNumber, partSize, sm.getETag(), sm.getLastModified()));
             }
