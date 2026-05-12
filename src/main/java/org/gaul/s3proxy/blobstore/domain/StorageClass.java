@@ -1,5 +1,6 @@
 /*
- * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2009-2025 The Apache Software Foundation
+ * Copyright 2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +15,19 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.azureblob;
+package org.gaul.s3proxy.blobstore.domain;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Scopes;
-
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.attr.ConsistencyModel;
-
-public final class AzureBlobStoreContextModule extends AbstractModule {
-    @Override
-    protected void configure() {
-        bind(ConsistencyModel.class).toInstance(ConsistencyModel.STRICT);
-        bind(BlobStore.class).to(AzureBlobStore.class).in(Scopes.SINGLETON);
-    }
+/**
+ * The S3 storage class for a blob, ranging from most performant
+ * (STANDARD) to lowest cost (DEEP_ARCHIVE).
+ */
+public enum StorageClass {
+    STANDARD,
+    STANDARD_IA,
+    ONEZONE_IA,
+    INTELLIGENT_TIERING,
+    REDUCED_REDUNDANCY,
+    GLACIER,
+    GLACIER_IR,
+    DEEP_ARCHIVE;
 }

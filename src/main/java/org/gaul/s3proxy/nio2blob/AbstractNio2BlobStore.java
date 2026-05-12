@@ -30,6 +30,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -37,7 +38,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -51,42 +51,30 @@ import com.google.common.io.ByteStreams;
 import com.google.common.net.HttpHeaders;
 import com.google.common.primitives.Longs;
 
-import jakarta.ws.rs.core.Response.Status;
-
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.StorageType;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.domain.internal.BlobBuilderImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.domain.internal.StorageMetadataImpl;
-import org.jclouds.blobstore.internal.BaseBlobStore;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.BlobStoreUtils;
-import org.jclouds.blobstore.util.BlobUtils;
-import org.jclouds.collect.Memoized;
-import org.jclouds.domain.Credentials;
-import org.jclouds.domain.Location;
-import org.jclouds.http.HttpCommand;
-import org.jclouds.http.HttpRequest;
-import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
-import org.jclouds.io.Payload;
-import org.jclouds.io.PayloadSlicer;
+import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.HttpResponse;
+import org.gaul.s3proxy.blobstore.HttpResponseException;
+import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.StorageType;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -125,13 +113,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     private final Path root;
 
-    protected AbstractNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            Path root) {
-        super(context, blobUtils, defaultLocation, locations, slicer);
+    protected AbstractNio2BlobStore(Path root) {
         this.root = root;
     }
 
@@ -149,16 +131,15 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 var lastModifiedTime = new Date(
                         attr.lastModifiedTime().toMillis());
                 var creationTime = new Date(attr.creationTime().toMillis());
-                set.add(new StorageMetadataImpl(StorageType.CONTAINER,
-                        /*id=*/ null, path.getFileName().toString(),
-                        /*location=*/ null, /*uri=*/ null,
-                        /*eTag=*/ null, creationTime, lastModifiedTime,
-                        Map.of(), /*size=*/ null, Tier.STANDARD));
+                set.add(new ContainerMetadata(
+                        path.getFileName().toString(),
+                        Map.of(), /*eTag=*/ null, creationTime,
+                        lastModifiedTime, /*size=*/ null, StorageClass.STANDARD));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
-        return new PageSetImpl<StorageMetadata>(set.build(), null);
+        return new PageSet<StorageMetadata>(set.build(), null);
     }
 
     @Override
@@ -166,14 +147,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             ListContainerOptions options) {
         var containerPath = requireContainerPath(container);
 
-        var delimiter = options.getDelimiter();
+        var delimiter = options.delimiter();
         if ("".equals(delimiter)) {
             delimiter = null;
         } else if (delimiter != null && !delimiter.equals("/")) {
             throw new IllegalArgumentException("Delimiters other than / not supported");
         }
 
-        var prefix = options.getPrefix();
+        var prefix = options.prefix();
         var dirPrefix = containerPath;
         if (prefix != null) {
             int idx = prefix.lastIndexOf('/');
@@ -205,26 +186,27 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
                     var attr = Files.readAttributes(pathPrefix,
                             BasicFileAttributes.class);
-                    set.add(new StorageMetadataImpl(StorageType.BLOB,
-                            /*id=*/ null, prefix,
-                            /*location=*/ null, /*uri=*/ null,
+                    set.add(new BlobMetadata(StorageType.BLOB,
+                            prefix, Map.of(),
                             readETagXattr(markerXattrs), /*creationDate=*/ null,
                             new Date(attr.lastModifiedTime().toMillis()),
-                            Map.of(), /*size=*/ 0L, Tier.STANDARD));
+                            StorageClass.STANDARD, /*container=*/ null,
+                            ContentMetadata.builder()
+                                    .contentLength(0L).build()));
                 }
             }
 
             var sorted = set.build();
-            if (options.getMarker() != null) {
+            if (options.marker() != null) {
                 // StorageMetadata's natural ordering is name-only (nulls
                 // last), so a name-only stub lets tailSet skip past the
                 // marker in O(log n).
-                sorted = sorted.tailSet(markerStub(options.getMarker()),
+                sorted = sorted.tailSet(markerStub(options.marker()),
                         /*inclusive=*/ false);
             }
             String marker = null;
-            if (options.getMaxResults() != null) {
-                int maxResults = options.getMaxResults().intValue();
+            if (options.maxResults() != null) {
+                int maxResults = options.maxResults().intValue();
                 var sortedList = sorted.asList();
                 if (sortedList.size() > maxResults) {
                     if (maxResults == 0) {
@@ -236,7 +218,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     }
                 }
             }
-            return new PageSetImpl<StorageMetadata>(sorted, marker);
+            return new PageSet<StorageMetadata>(sorted, marker);
         } catch (IOException ioe) {
             logger.error("unexpected exception", ioe);
             throw new RuntimeException(ioe);
@@ -282,7 +264,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     if ("/".equals(delimiter) || markerExists) {
                         var name = relativeName(containerPath, path);
                         logger.debug("adding prefix: {}", name);
-
                         // A directory-marker object (a key ending in "/") that
                         // was explicitly stored carries the XATTR_CONTENT_MD5
                         // xattr. Report its metadata so a non-delimited
@@ -301,13 +282,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                             size = 0L;
                         }
 
-                        builder.add(new StorageMetadataImpl(
+                        builder.add(new BlobMetadata(
                                 StorageType.RELATIVE_PATH,
-                                /*id=*/ null, name + "/",
-                                /*location=*/ null, /*uri=*/ null,
-                                eTag, /*creationDate=*/ null,
+                                name + "/", Map.of(), eTag,
+                                /*creationDate=*/ null,
                                 lastModified,
-                                Map.of(), size, Tier.STANDARD));
+                                StorageClass.STANDARD, /*container=*/ null,
+                                ContentMetadata.builder()
+                                        .contentLength(size).build()));
                     }
                 } else {
                     var name = relativeName(containerPath, path);
@@ -317,21 +299,24 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
                     var xattrs = safeGetXattrs(path);
                     String eTag = readETagXattr(xattrs);
-                    Tier tier = Tier.STANDARD;
+                    StorageClass storageClass = StorageClass.STANDARD;
                     if (xattrs.view() != null) {
                         var tierString = readStringAttributeIfPresent(
                                 xattrs.view(), xattrs.attributes(),
                                 XATTR_STORAGE_TIER);
                         if (tierString != null) {
-                            tier = Tier.valueOf(tierString);
+                            storageClass = parseStorageClass(tierString);
                         }
                     }
 
-                    builder.add(new StorageMetadataImpl(StorageType.BLOB,
-                            /*id=*/ null, name,
-                            /*location=*/ null, /*uri=*/ null,
+                    builder.add(new BlobMetadata(StorageType.BLOB,
+                            name, Map.of(),
                             eTag, creationTime, lastModifiedTime,
-                            Map.of(), attr.size(), tier));
+                            storageClass,
+                            /*container=*/ null,
+                            ContentMetadata.builder()
+                                    .contentLength(attr.size())
+                                    .build()));
                 }
             }
         } catch (NoSuchFileException nsfe) {
@@ -345,16 +330,15 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public final boolean createContainerInLocation(Location location,
-            String container) {
-        return createContainerInLocation(location, container,
-                new CreateContainerOptions());
+    public final boolean createContainer(String container) {
+        return createContainer(container, CreateContainerOptions.NONE);
     }
 
     @Override
-    public final boolean createContainerInLocation(Location location,
-            String container, CreateContainerOptions options) {
+    public final boolean createContainer(String container,
+            CreateContainerOptions options) {
         try {
+            Files.createDirectories(getRoot());
             Files.createDirectory(resolveContainer(container));
         } catch (FileAlreadyExistsException faee) {
             return false;
@@ -362,20 +346,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             throw new RuntimeException(ioe);
         }
 
-        setContainerAccess(container, options.isPublicRead() ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
+        setContainerAccess(container, options.publicRead() ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
 
         return true;
-    }
-
-    @Override
-    public final void deleteContainer(String container) {
-        try {
-            Files.deleteIfExists(resolveContainer(container));
-        } catch (DirectoryNotEmptyException dnee) {
-            // TODO: what to do?
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
     }
 
     @Override
@@ -408,7 +381,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             Date expires = null;
             HashCode hashCode = null;
             String eTag = null;
-            var tier = Tier.STANDARD;
+            var storageClass = StorageClass.STANDARD;
             var userMetadata = ImmutableMap.<String, String>builder();
             var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
             var creationTime = new Date(attr.creationTime().toMillis());
@@ -464,7 +437,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             if (view != null) {
                 var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
                 if (tierString != null) {
-                    tier = Tier.valueOf(tierString);
+                    storageClass = parseStorageClass(tierString);
                 }
                 for (String attribute : attributes) {
                     if (!attribute.startsWith(XATTR_USER_METADATA_PREFIX)) {
@@ -478,8 +451,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             // Evaluate conditional headers and range bounds before opening
             // the file so that failing preconditions do not leak the
             // InputStream.
-            String ifMatch = options.getIfMatch();
-            String ifNoneMatch = options.getIfNoneMatch();
+            String ifMatch = options.ifMatch();
+            String ifNoneMatch = options.ifNoneMatch();
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
             }
@@ -490,48 +463,47 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 ifMatch = null;
             }
             if ("*".equals(ifNoneMatch)) {
-                @SuppressWarnings("rawtypes")
-                HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode());
+                HttpResponse.Builder response = HttpResponse.builder().statusCode(304);
                 if (eTag != null) {
                     response.addHeader(HttpHeaders.ETAG, eTag);
                 }
-                throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response.build());
+                throw new HttpResponseException(response.build());
             }
             if (eTag != null) {
                 if (ifMatch != null) {
                     if (!eTag.equals(maybeQuoteETag(ifMatch))) {
-                        HttpResponse response = HttpResponse.builder().statusCode(Status.PRECONDITION_FAILED.getStatusCode()).addHeader(HttpHeaders.ETAG, eTag).build();
-                        throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response);
+                        HttpResponse response = HttpResponse.builder().statusCode(412).addHeader(HttpHeaders.ETAG, eTag).build();
+                        throw new HttpResponseException(response);
                     }
                 }
                 if (ifNoneMatch != null) {
                     if (eTag.equals(maybeQuoteETag(ifNoneMatch))) {
-                        HttpResponse response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode()).addHeader(HttpHeaders.ETAG, eTag).build();
-                        throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response);
+                        HttpResponse response = HttpResponse.builder().statusCode(304).addHeader(HttpHeaders.ETAG, eTag).build();
+                        throw new HttpResponseException(response);
                     }
                 }
             }
-            if (options.getIfModifiedSince() != null) {
-                Date modifiedSince = options.getIfModifiedSince();
+            if (options.ifModifiedSince() != null) {
+                Date modifiedSince = options.ifModifiedSince();
                 if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
                     @SuppressWarnings("rawtypes")
-                    HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode());
+                    HttpResponse.Builder response = HttpResponse.builder().statusCode(304);
                     if (eTag != null) {
                         response.addHeader(HttpHeaders.ETAG, eTag);
                     }
-                    throw new HttpResponseException("%1$s is before %2$s".formatted(lastModifiedTime, modifiedSince), null, response.build());
+                    throw new HttpResponseException("%1$s is before %2$s".formatted(lastModifiedTime, modifiedSince), response.build());
                 }
 
             }
-            if (options.getIfUnmodifiedSince() != null) {
-                Date unmodifiedSince = options.getIfUnmodifiedSince();
+            if (options.ifUnmodifiedSince() != null) {
+                Date unmodifiedSince = options.ifUnmodifiedSince();
                 if (lastModifiedTime.after(unmodifiedSince)) {
                     @SuppressWarnings("rawtypes")
-                    HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.PRECONDITION_FAILED.getStatusCode());
+                    HttpResponse.Builder response = HttpResponse.builder().statusCode(412);
                     if (eTag != null) {
                         response.addHeader(HttpHeaders.ETAG, eTag);
                     }
-                    throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), null, response.build());
+                    throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), response.build());
                 }
             }
 
@@ -546,11 +518,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 size = attr.size();
                 long offset = 0;
                 long last = size;
-                boolean hasRange = !options.getRanges().isEmpty();
+                boolean hasRange = !options.ranges().isEmpty();
                 if (hasRange) {
-                    var range = options.getRanges().get(0);
+                    var range = options.ranges().get(0);
                     if (!range.contains("-")) {
-                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
+                        throw new HttpResponseException("illegal range: " + range, HttpResponse.builder().statusCode(416).build());
                     }
                     // HTTP uses a closed interval while Java array indexing uses a
                     // half-open interval.
@@ -568,11 +540,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                             last = Long.parseLong(firstLast[1]);
                         }
                     } catch (NumberFormatException nfe) {
-                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
+                        throw new HttpResponseException("illegal range: " + range, HttpResponse.builder().statusCode(416).build());
                     }
 
                     if (offset >= size || offset > last) {
-                        throw new HttpResponseException("illegal range: " + range, null, HttpResponse.builder().statusCode(416).build());
+                        throw new HttpResponseException("illegal range: " + range, HttpResponse.builder().statusCode(416).build());
                     }
                     if (last + 1 > size) {
                         last = size - 1;
@@ -597,9 +569,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
             }
 
-            Blob blob = new BlobBuilderImpl()
+            HashCode finalHashCode = hashCode;
+            Blob.Builder builder = Blob.builder(key)
                     .type(isDirectory ? StorageType.FOLDER : StorageType.BLOB)
-                    .name(key)
                     .userMetadata(userMetadata.build())
                     .payload(inputStream)
                     .cacheControl(cacheControl)
@@ -614,19 +586,17 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     .contentType(contentType)
                     .eTag(eTag)
                     .expires(expires)
-                    .tier(tier)
-                    .build();
-            blob.getMetadata().setContainer(container);
-            blob.getMetadata().setCreationDate(creationTime);
-            blob.getMetadata().setLastModified(lastModifiedTime);
-            blob.getMetadata().setSize(size);
+                    .storageClass(storageClass)
+                    .container(container)
+                    .creationDate(creationTime)
+                    .lastModified(lastModifiedTime);
             if (contentRange != null) {
-                blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE, contentRange);
+                builder.contentRange(contentRange);
             }
-            if (hashCode != null) {
-                blob.getMetadata().setETag(BaseEncoding.base16().lowerCase().encode(hashCode.asBytes()));
+            if (finalHashCode != null) {
+                builder.eTag(BaseEncoding.base16().lowerCase().encode(finalHashCode.asBytes()));
             }
-            return blob;
+            return builder.build();
         } catch (NoSuchFileException nsfe) {
             return null;
         } catch (IOException ioe) {
@@ -636,7 +606,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final String putBlob(String container, Blob blob) {
-        return putBlob(container, blob, new PutOptions());
+        return putBlob(container, blob, PutOptions.NONE);
     }
 
     @Override
@@ -690,7 +660,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 is.transferTo(os);
                 actualHashCode = is.hash();
             }
-            var expectedHashCode = metadata.getContentMD5AsHashCode();
+            var expectedHashCode = metadata.contentMD5();
             if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
                 throw returnResponseException(400);
             }
@@ -709,18 +679,18 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                             providedETag.getBytes(StandardCharsets.US_ASCII) :
                             actualHashCode.asBytes();
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(eTag));
-                    writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.getCacheControl());
-                    writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.getContentDisposition());
-                    writeStringAttributeIfPresent(view, XATTR_CONTENT_ENCODING, metadata.getContentEncoding());
-                    writeStringAttributeIfPresent(view, XATTR_CONTENT_LANGUAGE, metadata.getContentLanguage());
-                    writeStringAttributeIfPresent(view, XATTR_CONTENT_TYPE, metadata.getContentType());
-                    var expires = metadata.getExpires();
+                    writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.cacheControl());
+                    writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.contentDisposition());
+                    writeStringAttributeIfPresent(view, XATTR_CONTENT_ENCODING, metadata.contentEncoding());
+                    writeStringAttributeIfPresent(view, XATTR_CONTENT_LANGUAGE, metadata.contentLanguage());
+                    writeStringAttributeIfPresent(view, XATTR_CONTENT_TYPE, metadata.contentType());
+                    var expires = metadata.expires();
                     if (expires != null) {
                         ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES).putLong(expires.getTime());
                         buf.flip();
                         view.write(XATTR_EXPIRES, buf);
                     }
-                    writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getTier().toString());
+                    writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getStorageClass().toString());
                     for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
@@ -729,11 +699,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
             }
 
-            setBlobAccessHelper(tmpPath, options.getBlobAccess());
+            setBlobAccessHelper(tmpPath, options.blobAccess());
 
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-            return "\"" + actualHashCode + "\"";
+            return actualHashCode.toString();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         } finally {
@@ -782,40 +752,40 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
 
             var metadata = blob.getMetadata().getContentMetadata();
-            var builder = blobBuilder(toName).payload(is);
-            Long contentLength = metadata.getContentLength();
+            var builder = Blob.builder(toName).payload(is);
+            Long contentLength = metadata.contentLength();
             if (contentLength != null) {
                 builder.contentLength(contentLength);
             }
 
             var contentMetadata = options.contentMetadata();
             if (contentMetadata != null) {
-                String cacheControl = contentMetadata.getCacheControl();
+                String cacheControl = contentMetadata.cacheControl();
                 if (cacheControl != null) {
                     builder.cacheControl(cacheControl);
                 }
-                String contentDisposition = contentMetadata.getContentDisposition();
+                String contentDisposition = contentMetadata.contentDisposition();
                 if (contentDisposition != null) {
                     builder.contentDisposition(contentDisposition);
                 }
-                String contentEncoding = contentMetadata.getContentEncoding();
+                String contentEncoding = contentMetadata.contentEncoding();
                 if (contentEncoding != null) {
                     builder.contentEncoding(contentEncoding);
                 }
-                String contentLanguage = contentMetadata.getContentLanguage();
+                String contentLanguage = contentMetadata.contentLanguage();
                 if (contentLanguage != null) {
                     builder.contentLanguage(contentLanguage);
                 }
-                String contentType = contentMetadata.getContentType();
+                String contentType = contentMetadata.contentType();
                 if (contentType != null) {
                     builder.contentType(contentType);
                 }
             } else {
-                builder.cacheControl(metadata.getCacheControl())
-                        .contentDisposition(metadata.getContentDisposition())
-                        .contentEncoding(metadata.getContentEncoding())
-                        .contentLanguage(metadata.getContentLanguage())
-                        .contentType(metadata.getContentType());
+                builder.cacheControl(metadata.cacheControl())
+                        .contentDisposition(metadata.contentDisposition())
+                        .contentEncoding(metadata.contentEncoding())
+                        .contentLanguage(metadata.contentLanguage())
+                        .contentType(metadata.contentType());
             }
 
             var userMetadata = options.userMetadata();
@@ -873,13 +843,25 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         if (blob == null) {
             return null;
         }
-        return (BlobMetadata) BlobStoreUtils.copy(blob.getMetadata());
+        var in = blob.getMetadata();
+        var lowerCaseUserMetadata = new HashMap<String, String>();
+        for (var entry : in.getUserMetadata().entrySet()) {
+            lowerCaseUserMetadata.put(entry.getKey().toLowerCase(),
+                    entry.getValue());
+        }
+        return in.toBuilder().userMetadata(lowerCaseUserMetadata).build();
     }
 
     @Override
-    protected final boolean deleteAndVerifyContainerGone(String container) {
-        deleteContainer(container);
-        return !containerExists(container);
+    public final boolean deleteContainerIfEmpty(String container) {
+        try {
+            Files.deleteIfExists(resolveContainer(container));
+        } catch (DirectoryNotEmptyException dnee) {
+            return false;
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        return true;
     }
 
     @Override
@@ -955,9 +937,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             BlobMetadata blobMetadata, PutOptions options) {
         var uploadId = UUID.randomUUID().toString();
         // create a stub blob
-        var blob = blobBuilder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.getName() + "-stub").payload(ByteSource.empty()).build();
+        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.getName() + "-stub").payload(ByteSource.empty()).build();
         putBlob(container, blob);
-        return MultipartUpload.create(container, blobMetadata.getName(), uploadId,
+        return new MultipartUpload(container, blobMetadata.getName(), uploadId,
                 blobMetadata, options);
     }
 
@@ -983,7 +965,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 // a part that was never uploaded.
                 throw returnResponseException(400);
             }
-            contentLength += meta.getContentMetadata().getContentLength();
+            contentLength += meta.getContentMetadata().contentLength();
             metas.add(meta);
             if (meta.getETag() != null) {
                 var eTag = meta.getETag();
@@ -995,7 +977,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
         }
         var mpuETag = "\"" + md5Hasher.hash() + "-" + parts.size() + "\"";
-        var blobBuilder = blobBuilder(mpu.blobName())
+        var blobBuilder = Blob.builder(mpu.blobName())
                 .payload(new MultiBlobInputStream(this, metas.build()))
                 .contentLength(contentLength)
                 .eTag(mpuETag);
@@ -1003,34 +985,34 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         if (mpuBlobMetadata != null) {
             blobBuilder.userMetadata(mpuBlobMetadata.getUserMetadata());
             var contentMetadata = mpuBlobMetadata.getContentMetadata();
-            var cacheControl = contentMetadata.getCacheControl();
+            var cacheControl = contentMetadata.cacheControl();
             if (cacheControl != null) {
                 blobBuilder.cacheControl(cacheControl);
             }
-            var contentDisposition = contentMetadata.getContentDisposition();
+            var contentDisposition = contentMetadata.contentDisposition();
             if (contentDisposition != null) {
                 blobBuilder.contentDisposition(contentDisposition);
             }
-            var contentEncoding = contentMetadata.getContentEncoding();
+            var contentEncoding = contentMetadata.contentEncoding();
             if (contentEncoding != null) {
                 blobBuilder.contentEncoding(contentEncoding);
             }
-            var contentLanguage = contentMetadata.getContentLanguage();
+            var contentLanguage = contentMetadata.contentLanguage();
             if (contentLanguage != null) {
                 blobBuilder.contentLanguage(contentLanguage);
             }
             // intentionally not copying MD5
-            var contentType = contentMetadata.getContentType();
+            var contentType = contentMetadata.contentType();
             if (contentType != null) {
                 blobBuilder.contentType(contentType);
             }
-            var expires = contentMetadata.getExpires();
+            var expires = contentMetadata.expires();
             if (expires != null) {
                 blobBuilder.expires(expires);
             }
-            var tier = mpuBlobMetadata.getTier();
-            if (tier != null) {
-                blobBuilder.tier(tier);
+            var storageClass = mpuBlobMetadata.getStorageClass();
+            if (storageClass != null) {
+                blobBuilder.storageClass(storageClass);
             }
         }
 
@@ -1045,7 +1027,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
         var mpuPutOptions = mpu.putOptions();
         if (mpuPutOptions != null) {
-            setBlobAccess(mpu.containerName(), mpu.blobName(), mpuPutOptions.getBlobAccess());
+            setBlobAccess(mpu.containerName(), mpu.blobName(), mpuPutOptions.blobAccess());
         }
 
         return mpuETag;
@@ -1054,20 +1036,21 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
         var partName = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + partNumber;
-        var blob = blobBuilder(partName)
+        var blob = Blob.builder(partName)
                 .payload(payload)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob);
         var metadata = blobMetadata(mpu.containerName(), partName);  // TODO: racy, how to get this from payload?
-        var partSize = metadata.getContentMetadata().getContentLength();
-        return MultipartPart.create(partNumber, partSize, partETag, metadata.getLastModified());
+        var partSize = metadata.getContentMetadata().contentLength();
+        return new MultipartPart(partNumber, partSize, partETag, metadata.getLastModified());
     }
 
     @Override
     public final List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         var parts = ImmutableList.<MultipartPart>builder();
         var partPrefix = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-";
-        var options = new ListContainerOptions().prefix(partPrefix).recursive();
+        var options = ListContainerOptions.builder()
+                .prefix(partPrefix).recursive().build();
         while (true) {
             var pageSet = list(mpu.containerName(), options);
             for (var sm : pageSet) {
@@ -1082,12 +1065,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     continue;
                 }
                 long partSize = sm.getSize();
-                parts.add(MultipartPart.create(partNumber, partSize, sm.getETag(), sm.getLastModified()));
+                parts.add(new MultipartPart(partNumber, partSize, sm.getETag(), sm.getLastModified()));
             }
             if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
                 break;
             }
-            options.afterMarker(pageSet.getNextMarker());
+            options = options.toBuilder()
+                    .afterMarker(pageSet.getNextMarker()).build();
         }
         return parts.build();
     }
@@ -1095,7 +1079,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final List<MultipartUpload> listMultipartUploads(String container) {
         var mpus = ImmutableList.<MultipartUpload>builder();
-        var options = new ListContainerOptions().prefix(MULTIPART_PREFIX).recursive();
+        var options = ListContainerOptions.builder()
+                .prefix(MULTIPART_PREFIX).recursive().build();
         while (true) {
             var pageSet = list(container, options);
             for (StorageMetadata sm : pageSet) {
@@ -1107,12 +1092,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 int index = blobName.lastIndexOf('-');
                 blobName = blobName.substring(0, index);
 
-                mpus.add(MultipartUpload.create(container, blobName, uploadId, null, null));
+                mpus.add(new MultipartUpload(container, blobName, uploadId, null, null));
             }
             if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
                 break;
             }
-            options.afterMarker(pageSet.getNextMarker());
+            options = options.toBuilder()
+                    .afterMarker(pageSet.getNextMarker()).build();
         }
 
         return mpus.build();
@@ -1126,16 +1112,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final long getMaximumMultipartPartSize() {
         return 100 * 1024 * 1024;
-    }
-
-    @Override
-    public final int getMaximumNumberOfParts() {
-        return 50 * 1000;
-    }
-
-    @Override
-    public final InputStream streamBlob(String container, String name) {
-        throw new UnsupportedOperationException("not yet implemented");
     }
 
    /**
@@ -1169,10 +1145,27 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var etagBytes = buf.array();
         if (etagBytes.length == 16) {
             // regular object
-            return "\"" + HashCode.fromBytes(etagBytes) + "\"";
+            return HashCode.fromBytes(etagBytes).toString();
         }
         // multi-part object
         return new String(etagBytes, StandardCharsets.US_ASCII);
+    }
+
+    /**
+     * Parses a storage-class name previously written to {@link
+     * #XATTR_STORAGE_TIER}, tolerating values that are not valid {@link
+     * StorageClass} constants -- such as the jclouds {@code Tier} names
+     * {@code INFREQUENT} and {@code ARCHIVE} written by older S3Proxy
+     * versions -- by falling back to {@link StorageClass#STANDARD}.
+     */
+    private static StorageClass parseStorageClass(String value) {
+        try {
+            return StorageClass.valueOf(value);
+        } catch (IllegalArgumentException iae) {
+            logger.debug("ignoring unrecognized {} value: {}",
+                    XATTR_STORAGE_TIER, value);
+            return StorageClass.STANDARD;
+        }
     }
 
     /** Write the String representation of a filesystem attribute. */
@@ -1256,11 +1249,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     private static HttpResponseException returnResponseException(int code) {
-        var response = HttpResponse.builder().statusCode(code).build();
-        return new HttpResponseException(new HttpCommand(HttpRequest.builder()
-                .method("GET")
-                .endpoint("http://stub")
-                .build()), response);
+        return new HttpResponseException(
+                HttpResponse.builder().statusCode(code).build());
     }
 
     private static String maybeQuoteETag(String eTag) {
@@ -1293,18 +1283,18 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     // TODO: call in other places
     private static void writeCommonMetadataAttr(UserDefinedFileAttributeView view, Blob blob) throws IOException {
         var metadata = blob.getMetadata().getContentMetadata();
-        writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.getCacheControl());
-        writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.getContentDisposition());
-        writeStringAttributeIfPresent(view, XATTR_CONTENT_ENCODING, metadata.getContentEncoding());
-        writeStringAttributeIfPresent(view, XATTR_CONTENT_LANGUAGE, metadata.getContentLanguage());
-        writeStringAttributeIfPresent(view, XATTR_CONTENT_TYPE, metadata.getContentType());
-        var expires = metadata.getExpires();
+        writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.cacheControl());
+        writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.contentDisposition());
+        writeStringAttributeIfPresent(view, XATTR_CONTENT_ENCODING, metadata.contentEncoding());
+        writeStringAttributeIfPresent(view, XATTR_CONTENT_LANGUAGE, metadata.contentLanguage());
+        writeStringAttributeIfPresent(view, XATTR_CONTENT_TYPE, metadata.contentType());
+        var expires = metadata.expires();
         if (expires != null) {
             var buf = ByteBuffer.allocate(Longs.BYTES).putLong(expires.getTime());
             buf.flip();
             view.write(XATTR_EXPIRES, buf);
         }
-        writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getTier().toString());
+        writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getStorageClass().toString());
         for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
             writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
         }
@@ -1405,10 +1395,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
      *  range queries; relies on StorageMetadata's natural ordering being
      *  by name. */
     private static StorageMetadata markerStub(String name) {
-        return new StorageMetadataImpl(StorageType.BLOB, /*id=*/ null, name,
-                /*location=*/ null, /*uri=*/ null,
+        return new BlobMetadata(StorageType.BLOB, name, Map.of(),
                 /*eTag=*/ null, /*creationDate=*/ null, /*lastModified=*/ null,
-                Map.of(), /*size=*/ null, Tier.STANDARD);
+                StorageClass.STANDARD,
+                /*container=*/ null,
+                ContentMetadata.builder().build());
     }
 
     private static void setBlobAccessHelper(Path path, BlobAccess access) {

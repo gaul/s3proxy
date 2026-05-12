@@ -31,19 +31,16 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.io.Payloads;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ByteSourcePayload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +48,6 @@ import org.junit.jupiter.api.Test;
 public final class AliasBlobStoreTest {
     private String containerName;
     private String aliasContainerName;
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private BlobStore aliasBlobStore;
     private List<String> createdContainers;
@@ -60,12 +56,7 @@ public final class AliasBlobStoreTest {
     public void setUp() {
         containerName = TestUtils.createRandomContainerName();
         aliasContainerName = "alias-%s".formatted(containerName);
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
+        blobStore = TestUtils.createTransientBlobStore();
         var aliasesBuilder = new ImmutableBiMap.Builder<String, String>();
         aliasesBuilder.put(aliasContainerName, containerName);
         aliasBlobStore = AliasBlobStore.newAliasBlobStore(
@@ -75,17 +66,15 @@ public final class AliasBlobStoreTest {
 
     @AfterEach
     public void tearDown() {
-        if (this.context != null) {
+        if (this.blobStore != null) {
             for (String container : this.createdContainers) {
                 blobStore.deleteContainer(container);
             }
-            context.close();
         }
     }
 
     private void createContainer(String container) {
-        assertThat(aliasBlobStore.createContainerInLocation(
-                null, container)).isTrue();
+        assertThat(aliasBlobStore.createContainer(container)).isTrue();
         if (container.equals(aliasContainerName)) {
             createdContainers.add(containerName);
         } else {
@@ -123,7 +112,7 @@ public final class AliasBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         @SuppressWarnings("deprecation")
         String contentMD5 = Hashing.md5().hashBytes(content.read()).toString();
-        Blob blob = aliasBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         String eTag = aliasBlobStore.putBlob(aliasContainerName, blob);
         assertThat(eTag).isEqualTo(contentMD5);
@@ -144,12 +133,12 @@ public final class AliasBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         @SuppressWarnings("deprecation")
         HashCode contentHash = Hashing.md5().hashBytes(content.read());
-        Blob blob = aliasBlobStore.blobBuilder(blobName).build();
+        Blob blob = Blob.builder(blobName).build();
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 aliasContainerName, blob.getMetadata(), PutOptions.NONE);
         assertThat(mpu.containerName()).isEqualTo(aliasContainerName);
         MultipartPart part = aliasBlobStore.uploadMultipartPart(
-                mpu, 1, Payloads.newPayload(content));
+                mpu, 1, new ByteSourcePayload(content));
         assertThat(part.partETag()).isEqualTo(contentHash.toString());
         var parts = new ImmutableList.Builder<MultipartPart>();
         parts.add(part);
@@ -171,7 +160,7 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = aliasBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         aliasBlobStore.putBlob(aliasContainerName, blob);
 
@@ -191,11 +180,11 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = aliasBlobStore.blobBuilder(blobName).build();
+        Blob blob = Blob.builder(blobName).build();
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 aliasContainerName, blob.getMetadata(), PutOptions.NONE);
         MultipartPart part = aliasBlobStore.uploadMultipartPart(
-                mpu, 1, Payloads.newPayload(content));
+                mpu, 1, new ByteSourcePayload(content));
 
         List<MultipartPart> parts = aliasBlobStore.listMultipartUpload(mpu);
         assertThat(parts).hasSize(1);

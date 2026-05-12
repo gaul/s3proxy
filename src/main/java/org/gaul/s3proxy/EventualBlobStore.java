@@ -27,19 +27,18 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.domain.Location;
-import org.jclouds.io.Payload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /**
  * This class is a BlobStore wrapper which emulates eventual consistency
@@ -80,19 +79,16 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container) {
-        return delegate().createContainerInLocation(location, container) &&
-                writeStore.createContainerInLocation(location, container);
+    public boolean createContainer(String container) {
+        return delegate().createContainer(container) &&
+                writeStore.createContainer(container);
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container, CreateContainerOptions options) {
-        return delegate().createContainerInLocation(
-                        location, container, options) &&
-                writeStore.createContainerInLocation(
-                        location, container, options);
+    public boolean createContainer(String container,
+            CreateContainerOptions options) {
+        return delegate().createContainer(container, options) &&
+                writeStore.createContainer(container, options);
     }
 
     // Container operations are not eventually consistent: apply them
@@ -114,18 +110,6 @@ final class EventualBlobStore extends ForwardingBlobStore {
     public void clearContainer(String container, ListContainerOptions options) {
         delegate().clearContainer(container, options);
         writeStore.clearContainer(container, options);
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        delegate().createDirectory(container, directory);
-        writeStore.createDirectory(container, directory);
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
-        delegate().deleteDirectory(container, directory);
-        writeStore.deleteDirectory(container, directory);
     }
 
     @Override

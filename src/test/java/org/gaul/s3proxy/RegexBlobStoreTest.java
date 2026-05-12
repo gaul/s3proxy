@@ -31,18 +31,14 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public final class RegexBlobStoreTest {
-    private BlobStoreContext context;
     private BlobStore delegate;
     private String containerName;
 
@@ -50,21 +46,15 @@ public final class RegexBlobStoreTest {
     public void setUp() throws Exception {
         containerName = createRandomContainerName();
 
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        delegate = context.getBlobStore();
-        delegate.createContainerInLocation(null, containerName);
+        delegate = TestUtils.createTransientBlobStore();
+        delegate.createContainer(containerName);
 
     }
 
     @AfterEach
     public void tearDown() throws Exception {
-        if (context != null) {
+        if (delegate != null) {
             delegate.deleteContainer(containerName);
-            context.close();
         }
     }
 
@@ -81,7 +71,7 @@ public final class RegexBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         @SuppressWarnings("deprecation")
         String contentHash = Hashing.md5().hashBytes(content.read()).toString();
-        Blob blob = regexBlobStore.blobBuilder(initialBlobName).payload(
+        Blob blob = Blob.builder(initialBlobName).payload(
                 content).build();
 
         String eTag = regexBlobStore.putBlob(containerName, blob);

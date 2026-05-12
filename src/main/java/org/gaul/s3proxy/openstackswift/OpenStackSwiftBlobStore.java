@@ -31,7 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,48 +41,30 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Named;
-import jakarta.inject.Singleton;
-import jakarta.ws.rs.core.Response.Status;
-
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.StorageType;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.domain.internal.BlobBuilderImpl;
-import org.jclouds.blobstore.domain.internal.BlobMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.domain.internal.StorageMetadataImpl;
-import org.jclouds.blobstore.internal.BaseBlobStore;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.BlobUtils;
-import org.jclouds.collect.Memoized;
-import org.jclouds.domain.Credentials;
-import org.jclouds.domain.Location;
-import org.jclouds.http.HttpCommand;
-import org.jclouds.http.HttpRequest;
-import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
-import org.jclouds.io.ContentMetadataBuilder;
-import org.jclouds.io.Payload;
-import org.jclouds.io.PayloadSlicer;
-import org.jclouds.providers.ProviderMetadata;
-import org.jclouds.rest.AuthorizationException;
-import org.jclouds.util.Closeables2;
+import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.HttpResponse;
+import org.gaul.s3proxy.blobstore.HttpResponseException;
+import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.StorageType;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.openstack4j.api.OSClient.OSClientV3;
 import org.openstack4j.api.exceptions.ResponseException;
@@ -111,11 +92,42 @@ import org.openstack4j.openstack.OSFactory;
  * {@code endpoint} must be the Keystone auth URL (e.g.
  * {@code https://host:5000/v3}); the Swift endpoint itself is discovered from
  * the catalog.  The Keystone project and domains are supplied via the
- * {@link OpenStackSwiftApiMetadata} properties.
+ * {@code openstack-swift-sdk.*} properties.
  */
-@Singleton
 public final class OpenStackSwiftBlobStore extends BaseBlobStore {
+    /**
+     * Keystone project (tenant) name to scope the token to.  Required:
+     * Swift object storage is only reachable through a project-scoped token.
+     */
+    public static final String PROPERTY_PROJECT_NAME =
+            "openstack-swift-sdk.project-name";
+
+    /** Keystone domain that owns the project.  Defaults to "Default". */
+    public static final String PROPERTY_PROJECT_DOMAIN_NAME =
+            "openstack-swift-sdk.project-domain-name";
+
+    /** Keystone domain that owns the user.  Defaults to "Default". */
+    public static final String PROPERTY_USER_DOMAIN_NAME =
+            "openstack-swift-sdk.user-domain-name";
+
+    /**
+     * Region whose object-store endpoint should be selected from the service
+     * catalog.  Empty selects the first/default region.
+     */
+    public static final String PROPERTY_REGION = "openstack-swift-sdk.region";
+
     private static final long EXPIRY_MARGIN_MILLIS = 60_000L;
+
+    // HTTP status codes, spelled out to avoid a jakarta.ws.rs.core dependency
+    // (the openstack4j okhttp connector deliberately avoids JAX-RS).
+    private static final int STATUS_CREATED = 201;
+    private static final int STATUS_BAD_REQUEST = 400;
+    private static final int STATUS_UNAUTHORIZED = 401;
+    private static final int STATUS_FORBIDDEN = 403;
+    private static final int STATUS_NOT_FOUND = 404;
+    private static final int STATUS_CONFLICT = 409;
+    private static final int STATUS_PRECONDITION_FAILED = 412;
+    private static final int STATUS_RANGE_NOT_SATISFIABLE = 416;
 
     // Reserved key prefix for multipart-upload internals (segment objects and a
     // metadata marker) stored alongside user objects in the same container.
@@ -141,21 +153,10 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     // per request via OSFactory.clientFromToken().
     private volatile Token token;
 
-    @Inject
-    OpenStackSwiftBlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            ProviderMetadata provider,
-            @Named(OpenStackSwiftApiMetadata.PROJECT_NAME) String projectName,
-            @Named(OpenStackSwiftApiMetadata.PROJECT_DOMAIN_NAME)
-                String projectDomainName,
-            @Named(OpenStackSwiftApiMetadata.USER_DOMAIN_NAME)
-                String userDomainName,
-            @Named(OpenStackSwiftApiMetadata.REGION) String region) {
-        super(context, blobUtils, defaultLocation, locations, slicer);
-        this.endpoint = provider.getEndpoint();
+    public OpenStackSwiftBlobStore(Supplier<Credentials> creds, String endpoint,
+            String projectName, String projectDomainName,
+            String userDomainName, String region) {
+        this.endpoint = endpoint;
         this.creds = creds;
         this.projectName = projectName;
         this.projectDomainName = projectDomainName;
@@ -182,13 +183,13 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         }
         if (projectName.isEmpty()) {
             throw new IllegalArgumentException("Property " +
-                    OpenStackSwiftApiMetadata.PROJECT_NAME +
+                    PROPERTY_PROJECT_NAME +
                     " is required to access OpenStack Swift");
         }
         var cred = creds.get();
         OSClientV3 client = OSFactory.builderV3()
                 .endpoint(endpoint)
-                .credentials(cred.identity, cred.credential,
+                .credentials(cred.identity(), cred.credential(),
                         Identifier.byName(userDomainName))
                 .scopeToProject(Identifier.byName(projectName),
                         Identifier.byName(projectDomainName))
@@ -208,24 +209,23 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         var swift = objectStorage();
         var set = ImmutableSet.<StorageMetadata>builder();
         for (var container : swift.containers().list()) {
-            set.add(new StorageMetadataImpl(StorageType.CONTAINER,
-                    /*id=*/ null, container.getName(), /*location=*/ null,
-                    /*uri=*/ null, /*eTag=*/ null, /*creationDate=*/ null,
-                    /*lastModified=*/ null, Map.of(), /*size=*/ null,
-                    Tier.STANDARD));
+            set.add(new ContainerMetadata(container.getName(), Map.of(),
+                    /*eTag=*/ null, /*creationDate=*/ null,
+                    /*lastModified=*/ null, /*size=*/ null,
+                    StorageClass.STANDARD));
         }
-        return new PageSetImpl<StorageMetadata>(set.build(), null);
+        return new PageSet<StorageMetadata>(set.build(), null);
     }
 
     @Override
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         var swift = objectStorage();
-        String prefix = options.getPrefix();
-        var delimiter = options.getDelimiter();
+        String prefix = options.prefix();
+        var delimiter = options.delimiter();
         Character delimiterChar = delimiter != null && !delimiter.isEmpty() ?
                 delimiter.charAt(0) : null;
-        Integer maxResults = options.getMaxResults();
+        Integer maxResults = options.maxResults();
 
         // Collect visible objects, hiding multipart-upload internals.  A whole
         // Swift page can consist entirely of hidden keys, so keep fetching
@@ -234,7 +234,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         // and the container could appear empty.  The continuation marker is a
         // real visible key so it round-trips through the S3 client.
         var visible = new ArrayList<StorageMetadata>();
-        String swiftMarker = options.getMarker();
+        String swiftMarker = options.marker();
         boolean firstRequest = true;
         boolean more = false;
 
@@ -305,17 +305,18 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 }
 
                 if (isDirectory) {
-                    visible.add(new StorageMetadataImpl(
-                            StorageType.RELATIVE_PATH, /*id=*/ null, name,
-                            /*location=*/ null, /*uri=*/ null, /*eTag=*/ null,
+                    visible.add(new BlobMetadata(StorageType.RELATIVE_PATH,
+                            name, Map.of(), /*eTag=*/ null,
                             /*creationDate=*/ null, /*lastModified=*/ null,
-                            Map.of(), /*size=*/ null, Tier.STANDARD));
+                            StorageClass.STANDARD, /*container=*/ null,
+                            ContentMetadata.builder().build()));
                 } else {
-                    visible.add(new StorageMetadataImpl(StorageType.BLOB,
-                            /*id=*/ null, name, /*location=*/ null,
-                            /*uri=*/ null, object.getETag(),
-                            /*creationDate=*/ null, object.getLastModified(),
-                            Map.of(), object.getSizeInBytes(), Tier.STANDARD));
+                    visible.add(new BlobMetadata(StorageType.BLOB, name,
+                            Map.of(), object.getETag(), /*creationDate=*/ null,
+                            object.getLastModified(), StorageClass.STANDARD,
+                            /*container=*/ null, ContentMetadata.builder()
+                                    .contentLength(object.getSizeInBytes())
+                                    .build()));
                 }
             }
 
@@ -333,7 +334,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
         String nextMarker = more && !visible.isEmpty() ?
                 visible.get(visible.size() - 1).getName() : null;
-        return new PageSetImpl<StorageMetadata>(
+        return new PageSet<StorageMetadata>(
                 ImmutableSet.copyOf(visible), nextMarker);
     }
 
@@ -351,18 +352,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container) {
-        return createContainerInLocation(location, container,
-                new CreateContainerOptions());
+    public boolean createContainer(String container) {
+        return createContainer(container, CreateContainerOptions.NONE);
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container, CreateContainerOptions options) {
+    public boolean createContainer(String container,
+            CreateContainerOptions options) {
         var swift = objectStorage();
         CreateUpdateContainerOptions swiftOptions = null;
-        if (options.isPublicRead()) {
+        if (options.publicRead()) {
             swiftOptions = CreateUpdateContainerOptions.create()
                     .accessAnybodyRead();
         }
@@ -372,19 +371,24 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         }
         // Swift returns 201 Created for a new container and 202 Accepted when
         // the container already existed.
-        return response.getCode() == Status.CREATED.getStatusCode();
+        return response.getCode() == STATUS_CREATED;
     }
 
     @Override
     public void deleteContainer(String container) {
-        clearContainer(container);
+        try {
+            clearContainer(container);
+        } catch (ContainerNotFoundException cnfe) {
+            // The container is already gone; deleteContainer is idempotent.
+            return;
+        }
         // clearContainer lists via list(), which hides multipart-upload
         // segments, so purge those directly before the container delete (which
         // would otherwise fail because the container is not actually empty).
         purgeMultipartObjects(container);
         var response = deleteContainerResponse(container);
         if (!response.isSuccess() &&
-                response.getCode() != Status.NOT_FOUND.getStatusCode()) {
+                response.getCode() != STATUS_NOT_FOUND) {
             throw translate(response, container, /*key=*/ null);
         }
     }
@@ -449,11 +453,10 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     public boolean deleteContainerIfEmpty(String container) {
         var response = deleteContainerResponse(container);
         int code = response.getCode();
-        if (response.isSuccess() ||
-                code == Status.NOT_FOUND.getStatusCode()) {
+        if (response.isSuccess() || code == STATUS_NOT_FOUND) {
             return true;
         }
-        if (code != Status.CONFLICT.getStatusCode()) {
+        if (code != STATUS_CONFLICT) {
             throw translate(response, container, /*key=*/ null);
         }
         // Swift reports the container non-empty.  Overwriting or re-completing
@@ -470,20 +473,13 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         purgeMultipartObjects(container);
         response = deleteContainerResponse(container);
         code = response.getCode();
-        if (response.isSuccess() ||
-                code == Status.NOT_FOUND.getStatusCode()) {
+        if (response.isSuccess() || code == STATUS_NOT_FOUND) {
             return true;
         }
-        if (code == Status.CONFLICT.getStatusCode()) {
+        if (code == STATUS_CONFLICT) {
             return false;
         }
         throw translate(response, container, /*key=*/ null);
-    }
-
-    @Override
-    protected boolean deleteAndVerifyContainerGone(String container) {
-        deleteContainerResponse(container);
-        return !containerExists(container);
     }
 
     /**
@@ -499,8 +495,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             return objectStorage().containers().delete(container);
         } catch (ResponseException re) {
             if (!containerExists(container)) {
-                return ActionResponse.actionFailed(
-                        "", Status.NOT_FOUND.getStatusCode());
+                return ActionResponse.actionFailed("", STATUS_NOT_FOUND);
             }
             throw translate(re, container, /*key=*/ null);
         }
@@ -512,7 +507,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         try {
             return swift.objects().get(container, encodeName(key)) != null;
         } catch (ResponseException re) {
-            if (re.getStatus() == Status.NOT_FOUND.getStatusCode()) {
+            if (re.getStatus() == STATUS_NOT_FOUND) {
                 return false;
             }
             throw translate(re, container, key);
@@ -533,25 +528,25 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         // Disable okhttp's transparent gzip so a stored Content-Encoding header
         // survives instead of being stripped (and the body gunzipped).
         downloadOptions.header(HttpHeaders.ACCEPT_ENCODING, "identity");
-        boolean ranged = !options.getRanges().isEmpty();
+        boolean ranged = !options.ranges().isEmpty();
         if (ranged) {
             downloadOptions.header(HttpHeaders.RANGE,
-                    "bytes=" + options.getRanges().get(0));
+                    "bytes=" + options.ranges().get(0));
         }
-        if (options.getIfMatch() != null) {
-            downloadOptions.header(HttpHeaders.IF_MATCH, options.getIfMatch());
+        if (options.ifMatch() != null) {
+            downloadOptions.header(HttpHeaders.IF_MATCH, options.ifMatch());
         }
-        if (options.getIfNoneMatch() != null) {
+        if (options.ifNoneMatch() != null) {
             downloadOptions.header(HttpHeaders.IF_NONE_MATCH,
-                    options.getIfNoneMatch());
+                    options.ifNoneMatch());
         }
-        if (options.getIfModifiedSince() != null) {
+        if (options.ifModifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_MODIFIED_SINCE,
-                    toHttpDate(options.getIfModifiedSince()));
+                    toHttpDate(options.ifModifiedSince()));
         }
-        if (options.getIfUnmodifiedSince() != null) {
+        if (options.ifUnmodifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_UNMODIFIED_SINCE,
-                    toHttpDate(options.getIfUnmodifiedSince()));
+                    toHttpDate(options.ifUnmodifiedSince()));
         }
 
         DLPayload payload;
@@ -559,7 +554,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             payload = swift.objects().download(container, encodeName(key),
                     downloadOptions);
         } catch (ResponseException re) {
-            if (re.getStatus() == Status.NOT_FOUND.getStatusCode() &&
+            if (re.getStatus() == STATUS_NOT_FOUND &&
                     !containerExists(container)) {
                 throw new ContainerNotFoundException(container, "");
             }
@@ -572,8 +567,12 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             // capture the header we need and close the okhttp response to
             // release its connection rather than leaking it.
             String etag = response.header(SwiftHeaders.ETAG);
-            Closeables2.closeQuietly(response);
-            if (status == Status.NOT_FOUND.getStatusCode()) {
+            try {
+                response.close();
+            } catch (IOException ioe) {
+                // The connection is being abandoned; ignore close failures.
+            }
+            if (status == STATUS_NOT_FOUND) {
                 // The object is gone; distinguish a gone container so the GET
                 // reports NoSuchBucket rather than NoSuchKey.
                 if (!containerExists(container)) {
@@ -592,7 +591,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 failure.addHeader(HttpHeaders.ETAG, maybeQuoteETag(etag));
             }
             throw new HttpResponseException("unexpected status: " + status,
-                    /*command=*/ null, failure.build());
+                    failure.build());
         }
 
         var userMetadata = ImmutableMap.<String, String>builder();
@@ -613,8 +612,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         long contentLength = resolveContentLength(swift, container, key,
                 response.header(HttpHeaders.CONTENT_LENGTH),
                 ranged ? response.header(HttpHeaders.CONTENT_RANGE) : null);
-        var blob = new BlobBuilderImpl()
-                .name(key)
+        var builder = Blob.builder(key)
                 .payload(payload.getInputStream())
                 .contentLength(contentLength)
                 .contentType(response.getContentType())
@@ -624,19 +622,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 .cacheControl(response.header(HttpHeaders.CACHE_CONTROL))
                 .expires(parseHttpDate(response.header(HttpHeaders.EXPIRES)))
                 .userMetadata(userMetadata.build())
-                .build();
+                .eTag(response.header(SwiftHeaders.ETAG))
+                .lastModified(
+                        parseHttpDate(response.header(SwiftHeaders.LAST_MODIFIED)));
         if (ranged) {
             var contentRange = response.header(HttpHeaders.CONTENT_RANGE);
             if (contentRange != null) {
-                blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE,
-                        contentRange);
+                builder.contentRange(contentRange);
             }
         }
-        var metadata = blob.getMetadata();
-        metadata.setETag(response.header(SwiftHeaders.ETAG));
-        metadata.setLastModified(
-                parseHttpDate(response.header(SwiftHeaders.LAST_MODIFIED)));
-        return blob;
+        return builder.build();
     }
 
     @Override
@@ -650,33 +645,33 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         var metadata = blob.getMetadata();
         var contentMetadata = metadata.getContentMetadata();
         var swiftOptions = ObjectPutOptions.create();
-        var contentType = contentMetadata.getContentType();
+        var contentType = contentMetadata.contentType();
         if (contentType != null) {
             swiftOptions.contentType(contentType);
         }
-        var contentDisposition = contentMetadata.getContentDisposition();
+        var contentDisposition = contentMetadata.contentDisposition();
         if (contentDisposition != null) {
             swiftOptions.getOptions().put(HttpHeaders.CONTENT_DISPOSITION,
                     contentDisposition);
         }
-        var contentEncoding = contentMetadata.getContentEncoding();
+        var contentEncoding = contentMetadata.contentEncoding();
         if (contentEncoding != null) {
             swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
                     contentEncoding);
         }
-        var cacheControl = contentMetadata.getCacheControl();
+        var cacheControl = contentMetadata.cacheControl();
         if (cacheControl != null) {
             swiftOptions.getOptions().put(HttpHeaders.CACHE_CONTROL,
                     cacheControl);
         }
-        var expires = contentMetadata.getExpires();
+        var expires = contentMetadata.expires();
         if (expires != null) {
             swiftOptions.getOptions().put(HttpHeaders.EXPIRES,
                     toHttpDate(expires));
         }
         // Forward the client's Content-MD5 as the Swift ETag so the backend
         // verifies the object's integrity, replying 422 on a mismatch.
-        var contentMD5 = contentMetadata.getContentMD5AsHashCode();
+        var contentMD5 = contentMetadata.contentMD5();
         if (contentMD5 != null) {
             swiftOptions.getOptions().put(HttpHeaders.ETAG,
                     contentMD5.toString());
@@ -705,8 +700,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             }
             if (contentMD5 != null) {
                 throw new HttpResponseException("Content-MD5 mismatch",
-                        /*command=*/ null,
-                        HttpResponse.builder().statusCode(400).build());
+                        HttpResponse.builder().statusCode(STATUS_BAD_REQUEST)
+                                .build());
             }
             throw new RuntimeException(
                     "could not write object " + metadata.getName());
@@ -757,9 +752,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
     private static HttpResponseException preconditionFailed() {
         return new HttpResponseException("copy source precondition failed",
-                /*command=*/ null,
                 HttpResponse.builder()
-                        .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                        .statusCode(412)
                         .build());
     }
 
@@ -778,20 +772,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 throw new KeyNotFoundException(fromContainer, fromName,
                         "while copying");
             }
-            var blobMetadata = blob.getMetadata();
+            var builder = blob.toBuilder().name(toName);
             if (contentMetadata != null) {
-                var blobContentMetadata = blobMetadata.getContentMetadata();
-                blobContentMetadata.setContentType(
-                        contentMetadata.getContentType());
-                blobContentMetadata.setContentDisposition(
-                        contentMetadata.getContentDisposition());
-                blobContentMetadata.setContentEncoding(
-                        contentMetadata.getContentEncoding());
+                builder.contentType(contentMetadata.contentType())
+                        .contentDisposition(
+                                contentMetadata.contentDisposition())
+                        .contentEncoding(contentMetadata.contentEncoding());
             }
-            blobMetadata.setUserMetadata(userMetadata != null ? userMetadata :
+            builder.userMetadata(userMetadata != null ? userMetadata :
                     ImmutableMap.of());
-            blobMetadata.setName(toName);
-            return putBlob(toContainer, blob);
+            return putBlob(toContainer, builder.build());
         }
         var swift = objectStorage();
         String etag;
@@ -827,7 +817,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         var response = swift.objects().delete(
                 ObjectLocation.create(container, encoded), options);
         if (!response.isSuccess() &&
-                response.getCode() != Status.NOT_FOUND.getStatusCode()) {
+                response.getCode() != STATUS_NOT_FOUND) {
             throw translate(response, container, key);
         }
     }
@@ -868,7 +858,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         try {
             object = swift.objects().get(container, encodeName(key));
         } catch (ResponseException re) {
-            if (re.getStatus() == Status.NOT_FOUND.getStatusCode()) {
+            if (re.getStatus() == STATUS_NOT_FOUND) {
                 return null;
             }
             throw translate(re, container, key);
@@ -876,15 +866,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         if (object == null) {
             return null;
         }
-        var contentMetadata = ContentMetadataBuilder.create()
+        var contentMetadata = ContentMetadata.builder()
                 .contentLength(object.getSizeInBytes())
                 .contentType(object.getMimeType())
                 .build();
-        return new BlobMetadataImpl(/*id=*/ null, key, /*location=*/ null,
-                /*uri=*/ null, object.getETag(), /*creationDate=*/ null,
-                object.getLastModified(), object.getMetadata(),
-                /*publicUri=*/ null, container, contentMetadata,
-                object.getSizeInBytes(), Tier.STANDARD);
+        var userMetadata = object.getMetadata();
+        return new BlobMetadata(StorageType.BLOB, key,
+                userMetadata != null ? userMetadata : Map.of(),
+                object.getETag(), /*creationDate=*/ null,
+                object.getLastModified(), StorageClass.STANDARD, container,
+                contentMetadata);
     }
 
     @Override
@@ -959,33 +950,37 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         // Record the target key so listMultipartUploads can recover it.
         userMetadata.put(MPU_KEY_METADATA, blobMetadata.getName());
 
-        var marker = new BlobBuilderImpl()
-                .name(mpuMetaKey(uploadId))
-                .payload(new byte[0])
+        var markerBuilder = Blob.builder(mpuMetaKey(uploadId))
+                .payload(new ByteArrayInputStream(new byte[0]))
                 .contentLength(0)
-                .contentType(contentMetadata.getContentType())
-                .contentDisposition(contentMetadata.getContentDisposition())
-                .contentEncoding(contentMetadata.getContentEncoding())
-                .userMetadata(userMetadata)
-                .build();
-        putBlob(container, marker);
+                .userMetadata(userMetadata);
+        if (contentMetadata.contentType() != null) {
+            markerBuilder.contentType(contentMetadata.contentType());
+        }
+        if (contentMetadata.contentDisposition() != null) {
+            markerBuilder.contentDisposition(
+                    contentMetadata.contentDisposition());
+        }
+        if (contentMetadata.contentEncoding() != null) {
+            markerBuilder.contentEncoding(contentMetadata.contentEncoding());
+        }
+        putBlob(container, markerBuilder.build());
 
-        return MultipartUpload.create(container, blobMetadata.getName(),
+        return new MultipartUpload(container, blobMetadata.getName(),
                 uploadId, blobMetadata, options);
     }
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
             int partNumber, Payload payload) {
-        Long contentLength = payload.getContentMetadata().getContentLength();
+        Long contentLength = payload.getContentMetadata().contentLength();
         long length = contentLength == null ? -1 : contentLength;
-        var segment = new BlobBuilderImpl()
-                .name(mpuSegmentKey(mpu.id(), partNumber))
+        // The payload already carries its content length, which putBlob reads.
+        var segment = Blob.builder(mpuSegmentKey(mpu.id(), partNumber))
                 .payload(payload)
-                .contentLength(length)
                 .build();
         String eTag = putBlob(mpu.containerName(), segment);
-        return MultipartPart.create(partNumber, length, eTag,
+        return new MultipartPart(partNumber, length, eTag,
                 /*lastModified=*/ null);
     }
 
@@ -1013,9 +1008,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             } catch (NumberFormatException nfe) {
                 continue;
             }
-            parts.add(MultipartPart.create(partNumber,
-                    object.getSizeInBytes(), object.getETag(),
-                    object.getLastModified()));
+            parts.add(new MultipartPart(partNumber, object.getSizeInBytes(),
+                    object.getETag(), object.getLastModified()));
         }
         parts.sort(Comparator.comparingInt(MultipartPart::partNumber));
         return parts;
@@ -1033,16 +1027,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         var marker = getBlob(container, mpuMetaKey(uploadId), GetOptions.NONE);
         if (marker != null) {
             var contentMetadata = marker.getMetadata().getContentMetadata();
-            if (contentMetadata.getContentType() != null) {
-                swiftOptions.contentType(contentMetadata.getContentType());
+            if (contentMetadata.contentType() != null) {
+                swiftOptions.contentType(contentMetadata.contentType());
             }
-            if (contentMetadata.getContentDisposition() != null) {
+            if (contentMetadata.contentDisposition() != null) {
                 swiftOptions.getOptions().put(HttpHeaders.CONTENT_DISPOSITION,
-                        contentMetadata.getContentDisposition());
+                        contentMetadata.contentDisposition());
             }
-            if (contentMetadata.getContentEncoding() != null) {
+            if (contentMetadata.contentEncoding() != null) {
                 swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
-                        contentMetadata.getContentEncoding());
+                        contentMetadata.contentEncoding());
             }
             var userMetadata = new HashMap<>(
                     marker.getMetadata().getUserMetadata());
@@ -1152,7 +1146,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 blobName = marker.getMetadata().getUserMetadata()
                         .get(MPU_KEY_METADATA);
             }
-            uploads.add(MultipartUpload.create(container, blobName, uploadId,
+            uploads.add(new MultipartUpload(container, blobName, uploadId,
                     /*blobMetadata=*/ null, /*putOptions=*/ null));
         }
         return uploads;
@@ -1166,16 +1160,6 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     @Override
     public long getMaximumMultipartPartSize() {
         return 5L * 1024 * 1024 * 1024;
-    }
-
-    @Override
-    public int getMaximumNumberOfParts() {
-        return 1000;
-    }
-
-    @Override
-    public java.io.InputStream streamBlob(String container, String name) {
-        throw new UnsupportedOperationException("not yet implemented");
     }
 
     private static String mpuSegmentPrefix(String uploadId) {
@@ -1318,8 +1302,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     }
 
     /**
-     * Translate an openstack4j {@link ResponseException} into the jclouds
-     * exception the s3proxy handler expects, or rethrow it unchanged.
+     * Translate an openstack4j {@link ResponseException} into the exception the
+     * s3proxy handler expects, or rethrow it unchanged.
      */
     private RuntimeException translate(ResponseException re, String container,
             @Nullable String key) {
@@ -1334,7 +1318,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
     private RuntimeException translateStatus(int status, String container,
             @Nullable String key, Throwable cause) {
-        if (status == Status.NOT_FOUND.getStatusCode()) {
+        if (status == STATUS_NOT_FOUND) {
             if (key != null) {
                 var exception = new KeyNotFoundException(container, key, "");
                 exception.initCause(cause);
@@ -1343,21 +1327,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             var exception = new ContainerNotFoundException(container, "");
             exception.initCause(cause);
             return exception;
-        } else if (status == Status.UNAUTHORIZED.getStatusCode() ||
-                status == Status.FORBIDDEN.getStatusCode()) {
-            return new AuthorizationException(cause);
-        } else if (status == Status.PRECONDITION_FAILED.getStatusCode() ||
-                status == Status.REQUESTED_RANGE_NOT_SATISFIABLE
-                        .getStatusCode()) {
-            var request = HttpRequest.builder()
-                    .method("GET")
-                    .endpoint(endpoint)
-                    .build();
-            var response = HttpResponse.builder()
-                    .statusCode(status)
-                    .build();
-            return new HttpResponseException(new HttpCommand(request),
-                    response, cause);
+        } else if (status == STATUS_UNAUTHORIZED || status == STATUS_FORBIDDEN) {
+            // The fork has no AuthorizationException; a 403 HttpResponseException
+            // is mapped to AccessDenied by S3ProxyHandler.
+            return new HttpResponseException(
+                    HttpResponse.builder().statusCode(STATUS_FORBIDDEN).build(),
+                    cause);
+        } else if (status == STATUS_PRECONDITION_FAILED ||
+                status == STATUS_RANGE_NOT_SATISFIABLE) {
+            return new HttpResponseException(
+                    HttpResponse.builder().statusCode(status).build(), cause);
         }
         if (cause instanceof RuntimeException runtime) {
             return runtime;

@@ -20,17 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
-import java.util.List;
 import java.util.Map;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Maps;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -40,17 +36,8 @@ public final class GlobBlobStoreLocatorTest {
 
     @BeforeEach
     public void setUp() {
-        blobStoreOne = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class).getBlobStore();
-        blobStoreTwo = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class).getBlobStore();
-
+        blobStoreOne = TestUtils.createTransientBlobStore();
+        blobStoreTwo = TestUtils.createTransientBlobStore();
     }
 
     @Test

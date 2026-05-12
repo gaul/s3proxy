@@ -26,7 +26,7 @@ import java.util.Random;
 
 import com.google.common.io.ByteSource;
 
-import org.jclouds.blobstore.BlobStoreContext;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +56,7 @@ public final class AwsSdkAnonymousTest {
     private URI httpEndpoint;
     private URI s3EndpointUri;
     private S3Proxy s3Proxy;
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private String containerName;
     private S3Client client;
     private String servicePath;
@@ -65,7 +65,7 @@ public final class AwsSdkAnonymousTest {
     public void setUp() throws Exception {
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-anonymous.conf");
-        context = info.getBlobStore().getContext();
+        blobStore = info.getBlobStore();
         s3Proxy = info.getS3Proxy();
         httpEndpoint = info.getEndpoint();
         s3Endpoint = info.getSecureEndpoint();
@@ -75,7 +75,7 @@ public final class AwsSdkAnonymousTest {
         client = buildClient(AnonymousCredentialsProvider.create());
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainerInLocation(null, containerName);
+        info.getBlobStore().createContainer(containerName);
     }
 
     @AfterEach
@@ -86,9 +86,8 @@ public final class AwsSdkAnonymousTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.getBlobStore().deleteContainer(containerName);
-            context.close();
+        if (blobStore != null) {
+            blobStore.deleteContainer(containerName);
         }
     }
 

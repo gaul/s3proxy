@@ -20,15 +20,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.common.collect.ImmutableMap;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.MutableBlobMetadata;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /**
  * BlobStore which maps user metadata keys and values using character
@@ -55,7 +54,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob) {
-        return putBlob(containerName, blob, new PutOptions());
+        return putBlob(containerName, blob, PutOptions.NONE);
     }
 
     @Override
@@ -66,9 +65,9 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
             metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
                     replaceChars(entry.getValue(), fromChars, toChars));
         }
-        // TODO: should this modify the parameter?
-        blob.getMetadata().setUserMetadata(metadata.build());
-        return super.putBlob(containerName, blob, putOptions);
+        return super.putBlob(containerName, blob.toBuilder()
+                .userMetadata(metadata.build())
+                .build(), putOptions);
     }
 
     @Override
@@ -84,13 +83,12 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
-        ((MutableBlobMetadata) blobMetadata).setUserMetadata(metadata.build());
-        return blobMetadata;
+        return blobMetadata.toBuilder().userMetadata(metadata.build()).build();
     }
 
     @Override
     public Blob getBlob(String containerName, String name) {
-        return getBlob(containerName, name, new GetOptions());
+        return getBlob(containerName, name, GetOptions.NONE);
     }
 
     @Override
@@ -106,8 +104,9 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
-        blob.getMetadata().setUserMetadata(metadata.build());
-        return blob;
+        return blob.toBuilder()
+                .userMetadata(metadata.build())
+                .build();
     }
 
     @Override
@@ -155,8 +154,8 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ fromChars, /*toChars=*/ toChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ fromChars, /*toChars=*/ toChars));
         }
-        ((MutableBlobMetadata) blobMetadata).setUserMetadata(metadata.build());
-        return super.initiateMultipartUpload(container, blobMetadata,
+        return super.initiateMultipartUpload(container,
+                blobMetadata.toBuilder().userMetadata(metadata.build()).build(),
                 overrides);
     }
 

@@ -22,11 +22,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.List;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +32,7 @@ public final class S3ProxyMetricsEndpointTest {
     // from ordinary S3 (XML) responses.
     private static final String PROMETHEUS_CONTENT_TYPE = "version=0.0.4";
 
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private S3Proxy s3Proxy;
 
     @AfterEach
@@ -43,19 +40,16 @@ public final class S3ProxyMetricsEndpointTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.close();
+        if (blobStore != null) {
+            blobStore.close();
         }
     }
 
     private S3Proxy.Builder baseBuilder() {
-        context = ContextBuilder.newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
+        blobStore = TestUtils.createTransientBlobStore();
         return S3Proxy.builder()
                 .endpoint(URI.create("http://127.0.0.1:0"))
-                .blobStore(context.getBlobStore());
+                .blobStore(blobStore);
     }
 
     private static HttpResponse<String> get(String url) throws Exception {
