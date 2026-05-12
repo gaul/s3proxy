@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -187,29 +186,25 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     filterMultipart);
             var sorted = set.build();
             if (options.getMarker() != null) {
-                var found = false;
-                for (var blob : sorted) {
-                    if (blob.getName().compareTo(options.getMarker()) > 0) {
-                        sorted = sorted.tailSet(blob);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    sorted = ImmutableSortedSet.of();
-                }
+                // StorageMetadata's natural ordering is name-only (nulls
+                // last), so a name-only stub lets tailSet skip past the
+                // marker in O(log n).
+                sorted = sorted.tailSet(markerStub(options.getMarker()),
+                        /*inclusive=*/ false);
             }
             String marker = null;
             if (options.getMaxResults() != null) {
-                // TODO: efficiency?
-                var temp = ImmutableSortedSet.copyOf(sorted.stream().limit(options.getMaxResults().intValue()).collect(Collectors.toSet()));
-                if (!temp.isEmpty()) {
-                    var next = sorted.higher(temp.last());
-                    if (next != null) {
-                        marker = temp.last().getName();
+                int maxResults = options.getMaxResults().intValue();
+                var sortedList = sorted.asList();
+                if (sortedList.size() > maxResults) {
+                    if (maxResults == 0) {
+                        sorted = ImmutableSortedSet.of();
+                    } else {
+                        var last = sortedList.get(maxResults - 1);
+                        sorted = sorted.headSet(last, /*inclusive=*/ true);
+                        marker = last.getName();
                     }
                 }
-                sorted = temp;
             }
             return new PageSetImpl<StorageMetadata>(sorted, marker);
         } catch (IOException ioe) {
@@ -1269,6 +1264,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var path = root.resolve(container);
         checkValidPath(root, path);
         return path;
+    }
+
+    /** Minimal StorageMetadata used as a name-only key for SortedSet
+     *  range queries; relies on StorageMetadata's natural ordering being
+     *  by name. */
+    private static StorageMetadata markerStub(String name) {
+        return new StorageMetadataImpl(StorageType.BLOB, /*id=*/ null, name,
+                /*location=*/ null, /*uri=*/ null,
+                /*eTag=*/ null, /*creationDate=*/ null, /*lastModified=*/ null,
+                Map.of(), /*size=*/ null, Tier.STANDARD);
     }
 
     private static void setBlobAccessHelper(Path path, BlobAccess access) {
