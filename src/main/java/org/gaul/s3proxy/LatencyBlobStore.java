@@ -19,38 +19,34 @@ package org.gaul.s3proxy;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableMap;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.domain.Location;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.io.Payload;
-import org.jclouds.io.payloads.InputStreamPayload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.InputStreamPayload;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 public final class LatencyBlobStore extends ForwardingBlobStore {
     private static final Pattern PROPERTIES_LATENCY_RE = Pattern.compile(
@@ -64,9 +60,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     private static final String OP_LIST = "list";
     private static final String OP_CLEAR_CONTAINER = "clear-container";
     private static final String OP_DELETE_CONTAINER = "delete-container";
-    private static final String OP_DIRECTORY_EXISTS = "directory-exists";
-    private static final String OP_CREATE_DIRECTORY = "create-directory";
-    private static final String OP_DELETE_DIRECTORY = "delete-directory";
     private static final String OP_BLOB_EXISTS = "blob-exists";
     private static final String OP_PUT_BLOB = "put";
     private static final String OP_COPY_BLOB = "copy";
@@ -74,13 +67,10 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     private static final String OP_GET_BLOB = "get";
     private static final String OP_REMOVE_BLOB = "remove";
     private static final String OP_BLOB_ACCESS = "blob-access";
-    private static final String OP_COUNT_BLOBS = "count";
     private static final String OP_MULTIPART_MESSAGE = "multipart-message";
     private static final String OP_UPLOAD_PART = "upload-part";
     private static final String OP_LIST_MULTIPART = "list-multipart";
     private static final String OP_MULTIPART_PARAM = "multipart-param";
-    private static final String OP_DOWNLOAD_BLOB = "download";
-    private static final String OP_STREAM_BLOB = "stream";
     private final Map<String, Long> latencies;
     private final Map<String, Long> speeds;
 
@@ -131,12 +121,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public Set<? extends Location> listAssignableLocations() {
-        simulateLatency(OP_LIST);
-        return super.listAssignableLocations();
-    }
-
-    @Override
     public PageSet<? extends StorageMetadata> list() {
         simulateLatency(OP_LIST);
         return super.list();
@@ -161,15 +145,16 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location, String container) {
+    public boolean createContainer(String container) {
         simulateLatency(OP_CREATE_CONTAINER);
-        return super.createContainerInLocation(location, container);
+        return super.createContainer(container);
     }
 
     @Override
-    public boolean createContainerInLocation(Location location, String container, CreateContainerOptions createContainerOptions) {
+    public boolean createContainer(String container,
+            CreateContainerOptions createContainerOptions) {
         simulateLatency(OP_CREATE_CONTAINER);
-        return super.createContainerInLocation(location, container, createContainerOptions);
+        return super.createContainer(container, createContainerOptions);
     }
 
     @Override
@@ -206,24 +191,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public boolean deleteContainerIfEmpty(String container) {
         simulateLatency(OP_DELETE_CONTAINER);
         return super.deleteContainerIfEmpty(container);
-    }
-
-    @Override
-    public boolean directoryExists(String container, String directory) {
-        simulateLatency(OP_DIRECTORY_EXISTS);
-        return super.directoryExists(container, directory);
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        simulateLatency(OP_CREATE_DIRECTORY);
-        super.createDirectory(container, directory);
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
-        simulateLatency(OP_DELETE_DIRECTORY);
-        super.deleteDirectory(container, directory);
     }
 
     @Override
@@ -323,18 +290,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public long countBlobs(String container) {
-        simulateLatency(OP_COUNT_BLOBS);
-        return super.countBlobs(container);
-    }
-
-    @Override
-    public long countBlobs(String container, ListContainerOptions options) {
-        simulateLatency(OP_COUNT_BLOBS);
-        return super.countBlobs(container, options);
-    }
-
-    @Override
     public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
         simulateLatency(OP_MULTIPART_MESSAGE);
         return super.initiateMultipartUpload(container, blobMetadata, options);
@@ -388,38 +343,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         return super.getMaximumMultipartPartSize();
     }
 
-    @Override
-    public int getMaximumNumberOfParts() {
-        simulateLatency(OP_MULTIPART_PARAM);
-        return super.getMaximumNumberOfParts();
-    }
-
-    @Override
-    public void downloadBlob(String container, String name, File destination) {
-        simulateLatency(OP_DOWNLOAD_BLOB);
-        super.downloadBlob(container, name, destination);
-    }
-
-    @Override
-    public void downloadBlob(String container, String name, File destination, ExecutorService executor) {
-        simulateLatency(OP_DOWNLOAD_BLOB);
-        super.downloadBlob(container, name, destination, executor);
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name) {
-        simulateLatency(OP_STREAM_BLOB);
-        InputStream is = super.streamBlob(container, name);
-        return new ThrottledInputStream(is, getSpeed(OP_STREAM_BLOB));
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name, ExecutorService executor) {
-        simulateLatency(OP_STREAM_BLOB);
-        InputStream is = super.streamBlob(container, name, executor);
-        return new ThrottledInputStream(is, getSpeed(OP_STREAM_BLOB));
-    }
-
     private long getLatency(String op) {
         return latencies.getOrDefault(op, latencies.getOrDefault(OP_ALL, 0L));
     }
@@ -444,32 +367,25 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         ContentMetadata contentMeta = blobMeta.getContentMetadata();
         Map<String, String> userMetadata = blobMeta.getUserMetadata();
 
-        Blob newBlob = blobBuilder(blobMeta.getName())
+        return Blob.builder(blobMeta.getName())
                 .type(blobMeta.getType())
-                .tier(blobMeta.getTier())
+                .storageClass(blobMeta.getStorageClass())
                 .userMetadata(userMetadata)
                 .payload(is)
-                .cacheControl(contentMeta.getCacheControl())
-                .contentDisposition(contentMeta.getContentDisposition())
-                .contentEncoding(contentMeta.getContentEncoding())
-                .contentLanguage(contentMeta.getContentLanguage())
-                .contentLength(contentMeta.getContentLength())
-                .contentMD5(contentMeta.getContentMD5AsHashCode())
-                .contentType(contentMeta.getContentType())
-                .expires(contentMeta.getExpires())
+                .cacheControl(contentMeta.cacheControl())
+                .contentDisposition(contentMeta.contentDisposition())
+                .contentEncoding(contentMeta.contentEncoding())
+                .contentLanguage(contentMeta.contentLanguage())
+                .contentLength(contentMeta.contentLength())
+                .contentMD5(contentMeta.contentMD5())
+                .contentType(contentMeta.contentType())
+                .expires(contentMeta.expires())
+                .eTag(blobMeta.getETag())
+                .lastModified(blobMeta.getLastModified())
+                .container(blobMeta.getContainer())
+                // Preserve the Content-Range response header, which the
+                // handler reads for ranged GET responses.
+                .contentRange(blob.getContentRange())
                 .build();
-
-        newBlob.getMetadata().setUri(blobMeta.getUri());
-        newBlob.getMetadata().setETag(blobMeta.getETag());
-        newBlob.getMetadata().setLastModified(blobMeta.getLastModified());
-        newBlob.getMetadata().setSize(blobMeta.getSize());
-        newBlob.getMetadata().setPublicUri(blobMeta.getPublicUri());
-        newBlob.getMetadata().setContainer(blobMeta.getContainer());
-        // Preserve raw response headers such as Content-Range, which the
-        // handler reads from getAllHeaders() and which the blob builder above
-        // does not carry.
-        newBlob.setAllHeaders(blob.getAllHeaders());
-
-        return newBlob;
     }
 }

@@ -21,19 +21,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Map;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class UserMetadataReplacerBlobStoreTest {
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private String containerName;
     // TODO: better name?
@@ -44,13 +41,8 @@ public final class UserMetadataReplacerBlobStoreTest {
         containerName = TestUtils.createRandomContainerName();
 
         //noinspection UnstableApiUsage
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
-        blobStore.createContainerInLocation(null, containerName);
+        blobStore = TestUtils.createTransientBlobStore();
+        blobStore.createContainer(containerName);
 
         userMetadataReplacerBlobStore = UserMetadataReplacerBlobStore
                 .newUserMetadataReplacerBlobStore(blobStore, "-", "_");
@@ -58,9 +50,8 @@ public final class UserMetadataReplacerBlobStoreTest {
 
     @AfterEach
     public void tearDown() throws Exception {
-        if (context != null) {
+        if (blobStore != null) {
             blobStore.deleteContainer(containerName);
-            context.close();
         }
     }
 
@@ -68,7 +59,7 @@ public final class UserMetadataReplacerBlobStoreTest {
     public void testPutNewBlob() {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = userMetadataReplacerBlobStore.blobBuilder(blobName)
+        var blob = Blob.builder(blobName)
                 .payload(content)
                 .userMetadata(Map.of("my-key", "my-value-"))
                 .build();
@@ -107,7 +98,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         var fromName = TestUtils.createRandomBlobName();
         var toName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = userMetadataReplacerBlobStore.blobBuilder(fromName)
+        var blob = Blob.builder(fromName)
                 .payload(content)
                 .build();
         userMetadataReplacerBlobStore.putBlob(containerName, blob);
@@ -135,7 +126,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         var fromName = TestUtils.createRandomBlobName();
         var toName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = userMetadataReplacerBlobStore.blobBuilder(fromName)
+        var blob = Blob.builder(fromName)
                 .payload(content)
                 .userMetadata(Map.of("my-key", "my-value-"))
                 .build();
@@ -161,12 +152,12 @@ public final class UserMetadataReplacerBlobStoreTest {
     public void testPutNewMultipartBlob() {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = userMetadataReplacerBlobStore.blobBuilder(blobName)
+        var blob = Blob.builder(blobName)
                 .payload(content)
                 .userMetadata(Map.of("my-key", "my-value-"))
                 .build();
         var mpu = userMetadataReplacerBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), new PutOptions());
+                containerName, blob.getMetadata(), PutOptions.NONE);
         var part = userMetadataReplacerBlobStore.uploadMultipartPart(
                 mpu, 1, blob.getPayload());
         userMetadataReplacerBlobStore.completeMultipartUpload(

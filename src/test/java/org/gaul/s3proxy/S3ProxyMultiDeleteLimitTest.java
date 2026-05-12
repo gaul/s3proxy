@@ -23,18 +23,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 public final class S3ProxyMultiDeleteLimitTest {
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private S3Proxy s3Proxy;
 
     @AfterEach
@@ -42,20 +37,16 @@ public final class S3ProxyMultiDeleteLimitTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.close();
+        if (blobStore != null) {
+            blobStore.close();
         }
     }
 
     @Test
     public void testMultiDeleteBodyExceedingLimitRejected() throws Exception {
-        context = ContextBuilder.newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
-        String container = "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainerInLocation(null, container);
+        blobStore = TestUtils.createTransientBlobStore();
+        String container = TestUtils.createRandomContainerName();
+        blobStore.createContainer(container);
 
         long limit = 1024;
         s3Proxy = S3Proxy.builder()

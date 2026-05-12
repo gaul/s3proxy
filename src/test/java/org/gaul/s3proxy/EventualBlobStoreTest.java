@@ -30,16 +30,13 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,8 +46,6 @@ public final class EventualBlobStoreTest {
     private static final TimeUnit DELAY_UNIT = TimeUnit.SECONDS;
     private static final ByteSource BYTE_SOURCE =
             TestUtils.randomByteSource().slice(0, 1024);
-    private BlobStoreContext nearContext;
-    private BlobStoreContext farContext;
     private BlobStore nearBlobStore;
     private BlobStore farBlobStore;
     private String containerName;
@@ -61,21 +56,11 @@ public final class EventualBlobStoreTest {
     public void setUp() throws Exception {
         containerName = createRandomContainerName();
 
-        nearContext = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        nearBlobStore = nearContext.getBlobStore();
-        nearBlobStore.createContainerInLocation(null, containerName);
+        nearBlobStore = TestUtils.createTransientBlobStore();
+        nearBlobStore.createContainer(containerName);
 
-        farContext = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        farBlobStore = farContext.getBlobStore();
-        farBlobStore.createContainerInLocation(null, containerName);
+        farBlobStore = TestUtils.createTransientBlobStore();
+        farBlobStore.createContainer(containerName);
 
         executorService = Executors.newScheduledThreadPool(1);
 
@@ -86,13 +71,11 @@ public final class EventualBlobStoreTest {
 
     @AfterEach
     public void tearDown() throws Exception {
-        if (nearContext != null) {
+        if (nearBlobStore != null) {
             nearBlobStore.deleteContainer(containerName);
-            nearContext.close();
         }
-        if (farContext != null) {
+        if (farBlobStore != null) {
             farBlobStore.deleteContainer(containerName);
-            farContext.close();
         }
         if (executorService != null) {
             executorService.shutdown();
@@ -102,7 +85,7 @@ public final class EventualBlobStoreTest {
     @Test
     public void testReadAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(eventualBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob);
         assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
@@ -113,7 +96,7 @@ public final class EventualBlobStoreTest {
     @Test
     public void testReadAfterDelete() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(eventualBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob);
         assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
@@ -128,11 +111,11 @@ public final class EventualBlobStoreTest {
     @Test
     public void testOverwriteAfterDelete() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(eventualBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob);
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
-        blob = makeBlob(eventualBlobStore, blobName);
+        blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob);
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
@@ -142,7 +125,7 @@ public final class EventualBlobStoreTest {
     public void testReadAfterCopy() throws Exception {
         String fromName = createRandomBlobName();
         String toName = createRandomBlobName();
-        Blob blob = makeBlob(eventualBlobStore, fromName);
+        Blob blob = makeBlob(fromName);
         eventualBlobStore.putBlob(containerName, blob);
         delay();
         eventualBlobStore.copyBlob(containerName, fromName, containerName,
@@ -156,9 +139,9 @@ public final class EventualBlobStoreTest {
     @Test
     public void testReadAfterMultipartUpload() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(eventualBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         MultipartUpload mpu = eventualBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), new PutOptions());
+                containerName, blob.getMetadata(), PutOptions.NONE);
         MultipartPart part = eventualBlobStore.uploadMultipartPart(mpu,
                 /*partNumber=*/ 1, blob.getPayload());
         eventualBlobStore.completeMultipartUpload(mpu, List.of(part));
@@ -174,7 +157,7 @@ public final class EventualBlobStoreTest {
                 nearBlobStore, farBlobStore, executorService, DELAY,
                 DELAY_UNIT, /*probability=*/ 0.0);
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(store, blobName);
+        Blob blob = makeBlob(blobName);
         store.putBlob(containerName, blob);
         delay();
         assertThat(farBlobStore.blobMetadata(containerName, blobName))
@@ -184,7 +167,7 @@ public final class EventualBlobStoreTest {
     @Test
     public void testListAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(eventualBlobStore, blobName);
+        Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob);
         assertThat(eventualBlobStore.list(containerName)).isEmpty();
         delay();
@@ -195,8 +178,8 @@ public final class EventualBlobStoreTest {
     public void testCreateContainerInBothStores() throws Exception {
         String newContainer = createRandomContainerName();
         try {
-            assertThat(eventualBlobStore.createContainerInLocation(
-                    null, newContainer)).isTrue();
+            assertThat(eventualBlobStore.createContainer(newContainer))
+                    .isTrue();
             // Container operations apply synchronously to both stores.
             assertThat(nearBlobStore.containerExists(newContainer)).isTrue();
             assertThat(farBlobStore.containerExists(newContainer)).isTrue();
@@ -209,9 +192,9 @@ public final class EventualBlobStoreTest {
     @Test
     public void testClearContainerClearsBothStores() throws Exception {
         nearBlobStore.putBlob(containerName,
-                makeBlob(nearBlobStore, createRandomBlobName()));
+                makeBlob(createRandomBlobName()));
         farBlobStore.putBlob(containerName,
-                makeBlob(farBlobStore, createRandomBlobName()));
+                makeBlob(createRandomBlobName()));
         assertThat(nearBlobStore.list(containerName)).isNotEmpty();
         assertThat(farBlobStore.list(containerName)).isNotEmpty();
 
@@ -230,14 +213,13 @@ public final class EventualBlobStoreTest {
         return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 
-    private static Blob makeBlob(BlobStore blobStore, String blobName)
-            throws IOException {
-        return blobStore.blobBuilder(blobName)
+    private static Blob makeBlob(String blobName) throws IOException {
+        return Blob.builder(blobName)
                 .payload(BYTE_SOURCE)
                 .contentDisposition("attachment; filename=foo.mp4")
                 .contentEncoding("compress")
                 .contentLength(BYTE_SOURCE.size())
-                .contentType(MediaType.MP4_AUDIO)
+                .contentType(MediaType.MP4_AUDIO.toString())
                 .contentMD5(BYTE_SOURCE.hash(TestUtils.MD5))
                 .userMetadata(Map.of("key", "value"))
                 .build();
@@ -248,13 +230,13 @@ public final class EventualBlobStoreTest {
 
         ContentMetadata contentMetadata =
                 blob.getMetadata().getContentMetadata();
-        assertThat(contentMetadata.getContentDisposition())
+        assertThat(contentMetadata.contentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
-        assertThat(contentMetadata.getContentEncoding())
+        assertThat(contentMetadata.contentEncoding())
                 .isEqualTo("compress");
-        assertThat(contentMetadata.getContentLength())
+        assertThat(contentMetadata.contentLength())
                 .isEqualTo(BYTE_SOURCE.size());
-        assertThat(contentMetadata.getContentType())
+        assertThat(contentMetadata.contentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
         assertThat(blob.getMetadata().getUserMetadata())

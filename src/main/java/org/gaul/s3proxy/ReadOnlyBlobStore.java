@@ -18,20 +18,19 @@ package org.gaul.s3proxy;
 
 import java.util.List;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.domain.Location;
-import org.jclouds.io.Payload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /** This class is a BlobStore wrapper which prevents mutating operations. */
 final class ReadOnlyBlobStore extends ForwardingBlobStore {
@@ -44,14 +43,13 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container) {
+    public boolean createContainer(String container) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container, CreateContainerOptions options) {
+    public boolean createContainer(String container,
+            CreateContainerOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
@@ -78,16 +76,6 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public boolean deleteContainerIfEmpty(String container) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

@@ -25,14 +25,11 @@ import java.util.Map;
 
 import com.google.common.io.ByteSource;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +38,6 @@ public final class ShardedBlobStoreTest {
     private int shards;
     private String prefix;
     private String containerName;
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private BlobStore shardedBlobStore;
     private List<String> createdContainers;
@@ -52,12 +48,7 @@ public final class ShardedBlobStoreTest {
         containerName = TestUtils.createRandomContainerName();
         shards = 10;
         prefix = TestUtils.createRandomContainerName();
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
+        blobStore = TestUtils.createTransientBlobStore();
         var shardsMap = Map.of(containerName, shards);
         prefixesMap = Map.of(containerName, prefix);
         shardedBlobStore = ShardedBlobStore.newShardedBlobStore(
@@ -67,11 +58,10 @@ public final class ShardedBlobStoreTest {
 
     @AfterEach
     public void tearDown() {
-        if (this.context != null) {
+        if (this.blobStore != null) {
             for (String container : this.createdContainers) {
                 blobStore.deleteContainer(container);
             }
-            context.close();
         }
     }
 
@@ -85,8 +75,7 @@ public final class ShardedBlobStoreTest {
         } else {
             this.createdContainers.add(container);
         }
-        assertThat(shardedBlobStore.createContainerInLocation(
-                null, container)).isTrue();
+        assertThat(shardedBlobStore.createContainer(container)).isTrue();
     }
 
     public int countShards() {
@@ -125,7 +114,7 @@ public final class ShardedBlobStoreTest {
         String nonZeroShard = "%s-3".formatted(prefix);
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         blobStore.putBlob(nonZeroShard,
-                blobStore.blobBuilder("object").payload(content).build());
+                Blob.builder("object").payload(content).build());
 
         assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
                 .isFalse();
@@ -156,9 +145,9 @@ public final class ShardedBlobStoreTest {
         String blobName2 = "bar";
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         ByteSource content2 = TestUtils.randomByteSource().slice(1024, 1024);
-        Blob blob = shardedBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
-        Blob blob2 = shardedBlobStore.blobBuilder(blobName2).payload(content2)
+        Blob blob2 = Blob.builder(blobName2).payload(content2)
                 .build();
 
         createContainer(containerName);
@@ -198,7 +187,7 @@ public final class ShardedBlobStoreTest {
     public void testDeleteBlob() {
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = shardedBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(containerName);
         shardedBlobStore.putBlob(containerName, blob);
@@ -214,7 +203,7 @@ public final class ShardedBlobStoreTest {
         String unshardedContainer = TestUtils.createRandomContainerName();
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = shardedBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(unshardedContainer);
         shardedBlobStore.putBlob(unshardedContainer, blob);
@@ -229,7 +218,7 @@ public final class ShardedBlobStoreTest {
     public void testCopyBlob() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = shardedBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(containerName);
         shardedBlobStore.putBlob(containerName, blob);
@@ -249,7 +238,7 @@ public final class ShardedBlobStoreTest {
         String blobName = TestUtils.createRandomBlobName();
         String unshardedContainer = TestUtils.createRandomContainerName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = shardedBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
@@ -269,7 +258,7 @@ public final class ShardedBlobStoreTest {
         String blobName = TestUtils.createRandomBlobName();
         String unshardedContainer = TestUtils.createRandomContainerName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = shardedBlobStore.blobBuilder(blobName).payload(content)
+        Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);

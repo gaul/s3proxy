@@ -27,23 +27,21 @@ import java.util.Properties;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
-import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.io.Payload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /**
  * Middleware that scopes a virtual bucket to a fixed backend prefix.
@@ -58,12 +56,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     static BlobStore newPrefixBlobStore(BlobStore delegate,
             Map<String, String> prefixes) {
-        String blobStoreType = delegate.getContext().unwrap()
-                .getProviderMetadata().getId();
-        if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
-            throw new UnsupportedOperationException(
-                    "Only supports opaque markers");
-        }
         return new PrefixBlobStore(delegate, prefixes);
     }
 
@@ -124,18 +116,17 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (metadata == null || !hasPrefix(container)) {
             return metadata;
         }
-        var mutable = new MutableBlobMetadataImpl(metadata);
-        mutable.setName(trimPrefix(container, metadata.getName()));
-        return mutable;
+        return metadata.toBuilder()
+                .name(trimPrefix(container, metadata.getName()))
+                .build();
     }
 
     private Blob trimBlob(String container, Blob blob) {
         if (blob == null || !hasPrefix(container)) {
             return blob;
         }
-        blob.getMetadata().setName(
-                trimPrefix(container, blob.getMetadata().getName()));
-        return blob;
+        return blob.toBuilder().name(
+                trimPrefix(container, blob.getMetadata().getName())).build();
     }
 
     private MultipartUpload toDelegateMultipartUpload(MultipartUpload upload) {
@@ -143,12 +134,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             return upload;
         }
         var metadata = upload.blobMetadata() == null ? null :
-                new MutableBlobMetadataImpl(upload.blobMetadata());
-        if (metadata != null) {
-            metadata.setName(
-                    addPrefix(upload.containerName(), metadata.getName()));
-        }
-        return MultipartUpload.create(upload.containerName(),
+                upload.blobMetadata().toBuilder()
+                        .name(addPrefix(upload.containerName(),
+                                upload.blobMetadata().getName()))
+                        .build();
+        return new MultipartUpload(upload.containerName(),
                 addPrefix(upload.containerName(), upload.blobName()),
                 upload.id(), metadata, upload.putOptions());
     }
@@ -158,12 +148,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             return upload;
         }
         var metadata = upload.blobMetadata() == null ? null :
-                new MutableBlobMetadataImpl(upload.blobMetadata());
-        if (metadata != null) {
-            metadata.setName(
-                    trimPrefix(upload.containerName(), metadata.getName()));
-        }
-        return MultipartUpload.create(upload.containerName(),
+                upload.blobMetadata().toBuilder()
+                        .name(trimPrefix(upload.containerName(),
+                                upload.blobMetadata().getName()))
+                        .build();
+        return new MultipartUpload(upload.containerName(),
                 trimPrefix(upload.containerName(), upload.blobName()),
                 upload.id(), metadata, upload.putOptions());
     }
@@ -173,28 +162,23 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (!hasPrefix(container)) {
             return options;
         }
-        ListContainerOptions effective = options == null ?
-                new ListContainerOptions() : options.clone();
+        var builder = options == null ?
+                ListContainerOptions.builder() : options.toBuilder();
         String basePrefix = getPrefix(container);
-        String requestedPrefix = effective.getPrefix();
-        String requestedMarker = effective.getMarker();
-        String requestedDir = effective.getDir();
+        String requestedPrefix = options == null ? null : options.prefix();
+        String requestedMarker = options == null ? null : options.marker();
 
         if (Strings.isNullOrEmpty(requestedPrefix)) {
-            effective.prefix(basePrefix);
+            builder.prefix(basePrefix);
         } else {
-            effective.prefix(addPrefix(container, requestedPrefix));
+            builder.prefix(addPrefix(container, requestedPrefix));
         }
 
         if (!Strings.isNullOrEmpty(requestedMarker)) {
-            effective.afterMarker(addPrefix(container, requestedMarker));
+            builder.afterMarker(addPrefix(container, requestedMarker));
         }
 
-        if (!Strings.isNullOrEmpty(requestedDir)) {
-            effective.inDirectory(addPrefix(container, requestedDir));
-        }
-
-        return effective;
+        return builder.build();
     }
 
     private PageSet<? extends StorageMetadata> trimListing(String container,
@@ -205,36 +189,20 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         var builder = ImmutableList.<StorageMetadata>builder();
         for (StorageMetadata metadata : listing) {
             if (metadata instanceof BlobMetadata blobMetadata) {
-                var mutable = new MutableBlobMetadataImpl(blobMetadata);
-                mutable.setName(trimPrefix(container, blobMetadata.getName()));
-                builder.add(mutable);
-            } else {
-                var mutable = new MutableStorageMetadataImpl(metadata);
-                mutable.setName(trimPrefix(container, metadata.getName()));
-                builder.add(mutable);
+                builder.add(blobMetadata.toBuilder()
+                        .name(trimPrefix(container, blobMetadata.getName()))
+                        .build());
+            } else if (metadata instanceof ContainerMetadata cm) {
+                builder.add(cm.toBuilder()
+                        .name(trimPrefix(container, cm.getName()))
+                        .build());
             }
         }
         String nextMarker = listing.getNextMarker();
         if (nextMarker != null) {
             nextMarker = trimPrefix(container, nextMarker);
         }
-        return new PageSetImpl<>(builder.build(), nextMarker);
-    }
-
-    @Override
-    public boolean directoryExists(String container, String directory) {
-        return super.directoryExists(container,
-                addPrefix(container, directory));
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        super.createDirectory(container, addPrefix(container, directory));
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
-        super.deleteDirectory(container, addPrefix(container, directory));
+        return new PageSet<>(builder.build(), nextMarker);
     }
 
     @Override
@@ -265,25 +233,17 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob) {
-        String originalName = blob.getMetadata().getName();
-        blob.getMetadata().setName(addPrefix(containerName, originalName));
-        try {
-            return super.putBlob(containerName, blob);
-        } finally {
-            blob.getMetadata().setName(originalName);
-        }
+        return super.putBlob(containerName, blob.toBuilder()
+                .name(addPrefix(containerName, blob.getMetadata().getName()))
+                .build());
     }
 
     @Override
     public String putBlob(String containerName, Blob blob,
                           PutOptions options) {
-        String originalName = blob.getMetadata().getName();
-        blob.getMetadata().setName(addPrefix(containerName, originalName));
-        try {
-            return super.putBlob(containerName, blob, options);
-        } finally {
-            blob.getMetadata().setName(originalName);
-        }
+        return super.putBlob(containerName, blob.toBuilder()
+                .name(addPrefix(containerName, blob.getMetadata().getName()))
+                .build(), options);
     }
 
     @Override
@@ -327,7 +287,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (!hasPrefix(container)) {
             return super.list(container);
         }
-        return list(container, new ListContainerOptions());
+        return list(container, ListContainerOptions.NONE);
     }
 
     @Override
@@ -346,9 +306,10 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             super.clearContainer(container);
             return;
         }
-        var options = new ListContainerOptions()
+        var options = ListContainerOptions.builder()
                 .prefix(getPrefix(container))
-                .recursive();
+                .recursive()
+                .build();
         super.clearContainer(container, options);
     }
 
@@ -364,10 +325,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
-        var mutable = new MutableBlobMetadataImpl(blobMetadata);
-        mutable.setName(addPrefix(container, blobMetadata.getName()));
+        BlobMetadata renamed = blobMetadata.toBuilder()
+                .name(addPrefix(container, blobMetadata.getName()))
+                .build();
         MultipartUpload upload = super.initiateMultipartUpload(container,
-                mutable, options);
+                renamed, options);
         return toClientMultipartUpload(upload);
     }
 

@@ -27,17 +27,14 @@ import java.util.Properties;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.io.Payloads;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ByteSourcePayload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +42,6 @@ import org.junit.jupiter.api.Test;
 public final class PrefixBlobStoreTest {
     private String containerName;
     private String prefix;
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private BlobStore prefixBlobStore;
 
@@ -53,30 +49,24 @@ public final class PrefixBlobStoreTest {
     public void setUp() {
         containerName = TestUtils.createRandomContainerName();
         prefix = "forward-prefix/";
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
-        blobStore.createContainerInLocation(null, containerName);
+        blobStore = TestUtils.createTransientBlobStore();
+        blobStore.createContainer(containerName);
         prefixBlobStore = PrefixBlobStore.newPrefixBlobStore(
                 blobStore, Map.of(containerName, prefix));
     }
 
     @AfterEach
     public void tearDown() {
-        if (context != null) {
+        if (blobStore != null) {
             blobStore.clearContainer(containerName);
             blobStore.deleteContainer(containerName);
-            context.close();
         }
     }
 
     @Test
     public void testPutAndGetBlob() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 256);
-        Blob blob = prefixBlobStore.blobBuilder("object.txt")
+        Blob blob = Blob.builder("object.txt")
                 .payload(content)
                 .build();
         prefixBlobStore.putBlob(containerName, blob);
@@ -96,11 +86,11 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testListTrimsPrefix() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 64);
-        prefixBlobStore.putBlob(containerName, prefixBlobStore.blobBuilder(
+        prefixBlobStore.putBlob(containerName, Blob.builder(
                 "file-one.txt").payload(content).build());
-        blobStore.putBlob(containerName, blobStore.blobBuilder(
+        blobStore.putBlob(containerName, Blob.builder(
                 prefix + "file-two.txt").payload(content).build());
-        blobStore.putBlob(containerName, blobStore.blobBuilder(
+        blobStore.putBlob(containerName, Blob.builder(
                 "outside.txt").payload(content).build());
 
         PageSet<? extends StorageMetadata> listing =
@@ -116,9 +106,9 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testClearContainerKeepsOtherObjects() {
         ByteSource content = TestUtils.randomByteSource().slice(0, 32);
-        prefixBlobStore.putBlob(containerName, prefixBlobStore.blobBuilder(
+        prefixBlobStore.putBlob(containerName, Blob.builder(
                 "inside.txt").payload(content).build());
-        blobStore.putBlob(containerName, blobStore.blobBuilder(
+        blobStore.putBlob(containerName, Blob.builder(
                 "outside.txt").payload(content).build());
 
         prefixBlobStore.clearContainer(containerName);
@@ -132,14 +122,14 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testMultipartUploadUsesPrefix() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 512);
-        Blob blob = prefixBlobStore.blobBuilder("archive.bin").build();
+        Blob blob = Blob.builder("archive.bin").build();
         MultipartUpload mpu = prefixBlobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
         assertThat(mpu.containerName()).isEqualTo(containerName);
         assertThat(mpu.blobName()).isEqualTo("archive.bin");
 
         MultipartPart part = prefixBlobStore.uploadMultipartPart(
-                mpu, 1, Payloads.newPayload(content));
+                mpu, 1, new ByteSourcePayload(content));
         prefixBlobStore.completeMultipartUpload(mpu, List.of(part));
 
         assertThat(blobStore.blobExists(containerName,
@@ -148,7 +138,7 @@ public final class PrefixBlobStoreTest {
 
     @Test
     public void testListMultipartUploadsTrimsPrefix() {
-        Blob blob = prefixBlobStore.blobBuilder("pending.bin").build();
+        Blob blob = Blob.builder("pending.bin").build();
         MultipartUpload mpu = prefixBlobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
 

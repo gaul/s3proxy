@@ -20,16 +20,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
 import java.util.List;
-import java.util.Random;
 
 import org.assertj.core.api.Fail;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,20 +43,16 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class S3ProxyCompleteMultipartUploadErrorTest {
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private S3Proxy s3Proxy;
     private S3Client client;
     private String containerName;
 
     @BeforeEach
     public void setUp() throws Exception {
-        context = ContextBuilder.newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        BlobStore blobStore = context.getBlobStore();
-        containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainerInLocation(null, containerName);
+        blobStore = TestUtils.createTransientBlobStore();
+        containerName = TestUtils.createRandomContainerName();
+        blobStore.createContainer(containerName);
 
         // Fail only completeMultipartUpload, so the upload succeeds up to the
         // point where the response has already been committed with 200.
@@ -98,8 +90,8 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.close();
+        if (blobStore != null) {
+            blobStore.close();
         }
     }
 

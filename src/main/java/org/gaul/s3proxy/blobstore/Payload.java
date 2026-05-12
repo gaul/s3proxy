@@ -1,5 +1,6 @@
 /*
- * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2009-2025 The Apache Software Foundation
+ * Copyright 2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +15,18 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy.nio2blob;
+package org.gaul.s3proxy.blobstore;
 
-import com.google.inject.AbstractModule;
-import com.google.inject.Scopes;
+import java.io.IOException;
+import java.io.InputStream;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.attr.ConsistencyModel;
+public interface Payload {
 
-public final class TransientNio2BlobStoreContextModule extends AbstractModule {
-    @Override
-    protected void configure() {
-        bind(ConsistencyModel.class).toInstance(ConsistencyModel.STRICT);
-        bind(BlobStore.class).to(TransientNio2BlobStore.class).in(Scopes.SINGLETON);
-    }
+    /** Creates a new InputStream object of the payload. */
+    InputStream openStream() throws IOException;
+
+    ContentMetadata getContentMetadata();
+
+    /** Returns a Payload over the same data with the given content metadata. */
+    Payload withContentMetadata(ContentMetadata contentMetadata);
 }

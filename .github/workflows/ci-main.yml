@@ -180,10 +180,6 @@ jobs:
             fi
             sleep 1
           done
-      - name: Maven Test with LocalStack (s3)
-        run: |
-          # TODO: run other test classes
-          mvn test -Ds3proxy.test.conf=s3proxy-localstack-s3.conf -Dtest=AwsSdkTest
 
       - name: Maven Test with LocalStack (aws-s3-sdk)
         run: |

@@ -16,42 +16,37 @@
 
 package org.gaul.s3proxy;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.domain.internal.BlobMetadataImpl;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /**
- * This class implements a middleware to set the storage tier when creating
+ * This class implements a middleware to set the storage class when creating
  * objects.  The class is configured via:
  *
  *   s3proxy.storage-class-blobstore = VALUE
  *
- * VALUE can be anything from org.jclouds.s3.domain.StorageClass, e.g.,
- * STANDARD, STANDARD_IA, GLACIER_IR, DEEP_ARCHIVE.  Some values do not
- * translate exactly due to jclouds limitations, e.g., REDUCED_REDUNDANCY maps
- * to STANDARD.  This mapping is best effort especially for non-S3 object
- * stores.
+ * VALUE can be any S3 storage class name, e.g., STANDARD, STANDARD_IA,
+ * GLACIER_IR, DEEP_ARCHIVE. This mapping is best effort especially for
+ * non-S3 object stores.
  */
 public final class StorageClassBlobStore extends ForwardingBlobStore {
-    private final Tier tier;
+    private final StorageClass storageClass;
 
     private StorageClassBlobStore(BlobStore delegate,
             String storageClassString) {
         super(delegate);
-        StorageClass storageClass;
+        StorageClass parsed;
         try {
-            storageClass = StorageClass.valueOf(
-                    storageClassString.toUpperCase());
+            parsed = StorageClass.valueOf(storageClassString.toUpperCase());
         } catch (IllegalArgumentException iae) {
-            storageClass = StorageClass.STANDARD;
+            parsed = StorageClass.STANDARD;
         }
-        this.tier = storageClass.toTier();
+        this.storageClass = parsed;
     }
 
     static StorageClassBlobStore newStorageClassBlobStore(BlobStore blobStore,
@@ -59,55 +54,48 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
         return new StorageClassBlobStore(blobStore, storageClass);
     }
 
-    public Tier getTier() {
-        return tier;
+    public StorageClass getStorageClass() {
+        return storageClass;
     }
 
     @Override
     public String putBlob(String containerName, Blob blob) {
-        var newBlob = replaceTier(containerName, blob);
+        var newBlob = replaceStorageClass(blob);
         return delegate().putBlob(containerName, newBlob);
     }
 
     @Override
     public String putBlob(String containerName, Blob blob,
             PutOptions options) {
-        var newBlob = replaceTier(containerName, blob);
+        var newBlob = replaceStorageClass(blob);
         return delegate().putBlob(containerName, newBlob, options);
     }
 
     @Override
     public MultipartUpload initiateMultipartUpload(
             String container, BlobMetadata blobMetadata, PutOptions options) {
-        var newBlobMetadata = replaceTier(blobMetadata);
+        var newBlobMetadata = replaceStorageClass(blobMetadata);
         return delegate().initiateMultipartUpload(container, newBlobMetadata,
                 options);
     }
 
-    private Blob replaceTier(String containerName, Blob blob) {
+    private Blob replaceStorageClass(Blob blob) {
         var blobMeta = blob.getMetadata();
         var contentMeta = blob.getMetadata().getContentMetadata();
-        return blobBuilder(containerName)
-                .name(blobMeta.getName())
-                .type(blobMeta.getType())
-                .tier(tier)
+        return Blob.builder(blobMeta.getName())
+                .storageClass(storageClass)
                 .userMetadata(blobMeta.getUserMetadata())
                 .payload(blob.getPayload())
-                .cacheControl(contentMeta.getCacheControl())
-                .contentDisposition(contentMeta.getContentDisposition())
-                .contentEncoding(contentMeta.getContentEncoding())
-                .contentLanguage(contentMeta.getContentLanguage())
-                .contentType(contentMeta.getContentType())
+                .cacheControl(contentMeta.cacheControl())
+                .contentDisposition(contentMeta.contentDisposition())
+                .contentEncoding(contentMeta.contentEncoding())
+                .contentLanguage(contentMeta.contentLanguage())
+                .contentType(contentMeta.contentType())
                 .build();
     }
 
-    private BlobMetadata replaceTier(BlobMetadata meta) {
-        return new BlobMetadataImpl(meta.getProviderId(), meta.getName(),
-                meta.getLocation(), meta.getUri(), meta.getETag(),
-                meta.getCreationDate(), meta.getLastModified(),
-                meta.getUserMetadata(), meta.getPublicUri(),
-                meta.getContainer(), meta.getContentMetadata(), meta.getSize(),
-                tier);
+    private BlobMetadata replaceStorageClass(BlobMetadata meta) {
+        return meta.toBuilder().storageClass(storageClass).build();
     }
 
     // TODO: copyBlob

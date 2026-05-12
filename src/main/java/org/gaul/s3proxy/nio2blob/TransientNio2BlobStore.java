@@ -17,49 +17,25 @@
 package org.gaul.s3proxy.nio2blob;
 
 import java.nio.file.FileSystem;
-import java.util.Set;
 
-import com.google.common.base.Supplier;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
-
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.util.BlobUtils;
-import org.jclouds.collect.Memoized;
-import org.jclouds.domain.Credentials;
-import org.jclouds.domain.Location;
-import org.jclouds.io.PayloadSlicer;
-
-@Singleton
 public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
-    @Inject
-    TransientNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds) {
-        this(context, blobUtils, defaultLocation, locations, slicer, creds,
-                Jimfs.newFileSystem(Configuration.unix().toBuilder()
-                        .setAttributeViews("posix", "user")
-                        .setWorkingDirectory("/")
-                        .build()));
+
+    public TransientNio2BlobStore() {
+        this(Jimfs.newFileSystem(Configuration.unix().toBuilder()
+                .setAttributeViews("posix", "user")
+                .setWorkingDirectory("/")
+                .build()));
     }
 
     // Helper to create Path
-    private TransientNio2BlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            FileSystem fs) {
+    private TransientNio2BlobStore(FileSystem fs) {
         // TODO: close fs?
         // Use Jimfs's actual root rather than the empty path: Path.startsWith
         // against the empty path returns false in Jimfs, which would defeat
         // the path-traversal check in AbstractNio2BlobStore.
-        super(context, blobUtils, defaultLocation, locations, slicer, creds,
-                fs.getPath("/"));
+        super(fs.getPath("/"));
     }
 }

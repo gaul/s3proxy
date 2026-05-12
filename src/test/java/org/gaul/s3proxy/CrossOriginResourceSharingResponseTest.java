@@ -46,8 +46,8 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.ssl.SSLContextBuilder;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -72,7 +72,7 @@ public final class CrossOriginResourceSharingResponseTest {
     private URI s3Endpoint;
     private URI s3EndpointUri;
     private S3Proxy s3Proxy;
-    private BlobStoreContext context;
+    private BlobStore blobStore;
     private String containerName;
     private S3Client s3Client;
     private String servicePath;
@@ -87,7 +87,7 @@ public final class CrossOriginResourceSharingResponseTest {
         var creds = AwsBasicCredentials.create(info.getS3Identity(),
                 info.getS3Credential());
         var credsProvider = StaticCredentialsProvider.create(creds);
-        context = info.getBlobStore().getContext();
+        blobStore = info.getBlobStore();
         s3Proxy = info.getS3Proxy();
         s3Endpoint = info.getSecureEndpoint();
         servicePath = info.getServicePath();
@@ -110,7 +110,7 @@ public final class CrossOriginResourceSharingResponseTest {
         httpClient = getHttpClient();
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainerInLocation(null, containerName);
+        info.getBlobStore().createContainer(containerName);
 
         s3Client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ));
@@ -118,7 +118,7 @@ public final class CrossOriginResourceSharingResponseTest {
         String blobName = "test";
         ByteSource payload = ByteSource.wrap("blob-content".getBytes(
                 StandardCharsets.UTF_8));
-        Blob blob = info.getBlobStore().blobBuilder(blobName)
+        Blob blob = Blob.builder(blobName)
                 .payload(payload).contentLength(payload.size()).build();
         info.getBlobStore().putBlob(containerName, blob);
 
@@ -148,9 +148,8 @@ public final class CrossOriginResourceSharingResponseTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.getBlobStore().deleteContainer(containerName);
-            context.close();
+        if (blobStore != null) {
+            blobStore.deleteContainer(containerName);
         }
         if (httpClient != null) {
             httpClient.close();
@@ -294,7 +293,7 @@ public final class CrossOriginResourceSharingResponseTest {
                 "s3proxy-cors-credentials.conf");
         try {
             String container = createRandomContainerName();
-            credInfo.getBlobStore().createContainerInLocation(null, container);
+            credInfo.getBlobStore().createContainer(container);
             URI endpoint = URI.create(credInfo.getSecureEndpoint().toString() +
                     credInfo.getServicePath() + "/" + container + "/key");
 
@@ -315,7 +314,7 @@ public final class CrossOriginResourceSharingResponseTest {
             credInfo.getBlobStore().deleteContainer(container);
         } finally {
             credInfo.getS3Proxy().stop();
-            credInfo.getBlobStore().getContext().close();
+            credInfo.getBlobStore().close();
         }
     }
 
