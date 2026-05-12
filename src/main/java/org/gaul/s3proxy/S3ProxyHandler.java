@@ -17,7 +17,6 @@
 package org.gaul.s3proxy;
 
 import java.io.ByteArrayInputStream;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,7 +25,6 @@ import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AccessDeniedException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -77,7 +75,6 @@ import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
@@ -90,32 +87,27 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.MultiPartFormData;
 import org.eclipse.jetty.io.content.InputStreamContentSource;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobBuilder;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.domain.Location;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.io.ContentMetadataBuilder;
-import org.jclouds.io.Payload;
-import org.jclouds.io.Payloads;
-import org.jclouds.rest.AuthorizationException;
-import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.InputStreamPayload;
+import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -237,6 +229,13 @@ public class S3ProxyHandler {
     private static final HashFunction MD5 = Hashing.md5();
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final String GIT_HASH = loadGitHash();
+    private static final java.text.SimpleDateFormat ISO8601_DATE_FORMAT;
+    static {
+        ISO8601_DATE_FORMAT = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US);
+        ISO8601_DATE_FORMAT.setTimeZone(
+                java.util.TimeZone.getTimeZone("UTC"));
+    }
 
     private final Instant launchTime = Instant.now();
     private final boolean anonymousIdentity;
@@ -324,8 +323,32 @@ public class S3ProxyHandler {
         return new XmlMapper(new XmlFactory(inputFactory));
     }
 
+    private static String formatIso8601Date(Date date) {
+        synchronized (ISO8601_DATE_FORMAT) {
+            return ISO8601_DATE_FORMAT.format(date);
+        }
+    }
+
     private static String getBlobStoreType(BlobStore blobStore) {
-        return blobStore.getContext().unwrap().getProviderMetadata().getId();
+        BlobStore inner = blobStore;
+        while (inner instanceof org.gaul.s3proxy.blobstore.ForwardingBlobStore fbs) {
+            inner = fbs.delegate();
+        }
+        String name = inner.getClass().getName();
+        if (name.contains(".azureblob.")) {
+            return "azureblob-sdk";
+        }
+        if (name.contains(".gcloudsdk.")) {
+            return "google-cloud-storage-sdk";
+        }
+        if (name.contains(".awssdk.")) {
+            return "aws-s3-sdk";
+        }
+        if (name.contains(".nio2blob.")) {
+            return name.endsWith(".TransientNio2BlobStore") ?
+                    "transient-nio2" : "filesystem-nio2";
+        }
+        return "";
     }
 
     private static boolean isValidContainer(String containerName) {
@@ -1283,8 +1306,7 @@ public class S3ProxyHandler {
                     creationDate = new Date(0);
                 }
                 writeSimpleElement(xml, "CreationDate",
-                        blobStore.getContext().utils().date()
-                                .iso8601DateFormat(creationDate).trim());
+                        formatIso8601Date(creationDate).trim());
 
                 xml.writeEndElement();
             }
@@ -1440,8 +1462,7 @@ public class S3ProxyHandler {
 
                 // TODO: bogus value
                 writeSimpleElement(xml, "Initiated",
-                        blobStore.getContext().utils().date()
-                                .iso8601DateFormat(new Date()));
+                        formatIso8601Date(new Date()));
 
                 xml.writeEndElement();
             }
@@ -1504,36 +1525,20 @@ public class S3ProxyHandler {
             }
         }
 
-        Location location = null;
-        if (locationString != null) {
-            for (Location loc : blobStore.listAssignableLocations()) {
-                if (loc.getId().equalsIgnoreCase(locationString)) {
-                    location = loc;
-                    break;
-                }
-            }
-            if (location == null) {
-                throw new S3Exception(S3ErrorCode.INVALID_LOCATION_CONSTRAINT);
-            }
-        }
-        logger.debug("Creating bucket with location: {}", location);
+        // The backend determines the region; clients sending a
+        // LocationConstraint other than the backend's region get no special
+        // handling.
+        logger.debug("Creating bucket with location: {}", locationString);
 
-        var options = new CreateContainerOptions();
         String acl = request.getHeader(AwsHttpHeaders.ACL);
-        if ("public-read".equalsIgnoreCase(acl)) {
-            options.publicRead();
-        }
+        var options = new CreateContainerOptions(
+                "public-read".equalsIgnoreCase(acl));
 
         boolean created;
         try {
-            created = blobStore.createContainerInLocation(location,
-                    containerName, options);
-        } catch (AuthorizationException ae) {
-            if (ae.getCause() instanceof AccessDeniedException) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
-                        "Could not create bucket", ae);
-            }
-            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, ae);
+            created = blobStore.createContainer(containerName, options);
+        } catch (BucketAlreadyExistsException baee) {
+            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, baee);
         }
         if (!created) {
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
@@ -1552,16 +1557,6 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
 
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("b2")) {
-            // S3 allows deleting a container with in-progress MPU while B2 does
-            // not.  Explicitly cancel uploads for B2.
-            for (MultipartUpload mpu : blobStore.listMultipartUploads(
-                    containerName)) {
-                blobStore.abortMultipartUpload(mpu);
-            }
-        }
-
         if (!blobStore.deleteContainerIfEmpty(containerName)) {
             throw new S3Exception(S3ErrorCode.BUCKET_NOT_EMPTY);
         }
@@ -1574,17 +1569,17 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException, S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
-        var options = new ListContainerOptions();
+        var optionsBuilder = ListContainerOptions.builder();
         String encodingType = request.getParameter("encoding-type");
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null) {
-            options.delimiter(delimiter);
+            optionsBuilder.delimiter(delimiter);
         } else {
-            options.recursive();
+            optionsBuilder.recursive();
         }
         String prefix = request.getParameter("prefix");
         if (prefix != null && !prefix.isEmpty()) {
-            options.prefix(prefix);
+            optionsBuilder.prefix(prefix);
         }
 
         boolean isListV2 = false;
@@ -1615,7 +1610,7 @@ public class S3ProxyHandler {
                     marker = realMarker;
                 }
             }
-            options.afterMarker(marker);
+            optionsBuilder.afterMarker(marker);
         }
 
         boolean fetchOwner = !isListV2 ||
@@ -1636,10 +1631,10 @@ public class S3ProxyHandler {
                 maxKeys = 1000;
             }
         }
-        options.maxResults(maxKeys);
+        optionsBuilder.maxResults(maxKeys);
 
         PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
-                options);
+                optionsBuilder.build());
 
         boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
                 blobStoreType);
@@ -1767,10 +1762,10 @@ public class S3ProxyHandler {
                     writeSimpleElement(xml, "Size", String.valueOf(size));
                 }
 
-                Tier tier = metadata.getTier();
-                if (tier != null) {
+                StorageClass storageClass = metadata.getStorageClass();
+                if (storageClass != null) {
                     writeSimpleElement(xml, "StorageClass",
-                            StorageClass.fromTier(tier).toString());
+                            storageClass.toString());
                 }
 
                 if (fetchOwner) {
@@ -2027,28 +2022,28 @@ public class S3ProxyHandler {
             String containerName, String blobName)
             throws IOException, S3Exception {
         int status = HttpServletResponse.SC_OK;
-        var options = new GetOptions();
+        var optionsBuilder = GetOptions.builder();
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         if (ifMatch != null) {
-            options.ifETagMatches(ifMatch);
+            optionsBuilder.ifETagMatches(ifMatch);
         }
 
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         if (ifNoneMatch != null) {
-            options.ifETagDoesntMatch(ifNoneMatch);
+            optionsBuilder.ifETagDoesntMatch(ifNoneMatch);
         }
 
         long ifModifiedSince = request.getDateHeader(
                 HttpHeaders.IF_MODIFIED_SINCE);
         if (ifModifiedSince != -1) {
-            options.ifModifiedSince(new Date(ifModifiedSince));
+            optionsBuilder.ifModifiedSince(new Date(ifModifiedSince));
         }
 
         long ifUnmodifiedSince = request.getDateHeader(
                 HttpHeaders.IF_UNMODIFIED_SINCE);
         if (ifUnmodifiedSince != -1) {
-            options.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
+            optionsBuilder.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
         }
 
         String range = request.getHeader(HttpHeaders.RANGE);
@@ -2064,25 +2059,26 @@ public class S3ProxyHandler {
                 if (tail < 0) {
                     throw new S3Exception(S3ErrorCode.INVALID_RANGE);
                 }
-                options.tail(tail);
+                optionsBuilder.tail(tail);
             } else if (ranges[1].isEmpty()) {
                 long startAt = Long.parseLong(ranges[0]);
                 if (startAt < 0) {
                     throw new S3Exception(S3ErrorCode.INVALID_RANGE);
                 }
-                options.startAt(startAt);
+                optionsBuilder.startAt(startAt);
             } else {
                 long start = Long.parseLong(ranges[0]);
                 long end = Long.parseLong(ranges[1]);
                 if (start < 0 || end < start) {
                     throw new S3Exception(S3ErrorCode.INVALID_RANGE);
                 }
-                options.range(start, end);
+                optionsBuilder.range(start, end);
             }
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
-        Blob blob = blobStore.getBlob(containerName, blobName, options);
+        Blob blob = blobStore.getBlob(containerName, blobName,
+                optionsBuilder.build());
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -2094,15 +2090,10 @@ public class S3ProxyHandler {
         addMetadataToResponse(request, response, blob.getMetadata());
 
         // TODO: handles only a single range due to jclouds limitations
-        var headers = new CaseInsensitiveImmutableMultimap(
-                blob.getAllHeaders());
-        Collection<String> contentRanges =
-                headers.get(HttpHeaders.CONTENT_RANGE);
-        if (!contentRanges.isEmpty()) {
-            response.addHeader(HttpHeaders.CONTENT_RANGE,
-                    contentRanges.iterator().next());
-            response.addHeader(HttpHeaders.ACCEPT_RANGES,
-                    "bytes");
+        String contentRange = blob.getContentRange();
+        if (contentRange != null) {
+            response.addHeader(HttpHeaders.CONTENT_RANGE, contentRange);
+            response.addHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
         }
 
         try (InputStream is = blob.getPayload().openStream();
@@ -2161,8 +2152,7 @@ public class S3ProxyHandler {
         }
 
         if (replaceMetadata) {
-            ContentMetadataBuilder contentMetadata =
-                    ContentMetadataBuilder.create();
+            ContentMetadata.Builder contentMetadata = ContentMetadata.builder();
             var userMetadata = ImmutableMap.<String, String>builder();
             for (String headerName : Collections.list(
                     request.getHeaderNames())) {
@@ -2376,18 +2366,14 @@ public class S3ProxyHandler {
             return;
         }
 
-        var options = new PutOptions2()
-                .setBlobAccess(access)
-                .setIfMatch(ifMatch)
-                .setIfNoneMatch(ifNoneMatch);
-        if (blobStoreType.equals("azureblob") &&
-                contentLength > 256 * 1024 * 1024) {
-            options.multipart(true);
-        }
+        var options = PutOptions.builder()
+                .blobAccess(access)
+                .ifMatch(ifMatch)
+                .ifNoneMatch(ifNoneMatch)
+                .build();
 
         String eTag;
-        BlobBuilder.PayloadBlobBuilder builder = blobStore
-                .blobBuilder(blobName)
+        Blob.Builder builder = Blob.builder(blobName)
                 .payload(is)
                 .contentLength(contentLength);
 
@@ -2396,7 +2382,7 @@ public class S3ProxyHandler {
             // defaults to STANDARD
         } else {
             try {
-                builder.tier(StorageClass.valueOf(storageClass).toTier());
+                builder.storageClass(StorageClass.valueOf(storageClass));
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
             }
@@ -2626,9 +2612,8 @@ public class S3ProxyHandler {
             }
         }
 
-        BlobBuilder.PayloadBlobBuilder builder = blobStore
-                .blobBuilder(blobName)
-                .payload(payload);
+        Blob.Builder builder = Blob.builder(blobName)
+                .payload(ByteSource.wrap(payload));
         if (contentType != null) {
             builder.contentType(contentType);
         }
@@ -2645,8 +2630,7 @@ public class S3ProxyHandler {
             String containerName, String blobName)
             throws IOException, S3Exception {
         ByteSource payload = ByteSource.empty();
-        BlobBuilder.PayloadBlobBuilder builder = blobStore
-                .blobBuilder(blobName)
+        Blob.Builder builder = Blob.builder(blobName)
                 .payload(payload);
         addContentMetadataFromHttpRequest(builder, request);
         builder.contentLength(payload.size());
@@ -2656,7 +2640,7 @@ public class S3ProxyHandler {
             // defaults to STANDARD
         } else {
             try {
-                builder.tier(StorageClass.valueOf(storageClass).toTier());
+                builder.storageClass(StorageClass.valueOf(storageClass));
             } catch (IllegalArgumentException iae) {
                 throw new S3Exception(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
             }
@@ -2691,10 +2675,11 @@ public class S3ProxyHandler {
             return;
         }
 
-        var options = new PutOptions2()
-                .setBlobAccess(access)
-                .setIfMatch(ifMatch)
-                .setIfNoneMatch(ifNoneMatch);
+        var options = PutOptions.builder()
+                .blobAccess(access)
+                .ifMatch(ifMatch)
+                .ifNoneMatch(ifNoneMatch)
+                .build();
 
         MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
                 builder.build().getMetadata(), options);
@@ -2737,21 +2722,17 @@ public class S3ProxyHandler {
             metadata = blobStore.blobMetadata(containerName, uploadId);
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     uploadId);
-            options = new PutOptions().setBlobAccess(access);
+            options = PutOptions.builder().blobAccess(access).build();
         } else {
-            metadata = new MutableBlobMetadataImpl();
-            options = new PutOptions();
+            metadata = BlobMetadata.builder().build();
+            options = PutOptions.NONE;
         }
-        final MultipartUpload mpu = MultipartUpload.create(containerName,
+        final MultipartUpload mpu = new MultipartUpload(containerName,
                 blobName, uploadId, metadata, options);
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("azureblob")) {
-            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
-                parts.add(part);
-            }
-        } else if (blobStoreType.equals("azureblob-sdk") ||
+        if (blobStoreType.equals("azureblob-sdk") ||
                 blobStoreType.equals("google-cloud-storage-sdk")) {
             var partsByListing =
                 blobStore.listMultipartUpload(mpu).stream().collect(
@@ -2782,31 +2763,7 @@ public class S3ProxyHandler {
                 }
                 parts.addAll(partsMap.values());
             }
-        } else if (blobStoreType.equals("google-cloud-storage")) {
-            // GCS only supports 32 parts but we can support up to 1024 by
-            // recursively combining objects.
-            for (int partNumber = 1;; ++partNumber) {
-                MultipartUpload mpu2 = MultipartUpload.create(
-                        containerName,
-                        "%s_%08d".formatted(mpu.id(), partNumber),
-                        "%s_%08d".formatted(mpu.id(), partNumber),
-                        metadata, options);
-                List<MultipartPart> subParts = blobStore.listMultipartUpload(
-                        mpu2);
-                if (subParts.isEmpty()) {
-                    break;
-                }
-                long partSize = 0;
-                for (MultipartPart part : subParts) {
-                    partSize += part.partSize();
-                }
-                String eTag = blobStore.completeMultipartUpload(mpu2, subParts);
-                parts.add(MultipartPart.create(
-                        partNumber, partSize, eTag, /*lastModified=*/ null));
-            }
         } else {
-            // List parts to get part sizes and to map multiple Azure parts
-            // into single parts.
             var partsByListing =
                 blobStore.listMultipartUpload(mpu).stream().collect(
                         Collectors.toMap(
@@ -2849,7 +2806,7 @@ public class S3ProxyHandler {
                                 entry.getValue())) {
                     throw new S3Exception(S3ErrorCode.INVALID_PART);
                 }
-                parts.add(MultipartPart.create(entry.getKey(),
+                parts.add(new MultipartPart(entry.getKey(),
                         partSize, part.partETag(), part.lastModified()));
             }
         }
@@ -2942,9 +2899,9 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
 
         // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore),
-                new PutOptions());
+        MultipartUpload mpu = new MultipartUpload(containerName,
+                blobName, uploadId, createFakeBlobMetadata(),
+                PutOptions.NONE);
         try {
             blobStore.abortMultipartUpload(mpu);
         } catch (KeyNotFoundException knfe) {
@@ -2964,31 +2921,11 @@ public class S3ProxyHandler {
         }
 
         // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore),
-                new PutOptions());
+        MultipartUpload mpu = new MultipartUpload(containerName,
+                blobName, uploadId, createFakeBlobMetadata(),
+                PutOptions.NONE);
 
-        List<MultipartPart> parts;
-        var blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("azureblob")) {
-            // map Azure subparts back into S3 parts
-            SortedMap<Integer, Long> map = new TreeMap<>();
-            for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
-                int virtualPartNumber = part.partNumber() / 10_000;
-                Long size = map.get(virtualPartNumber);
-                map.put(virtualPartNumber,
-                        (size == null ? 0L : (long) size) + part.partSize());
-            }
-            parts = new ArrayList<>();
-            for (var entry : map.entrySet()) {
-                String eTag = "";  // TODO: bogus value
-                Date lastModified = null;  // TODO: bogus value
-                parts.add(MultipartPart.create(entry.getKey(),
-                        entry.getValue(), eTag, lastModified));
-            }
-        } else {
-            parts = blobStore.listMultipartUpload(mpu);
-        }
+        List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
 
         String encodingType = request.getParameter("encoding-type");
 
@@ -3072,7 +3009,7 @@ public class S3ProxyHandler {
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
 
-        var options = new GetOptions();
+        var optionsBuilder = GetOptions.builder();
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         long expectedSize = -1;
         if (range != null) {
@@ -3087,9 +3024,9 @@ public class S3ProxyHandler {
                 range = range.substring("bytes=".length());
                 String[] ranges = range.split("-", 2);
                 if (ranges[0].isEmpty()) {
-                    options.tail(Long.parseLong(ranges[1]));
+                    optionsBuilder.tail(Long.parseLong(ranges[1]));
                 } else if (ranges[1].isEmpty()) {
-                    options.startAt(Long.parseLong(ranges[0]));
+                    optionsBuilder.startAt(Long.parseLong(ranges[0]));
                 } else {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
@@ -3103,7 +3040,7 @@ public class S3ProxyHandler {
                                 " the maximum allowable size for a copy" +
                                 " source: " + MAX_MULTIPART_COPY_SIZE);
                     }
-                    options.range(start, end);
+                    optionsBuilder.range(start, end);
                 }
             } catch (NumberFormatException nfe) {
                 throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
@@ -3136,23 +3073,14 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
-        // GCS only supports 32 parts so partition MPU into 32-part chunks.
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("google-cloud-storage")) {
-            // fix up 1-based part numbers
-            uploadId = "%s_%08d".formatted(
-                    uploadId, ((partNumber - 1) / 32) + 1);
-            partNumber = ((partNumber - 1) % 32) + 1;
-        }
-
         // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, createFakeBlobMetadata(blobStore),
-                new PutOptions());
+        MultipartUpload mpu = new MultipartUpload(containerName,
+                blobName, uploadId, createFakeBlobMetadata(),
+                PutOptions.NONE);
 
         // TODO: Blob can leak on precondition failures.
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
-                options);
+                optionsBuilder.build());
         if (blob == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -3195,38 +3123,16 @@ public class S3ProxyHandler {
         }
 
         long contentLength =
-                blobMetadata.getContentMetadata().getContentLength();
+                blobMetadata.getContentMetadata().contentLength();
 
         try (InputStream is = blob.getPayload().openStream()) {
-            if (blobStoreType.equals("azureblob")) {
-                // Azure has a smaller maximum part size than S3.  Split a
-                // single S3 part multiple Azure parts.
-                long azureMaximumMultipartPartSize =
-                        blobStore.getMaximumMultipartPartSize();
-                var his = new HashingInputStream(MD5, is);
-                int subPartNumber = 0;
-                for (long offset = 0; offset < contentLength;
-                        offset += azureMaximumMultipartPartSize,
-                        ++subPartNumber) {
-                    Payload payload = Payloads.newInputStreamPayload(
-                            new UncloseableInputStream(ByteStreams.limit(his,
-                                    azureMaximumMultipartPartSize)));
-                    payload.getContentMetadata().setContentLength(
-                            Math.min(azureMaximumMultipartPartSize,
-                                    contentLength - offset));
-                    blobStore.uploadMultipartPart(mpu,
-                            10_000 * partNumber + subPartNumber, payload);
-                }
-                eTag = BaseEncoding.base16().lowerCase().encode(
-                        his.hash().asBytes());
-            } else {
-                Payload payload = Payloads.newInputStreamPayload(is);
-                payload.getContentMetadata().setContentLength(contentLength);
+            var contentMetadata = ContentMetadata.builder()
+                    .contentLength(contentLength).build();
+            Payload payload = new InputStreamPayload(is, contentMetadata);
 
-                MultipartPart part = blobStore.uploadMultipartPart(mpu,
-                        partNumber, payload);
-                eTag = part.partETag();
-            }
+            MultipartPart part = blobStore.uploadMultipartPart(mpu,
+                    partNumber, payload);
+            eTag = part.partETag();
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -3329,62 +3235,29 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
-        // GCS only supports 32 parts so partition MPU into 32-part chunks.
-        String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("google-cloud-storage")) {
-            // fix up 1-based part numbers
-            uploadId = "%s_%08d".formatted(
-                    uploadId, ((partNumber - 1) / 32) + 1);
-            partNumber = ((partNumber - 1) % 32) + 1;
-        }
-
         // TODO: how to reconstruct original mpu?
         BlobMetadata blobMetadata;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             blobMetadata = blobStore.blobMetadata(containerName, uploadId);
         } else {
-            blobMetadata = createFakeBlobMetadata(blobStore);
+            blobMetadata = createFakeBlobMetadata();
         }
-        MultipartUpload mpu = MultipartUpload.create(containerName,
-                blobName, uploadId, blobMetadata, new PutOptions());
+        MultipartUpload mpu = new MultipartUpload(containerName,
+                blobName, uploadId, blobMetadata, PutOptions.NONE);
 
-        if (getBlobStoreType(blobStore).equals("azureblob")) {
-            // Azure has a smaller maximum part size than S3.  Split a single
-            // S3 part multiple Azure parts.
-            long azureMaximumMultipartPartSize =
-                        blobStore.getMaximumMultipartPartSize();
-            var his = new HashingInputStream(MD5, is);
-            int subPartNumber = 0;
-            for (long offset = 0; offset < contentLength;
-                    offset += azureMaximumMultipartPartSize,
-                    ++subPartNumber) {
-                Payload payload = Payloads.newInputStreamPayload(
-                        ByteStreams.limit(his,
-                                azureMaximumMultipartPartSize));
-                payload.getContentMetadata().setContentLength(
-                        Math.min(azureMaximumMultipartPartSize,
-                                contentLength - offset));
-                blobStore.uploadMultipartPart(mpu,
-                        10_000 * partNumber + subPartNumber, payload);
-            }
-            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(
-                    BaseEncoding.base16().lowerCase().encode(
-                            his.hash().asBytes())));
-        } else {
-            MultipartPart part;
-            Payload payload = Payloads.newInputStreamPayload(is);
-            payload.getContentMetadata().setContentLength(contentLength);
-            if (contentMD5 != null) {
-                payload.getContentMetadata().setContentMD5(contentMD5);
-            }
+        MultipartPart part;
+        var cmBuilder = ContentMetadata.builder().contentLength(contentLength);
+        if (contentMD5 != null) {
+            cmBuilder.contentMD5(contentMD5);
+        }
+        Payload payload = new InputStreamPayload(is, cmBuilder.build());
 
-            part = blobStore.uploadMultipartPart(mpu, partNumber, payload);
+        part = blobStore.uploadMultipartPart(mpu, partNumber, payload);
 
-            if (part.partETag() != null) {
-                response.addHeader(HttpHeaders.ETAG,
-                        maybeQuoteETag(part.partETag()));
-            }
+        if (part.partETag() != null) {
+            response.addHeader(HttpHeaders.ETAG,
+                    maybeQuoteETag(part.partETag()));
         }
 
         addCorsResponseHeader(request, response);
@@ -3410,17 +3283,17 @@ public class S3ProxyHandler {
                 metadata.getContentMetadata();
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CACHE_CONTROL, "response-cache-control",
-                contentMetadata.getCacheControl());
+                contentMetadata.cacheControl());
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_ENCODING, "response-content-encoding",
-                contentMetadata.getContentEncoding());
+                contentMetadata.contentEncoding());
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_LANGUAGE, "response-content-language",
-                contentMetadata.getContentLanguage());
+                contentMetadata.contentLanguage());
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_DISPOSITION, "response-content-disposition",
-                contentMetadata.getContentDisposition());
-        Long contentLength = contentMetadata.getContentLength();
+                contentMetadata.contentDisposition());
+        Long contentLength = contentMetadata.contentLength();
         if (contentLength != null) {
             response.addHeader(HttpHeaders.CONTENT_LENGTH,
                     contentLength.toString());
@@ -3428,7 +3301,7 @@ public class S3ProxyHandler {
         String overrideContentType = request.getParameter(
                 "response-content-type");
         response.setContentType(overrideContentType != null ?
-                overrideContentType : contentMetadata.getContentType());
+                overrideContentType : contentMetadata.contentType());
         String eTag = metadata.getETag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
@@ -3437,7 +3310,7 @@ public class S3ProxyHandler {
         if (overrideExpires != null) {
             response.addHeader(HttpHeaders.EXPIRES, overrideExpires);
         } else {
-            Date expires = contentMetadata.getExpires();
+            Date expires = contentMetadata.expires();
             if (expires != null) {
                 response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
             }
@@ -3447,10 +3320,10 @@ public class S3ProxyHandler {
             response.addDateHeader(HttpHeaders.LAST_MODIFIED,
                     lastModified.getTime());
         }
-        Tier tier = metadata.getTier();
-        if (tier != null) {
+        StorageClass storageClass = metadata.getStorageClass();
+        if (storageClass != null) {
             response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
-                    StorageClass.fromTier(tier).toString());
+                    storageClass.toString());
         }
         for (var entry : metadata.getUserMetadata().entrySet()) {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
@@ -3581,7 +3454,7 @@ public class S3ProxyHandler {
     }
 
     private static void addContentMetadataFromHttpRequest(
-            BlobBuilder.PayloadBlobBuilder builder,
+            Blob.Builder builder,
             HttpServletRequest request) {
         var userMetadata = ImmutableMap.<String, String>builder();
         for (String headerName : Collections.list(request.getHeaderNames())) {
@@ -3647,8 +3520,8 @@ public class S3ProxyHandler {
         xml.writeEndElement();
     }
 
-    private static BlobMetadata createFakeBlobMetadata(BlobStore blobStore) {
-        return blobStore.blobBuilder("fake-name")
+    private static BlobMetadata createFakeBlobMetadata() {
+        return Blob.builder("fake-name")
                 .build()
                 .getMetadata();
     }
@@ -3710,17 +3583,6 @@ public class S3ProxyHandler {
             return urlEscaper.escape(blobName);
         } else {
             return blobName;
-        }
-    }
-
-    private static final class UncloseableInputStream
-            extends FilterInputStream {
-        UncloseableInputStream(InputStream is) {
-            super(is);
-        }
-
-        @Override
-        public void close() throws IOException {
         }
     }
 

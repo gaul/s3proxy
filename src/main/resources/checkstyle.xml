@@ -3,6 +3,10 @@
 
 <module name="Checker">
   <property name="severity" value="warning"/>
+  <module name="SuppressionSingleFilter">
+    <property name="checks" value="DesignForExtension|AbstractClassName"/>
+    <property name="files" value="blobstore[\\/](ForwardingBlobStore|BaseBlobStore)\.java$"/>
+  </module>
   <module name="FileTabCharacter"/>
   <module name="JavadocPackage">
     <property name="severity" value="ignore"/>
@@ -127,9 +131,9 @@
     <module name="WhitespaceAfter"/>
     <module name="WhitespaceAround"/>
   </module>
-  <module name="Header">
+  <module name="MultiFileRegexpHeader">
     <property name="fileExtensions" value="java"/>
-    <property name="headerFile" value="${checkstyle.header.file}"/>
+    <property name="headerFiles" value="${checkstyle.header.file},${checkstyle.header.file.jclouds}"/>
   </module>
   <module name="RegexpSingleline">
     <property name="format" value="\s+$"/>

@@ -26,7 +26,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import com.google.auth.oauth2.GoogleCredentials;
@@ -57,49 +56,31 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
-import com.google.common.net.HttpHeaders;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
-
-import org.gaul.s3proxy.PutOptions2;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.StorageType;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.domain.internal.BlobBuilderImpl;
-import org.jclouds.blobstore.domain.internal.BlobMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.domain.internal.StorageMetadataImpl;
-import org.jclouds.blobstore.internal.BaseBlobStore;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.BlobUtils;
-import org.jclouds.collect.Memoized;
-import org.jclouds.domain.Credentials;
-import org.jclouds.domain.Location;
-import org.jclouds.http.HttpCommand;
-import org.jclouds.http.HttpRequest;
-import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.io.ContentMetadataBuilder;
-import org.jclouds.io.PayloadSlicer;
-import org.jclouds.providers.ProviderMetadata;
+import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.HttpResponse;
+import org.gaul.s3proxy.blobstore.HttpResponseException;
+import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.StorageType;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
-@Singleton
 public final class GCloudBlobStore extends BaseBlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_KEY =
@@ -110,24 +91,20 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
     private final Storage storage;
 
-    @Inject
-    GCloudBlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            ProviderMetadata provider) {
-        super(context, blobUtils, defaultLocation, locations, slicer);
+    public GCloudBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl) {
         var cred = creds.get();
         var storageBuilder = StorageOptions.newBuilder();
-        if (cred.identity != null && !cred.identity.isEmpty()) {
-            storageBuilder.setProjectId(cred.identity);
+        if (cred.identity() != null && !cred.identity().isEmpty()) {
+            storageBuilder.setProjectId(cred.identity());
         }
-        if (cred.credential != null && !cred.credential.isEmpty()) {
+        if (cred.credential() != null && !cred.credential().isEmpty()) {
             try {
                 var credentials = ServiceAccountCredentials.fromStream(
                         new ByteArrayInputStream(
-                                cred.credential.getBytes(StandardCharsets.UTF_8)));
+                                cred.credential().getBytes(
+                                        StandardCharsets.UTF_8)));
                 storageBuilder.setCredentials(credentials);
             } catch (IOException ioe) {
                 // Fall back to application default credentials
@@ -143,7 +120,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             // No credentials provided — use NoCredentials for emulator
             storageBuilder.setCredentials(NoCredentials.getInstance());
         }
-        var endpoint = provider.getEndpoint();
+        var endpoint = endpointUrl;
         if (endpoint != null && !endpoint.isEmpty() &&
                 !endpoint.equals("https://storage.googleapis.com")) {
             storageBuilder.setHost(endpoint);
@@ -155,30 +132,29 @@ public final class GCloudBlobStore extends BaseBlobStore {
     public PageSet<? extends StorageMetadata> list() {
         var set = ImmutableSet.<StorageMetadata>builder();
         for (Bucket bucket : storage.list().iterateAll()) {
-            set.add(new StorageMetadataImpl(StorageType.CONTAINER,
-                    /*id=*/ null, bucket.getName(), /*location=*/ null,
-                    /*uri=*/ null, /*eTag=*/ null,
+            set.add(new ContainerMetadata(bucket.getName(), Map.of(),
+                    /*eTag=*/ null,
                     toDate(bucket.getCreateTimeOffsetDateTime()),
                     toDate(bucket.getUpdateTimeOffsetDateTime()),
-                    Map.of(), /*size=*/ null, Tier.STANDARD));
+                    /*size=*/ null, StorageClass.STANDARD));
         }
-        return new PageSetImpl<StorageMetadata>(set.build(), null);
+        return new PageSet<StorageMetadata>(set.build(), null);
     }
 
     @Override
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         var gcsOptions = new java.util.ArrayList<BlobListOption>();
-        if (options.getPrefix() != null) {
-            gcsOptions.add(BlobListOption.prefix(options.getPrefix()));
+        if (options.prefix() != null) {
+            gcsOptions.add(BlobListOption.prefix(options.prefix()));
         }
-        if (options.getMaxResults() != null) {
+        if (options.maxResults() != null) {
             gcsOptions.add(BlobListOption.pageSize(
-                    options.getMaxResults()));
+                    options.maxResults()));
         }
-        String marker = options.getMarker();
-        if (options.getDelimiter() != null) {
-            gcsOptions.add(BlobListOption.delimiter(options.getDelimiter()));
+        String marker = options.marker();
+        if (options.delimiter() != null) {
+            gcsOptions.add(BlobListOption.delimiter(options.delimiter()));
         }
 
         com.google.api.gax.paging.Page<Blob> page;
@@ -190,7 +166,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         var set = ImmutableSet.<StorageMetadata>builder();
-        Integer maxResults = options.getMaxResults();
+        Integer maxResults = options.maxResults();
         int count = 0;
         boolean hasMore = false;
         String lastName = null;
@@ -204,19 +180,22 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 break;
             }
             if (blob.isDirectory()) {
-                set.add(new StorageMetadataImpl(StorageType.RELATIVE_PATH,
-                        /*id=*/ null, blob.getName(), /*location=*/ null,
-                        /*uri=*/ null, /*eTag=*/ null,
+                set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
+                        blob.getName(), Map.of(), /*eTag=*/ null,
                         /*creationDate=*/ null, /*lastModified=*/ null,
-                        Map.of(), /*size=*/ null, Tier.STANDARD));
+                        StorageClass.STANDARD,
+                        /*container=*/ null,
+                        ContentMetadata.builder().build()));
             } else {
-                set.add(new StorageMetadataImpl(StorageType.BLOB,
-                        /*id=*/ null, blob.getName(), /*location=*/ null,
-                        /*uri=*/ null, blob.getEtag(),
+                set.add(new BlobMetadata(StorageType.BLOB,
+                        blob.getName(), Map.of(), blob.getEtag(),
                         toDate(blob.getCreateTimeOffsetDateTime()),
                         toDate(blob.getUpdateTimeOffsetDateTime()),
-                        Map.of(), blob.getSize(),
-                        toTier(blob.getStorageClass())));
+                        fromGcsStorageClass(blob.getStorageClass()),
+                        /*container=*/ null,
+                        ContentMetadata.builder()
+                                .contentLength(blob.getSize())
+                                .build()));
             }
             lastName = blob.getName();
             count++;
@@ -224,7 +203,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
         // Synthesize a next marker if we truncated results
         String nextMarker = hasMore ? lastName : null;
-        return new PageSetImpl<StorageMetadata>(set.build(), nextMarker);
+        return new PageSet<StorageMetadata>(set.build(), nextMarker);
     }
 
     @Override
@@ -234,19 +213,17 @@ public final class GCloudBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container) {
-        return createContainerInLocation(location, container,
-                new CreateContainerOptions());
+    public boolean createContainer(String container) {
+        return createContainer(container, CreateContainerOptions.NONE);
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container, CreateContainerOptions options) {
+    public boolean createContainer(String container,
+            CreateContainerOptions options) {
         try {
             var bucketInfo = BucketInfo.newBuilder(container).build();
             storage.create(bucketInfo);
-            if (options.isPublicRead()) {
+            if (options.publicRead()) {
                 try {
                     storage.createAcl(container,
                             Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
@@ -260,22 +237,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 return false;
             }
             throw se;
-        }
-    }
-
-    @Override
-    public void deleteContainer(String container) {
-        try {
-            // Delete all blobs first since GCS requires empty bucket
-            var page = storage.list(container);
-            for (Blob blob : page.iterateAll()) {
-                storage.delete(blob.getBlobId());
-            }
-            storage.delete(container);
-        } catch (StorageException se) {
-            if (se.getCode() != 404) {
-                throw se;
-            }
         }
     }
 
@@ -304,7 +265,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public org.jclouds.blobstore.domain.Blob getBlob(String container,
+    public org.gaul.s3proxy.blobstore.domain.Blob getBlob(String container,
             String key, GetOptions options) {
         var gcsOptions = new java.util.ArrayList<BlobGetOption>();
 
@@ -321,8 +282,8 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
         Long rangeOffset = null;
         Long rangeEnd = null;
-        if (!options.getRanges().isEmpty()) {
-            var ranges = options.getRanges().get(0).split("-", 2);
+        if (!options.ranges().isEmpty()) {
+            var ranges = options.ranges().get(0).split("-", 2);
             if (ranges[0].isEmpty()) {
                 // trailing range: last N bytes
                 long trailing = Long.parseLong(ranges[1]);
@@ -361,8 +322,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         var metadata = gcsBlob.getMetadata();
-        var blob = new BlobBuilderImpl()
-                .name(key)
+        var builder = org.gaul.s3proxy.blobstore.domain.Blob.builder(key)
                 .userMetadata(metadata != null ? metadata : Map.of())
                 .payload(is)
                 .cacheControl(gcsBlob.getCacheControl())
@@ -371,59 +331,54 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 .contentLanguage(gcsBlob.getContentLanguage())
                 .contentLength(contentLength)
                 .contentType(gcsBlob.getContentType())
-                .build();
+                .eTag(gcsBlob.getEtag())
+                .storageClass(fromGcsStorageClass(gcsBlob.getStorageClass()))
+                .creationDate(toDate(gcsBlob.getCreateTimeOffsetDateTime()))
+                .lastModified(toDate(gcsBlob.getUpdateTimeOffsetDateTime()));
         if (rangeOffset != null) {
             long end = rangeEnd != null ? rangeEnd :
                     blobSize - 1;
-            blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE,
+            builder.contentRange(
                     "bytes " + rangeOffset + "-" + end + "/" + blobSize);
         }
-        var blobMeta = blob.getMetadata();
-        blobMeta.setETag(gcsBlob.getEtag());
-        blobMeta.setSize(blobSize);
-        blobMeta.setTier(toTier(gcsBlob.getStorageClass()));
-        blobMeta.setCreationDate(
-                toDate(gcsBlob.getCreateTimeOffsetDateTime()));
-        blobMeta.setLastModified(
-                toDate(gcsBlob.getUpdateTimeOffsetDateTime()));
-        return blob;
+        return builder.build();
     }
 
     @Override
     public String putBlob(String container,
-            org.jclouds.blobstore.domain.Blob blob) {
-        return putBlob(container, blob, new PutOptions());
+            org.gaul.s3proxy.blobstore.domain.Blob blob) {
+        return putBlob(container, blob, PutOptions.NONE);
     }
 
     @Override
     public String putBlob(String container,
-            org.jclouds.blobstore.domain.Blob blob, PutOptions options) {
+            org.gaul.s3proxy.blobstore.domain.Blob blob, PutOptions options) {
         var contentMetadata = blob.getMetadata().getContentMetadata();
         var blobInfo = BlobInfo.newBuilder(
                 BlobId.of(container, blob.getMetadata().getName()));
-        blobInfo.setContentType(contentMetadata.getContentType());
+        blobInfo.setContentType(contentMetadata.contentType());
         blobInfo.setContentDisposition(
-                contentMetadata.getContentDisposition());
-        blobInfo.setContentEncoding(contentMetadata.getContentEncoding());
-        blobInfo.setContentLanguage(contentMetadata.getContentLanguage());
-        blobInfo.setCacheControl(contentMetadata.getCacheControl());
-        var hash = contentMetadata.getContentMD5AsHashCode();
+                contentMetadata.contentDisposition());
+        blobInfo.setContentEncoding(contentMetadata.contentEncoding());
+        blobInfo.setContentLanguage(contentMetadata.contentLanguage());
+        blobInfo.setCacheControl(contentMetadata.cacheControl());
+        var hash = contentMetadata.contentMD5();
         if (hash != null) {
             blobInfo.setMd5(hash.toString());
         }
         if (blob.getMetadata().getUserMetadata() != null) {
             blobInfo.setMetadata(blob.getMetadata().getUserMetadata());
         }
-        if (blob.getMetadata().getTier() != null &&
-                blob.getMetadata().getTier() != Tier.STANDARD) {
+        if (blob.getMetadata().getStorageClass() != null &&
+                blob.getMetadata().getStorageClass() != StorageClass.STANDARD) {
             blobInfo.setStorageClass(
-                    toStorageClass(blob.getMetadata().getTier()));
+                    toGcsStorageClass(blob.getMetadata().getStorageClass()));
         }
 
         var writeOptions = new java.util.ArrayList<BlobWriteOption>();
-        if (options instanceof PutOptions2 putOptions2) {
-            String ifMatch = putOptions2.getIfMatch();
-            String ifNoneMatch = putOptions2.getIfNoneMatch();
+        if (options != null) {
+            String ifMatch = options.ifMatch();
+            String ifNoneMatch = options.ifNoneMatch();
             if (ifNoneMatch != null && ifNoneMatch.equals("*")) {
                 writeOptions.add(BlobWriteOption.doesNotExist());
             } else if (ifMatch != null) {
@@ -455,25 +410,25 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
         var contentMetadata = options.contentMetadata();
         if (contentMetadata != null) {
-            if (contentMetadata.getCacheControl() != null) {
+            if (contentMetadata.cacheControl() != null) {
                 targetBuilder.setCacheControl(
-                        contentMetadata.getCacheControl());
+                        contentMetadata.cacheControl());
             }
-            if (contentMetadata.getContentDisposition() != null) {
+            if (contentMetadata.contentDisposition() != null) {
                 targetBuilder.setContentDisposition(
-                        contentMetadata.getContentDisposition());
+                        contentMetadata.contentDisposition());
             }
-            if (contentMetadata.getContentEncoding() != null) {
+            if (contentMetadata.contentEncoding() != null) {
                 targetBuilder.setContentEncoding(
-                        contentMetadata.getContentEncoding());
+                        contentMetadata.contentEncoding());
             }
-            if (contentMetadata.getContentLanguage() != null) {
+            if (contentMetadata.contentLanguage() != null) {
                 targetBuilder.setContentLanguage(
-                        contentMetadata.getContentLanguage());
+                        contentMetadata.contentLanguage());
             }
-            if (contentMetadata.getContentType() != null) {
+            if (contentMetadata.contentType() != null) {
                 targetBuilder.setContentType(
-                        contentMetadata.getContentType());
+                        contentMetadata.contentType());
             }
         }
         var userMetadata = options.userMetadata();
@@ -518,31 +473,17 @@ public final class GCloudBlobStore extends BaseBlobStore {
         if (gcsBlob == null) {
             return null;
         }
-        Long size = gcsBlob.getSize();
-        return new BlobMetadataImpl(/*id=*/ null, key, /*location=*/ null,
-                /*uri=*/ null, gcsBlob.getEtag(),
-                toDate(gcsBlob.getCreateTimeOffsetDateTime()),
-                toDate(gcsBlob.getUpdateTimeOffsetDateTime()),
+        return new BlobMetadata(StorageType.BLOB, key,
                 gcsBlob.getMetadata() != null ?
                         gcsBlob.getMetadata() : Map.of(),
-                /*publicUri=*/ null, container,
-                toContentMetadata(gcsBlob),
-                size != null ? size : 0L,
-                toTier(gcsBlob.getStorageClass()));
+                gcsBlob.getEtag(),
+                toDate(gcsBlob.getCreateTimeOffsetDateTime()),
+                toDate(gcsBlob.getUpdateTimeOffsetDateTime()),
+                fromGcsStorageClass(gcsBlob.getStorageClass()),
+                container,
+                toContentMetadata(gcsBlob));
     }
 
-    @Override
-    protected boolean deleteAndVerifyContainerGone(String container) {
-        try {
-            storage.delete(container);
-        } catch (StorageException se) {
-            if (se.getCode() == 404) {
-                return true;
-            }
-            throw se;
-        }
-        return true;
-    }
 
     @Override
     public ContainerAccess getContainerAccess(String container) {
@@ -606,25 +547,25 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
         var contentMetadata = blobMetadata.getContentMetadata();
         if (contentMetadata != null) {
-            if (contentMetadata.getContentType() != null) {
+            if (contentMetadata.contentType() != null) {
                 stubMetadata.put("s3proxy_content_type",
-                        contentMetadata.getContentType());
+                        contentMetadata.contentType());
             }
-            if (contentMetadata.getContentDisposition() != null) {
+            if (contentMetadata.contentDisposition() != null) {
                 stubMetadata.put("s3proxy_content_disposition",
-                        contentMetadata.getContentDisposition());
+                        contentMetadata.contentDisposition());
             }
-            if (contentMetadata.getContentEncoding() != null) {
+            if (contentMetadata.contentEncoding() != null) {
                 stubMetadata.put("s3proxy_content_encoding",
-                        contentMetadata.getContentEncoding());
+                        contentMetadata.contentEncoding());
             }
-            if (contentMetadata.getContentLanguage() != null) {
+            if (contentMetadata.contentLanguage() != null) {
                 stubMetadata.put("s3proxy_content_language",
-                        contentMetadata.getContentLanguage());
+                        contentMetadata.contentLanguage());
             }
-            if (contentMetadata.getCacheControl() != null) {
+            if (contentMetadata.cacheControl() != null) {
                 stubMetadata.put("s3proxy_cache_control",
-                        contentMetadata.getCacheControl());
+                        contentMetadata.cacheControl());
             }
         }
 
@@ -636,10 +577,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         }
 
-        if (blobMetadata.getTier() != null &&
-                blobMetadata.getTier() != Tier.STANDARD) {
-            stubMetadata.put("s3proxy_tier",
-                    blobMetadata.getTier().name());
+        if (blobMetadata.getStorageClass() != null &&
+                blobMetadata.getStorageClass() != StorageClass.STANDARD) {
+            stubMetadata.put("s3proxy_storage_class",
+                    blobMetadata.getStorageClass().name());
         }
 
         var stubInfo = BlobInfo.newBuilder(
@@ -648,7 +589,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 .build();
         storage.create(stubInfo, new byte[0]);
 
-        return MultipartUpload.create(container, targetBlobName,
+        return new MultipartUpload(container, targetBlobName,
                 uploadKey, blobMetadata, options);
     }
 
@@ -733,9 +674,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
             targetBuilder.setCacheControl(
                     stubMetadata.get("s3proxy_cache_control"));
         }
-        if (stubMetadata.containsKey("s3proxy_tier")) {
-            targetBuilder.setStorageClass(toStorageClass(
-                    Tier.valueOf(stubMetadata.get("s3proxy_tier"))));
+        if (stubMetadata.containsKey("s3proxy_storage_class")) {
+            targetBuilder.setStorageClass(toGcsStorageClass(
+                    StorageClass.valueOf(stubMetadata.get(
+                            "s3proxy_storage_class"))));
         }
 
         // Restore user metadata
@@ -841,7 +783,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, org.jclouds.io.Payload payload) {
+            int partNumber, org.gaul.s3proxy.blobstore.Payload payload) {
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " +
@@ -849,7 +791,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         Long contentLength = payload.getContentMetadata()
-                .getContentLength();
+                .contentLength();
         if (contentLength == null) {
             throw new IllegalArgumentException(
                     "Content-Length is required");
@@ -869,7 +811,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             md5Hash = his.hash().asBytes();
 
             var providedMd5 = payload.getContentMetadata()
-                    .getContentMD5AsHashCode();
+                    .contentMD5();
             if (providedMd5 != null) {
                 if (!MessageDigest.isEqual(md5Hash,
                         providedMd5.asBytes())) {
@@ -891,7 +833,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         String eTag = BaseEncoding.base16().lowerCase().encode(md5Hash);
-        return MultipartPart.create(partNumber, contentLength, eTag, null);
+        return new MultipartPart(partNumber, contentLength, eTag, null);
     }
 
     @Override
@@ -913,7 +855,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             } catch (NumberFormatException e) {
                 continue;
             }
-            parts.add(MultipartPart.create(partNumber, blob.getSize(),
+            parts.add(new MultipartPart(partNumber, blob.getSize(),
                     "", null));
         }
         return parts.build();
@@ -936,7 +878,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 continue;
             }
             String targetBlobName = metadata.get(TARGET_BLOB_NAME_KEY);
-            builder.add(MultipartUpload.create(container, targetBlobName,
+            builder.add(new MultipartUpload(container, targetBlobName,
                     name, null, null));
         }
         return builder.build();
@@ -951,17 +893,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
     @Override
     public long getMaximumMultipartPartSize() {
         return 5L * 1024 * 1024 * 1024;
-    }
-
-    @Override
-    public int getMaximumNumberOfParts() {
-        // With recursive compose we can handle many more than 32
-        return 10_000;
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name) {
-        throw new UnsupportedOperationException("not yet implemented");
     }
 
     private static String makePartBlobName(String nonce, int partNumber) {
@@ -981,15 +912,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
         // If the ETag doesn't match, the precondition fails
         if (!eTag.equals("*") && !eTag.equals(blob.getEtag())) {
-            var request = HttpRequest.builder()
-                    .method("PUT")
-                    .endpoint("https://storage.googleapis.com")
-                    .build();
             var response = HttpResponse.builder()
                     .statusCode(412)
                     .build();
-            throw new HttpResponseException(
-                    new HttpCommand(request), response);
+            throw new HttpResponseException(response);
         }
         return blob.getGeneration();
     }
@@ -1002,39 +928,38 @@ public final class GCloudBlobStore extends BaseBlobStore {
         return new Date(offsetDateTime.toInstant().toEpochMilli());
     }
 
-    private static com.google.cloud.storage.StorageClass toStorageClass(
-            Tier tier) {
-        if (tier == Tier.ARCHIVE) {
-            return com.google.cloud.storage.StorageClass.ARCHIVE;
-        } else if (tier == Tier.COLD) {
-            return com.google.cloud.storage.StorageClass.COLDLINE;
-        } else if (tier == Tier.COOL || tier == Tier.INFREQUENT) {
-            return com.google.cloud.storage.StorageClass.NEARLINE;
-        } else {
-            return com.google.cloud.storage.StorageClass.STANDARD;
-        }
+    private static com.google.cloud.storage.StorageClass toGcsStorageClass(
+            StorageClass storageClass) {
+        return switch (storageClass) {
+        case GLACIER, DEEP_ARCHIVE ->
+            com.google.cloud.storage.StorageClass.ARCHIVE;
+        case GLACIER_IR -> com.google.cloud.storage.StorageClass.COLDLINE;
+        case STANDARD_IA, ONEZONE_IA ->
+            com.google.cloud.storage.StorageClass.NEARLINE;
+        default -> com.google.cloud.storage.StorageClass.STANDARD;
+        };
     }
 
-    private static Tier toTier(
+    private static StorageClass fromGcsStorageClass(
             com.google.cloud.storage.@Nullable StorageClass storageClass) {
         if (storageClass == null) {
-            return Tier.STANDARD;
+            return StorageClass.STANDARD;
         } else if (storageClass.equals(
                 com.google.cloud.storage.StorageClass.ARCHIVE)) {
-            return Tier.ARCHIVE;
+            return StorageClass.DEEP_ARCHIVE;
         } else if (storageClass.equals(
                 com.google.cloud.storage.StorageClass.COLDLINE)) {
-            return Tier.COLD;
+            return StorageClass.GLACIER_IR;
         } else if (storageClass.equals(
                 com.google.cloud.storage.StorageClass.NEARLINE)) {
-            return Tier.COOL;
+            return StorageClass.STANDARD_IA;
         } else {
-            return Tier.STANDARD;
+            return StorageClass.STANDARD;
         }
     }
 
     private static ContentMetadata toContentMetadata(Blob blob) {
-        return ContentMetadataBuilder.create()
+        return ContentMetadata.builder()
                 .cacheControl(blob.getCacheControl())
                 .contentDisposition(blob.getContentDisposition())
                 .contentEncoding(blob.getContentEncoding())
@@ -1064,15 +989,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         }
         case 412 -> {
-            var request = HttpRequest.builder()
-                    .method("GET")
-                    .endpoint("https://storage.googleapis.com")
-                    .build();
             var response = HttpResponse.builder()
                     .statusCode(412)
                     .build();
-            return new HttpResponseException(
-                    new HttpCommand(request), response, se);
+            return new HttpResponseException(response, se);
         }
         default -> { }
         }

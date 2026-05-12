@@ -23,7 +23,7 @@ import java.util.Arrays;
 
 import javax.crypto.spec.IvParameterSpec;
 
-import org.jclouds.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

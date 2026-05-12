@@ -43,7 +43,7 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.jclouds.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 
 /**
  * S3Proxy translates S3 HTTP operations into jclouds provider-agnostic

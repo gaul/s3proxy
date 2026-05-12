@@ -19,25 +19,22 @@ package org.gaul.s3proxy;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-import java.io.File;
-import java.io.InputStream;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
-import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -116,21 +113,6 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean directoryExists(String container, String directory) {
-        return super.directoryExists(container, replaceBlobName(directory));
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        super.createDirectory(container, replaceBlobName(directory));
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
-        super.deleteDirectory(container, replaceBlobName(directory));
-    }
-
-    @Override
     public boolean blobExists(String container, String name) {
         return super.blobExists(container, replaceBlobName(name));
     }
@@ -139,11 +121,10 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     public String putBlob(String containerName, Blob blob) {
         String name = blob.getMetadata().getName();
         String newName = replaceBlobName(name);
-        blob.getMetadata().setName(newName);
-
         logger.debug("Renaming blob name from {} to {}", name, newName);
 
-        return super.putBlob(containerName, blob);
+        return super.putBlob(containerName,
+                blob.toBuilder().name(newName).build());
     }
 
     @Override
@@ -151,11 +132,10 @@ public final class RegexBlobStore extends ForwardingBlobStore {
             PutOptions putOptions) {
         String name = blob.getMetadata().getName();
         String newName = replaceBlobName(name);
-        blob.getMetadata().setName(newName);
-
         logger.debug("Renaming blob name from {} to {}", name, newName);
 
-        return super.putBlob(containerName, blob, putOptions);
+        return super.putBlob(containerName,
+                blob.toBuilder().name(newName).build(), putOptions);
     }
 
     @Override
@@ -198,29 +178,6 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     public void setBlobAccess(String container, String name,
             BlobAccess access) {
         super.setBlobAccess(container, replaceBlobName(name), access);
-    }
-
-    @Override
-    public void downloadBlob(String container, String name, File destination) {
-        super.downloadBlob(container, replaceBlobName(name), destination);
-    }
-
-    @Override
-    public void downloadBlob(String container, String name, File destination,
-            ExecutorService executor) {
-        super.downloadBlob(container, replaceBlobName(name), destination,
-                executor);
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name) {
-        return super.streamBlob(container, replaceBlobName(name));
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name,
-            ExecutorService executor) {
-        return super.streamBlob(container, replaceBlobName(name), executor);
     }
 
     private String replaceBlobName(String name) {

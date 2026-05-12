@@ -18,8 +18,6 @@ package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import java.io.File;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,28 +41,26 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.google.common.io.ByteSource;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.MutableStorageMetadata;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.domain.Location;
-import org.jclouds.io.Payload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /**
  * This class implements the ability to split objects destined for specified
@@ -216,7 +212,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
     }
 
-    private boolean createShards(ShardedBucket bucket, Location location,
+    private boolean createShards(ShardedBucket bucket,
                                  CreateContainerOptions options) {
         var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
         ExecutorService executor = Executors.newFixedThreadPool(
@@ -226,8 +222,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String shardContainer = ShardedBlobStore.getShardContainer(
                     bucket, n);
             futuresBuilder.add(executor.submit(
-                () -> blobStore.createContainerInLocation(
-                        location, shardContainer, options)));
+                () -> blobStore.createContainer(shardContainer, options)));
         }
         var futures = futuresBuilder.build();
         executor.shutdown();
@@ -244,22 +239,19 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-                                             String container) {
-        return createContainerInLocation(
-                location, container, CreateContainerOptions.NONE);
+    public boolean createContainer(String container) {
+        return createContainer(container, CreateContainerOptions.NONE);
     }
 
     @SuppressWarnings("EmptyCatch")
     @Override
-    public boolean createContainerInLocation(
-            Location location, String container,
+    public boolean createContainer(String container,
             CreateContainerOptions createContainerOptions) {
 
         ShardedBucket bucket = this.buckets.get(container);
         if (bucket == null) {
-            return this.delegate().createContainerInLocation(
-                    location, container, createContainerOptions);
+            return this.delegate().createContainer(container,
+                    createContainerOptions);
         }
 
         Map<String, String> superblockMeta = this.createSuperblockMeta(bucket);
@@ -274,12 +266,12 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             checkSuperBlock(superblockBlob, superblockMeta, container);
         }
 
-        boolean ret = createShards(bucket, location, createContainerOptions);
+        boolean ret = createShards(bucket, createContainerOptions);
 
         // Upload the superblock
         if (superblockBlob == null) {
-            superblockBlob = this.delegate().blobBuilder(SUPERBLOCK_BLOB_NAME)
-                    .payload("")
+            superblockBlob = Blob.builder(SUPERBLOCK_BLOB_NAME)
+                    .payload(ByteSource.empty())
                     .userMetadata(superblockMeta)
                     .build();
             this.delegate().putBlob(ShardedBlobStore.getShardContainer(
@@ -308,25 +300,20 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             }
             if (!virtualBuckets.contains(prefix)) {
                 virtualBuckets.add(prefix);
-                MutableStorageMetadata virtualBucket =
-                        new MutableStorageMetadataImpl();
-                virtualBucket.setCreationDate(sm.getCreationDate());
-                virtualBucket.setETag(sm.getETag());
-                virtualBucket.setId(sm.getProviderId());
-                virtualBucket.setLastModified(sm.getLastModified());
-                virtualBucket.setLocation(sm.getLocation());
-                virtualBucket.setName(virtualBucketName);
-                virtualBucket.setSize(sm.getSize());
-                virtualBucket.setTier(sm.getTier());
-                virtualBucket.setType(sm.getType());
-                virtualBucket.setUri(sm.getUri());
-                // copy the user metadata from the first shard as part
-                // of the response
-                virtualBucket.setUserMetadata(sm.getUserMetadata());
-                results.add(virtualBucket);
+                results.add(ContainerMetadata.builder()
+                        .creationDate(sm.getCreationDate())
+                        .eTag(sm.getETag())
+                        .lastModified(sm.getLastModified())
+                        .name(virtualBucketName)
+                        .size(sm.getSize())
+                        .storageClass(sm.getStorageClass())
+                        // copy the user metadata from the first shard as
+                        // part of the response
+                        .userMetadata(sm.getUserMetadata())
+                        .build());
             }
         }
-        return new PageSetImpl<>(results.build(), upstream.getNextMarker());
+        return new PageSet<>(results.build(), upstream.getNextMarker());
     }
 
     @Override
@@ -377,7 +364,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     public void clearContainer(String container) {
-        clearContainer(container, new ListContainerOptions());
+        clearContainer(container, ListContainerOptions.NONE);
     }
 
     @Override
@@ -434,21 +421,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         // Remove the superblock
         this.delegate().removeBlob(zeroShardContainer, SUPERBLOCK_BLOB_NAME);
         return this.deleteShards(bucket);
-    }
-
-    @Override
-    public boolean directoryExists(String container, String directory) {
-        throw new UnsupportedOperationException("sharded bucket");
-    }
-
-    @Override
-    public void createDirectory(String container, String directory) {
-        throw new UnsupportedOperationException("sharded bucket");
-    }
-
-    @Override
-    public void deleteDirectory(String container, String directory) {
-        throw new UnsupportedOperationException("sharded bucket");
     }
 
     @Override
@@ -538,22 +510,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public long countBlobs(String container) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate().countBlobs(container);
-        }
-        throw new UnsupportedOperationException("sharded bucket");
-    }
-
-    @Override
-    public long countBlobs(String container, ListContainerOptions options) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate().countBlobs(container, options);
-        }
-        throw new UnsupportedOperationException("sharded bucket");
-    }
-
-    @Override
     public MultipartUpload initiateMultipartUpload(String container,
                                                    BlobMetadata blobMetadata,
                                                    PutOptions options) {
@@ -605,31 +561,5 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             return this.delegate().listMultipartUploads(container);
         }
         throw new UnsupportedOperationException("sharded bucket");
-    }
-
-    @Override
-    public void downloadBlob(String container, String name, File destination) {
-        this.delegate().downloadBlob(this.getShard(container, name), name,
-                destination);
-    }
-
-    @Override
-    public void downloadBlob(String container, String name, File destination,
-                             ExecutorService executor) {
-        this.delegate()
-                .downloadBlob(this.getShard(container, name), name, destination,
-                        executor);
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name) {
-        return this.delegate().streamBlob(this.getShard(container, name), name);
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name,
-                                  ExecutorService executor) {
-        return this.delegate()
-                .streamBlob(this.getShard(container, name), name, executor);
     }
 }

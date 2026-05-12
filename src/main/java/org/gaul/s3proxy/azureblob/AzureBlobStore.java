@@ -18,7 +18,6 @@ package org.gaul.s3proxy.azureblob;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +28,6 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
@@ -68,54 +66,35 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
-import com.google.common.net.HttpHeaders;
 
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
-import jakarta.ws.rs.core.Response.Status;
-
-import org.gaul.s3proxy.PutOptions2;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobAccess;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.StorageType;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.domain.internal.BlobBuilderImpl;
-import org.jclouds.blobstore.domain.internal.BlobMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.domain.internal.StorageMetadataImpl;
-import org.jclouds.blobstore.internal.BaseBlobStore;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.BlobUtils;
-import org.jclouds.collect.Memoized;
-import org.jclouds.domain.Credentials;
-import org.jclouds.domain.Location;
-import org.jclouds.http.HttpCommand;
-import org.jclouds.http.HttpRequest;
-import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
-import org.jclouds.io.ContentMetadata;
-import org.jclouds.io.ContentMetadataBuilder;
-import org.jclouds.io.Payload;
-import org.jclouds.io.PayloadSlicer;
-import org.jclouds.providers.ProviderMetadata;
+import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.HttpResponse;
+import org.gaul.s3proxy.blobstore.HttpResponseException;
+import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.StorageType;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 
-@Singleton
 public final class AzureBlobStore extends BaseBlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
@@ -131,21 +110,20 @@ public final class AzureBlobStore extends BaseBlobStore {
     private final String endpoint;
     private final Supplier<Credentials> creds;
 
-    @Inject
-    AzureBlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            ProviderMetadata provider) {
-        super(context, blobUtils, defaultLocation, locations, slicer);
-        this.endpoint = provider.getEndpoint();
+    public AzureBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl) {
+        // TODO: derive endpoint from Constants.PROPERTY_ENDPOINT when unset,
+        // e.g., default to https://<account>.blob.core.windows.net based on
+        // the configured identity.
+        this.endpoint = endpointUrl;
         this.creds = creds;
         var cred = creds.get();
         var blobServiceClientBuilder = new BlobServiceClientBuilder();
-        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
+        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
             blobServiceClientBuilder.credential(
-                new AzureNamedKeyCredential(cred.identity, cred.credential));
+                new AzureNamedKeyCredential(cred.identity(),
+                        cred.credential()));
         } else {
             blobServiceClientBuilder.credential(
                 new DefaultAzureCredentialBuilder().build());
@@ -160,14 +138,12 @@ public final class AzureBlobStore extends BaseBlobStore {
     public PageSet<? extends StorageMetadata> list() {
         var set = ImmutableSet.<StorageMetadata>builder();
         for (var container : blobServiceClient.listBlobContainers()) {
-            set.add(new StorageMetadataImpl(StorageType.CONTAINER, /*id=*/ null,
-                    container.getName(), /*location=*/ null, /*uri=*/ null,
+            set.add(new ContainerMetadata(container.getName(), Map.of(),
                     /*eTag=*/ null, /*creationDate=*/ null,
                     toDate(container.getProperties().getLastModified()),
-                    Map.of(), /*size=*/ null,
-                    Tier.STANDARD));
+                    /*size=*/ null, StorageClass.STANDARD));
         }
-        return new PageSetImpl<StorageMetadata>(set.build(), null);
+        return new PageSet<StorageMetadata>(set.build(), null);
     }
 
     @Override
@@ -175,17 +151,17 @@ public final class AzureBlobStore extends BaseBlobStore {
             ListContainerOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container);
         var azureOptions = new ListBlobsOptions();
-        azureOptions.setPrefix(options.getPrefix());
-        azureOptions.setMaxResultsPerPage(options.getMaxResults());
-        var marker = options.getMarker() != null ?
-                URLDecoder.decode(options.getMarker(), StandardCharsets.UTF_8) :
+        azureOptions.setPrefix(options.prefix());
+        azureOptions.setMaxResultsPerPage(options.maxResults());
+        var marker = options.marker() != null ?
+                URLDecoder.decode(options.marker(), StandardCharsets.UTF_8) :
                 null;
 
         var set = ImmutableSet.<StorageMetadata>builder();
         PagedResponse<BlobItem> page;
         try {
             page = client.listBlobsByHierarchy(
-                    options.getDelimiter(), azureOptions, /*timeout=*/ null)
+                    options.delimiter(), azureOptions, /*timeout=*/ null)
                     .iterableByPage(marker).iterator().next();
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
@@ -193,27 +169,26 @@ public final class AzureBlobStore extends BaseBlobStore {
         for (var blob : page.getValue()) {
             var properties = blob.getProperties();
             if (blob.isPrefix()) {
-                set.add(new StorageMetadataImpl(StorageType.RELATIVE_PATH,
-                        /*id=*/ null, blob.getName(), /*location=*/ null,
-                        /*uri=*/ null, /*eTag=*/ null,
-                        /*creationDate=*/ null,
-                        /*lastModified=*/ null,
-                        Map.of(),
-                        /*size=*/ null,
-                        Tier.STANDARD));
+                set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
+                        blob.getName(), Map.of(), /*eTag=*/ null,
+                        /*creationDate=*/ null, /*lastModified=*/ null,
+                        StorageClass.STANDARD,
+                        /*container=*/ null,
+                        ContentMetadata.builder().build()));
             } else {
-                set.add(new StorageMetadataImpl(StorageType.BLOB,
-                        /*id=*/ null, blob.getName(), /*location=*/ null,
-                        /*uri=*/ null, properties.getETag(),
+                set.add(new BlobMetadata(StorageType.BLOB, blob.getName(),
+                        Map.of(), properties.getETag(),
                         toDate(properties.getCreationTime()),
                         toDate(properties.getLastModified()),
-                        Map.of(),
-                        properties.getContentLength(),
-                        toTier(properties.getAccessTier())));
+                        fromAccessTier(properties.getAccessTier()),
+                        /*container=*/ null,
+                        ContentMetadata.builder()
+                                .contentLength(properties.getContentLength())
+                                .build()));
             }
         }
 
-        return new PageSetImpl<StorageMetadata>(set.build(),
+        return new PageSet<StorageMetadata>(set.build(),
                 page.getContinuationToken());
     }
 
@@ -224,17 +199,15 @@ public final class AzureBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container) {
-        return createContainerInLocation(location, container,
-                new CreateContainerOptions());
+    public boolean createContainer(String container) {
+        return createContainer(container, CreateContainerOptions.NONE);
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-            String container, CreateContainerOptions options) {
+    public boolean createContainer(String container,
+            CreateContainerOptions options) {
         var azureOptions = new BlobContainerCreateOptions();
-        if (options.isPublicRead()) {
+        if (options.publicRead()) {
             azureOptions.setPublicAccessType(PublicAccessType.CONTAINER);
         }
         try {
@@ -294,8 +267,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
         BlobRange azureRange = null;
-        if (!options.getRanges().isEmpty()) {
-            var ranges = options.getRanges().get(0).split("-", 2);
+        if (!options.ranges().isEmpty()) {
+            var ranges = options.ranges().get(0).split("-", 2);
 
             if (ranges[0].isEmpty()) {
                 // handle to read from the end
@@ -318,23 +291,21 @@ public final class AzureBlobStore extends BaseBlobStore {
             }
         }
         var conditions = new BlobRequestConditions()
-                .setIfMatch(options.getIfMatch())
+                .setIfMatch(options.ifMatch())
                 .setIfModifiedSince(toOffsetDateTime(
-                        options.getIfModifiedSince()))
-                .setIfNoneMatch(options.getIfNoneMatch())
+                        options.ifModifiedSince()))
+                .setIfNoneMatch(options.ifNoneMatch())
                 .setIfUnmodifiedSince(toOffsetDateTime(
-                        options.getIfUnmodifiedSince()));
+                        options.ifUnmodifiedSince()));
         BlobInputStream blobStream;
         try {
             blobStream = client.openInputStream(azureRange, conditions);
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() ==
-                    Status.REQUESTED_RANGE_NOT_SATISFIABLE.getStatusCode()) {
+                    416) {
                 throw new HttpResponseException(
-                        "illegal range: " + azureRange, null,
-                        HttpResponse.builder()
-                        .statusCode(Status.REQUESTED_RANGE_NOT_SATISFIABLE
-                                .getStatusCode())
+                        "illegal range: " + azureRange, HttpResponse.builder()
+                        .statusCode(416)
                         .build());
             }
             throw translate(bse, container, key);
@@ -352,8 +323,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                 contentLength = azureRange.getCount();
             }
         }
-        var blob = new BlobBuilderImpl()
-                .name(key)
+        var builder = Blob.builder(key)
                 .userMetadata(properties.getMetadata())
                 .payload(blobStream)
                 .cacheControl(properties.getCacheControl())
@@ -363,23 +333,21 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .contentLength(contentLength)
                 .contentType(properties.getContentType())
                 .expires(expires != null ? toDate(expires) : null)
-                .build();
+                .eTag(properties.getETag())
+                .creationDate(toDate(properties.getCreationTime()))
+                .lastModified(toDate(properties.getLastModified()));
         if (azureRange != null) {
-            blob.getAllHeaders().put(HttpHeaders.CONTENT_RANGE,
+            builder.contentRange(
                     "bytes " + azureRange.getOffset() +
                     "-" + (azureRange.getOffset() + contentLength - 1) +
                     "/" + properties.getBlobSize());
         }
-        var metadata = blob.getMetadata();
-        metadata.setETag(properties.getETag());
-        metadata.setCreationDate(toDate(properties.getCreationTime()));
-        metadata.setLastModified(toDate(properties.getLastModified()));
-        return blob;
+        return builder.build();
     }
 
     @Override
     public String putBlob(String container, Blob blob) {
-        return putBlob(container, blob, new PutOptions());
+        return putBlob(container, blob, PutOptions.NONE);
     }
 
     @Override
@@ -394,30 +362,27 @@ public final class AzureBlobStore extends BaseBlobStore {
             // TODO: Expires?
             var blobHttpHeaders = new BlobHttpHeaders();
             var contentMetadata = blob.getMetadata().getContentMetadata();
-            blobHttpHeaders.setCacheControl(contentMetadata.getCacheControl());
+            blobHttpHeaders.setCacheControl(contentMetadata.cacheControl());
             blobHttpHeaders.setContentDisposition(
-                    contentMetadata.getContentDisposition());
+                    contentMetadata.contentDisposition());
             blobHttpHeaders.setContentEncoding(
-                    contentMetadata.getContentEncoding());
+                    contentMetadata.contentEncoding());
             blobHttpHeaders.setContentLanguage(
-                    contentMetadata.getContentLanguage());
-            var hash = contentMetadata.getContentMD5AsHashCode();
+                    contentMetadata.contentLanguage());
+            var hash = contentMetadata.contentMD5();
             blobHttpHeaders.setContentMd5(hash != null ? hash.asBytes() : null);
-            blobHttpHeaders.setContentType(contentMetadata.getContentType());
+            blobHttpHeaders.setContentType(contentMetadata.contentType());
             azureOptions.setHeaders(blobHttpHeaders);
-            if (blob.getMetadata().getTier() != Tier.STANDARD) {
+            if (blob.getMetadata().getStorageClass() != StorageClass.STANDARD) {
                 azureOptions.setTier(toAccessTier(
-                        blob.getMetadata().getTier()));
+                        blob.getMetadata().getStorageClass()));
             }
 
-            if (options instanceof PutOptions2 putOptions2) {
-                String ifMatch = putOptions2.getIfMatch();
-                String ifNoneMatch = putOptions2.getIfNoneMatch();
-                if (ifMatch != null || ifNoneMatch != null) {
-                    azureOptions.setRequestConditions(new BlobRequestConditions()
-                            .setIfMatch(ifMatch)
-                            .setIfNoneMatch(ifNoneMatch));
-                }
+            if (options != null && (options.ifMatch() != null ||
+                    options.ifNoneMatch() != null)) {
+                azureOptions.setRequestConditions(new BlobRequestConditions()
+                        .setIfMatch(options.ifMatch())
+                        .setIfNoneMatch(options.ifNoneMatch()));
             }
 
             try (var os = client.getBlobOutputStream(
@@ -453,7 +418,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         var url = fromClient.getBlobUrl();
         String token;
         var cred = creds.get();
-        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
+        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
             token = fromClient.generateSas(values);
         } else {
             var userDelegationKey = blobServiceClient.getUserDelegationKey(
@@ -471,27 +436,27 @@ public final class AzureBlobStore extends BaseBlobStore {
         var headers = new BlobHttpHeaders();
         var contentMetadata = options.contentMetadata();
         if (contentMetadata != null) {
-            var cacheControl = contentMetadata.getCacheControl();
+            var cacheControl = contentMetadata.cacheControl();
             if (cacheControl != null) {
                 headers.setCacheControl(cacheControl);
             }
 
-            var contentDisposition = contentMetadata.getContentDisposition();
+            var contentDisposition = contentMetadata.contentDisposition();
             if (contentDisposition != null) {
                 headers.setContentDisposition(contentDisposition);
             }
 
-            var contentEncoding = contentMetadata.getContentEncoding();
+            var contentEncoding = contentMetadata.contentEncoding();
             if (contentEncoding != null) {
                 headers.setContentEncoding(contentEncoding);
             }
 
-            var contentLanguage = contentMetadata.getContentLanguage();
+            var contentLanguage = contentMetadata.contentLanguage();
             if (contentLanguage != null) {
                 headers.setContentLanguage(contentLanguage);
             }
 
-            var contentType = contentMetadata.getContentType();
+            var contentType = contentMetadata.contentType();
             if (contentType != null) {
                 headers.setContentType(contentType);
             }
@@ -538,19 +503,13 @@ public final class AzureBlobStore extends BaseBlobStore {
             }
             throw translate(bse, container, /*key=*/ null);
         }
-        return new BlobMetadataImpl(/*id=*/ null, key, /*location=*/ null,
-                /*uri=*/ null, properties.getETag(),
+        return new BlobMetadata(StorageType.BLOB, key,
+                properties.getMetadata(), properties.getETag(),
                 toDate(properties.getCreationTime()),
                 toDate(properties.getLastModified()),
-                properties.getMetadata(), /*publicUri=*/ null, container,
-                toContentMetadata(properties),
-                properties.getBlobSize(), toTier(properties.getAccessTier()));
-    }
-
-    @Override
-    protected boolean deleteAndVerifyContainerGone(String container) {
-        blobServiceClient.deleteBlobContainer(container);
-        return true;
+                fromAccessTier(properties.getAccessTier()),
+                container,
+                toContentMetadata(properties));
     }
 
     @Override
@@ -614,11 +573,11 @@ public final class AzureBlobStore extends BaseBlobStore {
         var contentMetadata = blobMetadata.getContentMetadata();
         BlobHttpHeaders headers = new BlobHttpHeaders();
         if (contentMetadata != null) {
-            headers.setContentType(contentMetadata.getContentType());
-            headers.setContentDisposition(contentMetadata.getContentDisposition());
-            headers.setContentEncoding(contentMetadata.getContentEncoding());
-            headers.setContentLanguage(contentMetadata.getContentLanguage());
-            headers.setCacheControl(contentMetadata.getCacheControl());
+            headers.setContentType(contentMetadata.contentType());
+            headers.setContentDisposition(contentMetadata.contentDisposition());
+            headers.setContentEncoding(contentMetadata.contentEncoding());
+            headers.setContentLanguage(contentMetadata.contentLanguage());
+            headers.setCacheControl(contentMetadata.cacheControl());
         }
 
         var uploadOptions = new BlockBlobSimpleUploadOptions(
@@ -627,8 +586,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         if (userMetadata != null && !userMetadata.isEmpty()) {
             uploadOptions.setMetadata(userMetadata);
         }
-        if (blobMetadata.getTier() != null && blobMetadata.getTier() != Tier.STANDARD) {
-            uploadOptions.setTier(toAccessTier(blobMetadata.getTier()));
+        if (blobMetadata.getStorageClass() != null && blobMetadata.getStorageClass() != StorageClass.STANDARD) {
+            uploadOptions.setTier(toAccessTier(blobMetadata.getStorageClass()));
         }
 
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);
@@ -637,7 +596,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         tags.put(TARGET_BLOB_NAME_TAG, targetBlobName);
         stubBlobClient.setTags(tags);
 
-        return MultipartUpload.create(container, targetBlobName,
+        return new MultipartUpload(container, targetBlobName,
                 uploadKey, blobMetadata, options);
     }
 
@@ -760,11 +719,11 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
 
         BlobHttpHeaders blobHttpHeaders = new BlobHttpHeaders();
-        blobHttpHeaders.setContentType(contentMetadata.getContentType());
-        blobHttpHeaders.setContentDisposition(contentMetadata.getContentDisposition());
-        blobHttpHeaders.setContentEncoding(contentMetadata.getContentEncoding());
-        blobHttpHeaders.setContentLanguage(contentMetadata.getContentLanguage());
-        blobHttpHeaders.setCacheControl(contentMetadata.getCacheControl());
+        blobHttpHeaders.setContentType(contentMetadata.contentType());
+        blobHttpHeaders.setContentDisposition(contentMetadata.contentDisposition());
+        blobHttpHeaders.setContentEncoding(contentMetadata.contentEncoding());
+        blobHttpHeaders.setContentLanguage(contentMetadata.contentLanguage());
+        blobHttpHeaders.setCacheControl(contentMetadata.cacheControl());
 
         var options = new BlockBlobCommitBlockListOptions(
                 blockIds.build());
@@ -777,14 +736,12 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
 
         // Support conditional writes (If-Match/If-None-Match)
-        if (mpu.putOptions() instanceof PutOptions2 putOptions2) {
-            String ifMatch = putOptions2.getIfMatch();
-            String ifNoneMatch = putOptions2.getIfNoneMatch();
-            if (ifMatch != null || ifNoneMatch != null) {
-                options.setRequestConditions(new BlobRequestConditions()
-                        .setIfMatch(ifMatch)
-                        .setIfNoneMatch(ifNoneMatch));
-            }
+        var putOpts = mpu.putOptions();
+        if (putOpts != null && (putOpts.ifMatch() != null ||
+                putOpts.ifNoneMatch() != null)) {
+            options.setRequestConditions(new BlobRequestConditions()
+                    .setIfMatch(putOpts.ifMatch())
+                    .setIfNoneMatch(putOpts.ifNoneMatch()));
         }
 
         try {
@@ -821,7 +778,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                     "Part number must be between 1 and 10,000, got: " + partNumber);
         }
 
-        Long contentLength = payload.getContentMetadata().getContentLength();
+        Long contentLength = payload.getContentMetadata().contentLength();
         if (contentLength == null) {
             throw new IllegalArgumentException("Content-Length is required");
         }
@@ -845,7 +802,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         byte[] md5Hash;
         try (var is = payload.openStream();
              var his = new HashingInputStream(MD5, is)) {
-            var providedMd5 = payload.getContentMetadata().getContentMD5AsHashCode();
+            var providedMd5 = payload.getContentMetadata().contentMD5();
 
             final int maxChunkSize = 4 * 1024 * 1024;
 
@@ -921,7 +878,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         String eTag = BaseEncoding.base16()
                 .lowerCase().encode(md5Hash);
         Date lastModified = null;
-        return MultipartPart.create(partNumber, contentLength, eTag, lastModified);
+        return new MultipartPart(partNumber, contentLength, eTag, lastModified);
     }
 
     /**
@@ -938,9 +895,10 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .endpoint(endpoint)
                 .retryOptions(NO_RETRY_OPTIONS);
 
-        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
+        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
             clientBuilder.credential(
-                new AzureNamedKeyCredential(cred.identity, cred.credential));
+                new AzureNamedKeyCredential(cred.identity(),
+                        cred.credential()));
         } else {
             clientBuilder.credential(new DefaultAzureCredentialBuilder().build());
         }
@@ -1013,7 +971,7 @@ public final class AzureBlobStore extends BaseBlobStore {
 
             String eTag = "";  // listBlocks does not return ETag
             Date lastModified = null; // listBlocks does not return LastModified
-            parts.add(MultipartPart.create(partNumber, properties.getSizeLong(),
+            parts.add(new MultipartPart(partNumber, properties.getSizeLong(),
                     eTag, lastModified));
         }
         return parts.build();
@@ -1041,7 +999,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             }
 
             String targetBlobName = tags.get(TARGET_BLOB_NAME_TAG);
-            builder.add(MultipartUpload.create(container, targetBlobName,
+            builder.add(new MultipartUpload(container, targetBlobName,
                     uploadKey, null, null));
         }
 
@@ -1058,16 +1016,6 @@ public final class AzureBlobStore extends BaseBlobStore {
         return 4000L * 1024 * 1024;
     }
 
-    @Override
-    public int getMaximumNumberOfParts() {
-        return 50 * 1000;
-    }
-
-    @Override
-    public InputStream streamBlob(String container, String name) {
-        throw new UnsupportedOperationException("not yet implemented");
-    }
-
     private static OffsetDateTime toOffsetDateTime(@Nullable Date date) {
         if (date == null) {
             return null;
@@ -1079,34 +1027,33 @@ public final class AzureBlobStore extends BaseBlobStore {
         return new Date(time.toInstant().toEpochMilli());
     }
 
-    private static AccessTier toAccessTier(Tier tier) {
-        return switch (tier) {
-        case ARCHIVE -> AccessTier.ARCHIVE;
-        case COOL -> AccessTier.COOL;
-        case INFREQUENT -> AccessTier.COOL;
-        case COLD -> AccessTier.COLD;
-        case STANDARD -> AccessTier.HOT;
+    private static AccessTier toAccessTier(StorageClass storageClass) {
+        return switch (storageClass) {
+        case GLACIER, DEEP_ARCHIVE -> AccessTier.ARCHIVE;
+        case STANDARD_IA, ONEZONE_IA -> AccessTier.COOL;
+        case GLACIER_IR -> AccessTier.COLD;
+        default -> AccessTier.HOT;
         };
     }
 
-    private static Tier toTier(AccessTier tier) {
+    private static StorageClass fromAccessTier(AccessTier tier) {
         if (tier == null) {
-            return Tier.STANDARD;
+            return StorageClass.STANDARD;
         } else if (tier.equals(AccessTier.ARCHIVE)) {
-            return Tier.ARCHIVE;
+            return StorageClass.DEEP_ARCHIVE;
         } else if (tier.equals(AccessTier.COLD)) {
-            return Tier.COLD;
+            return StorageClass.GLACIER_IR;
         } else if (tier.equals(AccessTier.COOL)) {
-            return Tier.COOL;
+            return StorageClass.STANDARD_IA;
         } else {
-            return Tier.STANDARD;
+            return StorageClass.STANDARD;
         }
     }
 
     private static ContentMetadata toContentMetadata(
             BlobProperties properties) {
         var expires = properties.getExpiresOn();
-        return ContentMetadataBuilder.create()
+        return ContentMetadata.builder()
                 .cacheControl(properties.getCacheControl())
                 .contentDisposition(properties.getContentDisposition())
                 .contentEncoding(properties.getContentEncoding())
@@ -1152,35 +1099,20 @@ public final class AzureBlobStore extends BaseBlobStore {
             exception.initCause(bse);
             return exception;
         } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET)) {
-            var request = HttpRequest.builder()
-                    .method("GET")
-                    .endpoint(endpoint)
-                    .build();
             var response = HttpResponse.builder()
-                    .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                    .statusCode(412)
                     .build();
-            return new HttpResponseException(
-                    new HttpCommand(request), response, bse);
+            return new HttpResponseException(response, bse);
         } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
-            var request = HttpRequest.builder()
-                    .method("PUT")
-                    .endpoint(endpoint)
-                    .build();
             var response = HttpResponse.builder()
-                    .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                    .statusCode(412)
                     .build();
-            return new HttpResponseException(
-                    new HttpCommand(request), response, bse);
+            return new HttpResponseException(response, bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
-            var request = HttpRequest.builder()
-                    .method("GET")
-                    .endpoint(endpoint)
-                    .build();
             var response = HttpResponse.builder()
-                    .statusCode(Status.BAD_REQUEST.getStatusCode())
+                    .statusCode(400)
                     .build();
-            return new HttpResponseException(
-                    new HttpCommand(request), response, bse);
+            return new HttpResponseException(response, bse);
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);

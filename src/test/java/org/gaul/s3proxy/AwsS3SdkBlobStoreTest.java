@@ -20,18 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Properties;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStoreContext;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.Test;
 
 public final class AwsS3SdkBlobStoreTest {
-
-    @Test
-    public void testProviderRegistration() {
-        // Verify that the provider is discoverable via jclouds
-        var providers = ContextBuilder.newBuilder("aws-s3-sdk");
-        assertThat(providers).isNotNull();
-    }
 
     @Test
     public void testProviderMetadata() {
@@ -40,14 +32,8 @@ public final class AwsS3SdkBlobStoreTest {
         properties.setProperty("jclouds.credential", "test-credential");
         properties.setProperty("jclouds.endpoint", "http://localhost:9000");
 
-        // This validates that the provider can be instantiated
-        // without actually connecting to a backend
-        try (BlobStoreContext context = ContextBuilder.newBuilder("aws-s3-sdk")
-                .overrides(properties)
-                .buildView(BlobStoreContext.class)) {
-            assertThat(context).isNotNull();
-            assertThat(context.getBlobStore()).isNotNull();
-        }
+        BlobStore blobStore = BlobStores.create("aws-s3-sdk", properties);
+        assertThat(blobStore).isNotNull();
     }
 
     @Test
@@ -56,14 +42,9 @@ public final class AwsS3SdkBlobStoreTest {
         properties.setProperty("jclouds.identity", "test-identity");
         properties.setProperty("jclouds.credential", "test-credential");
         properties.setProperty("jclouds.endpoint", "http://localhost:9000");
-        properties.setProperty("aws-s3-sdk.region", "eu-west-1");
+        properties.setProperty("jclouds.region", "eu-west-1");
 
-        // Verify that custom region configuration is accepted
-        try (BlobStoreContext context = ContextBuilder.newBuilder("aws-s3-sdk")
-                .overrides(properties)
-                .buildView(BlobStoreContext.class)) {
-            assertThat(context).isNotNull();
-            assertThat(context.getBlobStore()).isNotNull();
-        }
+        BlobStore blobStore = BlobStores.create("aws-s3-sdk", properties);
+        assertThat(blobStore).isNotNull();
     }
 }

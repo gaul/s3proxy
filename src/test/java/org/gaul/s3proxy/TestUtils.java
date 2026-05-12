@@ -22,7 +22,6 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
-import java.util.List;
 import java.util.Properties;
 import java.util.Random;
 
@@ -34,12 +33,8 @@ import com.google.common.io.MoreFiles;
 import com.google.common.io.Resources;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
-import org.jclouds.Constants;
-import org.jclouds.ContextBuilder;
-import org.jclouds.JcloudsVersion;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
 
 final class TestUtils {
     @SuppressWarnings("deprecation")
@@ -178,19 +173,12 @@ final class TestUtils {
             credential = Strings.nullToEmpty(credential);
             info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
         }
-        String endpoint = info.getProperties().getProperty(
-                Constants.PROPERTY_ENDPOINT);
+        info.getProperties().setProperty(Constants.PROPERTY_IDENTITY,
+                Strings.nullToEmpty(identity));
+        info.getProperties().setProperty(Constants.PROPERTY_CREDENTIAL,
+                Strings.nullToEmpty(credential));
 
-        ContextBuilder builder = ContextBuilder
-                .newBuilder(provider)
-                .credentials(identity, credential)
-                .modules(List.of(new SLF4JLoggingModule()))
-                .overrides(info.getProperties());
-        if (!Strings.isNullOrEmpty(endpoint)) {
-            builder.endpoint(endpoint);
-        }
-        BlobStoreContext context = builder.build(BlobStoreContext.class);
-        info.blobStore = context.getBlobStore();
+        info.blobStore = BlobStores.create(provider, info.getProperties());
 
         String encrypted = info.getProperties().getProperty(
                 S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE);
@@ -208,11 +196,6 @@ final class TestUtils {
         info.s3Identity = s3ProxyBuilder.getIdentity();
         info.s3Credential = s3ProxyBuilder.getCredential();
         info.servicePath = s3ProxyBuilder.getServicePath();
-        info.getProperties().setProperty(Constants.PROPERTY_USER_AGENT,
-                String.format("s3proxy/%s jclouds/%s java/%s",
-                        TestUtils.class.getPackage().getImplementationVersion(),
-                        JcloudsVersion.get(),
-                        System.getProperty("java.version")));
 
         // resolve relative path for tests
         String keyStorePath = info.getProperties().getProperty(
@@ -246,6 +229,13 @@ final class TestUtils {
         }
 
         return info;
+    }
+
+    static BlobStore createTransientBlobStore() {
+        var props = new Properties();
+        props.setProperty(Constants.PROPERTY_IDENTITY, "identity");
+        props.setProperty(Constants.PROPERTY_CREDENTIAL, "credential");
+        return BlobStores.create("transient-nio2", props);
     }
 
     static String createRandomContainerName() {
