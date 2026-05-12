@@ -636,7 +636,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             var actualHashCode = is.hash();
             var expectedHashCode = metadata.getContentMD5AsHashCode();
             if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
-                Files.delete(tmpPath);
                 throw returnResponseException(400);
             }
 
@@ -673,6 +672,15 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             return "\"" + actualHashCode + "\"";
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
+        } finally {
+            // No-op on the success path because Files.move has already
+            // consumed tmpPath; on any earlier failure this removes the
+            // partial file so it does not accumulate on disk.
+            try {
+                Files.deleteIfExists(tmpPath);
+            } catch (IOException ioe) {
+                logger.debug("unable to delete temp file {}", tmpPath, ioe);
+            }
         }
     }
 
