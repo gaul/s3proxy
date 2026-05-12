@@ -412,10 +412,15 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
             }
             if (attributes.contains(XATTR_EXPIRES)) {
-                ByteBuffer buf = ByteBuffer.allocate(view.size(XATTR_EXPIRES));
-                view.read(XATTR_EXPIRES, buf);
-                buf.flip();
-                expires = new Date(buf.asLongBuffer().get());
+                int xattrSize = view.size(XATTR_EXPIRES);
+                if (xattrSize == Longs.BYTES) {
+                    ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES);
+                    view.read(XATTR_EXPIRES, buf);
+                    buf.flip();
+                    expires = new Date(buf.asLongBuffer().get());
+                } else {
+                    logger.warn("ignoring malformed {} xattr ({} bytes) on {}", XATTR_EXPIRES, xattrSize, path);
+                }
             }
             if (view != null) {
                 var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
