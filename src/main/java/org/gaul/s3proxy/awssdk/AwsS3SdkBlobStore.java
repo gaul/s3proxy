@@ -202,8 +202,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             }
             return new PageSetImpl<StorageMetadata>(set.build(), null);
         } catch (S3Exception e) {
-            translateAndRethrowException(e, null, null);
-            throw e;
+            throw translate(e, null, null);
         }
     }
 
@@ -272,8 +271,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container, null);
-            throw e;
+            throw translate(e, container, null);
         }
     }
 
@@ -336,8 +334,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                             "Bucket already exists: " + container, e);
                 }
             }
-            translateAndRethrowException(e, container, null);
-            throw e;
+            throw translate(e, container, null);
         }
     }
 
@@ -351,8 +348,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             // Already deleted, ignore
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container, null);
-            throw e;
+            throw translate(e, container, null);
         }
     }
 
@@ -476,8 +472,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 throw new HttpResponseException(
                         new HttpCommand(request), responseBuilder.build(), e);
             }
-            translateAndRethrowException(e, container, key);
-            throw e;
+            throw translate(e, container, key);
         }
     }
 
@@ -568,9 +563,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (IOException e) {
             throw new RuntimeException("Failed to read blob payload", e);
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container,
-                    blob.getMetadata().getName());
-            throw e;
+            throw translate(e, container, blob.getMetadata().getName());
         }
     }
 
@@ -621,8 +614,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(fromContainer, e.getMessage());
         } catch (S3Exception e) {
-            translateAndRethrowException(e, fromContainer, fromName);
-            throw e;
+            throw translate(e, fromContainer, fromName);
         }
     }
 
@@ -667,8 +659,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             if (e.statusCode() == 404) {
                 return null;
             }
-            translateAndRethrowException(e, container, key);
-            throw e;
+            throw translate(e, container, key);
         }
     }
 
@@ -715,8 +706,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container, null);
-            throw e;
+            throw translate(e, container, null);
         }
     }
 
@@ -794,8 +784,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container, key);
-            throw e;
+            throw translate(e, container, key);
         }
     }
 
@@ -851,8 +840,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container, blobMetadata.getName());
-            throw e;
+            throw translate(e, container, blobMetadata.getName());
         }
     }
 
@@ -902,8 +890,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             applyMultipartAclIfNeeded(mpu);
             return response.eTag();
         } catch (S3Exception e) {
-            translateAndRethrowException(e, mpu.containerName(), mpu.blobName());
-            throw e;
+            throw translate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -929,8 +916,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (IOException e) {
             throw new RuntimeException("Failed to upload part", e);
         } catch (S3Exception e) {
-            translateAndRethrowException(e, mpu.containerName(), mpu.blobName());
-            throw e;
+            throw translate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -964,8 +950,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             if (e.statusCode() == 404) {
                 return List.of();
             }
-            translateAndRethrowException(e, mpu.containerName(), mpu.blobName());
-            throw e;
+            throw translate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -1003,8 +988,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            translateAndRethrowException(e, container, null);
-            throw e;
+            throw translate(e, container, null);
         }
     }
 
@@ -1124,22 +1108,22 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         return builder.build();
     }
 
-    private void translateAndRethrowException(S3Exception e,
+    private RuntimeException translate(S3Exception e,
             @Nullable String container, @Nullable String key) {
         if (container != null && e.statusCode() == 404) {
             String errorCode = e.awsErrorDetails().errorCode();
             if ("NoSuchBucket".equals(errorCode)) {
-                throw new ContainerNotFoundException(container, e.getMessage());
+                return new ContainerNotFoundException(container, e.getMessage());
             } else if ("NoSuchKey".equals(errorCode)) {
                 if (key == null) {
-                    throw new ContainerNotFoundException(container, e.getMessage());
+                    return new ContainerNotFoundException(container, e.getMessage());
                 }
-                throw new KeyNotFoundException(container, key, e.getMessage());
+                return new KeyNotFoundException(container, key, e.getMessage());
             }
             if (key != null) {
-                throw new KeyNotFoundException(container, key, e.getMessage());
+                return new KeyNotFoundException(container, key, e.getMessage());
             } else {
-                throw new ContainerNotFoundException(container, e.getMessage());
+                return new ContainerNotFoundException(container, e.getMessage());
             }
         }
         var request = HttpRequest.builder()
@@ -1155,7 +1139,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                     .ifPresent(etag -> responseBuilder.addHeader(HttpHeaders.ETAG, etag));
         }
 
-        throw new HttpResponseException(
+        return new HttpResponseException(
                 new HttpCommand(request), responseBuilder.build(), e);
     }
 

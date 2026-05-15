@@ -188,8 +188,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                     options.getDelimiter(), azureOptions, /*timeout=*/ null)
                     .iterableByPage(marker).iterator().next();
         } catch (BlobStorageException bse) {
-            translateAndRethrowException(bse, container, /*key=*/ null);
-            throw bse;
+            throw translate(bse, container, /*key=*/ null);
         }
         for (var blob : page.getValue()) {
             var properties = blob.getProperties();
@@ -248,8 +247,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             default -> false;
             };
         } catch (BlobStorageException bse) {
-            translateAndRethrowException(bse, container, /*key=*/ null);
-            throw bse;
+            throw translate(bse, container, /*key=*/ null);
         }
     }
 
@@ -330,7 +328,6 @@ public final class AzureBlobStore extends BaseBlobStore {
         try {
             blobStream = client.openInputStream(azureRange, conditions);
         } catch (BlobStorageException bse) {
-            translateAndRethrowException(bse, container, key);
             if (bse.getStatusCode() ==
                     Status.REQUESTED_RANGE_NOT_SATISFIABLE.getStatusCode()) {
                 throw new HttpResponseException(
@@ -340,7 +337,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                                 .getStatusCode())
                         .build());
             }
-            throw bse;
+            throw translate(bse, container, key);
         }
         var properties = blobStream.getProperties();
         var expires = properties.getExpiresOn();
@@ -435,10 +432,8 @@ public final class AzureBlobStore extends BaseBlobStore {
                     .getProperties()
                     .getETag();
         } catch (IOException ioe) {
-            var cause = ioe.getCause();
-            if (cause instanceof BlobStorageException bse) {
-                translateAndRethrowException(
-                        bse, container, /*key=*/ null);
+            if (ioe.getCause() instanceof BlobStorageException bse) {
+                throw translate(bse, container, /*key=*/ null);
             }
             throw new RuntimeException(ioe);
         }
@@ -541,8 +536,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
                 return null;
             }
-            translateAndRethrowException(bse, container, /*key=*/ null);
-            throw bse;
+            throw translate(bse, container, /*key=*/ null);
         }
         return new BlobMetadataImpl(/*id=*/ null, key, /*location=*/ null,
                 /*uri=*/ null, properties.getETag(),
@@ -569,8 +563,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                     ContainerAccess.PUBLIC_READ :
                     ContainerAccess.PRIVATE;
         } catch (BlobStorageException bse) {
-            translateAndRethrowException(bse, container, /*key=*/ null);
-            throw bse;
+            throw translate(bse, container, /*key=*/ null);
         }
     }
 
@@ -601,8 +594,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                 throw new ContainerNotFoundException(container, "");
             }
         } catch (BlobStorageException bse) {
-            translateAndRethrowException(bse, container, /*key=*/ null);
-            throw bse;
+            throw translate(bse, container, /*key=*/ null);
         }
 
         var userMetadata = blobMetadata.getUserMetadata();
@@ -814,7 +806,7 @@ public final class AzureBlobStore extends BaseBlobStore {
                 throw new IllegalArgumentException(
                         "Conflict during commit: " + bse.getMessage(), bse);
             } else if (bse.getStatusCode() == 412) {
-                translateAndRethrowException(bse, mpu.containerName(), targetBlobName);
+                throw translate(bse, mpu.containerName(), targetBlobName);
             }
             throw bse;
         }
@@ -919,10 +911,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             }
 
         } catch (BlobStorageException bse) {
-            translateAndRethrowException(bse, mpu.containerName(), mpu.blobName());
-            throw new RuntimeException(
-                    "Failed to upload part %d for blob '%s' in container '%s': %s".formatted(
-                    partNumber, mpu.blobName(), mpu.containerName(), bse.getMessage()), bse);
+            throw translate(bse, mpu.containerName(), mpu.blobName());
         } catch (IOException ioe) {
             throw new RuntimeException(
                     "Failed to upload part %d for blob '%s' in container '%s': %s".formatted(
@@ -1148,20 +1137,20 @@ public final class AzureBlobStore extends BaseBlobStore {
     }
 
     /**
-     * Translate BlobStorageException to a jclouds exception.  Throws if
-     * translated otherwise returns.
+     * Translate BlobStorageException to a jclouds exception, returning the
+     * original BlobStorageException unchanged if no translation applies.
      */
-    private void translateAndRethrowException(BlobStorageException bse,
+    private RuntimeException translate(BlobStorageException bse,
             String container, @Nullable String key) {
         var code = bse.getErrorCode();
         if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
             var exception = new KeyNotFoundException(container, key, "");
             exception.initCause(bse);
-            throw exception;
+            return exception;
         } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
             var exception = new ContainerNotFoundException(container, "");
             exception.initCause(bse);
-            throw exception;
+            return exception;
         } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET)) {
             var request = HttpRequest.builder()
                     .method("GET")
@@ -1170,7 +1159,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             var response = HttpResponse.builder()
                     .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
                     .build();
-            throw new HttpResponseException(
+            return new HttpResponseException(
                     new HttpCommand(request), response, bse);
         } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
             var request = HttpRequest.builder()
@@ -1180,7 +1169,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             var response = HttpResponse.builder()
                     .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
                     .build();
-            throw new HttpResponseException(
+            return new HttpResponseException(
                     new HttpCommand(request), response, bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
             var request = HttpRequest.builder()
@@ -1190,11 +1179,12 @@ public final class AzureBlobStore extends BaseBlobStore {
             var response = HttpResponse.builder()
                     .statusCode(Status.BAD_REQUEST.getStatusCode())
                     .build();
-            throw new HttpResponseException(
+            return new HttpResponseException(
                     new HttpCommand(request), response, bse);
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
-            throw new IllegalArgumentException(
+            return new IllegalArgumentException(
                     "Invalid container name", bse);
         }
+        return bse;
     }
 }
