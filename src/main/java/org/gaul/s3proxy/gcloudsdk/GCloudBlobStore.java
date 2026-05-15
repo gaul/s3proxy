@@ -186,8 +186,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             page = storage.list(container,
                     gcsOptions.toArray(new BlobListOption[0]));
         } catch (StorageException se) {
-            translateAndRethrowException(se, container, null);
-            throw se;
+            throw translate(se, container, null);
         }
 
         var set = ImmutableSet.<StorageMetadata>builder();
@@ -314,8 +313,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             gcsBlob = storage.get(BlobId.of(container, key),
                     gcsOptions.toArray(new BlobGetOption[0]));
         } catch (StorageException se) {
-            translateAndRethrowException(se, container, key);
-            throw se;
+            throw translate(se, container, key);
         }
         if (gcsBlob == null) {
             throw new KeyNotFoundException(container, key, "");
@@ -442,8 +440,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
                     writeOptions.toArray(new BlobWriteOption[0]));
             return gcsBlob.getEtag();
         } catch (StorageException se) {
-            translateAndRethrowException(se, container, null);
-            throw se;
+            throw translate(se, container, null);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -492,8 +489,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             var result = storage.copy(copyRequest);
             return result.getResult().getEtag();
         } catch (StorageException se) {
-            translateAndRethrowException(se, fromContainer, fromName);
-            throw se;
+            throw translate(se, fromContainer, fromName);
         }
     }
 
@@ -517,8 +513,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             if (se.getCode() == 404) {
                 return null;
             }
-            translateAndRethrowException(se, container, null);
-            throw se;
+            throw translate(se, container, null);
         }
         if (gcsBlob == null) {
             return null;
@@ -886,13 +881,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 }
             }
         } catch (StorageException se) {
-            translateAndRethrowException(se, mpu.containerName(),
-                    mpu.blobName());
-            throw new RuntimeException((
-                    "Failed to upload part %d for blob '%s' in " +
-                    "container '%s': %s").formatted(
-                    partNumber, mpu.blobName(), mpu.containerName(),
-                    se.getMessage()), se);
+            throw translate(se, mpu.containerName(), mpu.blobName());
         } catch (IOException ioe) {
             throw new RuntimeException((
                     "Failed to upload part %d for blob '%s' in " +
@@ -1056,21 +1045,22 @@ public final class GCloudBlobStore extends BaseBlobStore {
     }
 
     /**
-     * Translate StorageException to jclouds exceptions.
+     * Translate StorageException to a jclouds exception, returning the
+     * original StorageException unchanged if no translation applies.
      */
-    private static void translateAndRethrowException(StorageException se,
+    private static RuntimeException translate(StorageException se,
             String container, @Nullable String key) {
         switch (se.getCode()) {
         case 404 -> {
             if (key != null) {
                 var keyEx = new KeyNotFoundException(container, key, "");
                 keyEx.initCause(se);
-                throw keyEx;
+                return keyEx;
             } else {
                 var containerEx = new ContainerNotFoundException(
                         container, "");
                 containerEx.initCause(se);
-                throw containerEx;
+                return containerEx;
             }
         }
         case 412 -> {
@@ -1081,10 +1071,11 @@ public final class GCloudBlobStore extends BaseBlobStore {
             var response = HttpResponse.builder()
                     .statusCode(412)
                     .build();
-            throw new HttpResponseException(
+            return new HttpResponseException(
                     new HttpCommand(request), response, se);
         }
         default -> { }
         }
+        return se;
     }
 }
