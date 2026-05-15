@@ -1218,23 +1218,23 @@ public class S3ProxyHandler {
     /** Map XML ACLs to a canned policy if an exact transformation exists. */
     private static String mapXmlAclsToCannedPolicy(
             AccessControlPolicy policy) throws S3Exception {
-        if (!policy.owner.id.equals(FAKE_OWNER_ID)) {
+        if (!policy.owner().id().equals(FAKE_OWNER_ID)) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
         boolean ownerFullControl = false;
         boolean allUsersRead = false;
-        if (policy.aclList != null) {
+        if (policy.aclList() != null) {
             for (AccessControlPolicy.AccessControlList.Grant grant :
-                    policy.aclList.grants) {
-                if (grant.grantee.type.equals("CanonicalUser") &&
-                        grant.grantee.id.equals(FAKE_OWNER_ID) &&
-                        grant.permission.equals("FULL_CONTROL")) {
+                    policy.aclList().grants()) {
+                if (grant.grantee().type().equals("CanonicalUser") &&
+                        grant.grantee().id().equals(FAKE_OWNER_ID) &&
+                        grant.permission().equals("FULL_CONTROL")) {
                     ownerFullControl = true;
-                } else if (grant.grantee.type.equals("Group") &&
-                        grant.grantee.uri.equals("http://acs.amazonaws.com/" +
+                } else if (grant.grantee().type().equals("Group") &&
+                        grant.grantee().uri().equals("http://acs.amazonaws.com/" +
                                 "groups/global/AllUsers") &&
-                        grant.permission.equals("READ")) {
+                        grant.permission().equals("READ")) {
                     allUsersRead = true;
                 } else {
                     throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
@@ -1500,7 +1500,7 @@ public class S3ProxyHandler {
                 } catch (JsonParseException jpe) {
                     throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
                 }
-                locationString = cbr.locationConstraint;
+                locationString = cbr.locationConstraint();
             }
         }
 
@@ -1878,21 +1878,21 @@ public class S3ProxyHandler {
         validateMultiBlobRemoveChecksum(request, body);
         DeleteMultipleObjectsRequest dmor = mapper.readValue(
                 body, DeleteMultipleObjectsRequest.class);
-        if (dmor.objects == null) {
+        if (dmor.objects() == null) {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
 
-        if (dmor.objects.size() > 1_000) {
+        if (dmor.objects().size() > 1_000) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
         Collection<String> blobNames = new ArrayList<>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
-                dmor.objects) {
-            if (Strings.isNullOrEmpty(s3Object.key)) {
+                dmor.objects()) {
+            if (Strings.isNullOrEmpty(s3Object.key())) {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
             }
-            blobNames.add(s3Object.key);
+            blobNames.add(s3Object.key());
         }
 
         blobStore.removeBlobs(containerName, blobNames);
@@ -1907,7 +1907,7 @@ public class S3ProxyHandler {
             xml.writeStartElement("DeleteResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            if (!dmor.quiet) {
+            if (!dmor.quiet()) {
                 for (String blobName : blobNames) {
                     xml.writeStartElement("Deleted");
 
@@ -2766,19 +2766,19 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
             }
 
-            if (cmu.parts != null) {
+            if (cmu.parts() != null) {
                 //  sort by part number and deduplicate (last occurrence wins)
                 SortedMap<Integer, MultipartPart> partsMap = new TreeMap<>();
-                for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
-                    if (part.partNumber < 1 || part.partNumber > 10_000) {
+                for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+                    if (part.partNumber() < 1 || part.partNumber() > 10_000) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
-                    MultipartPart uploadedPart = partsByListing.get(part.partNumber);
+                    MultipartPart uploadedPart = partsByListing.get(part.partNumber());
                     if (uploadedPart == null) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART);
                     }
-                    partsMap.put(part.partNumber, uploadedPart);
+                    partsMap.put(part.partNumber(), uploadedPart);
                 }
                 parts.addAll(partsMap.values());
             }
@@ -2822,13 +2822,13 @@ public class S3ProxyHandler {
 
             // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, String> requestParts = new TreeMap<>();
-            if (cmu.parts != null) {
-                for (CompleteMultipartUploadRequest.Part part : cmu.parts) {
-                    if (part.partNumber < 1 || part.partNumber > 10_000) {
+            if (cmu.parts() != null) {
+                for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+                    if (part.partNumber() < 1 || part.partNumber() > 10_000) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
-                    requestParts.put(part.partNumber, part.eTag);
+                    requestParts.put(part.partNumber(), part.eTag());
                 }
             }
 

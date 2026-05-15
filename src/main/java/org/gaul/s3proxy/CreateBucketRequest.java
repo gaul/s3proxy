@@ -18,9 +18,7 @@ package org.gaul.s3proxy;
 
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
-// CHECKSTYLE:OFF
-final class CreateBucketRequest {
-    @JacksonXmlProperty(localName = "LocationConstraint")
-    String locationConstraint;
+record CreateBucketRequest(
+        @JacksonXmlProperty(localName = "LocationConstraint")
+        String locationConstraint) {
 }
-// CHECKSTYLE:ON

@@ -21,20 +21,14 @@ import java.util.Collection;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
-// CHECKSTYLE:OFF
-final class DeleteMultipleObjectsRequest {
-    @JacksonXmlProperty(localName = "Quiet")
-    boolean quiet;
+record DeleteMultipleObjectsRequest(
+        @JacksonXmlProperty(localName = "Quiet") boolean quiet,
+        @JacksonXmlProperty(localName = "Object")
+        @JacksonXmlElementWrapper(useWrapping = false)
+        Collection<S3Object> objects) {
 
-    @JacksonXmlProperty(localName = "Object")
-    @JacksonXmlElementWrapper(useWrapping = false)
-    Collection<S3Object> objects;
-
-    static final class S3Object {
-        @JacksonXmlProperty(localName = "Key")
-        String key;
-        @JacksonXmlProperty(localName = "VersionID")
-        String versionId;
+    record S3Object(
+            @JacksonXmlProperty(localName = "Key") String key,
+            @JacksonXmlProperty(localName = "VersionID") String versionId) {
     }
 }
-// CHECKSTYLE:ON

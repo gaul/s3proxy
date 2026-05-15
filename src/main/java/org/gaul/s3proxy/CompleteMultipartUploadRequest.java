@@ -21,27 +21,20 @@ import java.util.Collection;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
-// CHECKSTYLE:OFF
-final class CompleteMultipartUploadRequest {
-    @JacksonXmlProperty(localName = "Part")
-    @JacksonXmlElementWrapper(useWrapping = false)
-    Collection<Part> parts;
+record CompleteMultipartUploadRequest(
+        @JacksonXmlProperty(localName = "Part")
+        @JacksonXmlElementWrapper(useWrapping = false)
+        Collection<Part> parts) {
 
-    static final class Part {
-        @JacksonXmlProperty(localName = "PartNumber")
-        int partNumber;
-        @JacksonXmlProperty(localName = "ETag")
-        String eTag;
-
-        // TODO: unsupported checksums
-        @JacksonXmlProperty(localName = "ChecksumCRC32")
-        String checksumCRC32;
-        @JacksonXmlProperty(localName = "ChecksumCRC32C")
-        String checksumCRC32C;
-        @JacksonXmlProperty(localName = "ChecksumSHA1")
-        String checksumSHA1;
-        @JacksonXmlProperty(localName = "ChecksumSHA256")
-        String checksumSHA256;
+    record Part(
+            @JacksonXmlProperty(localName = "PartNumber") int partNumber,
+            @JacksonXmlProperty(localName = "ETag") String eTag,
+            // TODO: unsupported checksums
+            @JacksonXmlProperty(localName = "ChecksumCRC32") String checksumCRC32,
+            @JacksonXmlProperty(localName = "ChecksumCRC32C")
+            String checksumCRC32C,
+            @JacksonXmlProperty(localName = "ChecksumSHA1") String checksumSHA1,
+            @JacksonXmlProperty(localName = "ChecksumSHA256")
+            String checksumSHA256) {
     }
 }
-// CHECKSTYLE:ON
