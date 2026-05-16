@@ -370,7 +370,7 @@
         <configuration>
           <argLine>-Xmx512m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
-          <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
+          <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
           <runOrder>random</runOrder>
           <trimStackTrace>false</trimStackTrace>
           <properties>
