@@ -472,6 +472,13 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bom</artifactId>
+        <version>${aws-sdkv2.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -546,7 +553,6 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>6.0.3</version>
       <!-- Required for S3ProxyExtension -->
       <scope>provided</scope>
     </dependency>
@@ -558,7 +564,6 @@
     <dependency>
       <groupId>com.fasterxml.jackson.dataformat</groupId>
       <artifactId>jackson-dataformat-xml</artifactId>
-      <version>2.21.3</version>
     </dependency>
     <dependency>
       <groupId>com.github.spotbugs</groupId>
@@ -622,19 +627,16 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>auth</artifactId>
-      <version>${aws-sdkv2.version}</version>
     </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
-      <version>${aws-sdkv2.version}</version>
     </dependency>
     <!-- Required at runtime by DefaultCredentialsProvider's
          WebIdentityTokenFileCredentialsProvider (e.g. EKS IRSA). -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sts</artifactId>
-      <version>${aws-sdkv2.version}</version>
       <scope>runtime</scope>
     </dependency>
   </dependencies>
