@@ -368,8 +368,6 @@
           </dependency>
         </dependencies>
         <configuration>
-          <parallel>classes</parallel>
-          <threadCount>1</threadCount>
           <argLine>-Xmx512m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
           <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>

@@ -24,6 +24,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -40,6 +42,7 @@ import software.amazon.awssdk.services.s3.model.S3Object;
  * This is an example of how one would use the S3Proxy JUnit extension in a unit
  * test as opposed to a proper test of the S3ProxyExtension class.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 public class S3ProxyExtensionTest {
 
     @RegisterExtension
