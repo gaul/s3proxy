@@ -16,8 +16,8 @@
 
 package org.gaul.s3proxy;
 
-import static java.util.Objects.requireNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import java.net.URI;
 import java.net.URISyntaxException;

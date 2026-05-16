@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 // SigV2 (AWS Signature Version 2) tests were removed in the AWS SDK v2
 // migration: v2 has no public SigV2 path for S3.  The proxy still
 // implements SigV2 and is exercised via the v1 jclouds backend.
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 

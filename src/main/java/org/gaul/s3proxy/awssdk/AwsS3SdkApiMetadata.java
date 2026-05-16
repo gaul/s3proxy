@@ -24,7 +24,6 @@ import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.reflect.Reflection2;
 import org.jclouds.rest.internal.BaseHttpApiMetadata;
 
-
 @SuppressWarnings("rawtypes")
 public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
     public static final String REGION = "aws-s3-sdk.region";
