@@ -45,7 +45,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public final class EventualBlobStoreTest {
-    private static final int DELAY = 5;
+    private static final int DELAY = 1;
     private static final TimeUnit DELAY_UNIT = TimeUnit.SECONDS;
     private static final ByteSource BYTE_SOURCE =
             TestUtils.randomByteSource().slice(0, 1024);
