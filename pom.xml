@@ -119,6 +119,27 @@
         <version>3.1.4</version>
       </plugin>
       <plugin>
+        <groupId>net.revelc.code</groupId>
+        <artifactId>impsort-maven-plugin</artifactId>
+        <version>1.12.0</version>
+        <configuration>
+          <compliance>${java.version}</compliance>
+          <groups>java.,javax.,com.,io.,jakarta.,org.</groups>
+          <staticGroups>*</staticGroups>
+          <staticAfter>false</staticAfter>
+          <removeUnused>true</removeUnused>
+          <breadthFirstComparator>false</breadthFirstComparator>
+        </configuration>
+        <executions>
+          <execution>
+            <id>sort-imports</id>
+            <goals>
+              <goal>sort</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
         <version>3.6.0</version>
