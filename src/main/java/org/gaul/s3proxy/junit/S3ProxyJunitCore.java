@@ -26,11 +26,11 @@ import com.google.common.io.MoreFiles;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.gaul.s3proxy.AuthenticationType;
+import org.gaul.s3proxy.BlobStores;
 import org.gaul.s3proxy.S3Proxy;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +46,7 @@ public class S3ProxyJunitCore {
     private final String endpointFormat;
     private final S3Proxy s3Proxy;
 
-    private final BlobStoreContext blobStoreContext;
+    private final BlobStore blobStore;
     private URI endpointUri;
     private final File blobStoreLocation;
 
@@ -58,7 +58,7 @@ public class S3ProxyJunitCore {
         private String secretStorePassword;
         private int port = -1;
         private boolean ignoreUnknownHeaders;
-        private String blobStoreProvider = "filesystem";
+        private String blobStoreProvider = "filesystem-nio2";
 
         public Builder withCredentials(AuthenticationType authType,
                                         String accessKey, String secretKey) {
@@ -113,18 +113,17 @@ public class S3ProxyJunitCore {
             throw new RuntimeException("Unable to initialize Blob Store", e);
         }
 
-        ContextBuilder blobStoreContextBuilder = ContextBuilder.newBuilder(
-                builder.blobStoreProvider)
-                .overrides(properties);
         if (!AuthenticationType.NONE.equals(builder.authType)) {
-            blobStoreContextBuilder = blobStoreContextBuilder.credentials(
-                    accessKey, secretKey);
+            properties.setProperty(Constants.PROPERTY_IDENTITY, accessKey);
+            properties.setProperty(Constants.PROPERTY_CREDENTIAL, secretKey);
+        } else {
+            properties.setProperty(Constants.PROPERTY_IDENTITY, "");
+            properties.setProperty(Constants.PROPERTY_CREDENTIAL, "");
         }
-        blobStoreContext = blobStoreContextBuilder.build(
-                BlobStoreContext.class);
+        blobStore = BlobStores.create(builder.blobStoreProvider, properties);
 
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
-                .blobStore(blobStoreContext.getBlobStore())
+                .blobStore(blobStore)
                 .awsAuthentication(builder.authType, accessKey, secretKey)
                 .ignoreUnknownHeaders(builder.ignoreUnknownHeaders);
 
@@ -157,11 +156,9 @@ public class S3ProxyJunitCore {
         logger.debug("S3 proxy is stopping");
         try {
             s3Proxy.stop();
-            BlobStore blobStore = blobStoreContext.getBlobStore();
             for (StorageMetadata metadata : blobStore.list()) {
                 blobStore.deleteContainer(metadata.getName());
             }
-            blobStoreContext.close();
         } catch (Exception e) {
             throw new RuntimeException("Unable to stop S3 proxy", e);
         }

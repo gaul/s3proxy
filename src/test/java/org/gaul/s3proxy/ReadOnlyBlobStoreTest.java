@@ -18,21 +18,16 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.List;
 import java.util.Random;
 
 import org.assertj.core.api.Fail;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public final class ReadOnlyBlobStoreTest {
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private String containerName;
     private BlobStore readOnlyBlobStore;
@@ -41,21 +36,15 @@ public final class ReadOnlyBlobStoreTest {
     public void setUp() throws Exception {
         containerName = createRandomContainerName();
 
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
-        blobStore.createContainerInLocation(null, containerName);
+        blobStore = TestUtils.createTransientBlobStore();
+        blobStore.createContainer(containerName);
         readOnlyBlobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
     }
 
     @AfterEach
     public void tearDown() throws Exception {
-        if (context != null) {
+        if (blobStore != null) {
             blobStore.deleteContainer(containerName);
-            context.close();
         }
     }
 
@@ -80,7 +69,7 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testPutBlobOptions() throws Exception {
         try {
-            readOnlyBlobStore.putBlob(containerName, null, new PutOptions());
+            readOnlyBlobStore.putBlob(containerName, null, PutOptions.NONE);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {

@@ -26,58 +26,41 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Set;
 
 import com.google.common.base.Supplier;
-
-import jakarta.inject.Inject;
-import jakarta.inject.Named;
-import jakarta.inject.Singleton;
 
 import org.apache.sshd.client.SshClient;
 import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.sftp.client.fs.SftpFileSystemProvider;
+import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.util.BlobUtils;
-import org.jclouds.collect.Memoized;
-import org.jclouds.domain.Credentials;
-import org.jclouds.domain.Location;
-import org.jclouds.io.PayloadSlicer;
-import org.jclouds.lifecycle.Closer;
-import org.jclouds.providers.ProviderMetadata;
 
-@Singleton
-public final class SftpBlobStore extends AbstractNio2BlobStore {
+public final class SftpBlobStore extends AbstractNio2BlobStore
+        implements AutoCloseable {
+    public static final String PROPERTY_BASEDIR = "s3proxy.sftp.basedir";
+    public static final String PROPERTY_HOST_KEY = "s3proxy.sftp.host-key";
+
     private final SshClient client;
     private final FileSystem fileSystem;
 
-    @Inject
-    SftpBlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            @org.jclouds.location.Provider Supplier<Credentials> creds,
-            ProviderMetadata provider,
-            Closer closer,
-            @Named(SftpBlobStoreApiMetadata.BASEDIR) String baseDir,
-            @Named(SftpBlobStoreApiMetadata.HOST_KEY) String hostKey) {
-        this(context, blobUtils, defaultLocation, locations, slicer, creds,
-                createRoot(provider, creds.get(), baseDir, hostKey));
-        closer.addToClose(client);
-        closer.addToClose(fileSystem);
+    public SftpBlobStore(Supplier<Credentials> creds, String endpoint,
+            String baseDir, String hostKey) {
+        this(createRoot(creds.get(), URI.create(endpoint), baseDir, hostKey));
     }
 
-    private SftpBlobStore(BlobStoreContext context, BlobUtils blobUtils,
-            Supplier<Location> defaultLocation,
-            @Memoized Supplier<Set<? extends Location>> locations,
-            PayloadSlicer slicer,
-            Supplier<Credentials> creds,
-            Root root) {
-        super(context, blobUtils, defaultLocation, locations, slicer, creds,
-                root.path);
+    private SftpBlobStore(Root root) {
+        super(root.path);
         this.client = root.client;
         this.fileSystem = root.fileSystem;
+    }
+
+    @Override
+    public void close() throws IOException {
+        try {
+            fileSystem.close();
+        } finally {
+            client.close();
+        }
     }
 
     static int endpointPort(URI endpoint) {
@@ -85,9 +68,8 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         return port < 0 ? 22 : port;
     }
 
-    private static Root createRoot(ProviderMetadata provider, Credentials creds,
+    private static Root createRoot(Credentials creds, URI endpoint,
             String baseDir, String hostKey) {
-        var endpoint = URI.create(provider.getEndpoint());
         int port = endpointPort(endpoint);
         var uri = createFileSystemUri(endpoint.getHost(), port, creds);
         SshClient client = null;
@@ -117,7 +99,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         if (fingerprint.isEmpty()) {
             throw new IllegalArgumentException(
                     "Missing required SFTP host key fingerprint property: " +
-                    SftpBlobStoreApiMetadata.HOST_KEY);
+                    PROPERTY_HOST_KEY);
         }
         var client = SshClient.setUpDefaultClient();
         try {
@@ -134,12 +116,12 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
 
     private static URI createFileSystemUri(String host, int port,
             Credentials creds) {
-        if (creds.identity == null || creds.identity.isBlank()) {
+        if (creds.identity() == null || creds.identity().isBlank()) {
             throw new IllegalArgumentException(
                     "Missing required SFTP identity");
         }
-        var userInfo = creds.credential == null ? creds.identity :
-                creds.identity + ":" + creds.credential;
+        var userInfo = creds.credential() == null ? creds.identity() :
+                creds.identity() + ":" + creds.credential();
         try {
             return new URI("sftp", userInfo, host, port, "/", null, null);
         } catch (URISyntaxException use) {

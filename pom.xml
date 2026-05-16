@@ -158,7 +158,8 @@
         </executions>
         <configuration>
           <configLocation>src/main/resources/checkstyle.xml</configLocation>
-          <headerLocation>src/main/resources/copyright_header.txt</headerLocation>
+          <propertyExpansion>checkstyle.header.file=src/main/resources/copyright_header.txt
+checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</propertyExpansion>
           <includeTestSourceDirectory>true</includeTestSourceDirectory>
           <violationSeverity>warning</violationSeverity>
           <failOnViolation>true</failOnViolation>
@@ -186,7 +187,7 @@
           <showWarnings>true</showWarnings>
           <fork>true</fork>
           <compilerArgs>
-            <arg>-Xlint</arg>
+            <arg>-Xlint:all,-serial</arg>
             <arg>-XDcompilePolicy=simple</arg>
             <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
             <arg>--should-stop=ifError=FLOW</arg>
@@ -204,11 +205,6 @@
             <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
           </compilerArgs>
           <annotationProcessorPaths>
-            <path>
-              <groupId>com.google.auto.service</groupId>
-              <artifactId>auto-service</artifactId>
-              <version>1.1.1</version>
-            </path>
             <path>
               <groupId>com.google.errorprone</groupId>
               <artifactId>error_prone_core</artifactId>
@@ -263,6 +259,8 @@
         </executions>
         <configuration>
           <doclint>all,-missing</doclint>
+          <!-- jclouds-derived fork keeps its original HTML4-era javadoc -->
+          <excludePackageNames>org.gaul.s3proxy.blobstore:org.gaul.s3proxy.blobstore.*</excludePackageNames>
         </configuration>
       </plugin>
       <plugin>
@@ -438,7 +436,6 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
     <aws-sdkv2.version>2.43.2</aws-sdkv2.version>
-    <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>12.1.8</jetty.version>
     <modernizer.version>3.3.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
@@ -530,12 +527,6 @@
       <version>1.18.3</version>
     </dependency>
     <dependency>
-      <groupId>com.google.auto.service</groupId>
-      <artifactId>auto-service-annotations</artifactId>
-      <version>1.1.1</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
       <version>33.6.0-jre</version>
@@ -580,21 +571,6 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.jclouds</groupId>
-      <artifactId>jclouds-allblobstore</artifactId>
-      <version>${jclouds.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.jclouds.api</groupId>
-      <artifactId>filesystem</artifactId>
-      <version>${jclouds.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.jclouds.driver</groupId>
-      <artifactId>jclouds-slf4j</artifactId>
-      <version>${jclouds.version}</version>
-    </dependency>
-    <dependency>
       <groupId>org.apache.sshd</groupId>
       <artifactId>sshd-sftp</artifactId>
       <version>${sshd.version}</version>
@@ -603,7 +579,6 @@
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
       <scope>test</scope>
-      <!-- we need to use the same version as in jclouds because we pull in their tests -->
       <version>3.27.7</version>
     </dependency>
     <dependency>

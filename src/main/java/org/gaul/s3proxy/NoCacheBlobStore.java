@@ -16,10 +16,10 @@
 
 package org.gaul.s3proxy;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
 
 /**
  * BlobStore which drops ETag or date-based cache options from object requests.
@@ -37,7 +37,7 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
 
     @Override
     public Blob getBlob(String containerName, String name) {
-        return getBlob(containerName, name, new GetOptions());
+        return getBlob(containerName, name, GetOptions.NONE);
     }
 
     @Override
@@ -46,21 +46,22 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
     }
 
     static GetOptions resetCacheHeaders(GetOptions options) {
-        if (options.getIfMatch() != null || options.getIfNoneMatch() != null ||
-            options.getIfModifiedSince() != null ||  options.getIfUnmodifiedSince() != null) {
+        if (options.ifMatch() != null || options.ifNoneMatch() != null ||
+            options.ifModifiedSince() != null ||  options.ifUnmodifiedSince() != null) {
               // as there is no exposed method to reset just the cache headers, a copy is used
-            GetOptions optionsNoCache = new GetOptions();
-            for (String range : options.getRanges()) {
+            var builder = GetOptions.builder();
+            for (String range : options.ranges()) {
                 String[] ranges = range.split("-", 2);
                 if (ranges[0].isEmpty()) {
-                    optionsNoCache.tail(Long.parseLong(ranges[1]));
+                    builder.tail(Long.parseLong(ranges[1]));
                 } else if (ranges[1].isEmpty()) {
-                    optionsNoCache.startAt(Long.parseLong(ranges[0]));
+                    builder.startAt(Long.parseLong(ranges[0]));
                 } else {
-                    optionsNoCache.range(Long.parseLong(ranges[0]), Long.parseLong(ranges[1]));
+                    builder.range(Long.parseLong(ranges[0]),
+                            Long.parseLong(ranges[1]));
                 }
             }
-            return optionsNoCache;
+            return builder.build();
         }
         return options;
     }

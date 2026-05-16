@@ -21,72 +21,32 @@ import java.util.Set;
 final class Quirks {
     /** Blobstores which do not support blob-level access control. */
     static final Set<String> NO_BLOB_ACCESS_CONTROL = Set.of(
-            "azureblob",
             "azureblob-sdk",
-            "b2",
-            "google-cloud-storage-sdk",
-            "rackspace-cloudfiles-uk",
-            "rackspace-cloudfiles-us",
-            "openstack-swift"
+            "google-cloud-storage-sdk"
     );
 
     /** Blobstores which do not support the Cache-Control header. */
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
-            "atmos",
-            "b2",
-            "google-cloud-storage",
-            "google-cloud-storage-sdk",
-            "rackspace-cloudfiles-uk",
-            "rackspace-cloudfiles-us",
-            "openstack-swift"
+            "google-cloud-storage-sdk"
     );
 
-    /** Blobstores which do not support the Cache-Control header. */
-    static final Set<String> NO_CONTENT_DISPOSITION = Set.of(
-            "b2"
-    );
+    /** Blobstores which do not support the Content-Disposition header. */
+    static final Set<String> NO_CONTENT_DISPOSITION = Set.of();
 
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
-            "b2",
-            "google-cloud-storage",
             "google-cloud-storage-sdk"
     );
 
     /** Blobstores which do not support the Content-Language header. */
-    static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
-            "b2",
-            "rackspace-cloudfiles-uk",
-            "rackspace-cloudfiles-us",
-            "openstack-swift"
-    );
-
-    /** Blobstores which do not support the If-None-Match header during copy. */
-    static final Set<String> NO_COPY_IF_NONE_MATCH = Set.of(
-            "openstack-swift",
-            "rackspace-cloudfiles-uk",
-            "rackspace-cloudfiles-us"
-    );
+    static final Set<String> NO_CONTENT_LANGUAGE = Set.of();
 
     static final Set<String> NO_EXPIRES = Set.of(
-            "azureblob",
             "azureblob-sdk"
-    );
-
-    static final Set<String> NO_LIST_MULTIPART_UPLOADS = Set.of(
-            "atmos",
-            "filesystem",
-            "google-cloud-storage",
-            "openstack-swift",
-            "rackspace-cloudfiles-uk",
-            "rackspace-cloudfiles-us",
-            "transient"
     );
 
     /** Blobstores which do not allow listing zero keys. */
     static final Set<String> NO_LIST_ZERO_KEYS = Set.of(
-            "atmos",
-            "azureblob",
             "azureblob-sdk"
     );
 
@@ -99,31 +59,19 @@ final class Quirks {
      * this internally in AzureBlobStore rather than in S3ProxyHandler.
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
-            "azureblob",
-            "filesystem",
             "filesystem-nio2",
-            "google-cloud-storage",
-            "openstack-swift",
-            "transient",
             "transient-nio2"
     );
 
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = Set.of(
-            "azureblob",
             "azureblob-sdk",
-            "b2",
-            "google-cloud-storage",
             "google-cloud-storage-sdk"
     );
 
     /** Blobstores with opaque markers. */
     static final Set<String> OPAQUE_MARKERS = Set.of(
-            "azureblob",
             "azureblob-sdk",
-            // S3 marker means one past this token while B2 means this token
-            "b2",
-            "google-cloud-storage",
             "google-cloud-storage-sdk"
     );
 

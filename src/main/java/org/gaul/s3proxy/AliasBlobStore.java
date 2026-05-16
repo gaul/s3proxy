@@ -28,25 +28,22 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.domain.ContainerAccess;
-import org.jclouds.blobstore.domain.MultipartPart;
-import org.jclouds.blobstore.domain.MultipartUpload;
-import org.jclouds.blobstore.domain.MutableStorageMetadata;
-import org.jclouds.blobstore.domain.PageSet;
-import org.jclouds.blobstore.domain.StorageMetadata;
-import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
-import org.jclouds.blobstore.domain.internal.PageSetImpl;
-import org.jclouds.blobstore.options.CopyOptions;
-import org.jclouds.blobstore.options.CreateContainerOptions;
-import org.jclouds.blobstore.options.GetOptions;
-import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.blobstore.util.ForwardingBlobStore;
-import org.jclouds.domain.Location;
-import org.jclouds.io.Payload;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.Payload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.MultipartPart;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 
 /**
  * This class implements a middleware to alias buckets to a different name.
@@ -71,7 +68,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     private MultipartUpload getDelegateMpu(MultipartUpload mpu) {
-        return MultipartUpload.create(
+        return new MultipartUpload(
                 getContainer(mpu.containerName()),
                 mpu.blobName(),
                 mpu.id(),
@@ -102,18 +99,14 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainerInLocation(Location location,
-                                             String container) {
-        return this.delegate().createContainerInLocation(location,
-                getContainer(container));
+    public boolean createContainer(String container) {
+        return this.delegate().createContainer(getContainer(container));
     }
 
     @Override
-    public boolean createContainerInLocation(
-            Location location, String container,
+    public boolean createContainer(String container,
             CreateContainerOptions options) {
-        return delegate().createContainerInLocation(
-                location, getContainer(container), options);
+        return delegate().createContainer(getContainer(container), options);
     }
 
     @Override
@@ -138,26 +131,20 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         var results = new ImmutableList.Builder<StorageMetadata>();
         for (StorageMetadata sm : upstream) {
             if (aliases.containsValue(sm.getName())) {
-                MutableStorageMetadata bucketAlias =
-                        new MutableStorageMetadataImpl();
-                bucketAlias.setName(aliases.inverse().get(sm.getName()));
-                bucketAlias.setCreationDate(sm.getCreationDate());
-                bucketAlias.setETag(sm.getETag());
-                bucketAlias.setId(sm.getProviderId());
-                bucketAlias.setLastModified(sm.getLastModified());
-                bucketAlias.setLocation(sm.getLocation());
-                bucketAlias.setSize(sm.getSize());
-                bucketAlias.setTier(sm.getTier());
-                bucketAlias.setType(sm.getType());
-                // TODO: the URI should be rewritten to use the alias
-                bucketAlias.setUri(sm.getUri());
-                bucketAlias.setUserMetadata(sm.getUserMetadata());
-                results.add(bucketAlias);
+                results.add(ContainerMetadata.builder()
+                        .name(aliases.inverse().get(sm.getName()))
+                        .creationDate(sm.getCreationDate())
+                        .eTag(sm.getETag())
+                        .lastModified(sm.getLastModified())
+                        .size(sm.getSize())
+                        .storageClass(sm.getStorageClass())
+                        .userMetadata(sm.getUserMetadata())
+                        .build());
             } else {
                 results.add(sm);
             }
         }
-        return new PageSetImpl<>(results.build(), upstream.getNextMarker());
+        return new PageSet<>(results.build(), upstream.getNextMarker());
     }
 
     @Override
@@ -249,7 +236,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
             String container, BlobMetadata blobMetadata, PutOptions options) {
         MultipartUpload mpu = delegate().initiateMultipartUpload(
                 getContainer(container), blobMetadata, options);
-        return MultipartUpload.create(container, blobMetadata.getName(),
+        return new MultipartUpload(container, blobMetadata.getName(),
                 mpu.id(), mpu.blobMetadata(), mpu.putOptions());
     }
 
