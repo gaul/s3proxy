@@ -532,6 +532,7 @@
       <groupId>com.google.auto.service</groupId>
       <artifactId>auto-service-annotations</artifactId>
       <version>1.1.1</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
@@ -575,6 +576,7 @@
       <groupId>org.jspecify</groupId>
       <artifactId>jspecify</artifactId>
       <version>1.0.0</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jclouds</groupId>
@@ -612,6 +614,7 @@
       <groupId>org.gaul</groupId>
       <artifactId>modernizer-maven-annotations</artifactId>
       <version>${modernizer.version}</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
