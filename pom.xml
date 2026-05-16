@@ -98,6 +98,10 @@
                 <requireMavenVersion>
                   <version>3.6.3</version>
                 </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>${java.version}</version>
+                </requireJavaVersion>
+                <banDuplicatePomDependencyVersions/>
               </rules>
             </configuration>
           </execution>
