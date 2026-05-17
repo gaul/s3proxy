@@ -443,7 +443,7 @@
     <modernizer.version>3.3.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.62.0</opentelemetry.version>
-    <opentelemetry-semconv.version>1.41.0</opentelemetry-semconv.version>
+    <opentelemetry-semconv.version>1.41.1</opentelemetry-semconv.version>
     <slf4j.version>2.0.18</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <sshd.version>2.17.1</sshd.version>
