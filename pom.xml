@@ -440,7 +440,7 @@
     <aws-sdkv2.version>2.44.7</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
     <jetty.version>12.1.9</jetty.version>
-    <modernizer.version>3.3.0</modernizer.version>
+    <modernizer.version>3.4.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.62.0</opentelemetry.version>
     <opentelemetry-semconv.version>1.41.1</opentelemetry-semconv.version>
