@@ -125,7 +125,7 @@
       <plugin>
         <groupId>net.revelc.code</groupId>
         <artifactId>impsort-maven-plugin</artifactId>
-        <version>1.12.0</version>
+        <version>1.13.0</version>
         <configuration>
           <compliance>${java.version}</compliance>
           <groups>java.,javax.,com.,io.,jakarta.,org.</groups>
