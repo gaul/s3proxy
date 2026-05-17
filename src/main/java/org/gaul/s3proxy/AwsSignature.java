@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -32,7 +33,6 @@ import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.SortedSetMultimap;
@@ -150,7 +150,7 @@ final class AwsSignature {
         char separator = '?';
         List<String> subresources = Collections.list(
                 request.getParameterNames());
-        Collections.sort(subresources);
+        subresources.sort(Comparator.naturalOrder());
         for (String subresource : subresources) {
             if (SIGNED_SUBRESOURCES.contains(subresource)) {
                 builder.append(separator).append(subresource);
@@ -238,7 +238,7 @@ final class AwsSignature {
         for (String header : signedHeaders) {
             headers.add(header.toLowerCase());
         }
-        Collections.sort(headers);
+        headers.sort(Comparator.naturalOrder());
 
         var headersWithValues = new StringBuilder();
         boolean firstHeader = true;
@@ -273,7 +273,7 @@ final class AwsSignature {
             HttpServletRequest request) {
         // The parameters are required to be sorted
         List<String> parameters = Collections.list(request.getParameterNames());
-        Collections.sort(parameters);
+        parameters.sort(Comparator.naturalOrder());
         List<String> queryParameters = new ArrayList<>();
 
         for (String key : parameters) {
@@ -285,7 +285,7 @@ final class AwsSignature {
             queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
                     "=" + AWS_URL_PARAMETER_ESCAPER.escape(value));
         }
-        return Joiner.on("&").join(queryParameters);
+        return String.join("&", queryParameters);
     }
 
     private static String createCanonicalRequest(HttpServletRequest request,
@@ -343,12 +343,12 @@ final class AwsSignature {
             }
         }
 
-        String canonicalRequest = Joiner.on("\n").join(
+        String canonicalRequest = String.join("\n",
                 method,
                 uri,
                 buildCanonicalQueryString(request),
                 buildCanonicalHeaders(request, signedHeaders) + "\n",
-                Joiner.on(';').join(signedHeaders),
+                String.join(";", signedHeaders),
                 digest);
 
         return getMessageDigest(

@@ -58,7 +58,7 @@ public final class AliasBlobStoreTest {
     @BeforeEach
     public void setUp() {
         containerName = TestUtils.createRandomContainerName();
-        aliasContainerName = String.format("alias-%s", containerName);
+        aliasContainerName = "alias-%s".formatted(containerName);
         context = ContextBuilder
                 .newBuilder("transient")
                 .credentials("identity", "credential")
@@ -157,7 +157,7 @@ public final class AliasBlobStoreTest {
         @SuppressWarnings("deprecation")
         HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(
-                String.format("\"%s-1\"", contentHash2));
+                "\"%s-1\"".formatted(contentHash2));
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {
@@ -168,9 +168,9 @@ public final class AliasBlobStoreTest {
     @Test
     public void testParseDuplicateAliases() {
         var properties = new Properties();
-        properties.setProperty(String.format("%s.alias",
+        properties.setProperty("%s.alias".formatted(
                 S3ProxyConstants.PROPERTY_ALIAS_BLOBSTORE), "bucket");
-        properties.setProperty(String.format("%s.other-alias",
+        properties.setProperty("%s.other-alias".formatted(
                 S3ProxyConstants.PROPERTY_ALIAS_BLOBSTORE), "bucket");
 
         try {

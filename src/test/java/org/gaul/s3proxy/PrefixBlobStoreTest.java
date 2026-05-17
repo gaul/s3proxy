@@ -165,7 +165,7 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testParseRejectsEmptyPrefix() {
         var properties = new Properties();
-        properties.setProperty(String.format("%s.bucket",
+        properties.setProperty("%s.bucket".formatted(
                 S3ProxyConstants.PROPERTY_PREFIX_BLOBSTORE), "");
 
         try {

@@ -209,7 +209,7 @@ final class TestUtils {
         info.s3Credential = s3ProxyBuilder.getCredential();
         info.servicePath = s3ProxyBuilder.getServicePath();
         info.getProperties().setProperty(Constants.PROPERTY_USER_AGENT,
-                String.format("s3proxy/%s jclouds/%s java/%s",
+                "s3proxy/%s jclouds/%s java/%s".formatted(
                         TestUtils.class.getPackage().getImplementationVersion(),
                         JcloudsVersion.get(),
                         System.getProperty("java.version")));

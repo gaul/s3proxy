@@ -108,17 +108,17 @@ public final class RegexBlobStoreTest {
     public void testParseMatchWithoutReplace() {
         var properties = new Properties();
         properties.put(
-                String.format("%s.%s.sample1",
+                "%s.%s.sample1".formatted(
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH),
                 "test");
         properties.put(
-                String.format("%s.%s.sample2",
+                "%s.%s.sample2".formatted(
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_MATCH),
                 "test");
         properties.put(
-                String.format("%s.%s.sample1",
+                "%s.%s.sample1".formatted(
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE,
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE_REPLACE),
                 "test");

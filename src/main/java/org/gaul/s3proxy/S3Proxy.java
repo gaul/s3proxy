@@ -28,7 +28,6 @@ import java.util.Properties;
 
 import javax.net.ssl.SSLContext;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 
@@ -318,8 +317,8 @@ public final class S3Proxy {
                 if (!allowedMethods.isEmpty()) {
                     throw new IllegalArgumentException(
                         S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS +
-                        " contains not supported values: " + Joiner.on(" ")
-                        .join(allowedMethods));
+                        " contains not supported values: " +
+                        String.join(" ", allowedMethods));
                 }
 
                 builder.corsRules(new CrossOriginResourceSharing(

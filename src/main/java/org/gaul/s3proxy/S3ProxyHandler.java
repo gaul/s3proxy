@@ -3492,7 +3492,7 @@ public class S3ProxyHandler {
     // cannot call BlobStore.getContext().utils().date().iso8601DateFormat since
     // it has unwanted millisecond precision
     private static String generateRequestId() {
-        return String.format("%016X", ThreadLocalRandom.current().nextLong());
+        return "%016X".formatted(ThreadLocalRandom.current().nextLong());
     }
 
     private static String formatDate(Date date) {

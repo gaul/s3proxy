@@ -23,7 +23,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 
@@ -87,7 +86,7 @@ public final class CrossOriginResourceSharing {
         } else {
             this.allowedMethods = List.copyOf(allowedMethods);
         }
-        this.allowedMethodsRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
+        this.allowedMethodsRaw = String.join(HEADER_VALUE_SEPARATOR,
                 this.allowedMethods);
 
         if (allowedHeaders == null) {
@@ -95,7 +94,7 @@ public final class CrossOriginResourceSharing {
         } else {
             this.allowedHeaders = List.copyOf(allowedHeaders);
         }
-        this.allowedHeadersRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
+        this.allowedHeadersRaw = String.join(HEADER_VALUE_SEPARATOR,
                 this.allowedHeaders);
 
         if (exposedHeaders == null) {
@@ -103,7 +102,7 @@ public final class CrossOriginResourceSharing {
         } else {
             this.exposedHeaders = List.copyOf(exposedHeaders);
         }
-        this.exposedHeadersRaw = Joiner.on(HEADER_VALUE_SEPARATOR).join(
+        this.exposedHeadersRaw = String.join(HEADER_VALUE_SEPARATOR,
                 this.exposedHeaders);
 
         this.allowCredentials = allowCredentials;

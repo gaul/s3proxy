@@ -80,7 +80,7 @@ public final class ShardedBlobStoreTest {
         if (prefix != null) {
             for (int n = 0; n < this.shards; ++n) {
                 this.createdContainers.add(
-                        String.format("%s-%d", this.prefix, n));
+                        "%s-%d".formatted(this.prefix, n));
             }
         } else {
             this.createdContainers.add(container);
@@ -145,7 +145,7 @@ public final class ShardedBlobStoreTest {
         String blobContainer = null;
         String blob2Container = null;
         for (int i = 0; i < shards; i++) {
-            String shard = String.format("%s-%d", prefix, i);
+            String shard = "%s-%d".formatted(prefix, i);
             for (StorageMetadata entry : blobStore.list(shard)) {
                 if (entry.getName().equals(blobName)) {
                     blobContainer = shard;
