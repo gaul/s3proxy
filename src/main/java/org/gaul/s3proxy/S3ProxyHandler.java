@@ -1810,7 +1810,7 @@ public class S3ProxyHandler {
             throws IOException, S3Exception {
         blobStore.removeBlob(containerName, blobName);
         addCorsResponseHeader(request, response);
-        response.sendError(HttpServletResponse.SC_NO_CONTENT);
+        response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
     /**
@@ -2958,7 +2958,7 @@ public class S3ProxyHandler {
         } catch (KeyNotFoundException knfe) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, knfe);
         }
-        response.sendError(HttpServletResponse.SC_NO_CONTENT);
+        response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
     private void handleListParts(HttpServletRequest request,
