@@ -16,6 +16,9 @@
 
 package org.gaul.s3proxy;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import io.opentelemetry.api.common.AttributeKey;
@@ -23,18 +26,15 @@ import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.Meter;
-import io.opentelemetry.exporter.prometheus.PrometheusHttpServer;
+import io.opentelemetry.exporter.prometheus.PrometheusMetricReader;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.semconv.HttpAttributes;
 import io.opentelemetry.semconv.UrlAttributes;
+import io.prometheus.metrics.expositionformats.PrometheusTextFormatWriter;
 
 import org.jspecify.annotations.Nullable;
 
 public final class S3ProxyMetrics {
-    /** Default metrics port (0 = ephemeral). */
-    public static final int DEFAULT_METRICS_PORT = 0;
-    public static final String DEFAULT_METRICS_HOST = "0.0.0.0";
-
     private static final AttributeKey<String> S3_OPERATION =
             AttributeKey.stringKey("s3.operation");
     private static final AttributeKey<String> S3_BUCKET =
@@ -48,20 +48,15 @@ public final class S3ProxyMetrics {
 
     private final SdkMeterProvider meterProvider;
     private final DoubleHistogram requestDuration;
-    private final PrometheusHttpServer prometheusServer;
+    private final PrometheusMetricReader metricReader;
+    private final PrometheusTextFormatWriter textFormatWriter;
 
     public S3ProxyMetrics() {
-        this(DEFAULT_METRICS_HOST, DEFAULT_METRICS_PORT);
-    }
-
-    public S3ProxyMetrics(String host, int port) {
-        prometheusServer = PrometheusHttpServer.builder()
-                .setHost(host)
-                .setPort(port)
-                .build();
+        metricReader = PrometheusMetricReader.create();
+        textFormatWriter = PrometheusTextFormatWriter.create();
 
         meterProvider = SdkMeterProvider.builder()
-                .registerMetricReader(prometheusServer)
+                .registerMetricReader(metricReader)
                 .build();
 
         Meter meter = meterProvider.get("org.gaul.s3proxy");
@@ -99,14 +94,13 @@ public final class S3ProxyMetrics {
         requestDuration.record(durationSeconds, builder.build());
     }
 
-    public String scrape() {
-        return prometheusServer.toString();
+    public String scrape() throws IOException {
+        var out = new ByteArrayOutputStream();
+        textFormatWriter.write(out, metricReader.collect());
+        return out.toString(StandardCharsets.UTF_8);
     }
 
     public void close() {
-        if (prometheusServer != null) {
-            prometheusServer.close();
-        }
         if (meterProvider != null) {
             meterProvider.close();
         }
