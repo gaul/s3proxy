@@ -509,6 +509,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     public void removeBlobs(String container, Iterable<String> iterable) {
         if (!this.buckets.containsKey(container)) {
             this.delegate().removeBlobs(container, iterable);
+            return;
         }
 
         Map<String, List<String>> shardMap = new HashMap<>();
@@ -568,6 +569,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     public void abortMultipartUpload(MultipartUpload mpu) {
         if (!this.buckets.containsKey(mpu.containerName())) {
             this.delegate().abortMultipartUpload(mpu);
+            return;
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
