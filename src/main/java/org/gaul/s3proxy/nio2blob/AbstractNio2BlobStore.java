@@ -1097,8 +1097,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     if (!metas.hasNext()) {
                         return -1;
                     }
-                    BlobMetadata meta = metas.next();
-                    current = blobStore.getBlob(meta.getContainer(), meta.getName()).getPayload().openStream();
+                    current = openPartStream(metas.next());
                 }
                 int result = current.read();
                 if (result == -1) {
@@ -1122,8 +1121,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     if (!metas.hasNext()) {
                         return -1;
                     }
-                    BlobMetadata meta = metas.next();
-                    current = blobStore.getBlob(meta.getContainer(), meta.getName()).getPayload().openStream();
+                    current = openPartStream(metas.next());
                 }
                 int result = current.read(b, off, len);
                 if (result == -1) {
@@ -1133,6 +1131,15 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
                 return result;
             }
+        }
+
+        private InputStream openPartStream(BlobMetadata meta) throws IOException {
+            Blob blob = blobStore.getBlob(meta.getContainer(), meta.getName());
+            if (blob == null) {
+                throw new IOException("Part disappeared: " +
+                        meta.getContainer() + "/" + meta.getName());
+            }
+            return blob.getPayload().openStream();
         }
 
         @Override
