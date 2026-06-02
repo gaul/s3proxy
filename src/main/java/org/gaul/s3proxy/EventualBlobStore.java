@@ -199,8 +199,12 @@ final class EventualBlobStore extends ForwardingBlobStore {
     @SuppressWarnings("FutureReturnValueIgnored")
     private void schedule(Callable<?> callable) {
         if (random.nextDouble() < probability) {
+            // exhibit eventual-consistency delay
             deque.add(callable);
             executorService.schedule(new DequeCallable(), delay, delayUnit);
+        } else {
+            // propagate immediately (strongly-consistent this time)
+            executorService.submit(callable);
         }
     }
 

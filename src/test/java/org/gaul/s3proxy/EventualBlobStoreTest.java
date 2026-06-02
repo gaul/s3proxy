@@ -169,6 +169,19 @@ public final class EventualBlobStoreTest {
     }
 
     @Test
+    public void testWritePropagatesAtProbabilityZero() throws Exception {
+        var store = EventualBlobStore.newEventualBlobStore(
+                nearBlobStore, farBlobStore, executorService, DELAY,
+                DELAY_UNIT, /*probability=*/ 0.0);
+        String blobName = createRandomBlobName();
+        Blob blob = makeBlob(store, blobName);
+        store.putBlob(containerName, blob);
+        delay();
+        assertThat(farBlobStore.blobMetadata(containerName, blobName))
+                .isNotNull();
+    }
+
+    @Test
     public void testListAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(eventualBlobStore, blobName);
