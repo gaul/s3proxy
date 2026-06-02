@@ -571,7 +571,7 @@ public final class AzureBlobStore extends BaseBlobStore {
     public void setContainerAccess(String container, ContainerAccess access) {
         var client = blobServiceClient.getBlobContainerClient(container);
         var publicAccess = access == ContainerAccess.PUBLIC_READ ?
-                PublicAccessType.CONTAINER : PublicAccessType.BLOB;
+                PublicAccessType.CONTAINER : null;
         client.setAccessPolicy(publicAccess, List.of());
     }
 
