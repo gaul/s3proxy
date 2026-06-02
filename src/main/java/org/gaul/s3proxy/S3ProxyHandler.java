@@ -3197,7 +3197,7 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
             if (ifUnmodifiedSince != -1 && lastModified.compareTo(
-                    new Date(ifUnmodifiedSince)) >= 0) {
+                    new Date(ifUnmodifiedSince)) > 0) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
