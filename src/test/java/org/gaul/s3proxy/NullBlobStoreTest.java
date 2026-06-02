@@ -37,6 +37,7 @@ import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.Payload;
@@ -102,6 +103,41 @@ public final class NullBlobStoreTest {
         StorageMetadata sm = pageSet.iterator().next();
         assertThat(sm.getName()).isEqualTo(blobName);
         assertThat(sm.getSize()).isEqualTo(0);
+    }
+
+    @Test
+    public void testGetBlobRange() throws Exception {
+        String blobName = createRandomBlobName();
+        Blob blob = makeBlob(nullBlobStore, blobName);
+        nullBlobStore.putBlob(containerName, blob);
+        long size = BYTE_SOURCE.size();
+
+        // bytes=A-B
+        GetOptions explicit = new GetOptions();
+        explicit.range(100, 199);
+        blob = nullBlobStore.getBlob(containerName, blobName, explicit);
+        try (InputStream is = blob.getPayload().openStream()) {
+            assertThat(is.transferTo(OutputStream.nullOutputStream()))
+                    .isEqualTo(100);
+        }
+
+        // bytes=A-
+        GetOptions suffix = new GetOptions();
+        suffix.startAt(500);
+        blob = nullBlobStore.getBlob(containerName, blobName, suffix);
+        try (InputStream is = blob.getPayload().openStream()) {
+            assertThat(is.transferTo(OutputStream.nullOutputStream()))
+                    .isEqualTo(size - 500);
+        }
+
+        // bytes=-N
+        GetOptions tail = new GetOptions();
+        tail.tail(128);
+        blob = nullBlobStore.getBlob(containerName, blobName, tail);
+        try (InputStream is = blob.getPayload().openStream()) {
+            assertThat(is.transferTo(OutputStream.nullOutputStream()))
+                    .isEqualTo(128);
+        }
     }
 
     @Test

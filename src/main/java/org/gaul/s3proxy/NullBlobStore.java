@@ -72,7 +72,20 @@ final class NullBlobStore extends ForwardingBlobStore {
     @Override
     @Nullable
     public Blob getBlob(String container, String name, GetOptions options) {
-        Blob blob = super.getBlob(container, name, options);
+        // Ranges apply to the virtual content, not the 8-byte length stub.
+        List<String> originalRanges = options.getRanges();
+        Blob blob;
+        if (originalRanges.isEmpty()) {
+            blob = super.getBlob(container, name, options);
+        } else {
+            originalRanges = List.copyOf(originalRanges);
+            options.getRanges().clear();
+            try {
+                blob = super.getBlob(container, name, options);
+            } finally {
+                options.getRanges().addAll(originalRanges);
+            }
+        }
         if (blob == null) {
             return null;
         }
@@ -84,14 +97,33 @@ final class NullBlobStore extends ForwardingBlobStore {
             throw new RuntimeException(ioe);
         }
 
-        long length = Longs.fromByteArray(array);
+        long fullLength = Longs.fromByteArray(array);
+        long length = fullLength;
+        if (!originalRanges.isEmpty()) {
+            String[] parts = originalRanges.get(0).split("-", 2);
+            if (parts[0].isEmpty()) {
+                // bytes=-N: last N bytes
+                length = Math.min(Long.parseLong(parts[1]), fullLength);
+            } else if (parts[1].isEmpty()) {
+                // bytes=A-: from offset to end
+                long offset = Long.parseLong(parts[0]);
+                length = Math.max(0, fullLength - offset);
+            } else {
+                // bytes=A-B
+                long offset = Long.parseLong(parts[0]);
+                long end = Long.parseLong(parts[1]);
+                length = Math.max(0,
+                        Math.min(end + 1, fullLength) - offset);
+            }
+        }
+
         var payload = new ByteSourcePayload(
                 new NullByteSource().slice(0, length));
         payload.setContentMetadata(blob.getPayload().getContentMetadata());
         payload.getContentMetadata().setContentLength(length);
         payload.getContentMetadata().setContentMD5((HashCode) null);
         blob.setPayload(payload);
-        blob.getMetadata().setSize(length);
+        blob.getMetadata().setSize(fullLength);
         return blob;
     }
 
