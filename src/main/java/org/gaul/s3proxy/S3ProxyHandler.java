@@ -2075,25 +2075,29 @@ public class S3ProxyHandler {
                 range.indexOf('-') != -1) {
             range = range.substring("bytes=".length());
             String[] ranges = range.split("-", 2);
-            if (ranges[0].isEmpty()) {
-                long tail = Long.parseLong(ranges[1]);
-                if (tail < 0) {
-                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+            try {
+                if (ranges[0].isEmpty()) {
+                    long tail = Long.parseLong(ranges[1]);
+                    if (tail < 0) {
+                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                    }
+                    options.tail(tail);
+                } else if (ranges[1].isEmpty()) {
+                    long startAt = Long.parseLong(ranges[0]);
+                    if (startAt < 0) {
+                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                    }
+                    options.startAt(startAt);
+                } else {
+                    long start = Long.parseLong(ranges[0]);
+                    long end = Long.parseLong(ranges[1]);
+                    if (start < 0 || end < start) {
+                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                    }
+                    options.range(start, end);
                 }
-                options.tail(tail);
-            } else if (ranges[1].isEmpty()) {
-                long startAt = Long.parseLong(ranges[0]);
-                if (startAt < 0) {
-                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
-                }
-                options.startAt(startAt);
-            } else {
-                long start = Long.parseLong(ranges[0]);
-                long end = Long.parseLong(ranges[1]);
-                if (start < 0 || end < start) {
-                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
-                }
-                options.range(start, end);
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
