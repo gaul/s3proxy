@@ -1404,7 +1404,8 @@ public class S3ProxyHandler {
             if (Strings.isNullOrEmpty(keyMarker)) {
                 xml.writeEmptyElement("KeyMarker");
             } else {
-                writeSimpleElement(xml, "KeyMarker", keyMarker);
+                writeSimpleElement(xml, "KeyMarker", encodeBlob(
+                        encodingType, keyMarker));
             }
             if (Strings.isNullOrEmpty(uploadIdMarker)) {
                 xml.writeEmptyElement("UploadIdMarker");
@@ -1413,7 +1414,8 @@ public class S3ProxyHandler {
             }
             if (isTruncated && !page.isEmpty()) {
                 MultipartUpload last = page.get(page.size() - 1);
-                writeSimpleElement(xml, "NextKeyMarker", last.blobName());
+                writeSimpleElement(xml, "NextKeyMarker", encodeBlob(
+                        encodingType, last.blobName()));
                 writeSimpleElement(xml, "NextUploadIdMarker", last.id());
             } else {
                 xml.writeEmptyElement("NextKeyMarker");
@@ -1422,7 +1424,8 @@ public class S3ProxyHandler {
             if (Strings.isNullOrEmpty(delimiter)) {
                 xml.writeEmptyElement("Delimiter");
             } else {
-                writeSimpleElement(xml, "Delimiter", delimiter);
+                writeSimpleElement(xml, "Delimiter", encodeBlob(
+                        encodingType, delimiter));
             }
 
             if (Strings.isNullOrEmpty(prefix)) {
@@ -1436,10 +1439,15 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "IsTruncated",
                     String.valueOf(isTruncated));
 
+            if (encodingType != null && encodingType.equals("url")) {
+                writeSimpleElement(xml, "EncodingType", encodingType);
+            }
+
             for (MultipartUpload upload : page) {
                 xml.writeStartElement("Upload");
 
-                writeSimpleElement(xml, "Key", upload.blobName());
+                writeSimpleElement(xml, "Key", encodeBlob(
+                        encodingType, upload.blobName()));
                 writeSimpleElement(xml, "UploadId", upload.id());
                 writeInitiatorStanza(xml);
                 writeOwnerStanza(xml);
