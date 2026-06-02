@@ -61,10 +61,6 @@ import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
-import com.fasterxml.jackson.core.JsonParseException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.xml.XmlFactory;
-import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -119,6 +115,13 @@ import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import tools.jackson.core.exc.StreamReadException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.dataformat.xml.XmlFactory;
+import tools.jackson.dataformat.xml.XmlMapper;
+import tools.jackson.dataformat.xml.XmlReadFeature;
 
 /** HTTP server-independent handler for S3 requests. */
 public class S3ProxyHandler {
@@ -321,7 +324,12 @@ public class S3ProxyHandler {
         inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
         inputFactory.setProperty(
                 XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
-        return new XmlMapper(new XmlFactory(inputFactory));
+        return XmlMapper.builder(new XmlFactory(inputFactory))
+                .configure(
+                        DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES,
+                        false)
+                .disable(XmlReadFeature.AUTO_DETECT_XSI_TYPE)
+                .build();
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
@@ -1497,7 +1505,7 @@ public class S3ProxyHandler {
                 CreateBucketRequest cbr;
                 try {
                     cbr = mapper.readValue(pis, CreateBucketRequest.class);
-                } catch (JsonParseException jpe) {
+                } catch (StreamReadException jpe) {
                     throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
                 }
                 locationString = cbr.locationConstraint();
@@ -2762,7 +2770,7 @@ public class S3ProxyHandler {
             try {
                 cmu = mapper.readValue(
                         is, CompleteMultipartUploadRequest.class);
-            } catch (JsonParseException jpe) {
+            } catch (StreamReadException jpe) {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
             }
 
@@ -2816,7 +2824,7 @@ public class S3ProxyHandler {
             try {
                 cmu = mapper.readValue(
                         is, CompleteMultipartUploadRequest.class);
-            } catch (JsonParseException jpe) {
+            } catch (StreamReadException jpe) {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
             }
 

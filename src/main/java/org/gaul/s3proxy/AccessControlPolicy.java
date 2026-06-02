@@ -18,8 +18,8 @@ package org.gaul.s3proxy;
 
 import java.util.Collection;
 
-import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
-import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
+import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 /** Represent an Amazon AccessControlPolicy for a container or object. */
 record AccessControlPolicy(
@@ -42,8 +42,9 @@ record AccessControlPolicy(
                 @JacksonXmlProperty(localName = "Permission") String permission) {
 
             record Grantee(
-                    @JacksonXmlProperty(namespace = "xsi", localName = "type",
-                            isAttribute = true) String type,
+                    @JacksonXmlProperty(
+                            namespace = "http://www.w3.org/2001/XMLSchema-instance",
+                            localName = "type", isAttribute = true) String type,
                     @JacksonXmlProperty(localName = "ID") String id,
                     @JacksonXmlProperty(localName = "DisplayName")
                     String displayName,
