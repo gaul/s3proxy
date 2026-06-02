@@ -55,7 +55,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.http.SdkHttpConfigurationOption;
-import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -102,7 +102,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
                 .credentialsProvider(credsProvider)
                 .region(Region.US_EAST_1)
                 .endpointOverride(s3EndpointUri)
-                .httpClient(ApacheHttpClient.builder()
+                .httpClient(Apache5HttpClient.builder()
                         .buildWithDefaults(attributeMap))
                 .serviceConfiguration(serviceConfig)
                 .build();
