@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -409,7 +410,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         blobInfo.setCacheControl(contentMetadata.getCacheControl());
         var hash = contentMetadata.getContentMD5AsHashCode();
         if (hash != null) {
-            blobInfo.setMd5(BaseEncoding.base64().encode(hash.asBytes()));
+            blobInfo.setMd5(Base64.getEncoder().encodeToString(hash.asBytes()));
         }
         if (blob.getMetadata().getUserMetadata() != null) {
             blobInfo.setMetadata(blob.getMetadata().getUserMetadata());
