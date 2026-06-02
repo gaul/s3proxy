@@ -35,10 +35,14 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.MultipartPart;
+import org.jclouds.blobstore.domain.MultipartUpload;
+import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
+import org.jclouds.io.Payload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -228,6 +232,61 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     public InputStream streamBlob(String container, String name,
             ExecutorService executor) {
         return super.streamBlob(container, replaceBlobName(name), executor);
+    }
+
+    @Override
+    public MultipartUpload initiateMultipartUpload(String container,
+            BlobMetadata blobMetadata, PutOptions options) {
+        return super.initiateMultipartUpload(container,
+                rewriteBlobMetadata(blobMetadata), options);
+    }
+
+    @Override
+    public void abortMultipartUpload(MultipartUpload mpu) {
+        super.abortMultipartUpload(rewriteMultipartUpload(mpu));
+    }
+
+    @Override
+    public String completeMultipartUpload(MultipartUpload mpu,
+            List<MultipartPart> parts) {
+        return super.completeMultipartUpload(rewriteMultipartUpload(mpu), parts);
+    }
+
+    @Override
+    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+            int partNumber, Payload payload) {
+        return super.uploadMultipartPart(rewriteMultipartUpload(mpu),
+                partNumber, payload);
+    }
+
+    @Override
+    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+        return super.listMultipartUpload(rewriteMultipartUpload(mpu));
+    }
+
+    private BlobMetadata rewriteBlobMetadata(BlobMetadata metadata) {
+        String name = metadata.getName();
+        String newName = replaceBlobName(name);
+        if (name.equals(newName)) {
+            return metadata;
+        }
+        var mutable = new MutableBlobMetadataImpl(metadata);
+        mutable.setName(newName);
+        return mutable;
+    }
+
+    private MultipartUpload rewriteMultipartUpload(MultipartUpload mpu) {
+        String name = mpu.blobName();
+        String newName = replaceBlobName(name);
+        if (name.equals(newName)) {
+            return mpu;
+        }
+        BlobMetadata metadata = mpu.blobMetadata();
+        if (metadata != null) {
+            metadata = rewriteBlobMetadata(metadata);
+        }
+        return MultipartUpload.create(mpu.containerName(), newName,
+                mpu.id(), metadata, mpu.putOptions());
     }
 
     private String replaceBlobName(String name) {
