@@ -448,9 +448,23 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 Blob decryptedBlob = decryptBlob(decryption, containerName, blob);
                 if (!getOptions.getRanges().isEmpty()) {
                     long decryptedSize = decryption.getUnencryptedSize();
-                    long endRange = (offset != 0 && end == 0) ? decryptedSize : end;
+                    long startRange;
+                    long endRange;
+                    if (offset == 0 && end > 0 && length == end) {
+                        // bytes=-N: last N bytes
+                        startRange = decryptedSize - end;
+                        endRange = decryptedSize - 1;
+                    } else if (length < 0) {
+                        // bytes=A-: from offset to end
+                        startRange = offset;
+                        endRange = decryptedSize - 1;
+                    } else {
+                        // bytes=A-B
+                        startRange = offset;
+                        endRange = end;
+                    }
                     decryptedBlob.getAllHeaders()
-                        .put(HttpHeaders.CONTENT_RANGE, "bytes " + offset + "-" + endRange +
+                        .put(HttpHeaders.CONTENT_RANGE, "bytes " + startRange + "-" + endRange +
                             "/" + decryptedSize);
                 }
                 return decryptedBlob;
