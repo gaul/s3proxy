@@ -65,7 +65,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.SdkHttpConfigurationOption;
-import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -167,7 +167,7 @@ public final class AwsSdkTest {
                 .credentialsProvider(creds)
                 .region(Region.US_EAST_1)
                 .endpointOverride(s3EndpointUri)
-                .httpClient(ApacheHttpClient.builder()
+                .httpClient(Apache5HttpClient.builder()
                         .buildWithDefaults(attributeMap))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(true)
@@ -232,7 +232,7 @@ public final class AwsSdkTest {
                 .credentialsProvider(StaticCredentialsProvider.create(awsCreds))
                 .region(Region.US_EAST_1)
                 .endpointOverride(s3EndpointUri)
-                .httpClient(ApacheHttpClient.builder()
+                .httpClient(Apache5HttpClient.builder()
                         .buildWithDefaults(attributeMap))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(true)
