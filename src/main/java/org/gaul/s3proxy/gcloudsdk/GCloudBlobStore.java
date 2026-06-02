@@ -409,7 +409,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         blobInfo.setCacheControl(contentMetadata.getCacheControl());
         var hash = contentMetadata.getContentMD5AsHashCode();
         if (hash != null) {
-            blobInfo.setMd5(hash.toString());
+            blobInfo.setMd5(BaseEncoding.base64().encode(hash.asBytes()));
         }
         if (blob.getMetadata().getUserMetadata() != null) {
             blobInfo.setMetadata(blob.getMetadata().getUserMetadata());
