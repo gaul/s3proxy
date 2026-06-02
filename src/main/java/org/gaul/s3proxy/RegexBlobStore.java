@@ -36,6 +36,7 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.options.CopyOptions;
+import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.slf4j.Logger;
@@ -173,6 +174,12 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     @Override
     public Blob getBlob(String containerName, String name) {
         return super.getBlob(containerName, replaceBlobName(name));
+    }
+
+    @Override
+    public Blob getBlob(String containerName, String name,
+            GetOptions getOptions) {
+        return super.getBlob(containerName, replaceBlobName(name), getOptions);
     }
 
     @Override
