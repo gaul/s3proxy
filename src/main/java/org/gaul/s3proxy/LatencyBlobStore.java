@@ -272,6 +272,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public Blob getBlob(String containerName, String blobName) {
         simulateLatency(OP_GET_BLOB);
         Blob blob = super.getBlob(containerName, blobName);
+        if (blob == null) {
+            return null;
+        }
         try {
             InputStream is = blob.getPayload().openStream();
             return replaceStream(blob, new ThrottledInputStream(is, getSpeed(OP_GET_BLOB)));
@@ -284,6 +287,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
         simulateLatency(OP_GET_BLOB);
         Blob blob = super.getBlob(containerName, blobName, getOptions);
+        if (blob == null) {
+            return null;
+        }
         try {
             InputStream is = blob.getPayload().openStream();
             return replaceStream(blob, new ThrottledInputStream(is, getSpeed(OP_GET_BLOB)));
