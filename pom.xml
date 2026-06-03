@@ -439,7 +439,7 @@
     <java.version>17</java.version>
     <aws-sdkv2.version>2.46.0</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
-    <jetty.version>12.1.9</jetty.version>
+    <jetty.version>12.1.10</jetty.version>
     <modernizer.version>3.4.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.62.0</opentelemetry.version>
