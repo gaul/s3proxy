@@ -496,7 +496,7 @@
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-exporter-prometheus</artifactId>
-      <version>1.62.0-alpha</version>
+      <version>1.63.0-alpha</version>
     </dependency>
     <dependency>
       <groupId>io.prometheus</groupId>
