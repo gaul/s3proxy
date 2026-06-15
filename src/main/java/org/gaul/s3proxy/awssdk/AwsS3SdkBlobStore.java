@@ -288,7 +288,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             if (e.statusCode() == 404) {
                 return false;
             }
-            throw e;
+            throw translate(e, container, null);
         }
     }
 
