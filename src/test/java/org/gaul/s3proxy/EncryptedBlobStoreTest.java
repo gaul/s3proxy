@@ -592,7 +592,7 @@ public final class EncryptedBlobStoreTest {
             }
 
             // RFC 7233: bytes=offset- should report bytes offset-(L-1)/L.
-            long expectedEndRange = content.length() - 1;
+            long expectedEndRange = content.length() - 1L;
             assertThat(blob.getAllHeaders().get("Content-Range"))
                 .contains("bytes " + offset + "-" + expectedEndRange + "/" + content.length());
         }
@@ -629,8 +629,8 @@ public final class EncryptedBlobStoreTest {
             }
 
             // RFC 7233: bytes=-N should report the actual byte range, not 0-N.
-            long expectedStart = content.length() - length;
-            long expectedEnd = content.length() - 1;
+            long expectedStart = (long) content.length() - length;
+            long expectedEnd = content.length() - 1L;
             assertThat(blob.getAllHeaders().get("Content-Range"))
                 .contains("bytes " + expectedStart + "-" + expectedEnd + "/" + content.length());
         }

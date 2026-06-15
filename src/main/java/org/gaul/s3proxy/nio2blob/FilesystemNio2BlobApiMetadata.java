@@ -48,7 +48,7 @@ public final class FilesystemNio2BlobApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client
-    private interface FilesystemNio2BlobClient {
+    interface FilesystemNio2BlobClient {
     }
 
     public static final class Builder

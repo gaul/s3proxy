@@ -52,7 +52,7 @@ public final class GCloudApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client
-    private interface GCloudClient {
+    interface GCloudClient {
     }
 
     public static final class Builder

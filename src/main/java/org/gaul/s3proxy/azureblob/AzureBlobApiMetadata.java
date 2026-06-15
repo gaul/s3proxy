@@ -58,7 +58,7 @@ public final class AzureBlobApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client
-    private interface AzureBlobClient {
+    interface AzureBlobClient {
     }
 
     public static final class Builder

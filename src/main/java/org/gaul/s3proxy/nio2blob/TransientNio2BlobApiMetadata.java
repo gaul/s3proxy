@@ -48,7 +48,7 @@ public final class TransientNio2BlobApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client
-    private interface TransientNio2BlobClient {
+    interface TransientNio2BlobClient {
     }
 
     public static final class Builder

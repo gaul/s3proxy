@@ -54,7 +54,7 @@ public final class SftpBlobStoreApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client
-    private interface SftpBlobStoreClient {
+    interface SftpBlobStoreClient {
     }
 
     public static final class Builder

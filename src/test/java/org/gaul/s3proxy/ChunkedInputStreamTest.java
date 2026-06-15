@@ -166,7 +166,7 @@ public final class ChunkedInputStreamTest {
         var out = new ByteArrayOutputStream();
         appendUnsignedChunk(out, payload);
         // Trailer line with deliberately wrong CRC32.
-        out.write(("x-amz-checksum-crc32:AAAAAA==\r\n")
+        out.write("x-amz-checksum-crc32:AAAAAA==\r\n"
                 .getBytes(StandardCharsets.UTF_8));
         // The trailer parsing path sets currentLength=0 and returns -1;
         // no zero-chunk needed.

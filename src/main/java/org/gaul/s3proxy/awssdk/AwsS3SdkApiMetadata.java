@@ -83,7 +83,7 @@ public final class AwsS3SdkApiMetadata extends BaseHttpApiMetadata {
     }
 
     // Fake API client - required by jclouds but not actually used
-    private interface AwsS3SdkClient {
+    interface AwsS3SdkClient {
     }
 
     public static final class Builder
