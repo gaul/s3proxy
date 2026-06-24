@@ -25,15 +25,18 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.zip.CRC32;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
@@ -319,6 +322,27 @@ public final class AwsSdkTest {
         client.putObject(b -> b.bucket(containerName).key(key)
                         .checksumAlgorithm(algorithm),
                 RequestBody.fromBytes(byteSource.read()));
+    }
+
+    @Test
+    public void testPutObjectWithChecksumHeader() throws Exception {
+        var key = "testPutObjectChecksumHeader";
+        var byteSource = TestUtils.randomByteSource().slice(0, 1024);
+        var content = byteSource.read();
+        var crc32 = new CRC32();
+        crc32.update(content);
+        var checksum = Base64.getEncoder().encodeToString(
+                ByteBuffer.allocate(4).putInt((int) crc32.getValue()).array());
+
+        client.putObject(b -> b.bucket(containerName).key(key)
+                        .checksumCRC32(checksum),
+                RequestBody.fromBytes(content));
+
+        try (InputStream actual = client.getObject(
+                b -> b.bucket(containerName).key(key));
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual).hasSameContentAs(expected);
+        }
     }
 
     @Test
