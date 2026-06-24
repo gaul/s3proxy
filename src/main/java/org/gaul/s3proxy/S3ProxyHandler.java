@@ -712,8 +712,10 @@ public class S3ProxyHandler {
                         is = new ByteArrayInputStream(payload);
                     }
 
-                    String uriForSigning = presignedUrl ? originalUri :
-                            this.servicePath + originalUri;
+                    // originalUri already includes the service path and, unlike
+                    // uri, does not have the virtual host bucket prepended,
+                    // matching what clients sign for v4.
+                    String uriForSigning = originalUri;
                     expectedSignature = AwsSignature
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
