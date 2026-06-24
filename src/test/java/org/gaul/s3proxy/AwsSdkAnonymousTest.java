@@ -32,7 +32,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.SdkHttpConfigurationOption;
@@ -115,6 +117,32 @@ public final class AwsSdkAnonymousTest {
     }
 
     @Test
+    public void testAwsV4SignedChunkedPayloadTrailerAnonymous()
+            throws Exception {
+        // A client configured with (signing) credentials sends a signed,
+        // chunked, checksum-trailer payload -- x-amz-content-sha256:
+        // STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER -- over plain HTTP.
+        // Even though the proxy uses authorization=none, it must decode the
+        // aws-chunked framing instead of storing the chunk-signature and
+        // checksum trailer lines verbatim.
+        // Regression test for https://github.com/gaul/s3proxy/issues/922
+        client.close();
+        client = buildHttpClient(StaticCredentialsProvider.create(
+                AwsBasicCredentials.create("dummy", "dummy")));
+
+        byte[] content = "fileContent-none".getBytes(StandardCharsets.UTF_8);
+        client.putObject(b -> b.bucket(containerName).key("foo"),
+                RequestBody.fromBytes(content));
+
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key("foo"))) {
+            assertThat(object.response().contentLength())
+                    .isEqualTo((long) content.length);
+            assertThat(object.readAllBytes()).isEqualTo(content);
+        }
+    }
+
+    @Test
     public void testHealthzEndpoint() throws Exception {
         URI baseUri = httpEndpoint != null ? httpEndpoint : s3Endpoint;
         String path = (servicePath == null ? "" : servicePath) + "/healthz";
@@ -152,6 +180,19 @@ public final class AwsSdkAnonymousTest {
                 .endpointOverride(s3EndpointUri)
                 .httpClient(Apache5HttpClient.builder()
                         .buildWithDefaults(attributeMap))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .build();
+    }
+
+    private S3Client buildHttpClient(AwsCredentialsProvider creds) {
+        URI httpUri = URI.create(httpEndpoint.toString() + servicePath);
+        return S3Client.builder()
+                .credentialsProvider(creds)
+                .region(Region.US_EAST_1)
+                .endpointOverride(httpUri)
+                .httpClient(Apache5HttpClient.builder().build())
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(true)
                         .build())

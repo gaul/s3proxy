@@ -183,6 +183,37 @@ public final class ChunkedInputStreamTest {
         }
     }
 
+    @Test
+    public void signedChunkedWithTrailerDecodesWithoutSigningKey()
+            throws Exception {
+        // STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER wire format: per-chunk
+        // signatures plus a checksum trailer that follows the zero-length
+        // chunk.  When the proxy runs with authorization=none it decodes this
+        // body without a signing key, so it must still strip the chunk
+        // framing instead of storing it verbatim.
+        // Regression test for https://github.com/gaul/s3proxy/issues/922
+        byte[] signingKey = deriveSigningKey("test-secret");
+        byte[] payload = "fileContent-none".getBytes(StandardCharsets.UTF_8);
+
+        var out = new ByteArrayOutputStream();
+        String sig = chunkSignature(SEED_SIGNATURE, signingKey, payload);
+        out.write((Integer.toHexString(payload.length) + ";chunk-signature=" +
+                sig + "\r\n").getBytes(StandardCharsets.UTF_8));
+        out.write(payload);
+        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        String zeroSig = chunkSignature(sig, signingKey, new byte[0]);
+        out.write(("0;chunk-signature=" + zeroSig + "\r\n")
+                .getBytes(StandardCharsets.UTF_8));
+        out.write(("x-amz-checksum-crc32:" + crc32Base64(payload) + "\r\n")
+                .getBytes(StandardCharsets.UTF_8));
+        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+
+        try (var in = new ChunkedInputStream(new ByteArrayInputStream(
+                out.toByteArray()), MAX_CHUNK_SIZE, "x-amz-checksum-crc32")) {
+            assertThat(in.readAllBytes()).isEqualTo(payload);
+        }
+    }
+
     // --- helpers ---
 
     private static byte[] unsignedChunked(byte[][] chunks) {

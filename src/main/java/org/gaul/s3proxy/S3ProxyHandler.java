@@ -591,8 +591,15 @@ public class S3ProxyHandler {
                     AwsHttpHeaders.CONTENT_SHA256);
             if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
                 is = new ChunkedInputStream(is, v4MaxChunkSize);
-            } else if ("STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
-                is = new ChunkedInputStream(is, v4MaxChunkSize, request.getHeader(AwsHttpHeaders.TRAILER));
+            } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
+                    contentSha256) ||
+                    "STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(
+                    contentSha256)) {
+                // The proxy does not verify per-chunk signatures when
+                // authorization is disabled, so the signed and unsigned
+                // trailer variants decode identically.
+                is = new ChunkedInputStream(is, v4MaxChunkSize,
+                        request.getHeader(AwsHttpHeaders.TRAILER));
             }
         } else if (requestIdentity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
