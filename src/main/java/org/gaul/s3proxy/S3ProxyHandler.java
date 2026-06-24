@@ -51,7 +51,6 @@ import java.util.TreeSet;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
@@ -229,10 +228,13 @@ public class S3ProxyHandler {
     );
     private static final String XML_CONTENT_TYPE = "application/xml";
     private static final String UTF_8 = "UTF-8";
-    // Matches the UUID string used to name multipart-upload stub blobs for
-    // MULTIPART_REQUIRES_STUB backends so they can be hidden from list().
-    private static final Pattern UUID_STUB_PATTERN = Pattern.compile(
-            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+    // Reserved prefix for the stub blob that carries object metadata between
+    // initiate and complete multipart upload for MULTIPART_REQUIRES_STUB
+    // backends.  These stubs are hidden from list() to match S3 semantics
+    // where multipart internals are not exposed.  Using a dedicated prefix
+    // rather than matching the UUID-shaped upload id avoids hiding legitimate
+    // user objects whose keys happen to look like a UUID.
+    private static final String MULTIPART_STUB_PREFIX = ".s3proxy-mpu-stub-";
     /** URLEncoder escapes / which we do not want. */
     private static final Escaper urlEscaper = new PercentEscaper(
             "*-./_", /*plusForSpace=*/ false);
@@ -334,6 +336,15 @@ public class S3ProxyHandler {
 
     private static String getBlobStoreType(BlobStore blobStore) {
         return blobStore.getContext().unwrap().getProviderMetadata().getId();
+    }
+
+    /**
+     * Name of the stub blob holding multipart-upload metadata for an upload id
+     * on MULTIPART_REQUIRES_STUB backends.  The returned name is filtered from
+     * list() so the stub is not exposed as a user-visible object.
+     */
+    private static String multipartStubName(String uploadId) {
+        return MULTIPART_STUB_PREFIX + uploadId;
     }
 
     private static boolean isValidContainer(String containerName) {
@@ -1663,7 +1674,7 @@ public class S3ProxyHandler {
         if (filterStub) {
             filteredCount = 0;
             for (StorageMetadata sm : set) {
-                if (!UUID_STUB_PATTERN.matcher(sm.getName()).matches()) {
+                if (!sm.getName().startsWith(MULTIPART_STUB_PREFIX)) {
                     filteredCount++;
                 }
             }
@@ -1748,8 +1759,8 @@ public class S3ProxyHandler {
 
             Set<String> commonPrefixes = new TreeSet<>();
             for (StorageMetadata metadata : set) {
-                if (filterStub && UUID_STUB_PATTERN.matcher(
-                        metadata.getName()).matches()) {
+                if (filterStub && metadata.getName().startsWith(
+                        MULTIPART_STUB_PREFIX)) {
                     continue;
                 }
                 switch (metadata.getType()) {
@@ -2721,7 +2732,8 @@ public class S3ProxyHandler {
 
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            blobStore.putBlob(containerName, builder.name(mpu.id()).build(),
+            blobStore.putBlob(containerName,
+                    builder.name(multipartStubName(mpu.id())).build(),
                     options);
         }
 
@@ -2754,9 +2766,10 @@ public class S3ProxyHandler {
         PutOptions options;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            metadata = blobStore.blobMetadata(containerName, uploadId);
+            String stubName = multipartStubName(uploadId);
+            metadata = blobStore.blobMetadata(containerName, stubName);
             BlobAccess access = blobStore.getBlobAccess(containerName,
-                    uploadId);
+                    stubName);
             options = new PutOptions().setBlobAccess(access);
         } else {
             metadata = new MutableBlobMetadataImpl();
@@ -2925,7 +2938,8 @@ public class S3ProxyHandler {
 
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                     blobStore))) {
-                blobStore.removeBlob(containerName, uploadId);
+                blobStore.removeBlob(containerName,
+                        multipartStubName(uploadId));
             }
 
             // TODO: bogus value
@@ -2952,11 +2966,12 @@ public class S3ProxyHandler {
             String uploadId) throws IOException, S3Exception {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            if (!blobStore.blobExists(containerName, uploadId)) {
+            String stubName = multipartStubName(uploadId);
+            if (!blobStore.blobExists(containerName, stubName)) {
                 throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
             }
 
-            blobStore.removeBlob(containerName, uploadId);
+            blobStore.removeBlob(containerName, stubName);
         }
 
         addCorsResponseHeader(request, response);
@@ -3362,7 +3377,8 @@ public class S3ProxyHandler {
         BlobMetadata blobMetadata;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            blobMetadata = blobStore.blobMetadata(containerName, uploadId);
+            blobMetadata = blobStore.blobMetadata(containerName,
+                    multipartStubName(uploadId));
         } else {
             blobMetadata = createFakeBlobMetadata(blobStore);
         }

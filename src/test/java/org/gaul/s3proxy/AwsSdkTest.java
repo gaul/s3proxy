@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
@@ -578,6 +579,34 @@ public final class AwsSdkTest {
                 assertThat((InputStream) object).hasSameContentAs(expected);
             }
         }
+    }
+
+    @Test
+    public void testMultipartStubHiddenFromList() throws Exception {
+        // An in-progress multipart upload must not expose its internal stub
+        // blob via ListObjects, matching S3 semantics where multipart
+        // internals are not visible until the upload completes.  Only
+        // MULTIPART_REQUIRES_STUB backends store the stub via S3ProxyHandler
+        // and hide it from list(); the *-sdk backends track multipart state
+        // internally.
+        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
+        String key = UUID.randomUUID().toString();
+        CreateMultipartUploadResponse initResponse =
+                client.createMultipartUpload(
+                        b -> b.bucket(containerName).key(key));
+        String uploadId = initResponse.uploadId();
+
+        ListObjectsResponse listing = client.listObjects(
+                b -> b.bucket(containerName));
+        assertThat(listing.contents()).isEmpty();
+
+        ListObjectsV2Response listingV2 = client.listObjectsV2(
+                b -> b.bucket(containerName));
+        assertThat(listingV2.keyCount()).isEqualTo(0);
+        assertThat(listingV2.contents()).isEmpty();
+
+        client.abortMultipartUpload(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId));
     }
 
     @Test
