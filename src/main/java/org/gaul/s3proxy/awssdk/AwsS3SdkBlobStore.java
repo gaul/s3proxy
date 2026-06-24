@@ -1184,7 +1184,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         return s1.equals(s2);
     }
 
-    private void throwPreconditionFailed() {
+    private HttpResponseException preconditionFailed() {
         var request = HttpRequest.builder()
                 .method("PUT")
                 .endpoint(endpoint)
@@ -1193,11 +1193,11 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 .statusCode(412)
                 .message("Precondition Failed")
                 .build();
-        throw new HttpResponseException(new HttpCommand(request), response);
+        return new HttpResponseException(new HttpCommand(request), response);
     }
 
-    private void throwKeyNotFound(String container, String key) {
-        throw new KeyNotFoundException(container, key,
+    private KeyNotFoundException keyNotFound(String container, String key) {
+        return new KeyNotFoundException(container, key,
                 "Object does not exist for If-Match condition");
     }
 
@@ -1222,20 +1222,20 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             String ifMatch, @Nullable BlobMetadata metadata) {
         if ("*".equals(ifMatch)) {
             if (metadata == null) {
-                throwPreconditionFailed();
+                throw preconditionFailed();
             }
             return;
         }
 
         if (metadata == null) {
-            throwKeyNotFound(container, blobName);
+            throw keyNotFound(container, blobName);
         }
 
         String currentETag = metadata.getETag();
         if (currentETag == null ||
                 !equalsIgnoringSurroundingQuotes(ifMatch,
                     maybeQuoteETag(currentETag))) {
-            throwPreconditionFailed();
+            throw preconditionFailed();
         }
     }
 
@@ -1243,7 +1243,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             @Nullable BlobMetadata metadata) {
         if ("*".equals(ifNoneMatch)) {
             if (metadata != null) {
-                throwPreconditionFailed();
+                throw preconditionFailed();
             }
             return;
         }
@@ -1256,7 +1256,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         if (currentETag != null &&
                 equalsIgnoringSurroundingQuotes(ifNoneMatch,
                     maybeQuoteETag(currentETag))) {
-            throwPreconditionFailed();
+            throw preconditionFailed();
         }
     }
 }
