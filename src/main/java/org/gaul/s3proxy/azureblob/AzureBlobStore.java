@@ -388,9 +388,6 @@ public final class AzureBlobStore extends BaseBlobStore {
                 .getBlobClient(blob.getMetadata().getName())
                 .getBlockBlobClient();
         try (var is = blob.getPayload().openStream()) {
-            var azureOptions = new BlockBlobOutputStreamOptions();
-            azureOptions.setMetadata(blob.getMetadata().getUserMetadata());
-
             // TODO: Expires?
             var blobHttpHeaders = new BlobHttpHeaders();
             var contentMetadata = blob.getMetadata().getContentMetadata();
@@ -404,22 +401,55 @@ public final class AzureBlobStore extends BaseBlobStore {
             var hash = contentMetadata.getContentMD5AsHashCode();
             blobHttpHeaders.setContentMd5(hash != null ? hash.asBytes() : null);
             blobHttpHeaders.setContentType(contentMetadata.getContentType());
-            azureOptions.setHeaders(blobHttpHeaders);
+
+            var metadata = blob.getMetadata().getUserMetadata();
+
+            AccessTier tier = null;
             if (blob.getMetadata().getTier() != Tier.STANDARD) {
-                azureOptions.setTier(toAccessTier(
-                        blob.getMetadata().getTier()));
+                tier = toAccessTier(blob.getMetadata().getTier());
             }
 
+            BlobRequestConditions requestConditions = null;
             if (options instanceof PutOptions2 putOptions2) {
                 String ifMatch = putOptions2.getIfMatch();
                 String ifNoneMatch = putOptions2.getIfNoneMatch();
                 if (ifMatch != null || ifNoneMatch != null) {
-                    azureOptions.setRequestConditions(new BlobRequestConditions()
+                    requestConditions = new BlobRequestConditions()
                             .setIfMatch(ifMatch)
-                            .setIfNoneMatch(ifNoneMatch));
+                            .setIfNoneMatch(ifNoneMatch);
                 }
             }
 
+            Long contentLength = contentMetadata.getContentLength();
+            if (contentLength != null && contentLength >= 0) {
+                // Stream the payload to the service as a single Put Blob in
+                // bounded-size chunks instead of buffering the entire object
+                // in memory.  getBlobOutputStream routes through the SDK's
+                // buffered upload path, which accumulates the whole payload
+                // (up to the 256 MiB single-upload threshold) on the heap and
+                // exhausts it under concurrent large uploads.
+                var uploadOptions = new BlockBlobSimpleUploadOptions(
+                        chunkedByteBufferFlux(is, contentLength), contentLength)
+                        .setHeaders(blobHttpHeaders)
+                        .setMetadata(metadata)
+                        .setTier(tier)
+                        .setRequestConditions(requestConditions);
+                return client.uploadWithResponse(uploadOptions,
+                        /*timeout=*/ null, /*context=*/ null)
+                        .getValue().getETag();
+            }
+
+            // Content-Length is unknown, so fall back to the output stream,
+            // which the SDK buffers before committing.
+            var azureOptions = new BlockBlobOutputStreamOptions();
+            azureOptions.setMetadata(metadata);
+            azureOptions.setHeaders(blobHttpHeaders);
+            if (tier != null) {
+                azureOptions.setTier(tier);
+            }
+            if (requestConditions != null) {
+                azureOptions.setRequestConditions(requestConditions);
+            }
             try (var os = client.getBlobOutputStream(
                     azureOptions, /*context=*/ null)) {
                 is.transferTo(os);
@@ -431,12 +461,75 @@ public final class AzureBlobStore extends BaseBlobStore {
                     .getBlobClient(blob.getMetadata().getName())
                     .getProperties()
                     .getETag();
+        } catch (BlobStorageException bse) {
+            throw translate(bse, container, blob.getMetadata().getName());
         } catch (IOException ioe) {
             if (ioe.getCause() instanceof BlobStorageException bse) {
                 throw translate(bse, container, /*key=*/ null);
             }
             throw new RuntimeException(ioe);
         }
+    }
+
+    /**
+     * Read {@code contentLength} bytes from {@code is} as a Flux of
+     * bounded-size {@link ByteBuffer}s so that the Azure SDK streams the
+     * payload to the service instead of buffering it entirely in memory.
+     * The stream is closed by the caller via try-with-resources.
+     */
+    private static Flux<ByteBuffer> chunkedByteBufferFlux(InputStream is,
+            long contentLength) {
+        final int maxChunkSize = 4 * 1024 * 1024;
+        return Flux.generate(
+            () -> 0L,
+            (position, sink) -> {
+                try {
+                    if (position >= contentLength) {
+                        sink.complete();
+                        return position;
+                    }
+                    int chunkSize = (int) Math.min(maxChunkSize,
+                            contentLength - position);
+                    ByteBuffer buffer = ByteBuffer.allocate(chunkSize);
+                    byte[] array = buffer.array();
+                    int totalRead = 0;
+                    while (totalRead < chunkSize) {
+                        int read = is.read(array, totalRead,
+                                chunkSize - totalRead);
+                        if (read == -1) {
+                            if (position + totalRead < contentLength) {
+                                sink.error(new IOException(
+                                    "Stream ended at %d bytes, expected %d".formatted(
+                                        position + totalRead, contentLength)));
+                                return position + totalRead;
+                            }
+                            break;
+                        }
+                        totalRead += read;
+                    }
+                    if (totalRead == 0) {
+                        sink.error(new IOException(
+                            "Stream ended at %d bytes, expected %d".formatted(
+                                    position, contentLength)));
+                        return position;
+                    }
+                    buffer.position(totalRead);
+                    buffer.flip();
+                    sink.next(buffer.asReadOnlyBuffer());
+                    long nextPosition = position + totalRead;
+                    if (nextPosition >= contentLength) {
+                        sink.complete();
+                    }
+                    return nextPosition;
+                } catch (IOException e) {
+                    sink.error(e);
+                    return position;
+                }
+            },
+            position -> {
+                // Stream is closed by try-with-resources
+            }
+        );
     }
 
     @Override
@@ -847,58 +940,7 @@ public final class AzureBlobStore extends BaseBlobStore {
              var his = new HashingInputStream(MD5, is)) {
             var providedMd5 = payload.getContentMetadata().getContentMD5AsHashCode();
 
-            final int maxChunkSize = 4 * 1024 * 1024;
-
-            Flux<ByteBuffer> body = Flux.generate(
-                () -> 0L,
-                (position, sink) -> {
-                    try {
-                        if (position >= contentLength) {
-                            sink.complete();
-                            return position;
-                        }
-                        int chunkSize = (int) Math.min(maxChunkSize,
-                                contentLength - position);
-                        ByteBuffer buffer = ByteBuffer.allocate(chunkSize);
-                        byte[] array = buffer.array();
-                        int totalRead = 0;
-                        while (totalRead < chunkSize) {
-                            int read = his.read(array, totalRead,
-                                    chunkSize - totalRead);
-                            if (read == -1) {
-                                if (position + totalRead < contentLength) {
-                                    sink.error(new IOException(
-                                        "Stream ended at %d bytes, expected %d".formatted(
-                                            position + totalRead, contentLength)));
-                                    return position + totalRead;
-                                }
-                                break;
-                            }
-                            totalRead += read;
-                        }
-                        if (totalRead == 0) {
-                            sink.error(new IOException(
-                                "Stream ended at %d bytes, expected %d".formatted(
-                                        position, contentLength)));
-                            return position;
-                        }
-                        buffer.position(totalRead);
-                        buffer.flip();
-                        sink.next(buffer.asReadOnlyBuffer());
-                        long nextPosition = position + totalRead;
-                        if (nextPosition >= contentLength) {
-                            sink.complete();
-                        }
-                        return nextPosition;
-                    } catch (IOException e) {
-                        sink.error(e);
-                        return position;
-                    }
-                },
-                position -> {
-                    // Stream is closed by try-with-resources
-                }
-            );
+            Flux<ByteBuffer> body = chunkedByteBufferFlux(his, contentLength);
 
             asyncClient.stageBlock(blockId, body, contentLength).block();
 
