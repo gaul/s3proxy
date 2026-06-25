@@ -239,17 +239,40 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                                 filterMultipart);
                     }
 
+                    var dirXattrs = safeGetXattrs(path);
+                    var markerExists = dirXattrs.attributes()
+                            .contains(XATTR_CONTENT_MD5);
+
                     // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
-                    if ("/".equals(delimiter) || safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
+                    if ("/".equals(delimiter) || markerExists) {
                         var name = relativeName(containerPath, path);
                         logger.debug("adding prefix: {}", name);
+
+                        // A directory-marker object (a key ending in "/") that
+                        // was explicitly stored carries the XATTR_CONTENT_MD5
+                        // xattr. Report its metadata so a non-delimited
+                        // ListObjects, which emits this entry as <Contents>,
+                        // includes Size/LastModified/ETag like any other
+                        // 0-byte object. Implicit prefixes (no marker object)
+                        // keep null metadata since they surface only as
+                        // <CommonPrefixes>.
+                        String eTag = null;
+                        Date lastModified = null;
+                        Long size = null;
+                        if (markerExists) {
+                            eTag = readETagXattr(dirXattrs);
+                            lastModified = new Date(
+                                    attr.lastModifiedTime().toMillis());
+                            size = 0L;
+                        }
+
                         builder.add(new StorageMetadataImpl(
                                 StorageType.RELATIVE_PATH,
                                 /*id=*/ null, name + "/",
                                 /*location=*/ null, /*uri=*/ null,
-                                /*eTag=*/ null, /*creationDate=*/ null,
-                                /*lastModified=*/ null,
-                                Map.of(), /*size=*/ null, Tier.STANDARD));
+                                eTag, /*creationDate=*/ null,
+                                lastModified,
+                                Map.of(), size, Tier.STANDARD));
                     }
                 } else {
                     var name = relativeName(containerPath, path);
@@ -257,27 +280,13 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
                     var creationTime = new Date(attr.creationTime().toMillis());
 
-                    String eTag = null;
-                    Tier tier = Tier.STANDARD;
                     var xattrs = safeGetXattrs(path);
+                    String eTag = readETagXattr(xattrs);
+                    Tier tier = Tier.STANDARD;
                     if (xattrs.view() != null) {
-                        var view = xattrs.view();
-                        var attributes = xattrs.attributes();
-                        if (attributes.contains(XATTR_CONTENT_MD5)) {
-                            var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
-                            view.read(XATTR_CONTENT_MD5, buf);
-                            var etagBytes = buf.array();
-                            if (etagBytes.length == 16) {
-                                // regular object
-                                var hashCode = HashCode.fromBytes(buf.array());
-                                eTag = "\"" + hashCode + "\"";
-                            } else {
-                                // multi-part object
-                                eTag = new String(etagBytes, StandardCharsets.US_ASCII);
-                            }
-                        }
-
-                        var tierString = readStringAttributeIfPresent(view, attributes, XATTR_STORAGE_TIER);
+                        var tierString = readStringAttributeIfPresent(
+                                xattrs.view(), xattrs.attributes(),
+                                XATTR_STORAGE_TIER);
                         if (tierString != null) {
                             tier = Tier.valueOf(tierString);
                         }
@@ -1069,6 +1078,28 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         ByteBuffer buf = ByteBuffer.allocate(view.size(name));
         view.read(name, buf);
         return new String(buf.array(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Reads the stored ETag for an object from its XATTR_CONTENT_MD5 xattr, or
+     * null when the object carries no such xattr (e.g. an implicit directory).
+     * A 16-byte value is the MD5 of a single-part object; anything else is a
+     * multipart ETag stored verbatim.
+     */
+    private static String readETagXattr(XattrState xattrs) throws IOException {
+        var view = xattrs.view();
+        if (view == null || !xattrs.attributes().contains(XATTR_CONTENT_MD5)) {
+            return null;
+        }
+        var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
+        view.read(XATTR_CONTENT_MD5, buf);
+        var etagBytes = buf.array();
+        if (etagBytes.length == 16) {
+            // regular object
+            return "\"" + HashCode.fromBytes(etagBytes) + "\"";
+        }
+        // multi-part object
+        return new String(etagBytes, StandardCharsets.US_ASCII);
     }
 
     /** Write the String representation of a filesystem attribute. */
