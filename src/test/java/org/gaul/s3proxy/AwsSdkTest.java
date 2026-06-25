@@ -91,6 +91,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.Tagging;
 import software.amazon.awssdk.services.s3.model.Type;
@@ -1091,6 +1092,48 @@ public final class AwsSdkTest {
         client.deleteObject(b -> b.bucket(containerName).key(dirName));
         assertThat(client.headObject(
                 b -> b.bucket(containerName).key(marker))).isNotNull();
+    }
+
+    @Test
+    public void testDirectoryMarkerListMetadata() throws Exception {
+        // Per the S3 API every <Contents> entry in a ListObjects(V1/V2)
+        // response must carry <Size>, <LastModified> and <ETag>, even for a
+        // "directory placeholder" key (one ending in "/"). The nio2 backends
+        // used to omit them for such keys, so spec-abiding clients (e.g.
+        // Hadoop's S3A connector) read a null/absent size and NPE.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        String marker = "dir-marker/";
+        client.putObject(b -> b.bucket(containerName).key(marker),
+                RequestBody.empty());
+
+        // sanity: the server knows the marker's size via HEAD
+        assertThat(client.headObject(
+                b -> b.bucket(containerName).key(marker)).contentLength())
+                .isEqualTo(0L);
+
+        // ListObjectsV2 must report Size/LastModified/ETag for the marker.
+        ListObjectsV2Response v2 = client.listObjectsV2(
+                b -> b.bucket(containerName));
+        S3Object v2Marker = v2.contents().stream()
+                .filter(o -> o.key().equals(marker))
+                .findFirst().orElse(null);
+        assertThat(v2Marker).isNotNull();
+        assertThat(v2Marker.size()).isEqualTo(0L);
+        assertThat(v2Marker.lastModified()).isNotNull();
+        assertThat(v2Marker.eTag()).isNotBlank();
+
+        // ListObjects (v1) must do the same.
+        ListObjectsResponse v1 = client.listObjects(
+                b -> b.bucket(containerName));
+        S3Object v1Marker = v1.contents().stream()
+                .filter(o -> o.key().equals(marker))
+                .findFirst().orElse(null);
+        assertThat(v1Marker).isNotNull();
+        assertThat(v1Marker.size()).isEqualTo(0L);
+        assertThat(v1Marker.lastModified()).isNotNull();
+        assertThat(v1Marker.eTag()).isNotBlank();
     }
 
     @Test
