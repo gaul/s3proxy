@@ -1029,6 +1029,41 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testDirectoryMarkerListSelfPrefix() throws Exception {
+        // Listing with a prefix equal to a directory-marker key
+        // ("dir-marker/") must return that marker object itself, exactly as
+        // real S3 returns keys >= prefix that start with the prefix. Hadoop
+        // S3A's empty-directory probe (list prefix="<dir>/" delimiter="/")
+        // relies on this; otherwise getFileStatus(<dir>) throws
+        // FileNotFoundException, breaking HBase bulk load.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        String marker = "dir-marker/";
+        client.putObject(b -> b.bucket(containerName).key(marker),
+                RequestBody.empty());
+
+        // The key equals the prefix, so its remainder after the prefix is
+        // empty and it belongs in <Contents>, not <CommonPrefixes>.
+        ListObjectsV2Response v2 = client.listObjectsV2(b -> b
+                .bucket(containerName).prefix(marker).delimiter("/"));
+        S3Object v2Self = v2.contents().stream()
+                .filter(o -> o.key().equals(marker))
+                .findFirst().orElse(null);
+        assertThat(v2Self).isNotNull();
+        assertThat(v2Self.size()).isEqualTo(0L);
+
+        // ListObjects (v1) with the same prefix must do the same.
+        ListObjectsResponse v1 = client.listObjects(b -> b
+                .bucket(containerName).prefix(marker).delimiter("/"));
+        S3Object v1Self = v1.contents().stream()
+                .filter(o -> o.key().equals(marker))
+                .findFirst().orElse(null);
+        assertThat(v1Self).isNotNull();
+        assertThat(v1Self.size()).isEqualTo(0L);
+    }
+
+    @Test
     public void testSinglepartUploadJettyCachedHeader() throws Exception {
         String blobName = "singlepart-upload-jetty-cached";
         String contentType = "text/plain";
