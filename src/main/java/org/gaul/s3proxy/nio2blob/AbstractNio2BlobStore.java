@@ -184,6 +184,28 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         try {
             listHelper(set, containerPath, dirPrefix, pathPrefixString, delimiter,
                     filterMultipart);
+
+            // A directory-marker object whose key equals the requested prefix
+            // (e.g. prefix "dir-marker/") is the prefix directory itself, into
+            // which listHelper descends and lists children -- so it never
+            // emits the marker. Real S3 returns keys >= prefix that start with
+            // the prefix, including this exact key, so add it here. It is a
+            // BLOB (not a prefix) because its remainder after the prefix is
+            // empty, placing it in <Contents> regardless of the delimiter.
+            if (prefix.endsWith("/") && Files.isDirectory(pathPrefix)) {
+                var markerXattrs = safeGetXattrs(pathPrefix);
+                if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
+                    var attr = Files.readAttributes(pathPrefix,
+                            BasicFileAttributes.class);
+                    set.add(new StorageMetadataImpl(StorageType.BLOB,
+                            /*id=*/ null, prefix,
+                            /*location=*/ null, /*uri=*/ null,
+                            readETagXattr(markerXattrs), /*creationDate=*/ null,
+                            new Date(attr.lastModifiedTime().toMillis()),
+                            Map.of(), /*size=*/ 0L, Tier.STANDARD));
+                }
+            }
+
             var sorted = set.build();
             if (options.getMarker() != null) {
                 // StorageMetadata's natural ordering is name-only (nulls
