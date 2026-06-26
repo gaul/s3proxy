@@ -27,7 +27,8 @@ final class Quirks {
             "google-cloud-storage-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
-            "openstack-swift"
+            "openstack-swift",
+            "openstack-swift-sdk"
     );
 
     /** Blobstores which do not support the Cache-Control header. */
@@ -38,7 +39,8 @@ final class Quirks {
             "google-cloud-storage-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
-            "openstack-swift"
+            "openstack-swift",
+            "openstack-swift-sdk"
     );
 
     /** Blobstores which do not support the Cache-Control header. */
@@ -58,7 +60,8 @@ final class Quirks {
             "b2",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
-            "openstack-swift"
+            "openstack-swift",
+            "openstack-swift-sdk"
     );
 
     /** Blobstores which do not support the If-None-Match header during copy. */

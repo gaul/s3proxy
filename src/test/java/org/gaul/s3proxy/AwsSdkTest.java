@@ -347,6 +347,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartCopy() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         assumeTrue(!blobStoreType.equals("azureblob-sdk"));
         // B2 requires two parts to issue an MPU
         assumeTrue(!blobStoreType.equals("b2"));
@@ -391,6 +392,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testBigMultipartUpload() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -435,6 +437,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadReplace() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -560,6 +563,9 @@ public final class AwsSdkTest {
         // TODO: fixed in jclouds 2.6.1
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
         assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+        // openstack-swift-sdk relies on an unreleased openstack4j fix to
+        // percent-encode object names; '%', '#', and '?' break without it.
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
 
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
         if (blobStoreType.equals("azureblob") ||
@@ -585,6 +591,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testAtomicMpuAbort() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String key = "testAtomicMpuAbort";
         putBlob(containerName, key, BYTE_SOURCE);
 
@@ -702,6 +709,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testPartNumberMarker() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String blobName = "test-part-number-marker";
         CreateMultipartUploadResponse result = client.createMultipartUpload(
                 b -> b.bucket(containerName).key(blobName));
@@ -818,6 +826,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobPutGet() throws Exception {
+        // openstack-swift-sdk relies on an unreleased openstack4j fix to
+        // percent-encode object names; '%', '#', and '?' break without it.
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         putBlobAndCheckIt("blob");
         putBlobAndCheckIt("blob%");
         putBlobAndCheckIt("blob%%");
@@ -825,6 +836,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobEscape() throws Exception {
+        // openstack-swift-sdk relies on an unreleased openstack4j fix to
+        // percent-encode object names; '%', '#', and '?' break without it.
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         ListObjectsResponse listing = client.listObjects(
                 b -> b.bucket(containerName));
         assertThat(listing.contents()).isEmpty();
@@ -1114,6 +1128,7 @@ public final class AwsSdkTest {
     // TODO: fails for GCS (jclouds not implemented)
     @Test
     public void testMultipartUpload() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String blobName = "multipart-upload";
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
@@ -1248,6 +1263,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // TODO: fixed in jclouds 2.6.1
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
@@ -1477,6 +1493,8 @@ public final class AwsSdkTest {
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
         // TODO:
         assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+        // Swift does not support per-object storage classes
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String blobName = "test-storage-class";
         client.putObject(b -> b.bucket(containerName).key(blobName)
                         .storageClass(StorageClass.STANDARD_IA),
