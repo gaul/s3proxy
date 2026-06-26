@@ -241,9 +241,45 @@ jobs:
           #STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
           kill $(pidof fake-gcs-server)
 
+  swiftTests:
+    runs-on: ubuntu-24.04-arm
+    needs: [meta]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "maven"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Maven Package
+        run: |
+          mvn package -DskipTests
+
+      # gaul/openstackswift is a fork whose go.mod still declares the upstream
+      # module path, so `go install` of the fork path fails on a path
+      # mismatch; clone and build it instead.
+      - name: Build openstackswift
+        run: |
+          git clone --depth 1 https://github.com/gaul/openstackswift \
+            "$RUNNER_TEMP/openstackswift"
+          (cd "$RUNNER_TEMP/openstackswift" &&
+            go build -o "$HOME/go/bin/swift" ./cmd/swift)
+      - name: Start openstackswift
+        run: $HOME/go/bin/swift server --binding 127.0.0.1 --port 5000 &
+      - name: Maven Test with openstackswift
+        run: |
+          # TODO: run other test classes
+          mvn test -Ds3proxy.test.conf=s3proxy-swift.conf -Dtest=AwsSdkTest
+
   Containerize:
     runs-on: ubuntu-24.04-arm
-    needs: [runTests, azuriteTests, localstackTests, fakeGcsServerTests, meta]
+    needs: [runTests, azuriteTests, localstackTests, fakeGcsServerTests, swiftTests, meta]
     permissions:
       contents: read
       packages: write

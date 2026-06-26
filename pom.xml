@@ -439,6 +439,7 @@
     <java.version>17</java.version>
     <aws-sdkv2.version>2.46.10</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
+    <openstack4j.version>3.12</openstack4j.version>
     <jetty.version>12.1.10</jetty.version>
     <modernizer.version>3.4.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
@@ -533,6 +534,20 @@
       <groupId>com.azure</groupId>
       <artifactId>azure-identity</artifactId>
       <version>1.18.4</version>
+    </dependency>
+    <dependency>
+      <groupId>com.github.openstack4j.core</groupId>
+      <artifactId>openstack4j-core</artifactId>
+      <version>${openstack4j.version}</version>
+    </dependency>
+    <!-- openstack4j discovers its HTTP transport via ServiceLoader; the
+         OkHttp connector is the lightest and avoids the JAX-RS namespace
+         baggage of the Jersey/RESTEasy connectors. -->
+    <dependency>
+      <groupId>com.github.openstack4j.core.connectors</groupId>
+      <artifactId>openstack4j-okhttp</artifactId>
+      <version>${openstack4j.version}</version>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>com.google.auto.service</groupId>
