@@ -83,6 +83,7 @@ import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.retries.DefaultRetryStrategy;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -164,6 +165,14 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         // backends that don't support aws-chunked encoding.
         builder.requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED);
         builder.responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED);
+
+        // Disable SDK retries so a non-resettable payload stream that errors
+        // mid-upload (e.g. a ChecksumValidatingInputStream rejecting a body)
+        // is not re-read -- a retry would fail to reset the consumed stream
+        // and mask the original error.  The S3 client retries the whole
+        // operation instead.  Mirrors the no-retry AzureBlobStore client.
+        builder.overrideConfiguration(o -> o.retryStrategy(
+                DefaultRetryStrategy.doNotRetry()));
 
         if (cred.identity != null && !cred.identity.isEmpty() &&
                 cred.credential != null && !cred.credential.isEmpty()) {
