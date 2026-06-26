@@ -173,6 +173,15 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                     uoe.getMessage());
             return;
         } catch (Throwable throwable) {
+            // Backends may wrap a body-validation S3Exception (e.g. BadDigest
+            // from a checksum mismatch thrown while reading the payload) in an
+            // unchecked exception; surface the original error code.
+            var s3 = Throwables2.getFirstThrowableOfType(throwable,
+                    S3Exception.class);
+            if (s3 != null) {
+                sendS3Exception(request, response, s3);
+                return;
+            }
             if (Throwables2.getFirstThrowableOfType(throwable,
                     AuthorizationException.class) != null) {
                 S3ErrorCode code = S3ErrorCode.ACCESS_DENIED;

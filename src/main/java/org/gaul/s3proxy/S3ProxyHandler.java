@@ -195,12 +195,12 @@ public class S3ProxyHandler {
             AwsHttpHeaders.ACL,
             AwsHttpHeaders.API_VERSION,
             AwsHttpHeaders.CHECKSUM_ALGORITHM,  // TODO: ignoring header
-            AwsHttpHeaders.CHECKSUM_CRC32,  // TODO: ignoring header
-            AwsHttpHeaders.CHECKSUM_CRC32C,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_CRC32,
+            AwsHttpHeaders.CHECKSUM_CRC32C,
             AwsHttpHeaders.CHECKSUM_CRC64NVME,  // TODO: ignoring header
             AwsHttpHeaders.CHECKSUM_MODE,  // TODO: ignoring header
-            AwsHttpHeaders.CHECKSUM_SHA1,  // TODO: ignoring header
-            AwsHttpHeaders.CHECKSUM_SHA256,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_SHA1,
+            AwsHttpHeaders.CHECKSUM_SHA256,
             AwsHttpHeaders.CONTENT_SHA256,
             AwsHttpHeaders.COPY_SOURCE,
             AwsHttpHeaders.COPY_SOURCE_IF_MATCH,
@@ -1906,6 +1906,54 @@ public class S3ProxyHandler {
         return true;
     }
 
+    /**
+     * If the request carries a precomputed flexible checksum as a regular
+     * x-amz-checksum-* header, wrap {@code is} so the body is validated
+     * against it as the stream is consumed.  Modern AWS SDKs send these on
+     * non-streaming PutObject and UploadPart requests; the aws-chunked
+     * trailer variant is validated by ChunkedInputStream instead.  CRC64NVME
+     * is unsupported by Guava and therefore left unvalidated.
+     */
+    @SuppressWarnings("deprecation")
+    private static InputStream maybeValidateChecksumHeader(
+            HttpServletRequest request, InputStream is, long contentLength)
+            throws S3Exception {
+        String value = request.getHeader(AwsHttpHeaders.CHECKSUM_CRC32);
+        if (value != null) {
+            return wrapChecksumValidator(is, Hashing.crc32(), value,
+                    /*bigEndianInt=*/ true, contentLength);
+        }
+        value = request.getHeader(AwsHttpHeaders.CHECKSUM_CRC32C);
+        if (value != null) {
+            return wrapChecksumValidator(is, Hashing.crc32c(), value,
+                    /*bigEndianInt=*/ true, contentLength);
+        }
+        value = request.getHeader(AwsHttpHeaders.CHECKSUM_SHA1);
+        if (value != null) {
+            return wrapChecksumValidator(is, Hashing.sha1(), value,
+                    /*bigEndianInt=*/ false, contentLength);
+        }
+        value = request.getHeader(AwsHttpHeaders.CHECKSUM_SHA256);
+        if (value != null) {
+            return wrapChecksumValidator(is, Hashing.sha256(), value,
+                    /*bigEndianInt=*/ false, contentLength);
+        }
+        return is;
+    }
+
+    private static InputStream wrapChecksumValidator(InputStream is,
+            HashFunction hashFunction, String expectedBase64,
+            boolean bigEndianInt, long contentLength) throws S3Exception {
+        byte[] expected;
+        try {
+            expected = Base64.getDecoder().decode(expectedBase64);
+        } catch (IllegalArgumentException iae) {
+            throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+        }
+        return new ChecksumValidatingInputStream(is, hashFunction, expected,
+                bigEndianInt, contentLength);
+    }
+
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
             BlobStore blobStore, String containerName)
@@ -2337,6 +2385,7 @@ public class S3ProxyHandler {
         if (decodedContentLengthString != null) {
             is = ByteStreams.limit(is, contentLength);
         }
+        is = maybeValidateChecksumHeader(request, is, contentLength);
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
@@ -3350,6 +3399,7 @@ public class S3ProxyHandler {
         if (decodedContentLengthString != null) {
             is = ByteStreams.limit(is, contentLength);
         }
+        is = maybeValidateChecksumHeader(request, is, contentLength);
 
         String partNumberString = request.getParameter("partNumber");
         if (partNumberString == null) {

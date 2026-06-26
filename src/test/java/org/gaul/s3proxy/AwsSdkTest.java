@@ -346,6 +346,34 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testPutObjectWithInvalidChecksumHeader() throws Exception {
+        var key = "testPutObjectInvalidChecksumHeader";
+        var content = TestUtils.randomByteSource().slice(0, 1024).read();
+        var crc32 = new CRC32();
+        crc32.update(content);
+        // Corrupt the real checksum so it cannot match the body.
+        var checksum = Base64.getEncoder().encodeToString(ByteBuffer.allocate(4)
+                .putInt((int) crc32.getValue() ^ 1).array());
+
+        try {
+            client.putObject(b -> b.bucket(containerName).key(key)
+                            .checksumCRC32(checksum),
+                    RequestBody.fromBytes(content));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo("BadDigest");
+        }
+
+        // The rejected upload must not be committed.
+        try {
+            client.getObject(b -> b.bucket(containerName).key(key));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
     public void testMultipartCopy() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         assumeTrue(!blobStoreType.equals("azureblob-sdk"));
