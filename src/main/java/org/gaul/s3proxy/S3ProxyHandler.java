@@ -3108,13 +3108,15 @@ public class S3ProxyHandler {
             // TODO: bogus value
             writeSimpleElement(xml, "StorageClass", "STANDARD");
 
-            // TODO: pagination
-/*
-            writeSimpleElement(xml, "PartNumberMarker", "1");
-            writeSimpleElement(xml, "NextPartNumberMarker", "3");
-            writeSimpleElement(xml, "MaxParts", "2");
-            writeSimpleElement(xml, "IsTruncated", "true");
-*/
+            // s3proxy returns every part in a single response; marker-based
+            // pagination is not implemented (a non-zero part-number-marker is
+            // rejected above), so the listing is never truncated.  The S3 API
+            // requires these elements -- in particular IsTruncated, whose
+            // absence makes strict clients (e.g. the AWS SDK) read a null.
+            writeSimpleElement(xml, "PartNumberMarker", "0");
+            writeSimpleElement(xml, "NextPartNumberMarker", "0");
+            writeSimpleElement(xml, "MaxParts", "1000");
+            writeSimpleElement(xml, "IsTruncated", "false");
 
             for (MultipartPart part : parts) {
                 xml.writeStartElement("Part");
