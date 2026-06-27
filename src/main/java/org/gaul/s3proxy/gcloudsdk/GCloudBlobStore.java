@@ -1044,8 +1044,11 @@ public final class GCloudBlobStore extends BaseBlobStore {
             } catch (NumberFormatException e) {
                 continue;
             }
+            // Report the part's hex MD5 as its ETag (matching
+            // uploadMultipartPart) so CompleteMultipartUpload can validate the
+            // client-supplied part ETags.
             parts.add(MultipartPart.create(partNumber, blob.getSize(),
-                    "", null));
+                    blob.getMd5ToHexString(), null));
         }
         return parts.build();
     }

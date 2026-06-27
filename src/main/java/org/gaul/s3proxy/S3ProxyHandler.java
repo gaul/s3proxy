@@ -2858,20 +2858,36 @@ public class S3ProxyHandler {
             }
 
             if (cmu.parts() != null) {
-                //  sort by part number and deduplicate (last occurrence wins)
-                SortedMap<Integer, MultipartPart> partsMap = new TreeMap<>();
+                // Sort by part number and deduplicate (last occurrence wins)
+                // before validating, so a resent part is checked against the
+                // ETag the client kept for its final upload.
+                SortedMap<Integer, CompleteMultipartUploadRequest.Part>
+                        requestParts = new TreeMap<>();
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
                     if (part.partNumber() < 1 || part.partNumber() > 10_000) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
-                    MultipartPart uploadedPart = partsByListing.get(part.partNumber());
+                    requestParts.put(part.partNumber(), part);
+                }
+                for (CompleteMultipartUploadRequest.Part part :
+                        requestParts.values()) {
+                    MultipartPart uploadedPart = partsByListing.get(
+                            part.partNumber());
                     if (uploadedPart == null) {
                         throw new S3Exception(S3ErrorCode.INVALID_PART);
                     }
-                    partsMap.put(part.partNumber(), uploadedPart);
+                    // Validate the client-supplied ETag against the uploaded
+                    // part when the backend reports one (azureblob-sdk returns
+                    // an empty ETag and is left unvalidated).
+                    String uploadedETag = uploadedPart.partETag();
+                    if (uploadedETag != null && !uploadedETag.isEmpty() &&
+                            !equalsIgnoringSurroundingQuotes(
+                                    uploadedETag, part.eTag())) {
+                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    }
+                    parts.add(uploadedPart);
                 }
-                parts.addAll(partsMap.values());
             }
         } else if (blobStoreType.equals("google-cloud-storage")) {
             // GCS only supports 32 parts but we can support up to 1024 by
