@@ -328,6 +328,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         Date lastModified = toDate(gcsBlob.getUpdateTimeOffsetDateTime());
         enforceConditionalGet(options, eTag, lastModified);
 
+        long blobSize = gcsBlob.getSize();
         Long rangeOffset = null;
         Long rangeEnd = null;
         if (!options.getRanges().isEmpty()) {
@@ -335,20 +336,28 @@ public final class GCloudBlobStore extends BaseBlobStore {
             if (ranges[0].isEmpty()) {
                 // trailing range: last N bytes
                 long trailing = Long.parseLong(ranges[1]);
-                long blobSz = gcsBlob.getSize();
-                rangeOffset = Math.max(0, blobSz - trailing);
-                rangeEnd = blobSz - 1;
+                rangeOffset = Math.max(0, blobSize - trailing);
+                rangeEnd = blobSize - 1;
             } else if (ranges[1].isEmpty()) {
                 rangeOffset = Long.parseLong(ranges[0]);
             } else {
                 rangeOffset = Long.parseLong(ranges[0]);
                 rangeEnd = Long.parseLong(ranges[1]);
             }
+            // A range starting at or past the end of the object is
+            // unsatisfiable; S3 returns 416 InvalidRange.  Without this GCS
+            // reads zero bytes and the declared Content-Length desyncs.
+            if (rangeOffset >= blobSize) {
+                throw httpResponseException(416, null);
+            }
+            // Clamp an end that runs past the last byte (still satisfiable).
+            if (rangeEnd != null && rangeEnd >= blobSize) {
+                rangeEnd = blobSize - 1;
+            }
         }
 
         InputStream is;
         long contentLength;
-        long blobSize = gcsBlob.getSize();
         try {
             if (rangeOffset != null) {
                 ReadChannel reader = gcsBlob.reader();
