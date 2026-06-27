@@ -442,6 +442,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
                                         ifMatch)));
             }
         }
+        if (options.getBlobAccess() == BlobAccess.PUBLIC_READ) {
+            writeOptions.add(BlobWriteOption.predefinedAcl(
+                    Storage.PredefinedAcl.PUBLIC_READ));
+        }
 
         try (var is = blob.getPayload().openStream()) {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
@@ -595,14 +599,41 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
     @Override
     public BlobAccess getBlobAccess(String container, String key) {
+        try {
+            var acls = storage.listAcls(BlobId.of(container, key));
+            for (var acl : acls) {
+                if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
+                    return BlobAccess.PUBLIC_READ;
+                }
+            }
+        } catch (StorageException se) {
+            // On 404, distinguish a missing bucket from a missing object so
+            // the caller can emit NoSuchBucket vs NoSuchKey.  Other failures
+            // (e.g. an emulator without object ACLs) fall back to PRIVATE.
+            if (se.getCode() == 404) {
+                if (storage.get(container) == null) {
+                    throw new ContainerNotFoundException(container, "");
+                }
+                throw new KeyNotFoundException(container, key, "");
+            }
+        }
         return BlobAccess.PRIVATE;
     }
 
     @Override
     public void setBlobAccess(String container, String key,
             BlobAccess access) {
-        throw new UnsupportedOperationException(
-                "unsupported in Google Cloud Storage");
+        try {
+            if (access == BlobAccess.PUBLIC_READ) {
+                storage.createAcl(BlobId.of(container, key),
+                        Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
+            } else {
+                storage.deleteAcl(BlobId.of(container, key),
+                        Acl.User.ofAllUsers());
+            }
+        } catch (StorageException se) {
+            // ACL operations not supported (e.g., emulator)
+        }
     }
 
     @Override

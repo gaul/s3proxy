@@ -24,7 +24,6 @@ final class Quirks {
             "azureblob",
             "azureblob-sdk",
             "b2",
-            "google-cloud-storage-sdk",
             "rackspace-cloudfiles-uk",
             "rackspace-cloudfiles-us",
             "openstack-swift",
