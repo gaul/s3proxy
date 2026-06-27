@@ -422,6 +422,13 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         var writeOptions = new java.util.ArrayList<BlobWriteOption>();
+        if (hash != null) {
+            // The Java SDK strips blobInfo's md5 from resumable upload
+            // metadata unless md5Match is requested, so without this GCS
+            // never validates the client-supplied Content-MD5.  md5Match
+            // re-sends the md5 and requests server-side validation.
+            writeOptions.add(BlobWriteOption.md5Match());
+        }
         if (options instanceof PutOptions2 putOptions2) {
             String ifMatch = putOptions2.getIfMatch();
             String ifNoneMatch = putOptions2.getIfNoneMatch();
@@ -441,6 +448,13 @@ public final class GCloudBlobStore extends BaseBlobStore {
                     writeOptions.toArray(new BlobWriteOption[0]));
             return gcsBlob.getEtag();
         } catch (StorageException se) {
+            // GCS has no dedicated error code for a checksum mismatch: it
+            // reports the md5Match validation we requested as a generic 400
+            // "invalid".  Only surface BadDigest when we actually asked GCS to
+            // validate the checksum; other 400s are unrelated client errors.
+            if (se.getCode() == 400 && hash != null) {
+                throw httpResponseException(400, se);
+            }
             throw translate(se, container, null);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1065,18 +1079,26 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         }
         case 412 -> {
-            var request = HttpRequest.builder()
-                    .method("GET")
-                    .endpoint("https://storage.googleapis.com")
-                    .build();
-            var response = HttpResponse.builder()
-                    .statusCode(412)
-                    .build();
-            return new HttpResponseException(
-                    new HttpCommand(request), response, se);
+            return httpResponseException(412, se);
         }
         default -> { }
         }
         return se;
+    }
+
+    // Build a jclouds HttpResponseException carrying a status code so that
+    // S3ProxyHandler translates it to the matching S3 error code (e.g.
+    // 400 -> BadDigest, 412 -> PreconditionFailed, 416 -> InvalidRange).
+    private static HttpResponseException httpResponseException(int statusCode,
+            Throwable cause) {
+        var request = HttpRequest.builder()
+                .method("PUT")
+                .endpoint("https://storage.googleapis.com")
+                .build();
+        var response = HttpResponse.builder()
+                .statusCode(statusCode)
+                .build();
+        return new HttpResponseException(
+                new HttpCommand(request), response, cause);
     }
 }
