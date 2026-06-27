@@ -478,16 +478,44 @@ public final class GCloudBlobStore extends BaseBlobStore {
             writeOptions.add(BlobWriteOption.md5Match());
         }
         if (options instanceof PutOptions2 putOptions2) {
+            String name = blob.getMetadata().getName();
             String ifMatch = putOptions2.getIfMatch();
             String ifNoneMatch = putOptions2.getIfNoneMatch();
-            if (ifNoneMatch != null && ifNoneMatch.equals("*")) {
-                writeOptions.add(BlobWriteOption.doesNotExist());
-            } else if (ifMatch != null) {
-                writeOptions.add(
-                        BlobWriteOption.generationMatch(
-                                getGeneration(container,
-                                        blob.getMetadata().getName(),
-                                        ifMatch)));
+            if (ifMatch != null) {
+                if (ifMatch.equals("*")) {
+                    // If-Match: * — overwrite only an existing object.  Pin
+                    // the write to its current generation so a concurrent
+                    // delete fails the precondition instead of recreating it.
+                    Blob existing = storage.get(BlobId.of(container, name));
+                    if (existing == null) {
+                        throw preconditionFailed(null);
+                    }
+                    writeOptions.add(BlobWriteOption.generationMatch(
+                            existing.getGeneration()));
+                } else {
+                    // If-Match: <etag> — gate the write on the matching
+                    // generation; mismatch or absence fails the precondition.
+                    writeOptions.add(BlobWriteOption.generationMatch(
+                            getGeneration(container, name, ifMatch)));
+                }
+            }
+            if (ifNoneMatch != null) {
+                if (ifNoneMatch.equals("*")) {
+                    writeOptions.add(BlobWriteOption.doesNotExist());
+                } else {
+                    // If-None-Match: <etag> — fail if an object with that ETag
+                    // currently exists.  GCS has no etag precondition, but
+                    // pinning generationNotMatch to the matching object's
+                    // generation makes the rejection atomic: if it is still
+                    // that version the write fails, and if it has since changed
+                    // or been deleted the write proceeds.
+                    Blob existing = storage.get(BlobId.of(container, name));
+                    if (existing != null && maybeQuoteETag(ifNoneMatch).equals(
+                            maybeQuoteETag(existing.getEtag()))) {
+                        writeOptions.add(BlobWriteOption.generationNotMatch(
+                                existing.getGeneration()));
+                    }
+                }
             }
         }
         if (options.getBlobAccess() == BlobAccess.PUBLIC_READ) {
@@ -1073,17 +1101,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
         if (blob == null) {
             throw new KeyNotFoundException(container, name, "");
         }
-        // If the ETag doesn't match, the precondition fails
-        if (!eTag.equals("*") && !eTag.equals(blob.getEtag())) {
-            var request = HttpRequest.builder()
-                    .method("PUT")
-                    .endpoint("https://storage.googleapis.com")
-                    .build();
-            var response = HttpResponse.builder()
-                    .statusCode(412)
-                    .build();
-            throw new HttpResponseException(
-                    new HttpCommand(request), response);
+        // If the ETag doesn't match, the precondition fails.
+        if (!eTag.equals("*") && !maybeQuoteETag(eTag).equals(
+                maybeQuoteETag(blob.getEtag()))) {
+            throw preconditionFailed(blob.getEtag());
         }
         return blob.getGeneration();
     }
