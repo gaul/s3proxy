@@ -320,6 +320,14 @@ public final class GCloudBlobStore extends BaseBlobStore {
             throw new KeyNotFoundException(container, key, "");
         }
 
+        // Enforce conditional-GET preconditions before streaming.  jclouds
+        // backends report every conditional-header failure as 412; the
+        // frontend (S3ProxyHandlerJetty) remaps GET/HEAD If-None-Match and
+        // If-Modified-Since misses to 304 Not Modified.
+        String eTag = gcsBlob.getEtag();
+        Date lastModified = toDate(gcsBlob.getUpdateTimeOffsetDateTime());
+        enforceConditionalGet(options, eTag, lastModified);
+
         Long rangeOffset = null;
         Long rangeEnd = null;
         if (!options.getRanges().isEmpty()) {
@@ -380,14 +388,54 @@ public final class GCloudBlobStore extends BaseBlobStore {
                     "bytes " + rangeOffset + "-" + end + "/" + blobSize);
         }
         var blobMeta = blob.getMetadata();
-        blobMeta.setETag(gcsBlob.getEtag());
+        blobMeta.setETag(eTag);
         blobMeta.setSize(blobSize);
         blobMeta.setTier(toTier(gcsBlob.getStorageClass()));
         blobMeta.setCreationDate(
                 toDate(gcsBlob.getCreateTimeOffsetDateTime()));
-        blobMeta.setLastModified(
-                toDate(gcsBlob.getUpdateTimeOffsetDateTime()));
+        blobMeta.setLastModified(lastModified);
         return blob;
+    }
+
+    // Enforce S3 conditional-GET headers (If-Match / If-None-Match /
+    // If-Modified-Since / If-Unmodified-Since).  GCS uses generation
+    // preconditions rather than ETag/time matching, so evaluate them here
+    // against the object's metadata.  Every failure is reported as 412;
+    // S3ProxyHandlerJetty maps GET/HEAD If-None-Match and If-Modified-Since
+    // misses to 304 Not Modified.
+    private static void enforceConditionalGet(GetOptions options,
+            @Nullable String eTag, @Nullable Date lastModified) {
+        if (eTag != null) {
+            String quoted = maybeQuoteETag(eTag);
+            String ifMatch = options.getIfMatch();
+            if (ifMatch != null && !maybeQuoteETag(ifMatch).equals(quoted)) {
+                throw preconditionFailed(eTag);
+            }
+            String ifNoneMatch = options.getIfNoneMatch();
+            if (ifNoneMatch != null &&
+                    maybeQuoteETag(ifNoneMatch).equals(quoted)) {
+                throw preconditionFailed(eTag);
+            }
+        }
+        if (lastModified != null) {
+            Date ifModifiedSince = options.getIfModifiedSince();
+            if (ifModifiedSince != null &&
+                    lastModified.compareTo(ifModifiedSince) <= 0) {
+                throw preconditionFailed(eTag);
+            }
+            Date ifUnmodifiedSince = options.getIfUnmodifiedSince();
+            if (ifUnmodifiedSince != null &&
+                    lastModified.compareTo(ifUnmodifiedSince) > 0) {
+                throw preconditionFailed(eTag);
+            }
+        }
+    }
+
+    private static String maybeQuoteETag(String eTag) {
+        if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+            eTag = "\"" + eTag + "\"";
+        }
+        return eTag;
     }
 
     @Override
@@ -1131,5 +1179,23 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 .build();
         return new HttpResponseException(
                 new HttpCommand(request), response, cause);
+    }
+
+    // Build a 412 for a failed conditional-GET precondition, echoing the
+    // object's ETag so the frontend can emit it on the 304 Not Modified
+    // response (required by RFC 7232).
+    private static HttpResponseException preconditionFailed(
+            @Nullable String eTag) {
+        var request = HttpRequest.builder()
+                .method("GET")
+                .endpoint("https://storage.googleapis.com")
+                .build();
+        var response = HttpResponse.builder()
+                .statusCode(412);
+        if (eTag != null) {
+            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        }
+        return new HttpResponseException(
+                new HttpCommand(request), response.build());
     }
 }
