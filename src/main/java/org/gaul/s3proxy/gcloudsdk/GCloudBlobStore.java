@@ -317,6 +317,12 @@ public final class GCloudBlobStore extends BaseBlobStore {
             throw translate(se, container, key);
         }
         if (gcsBlob == null) {
+            // The SDK collapses a missing bucket and a missing object both to
+            // null; distinguish them so the frontend emits NoSuchBucket vs
+            // NoSuchKey.
+            if (storage.get(container) == null) {
+                throw new ContainerNotFoundException(container, "");
+            }
             throw new KeyNotFoundException(container, key, "");
         }
 
