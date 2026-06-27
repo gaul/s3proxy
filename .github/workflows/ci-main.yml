@@ -217,13 +217,25 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
 
       - name: Maven Package
         run: |
           mvn package -DskipTests
 
-      - name: Install fake-gcs-server
-        run: go install github.com/fsouza/fake-gcs-server@latest
+      # gaul/fake-gcs-server is a fork that adds the bucket-ACL, upload
+      # checksum validation, and resumable-upload precondition support that
+      # the s3-tests exercise.  Its go.mod keeps the upstream module path, so
+      # `go install` of the fork path fails on a path mismatch; clone and
+      # build it instead, mirroring the openstackswift job below.
+      - name: Build fake-gcs-server
+        run: |
+          git clone --depth 1 https://github.com/gaul/fake-gcs-server \
+            "$RUNNER_TEMP/fake-gcs-server"
+          (cd "$RUNNER_TEMP/fake-gcs-server" &&
+            go build -o "$HOME/go/bin/fake-gcs-server" .)
       - name: Start fake-gcs-server
         run: $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &
       - name: Maven Test with fake-gcs-server
@@ -237,8 +249,7 @@ jobs:
           pip install tox tox-gh-actions
       - name: Run s3-tests with fake-gcs-server
         run: |
-          # TODO:
-          #STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
+          STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
           kill $(pidof fake-gcs-server)
 
   swiftTests:
