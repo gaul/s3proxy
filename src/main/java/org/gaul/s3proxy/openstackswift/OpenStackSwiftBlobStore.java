@@ -96,6 +96,7 @@ import org.openstack4j.model.storage.block.options.DownloadOptions;
 import org.openstack4j.model.storage.object.SwiftHeaders;
 import org.openstack4j.model.storage.object.SwiftObject;
 import org.openstack4j.model.storage.object.options.CreateUpdateContainerOptions;
+import org.openstack4j.model.storage.object.options.ObjectDeleteOptions;
 import org.openstack4j.model.storage.object.options.ObjectListOptions;
 import org.openstack4j.model.storage.object.options.ObjectLocation;
 import org.openstack4j.model.storage.object.options.ObjectPutOptions;
@@ -598,12 +599,51 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
     @Override
     public void removeBlob(String container, String key) {
-        var response = objectStorage().objects().delete(container,
-                encodeName(key));
+        var swift = objectStorage();
+        String encoded = encodeName(key);
+        var options = ObjectDeleteOptions.create();
+        if (isStaticLargeObject(swift, container, encoded)) {
+            // Delete the SLO manifest together with its segments.  Swift
+            // returns 400 for this parameter on a regular object, so detect
+            // the SLO first and send it only then -- as Swift's own s3api
+            // does for DeleteObject.
+            options.queryParam("multipart-manifest", "delete");
+        }
+        var response = swift.objects().delete(
+                ObjectLocation.create(container, encoded), options);
         if (!response.isSuccess() &&
                 response.getCode() != Status.NOT_FOUND.getStatusCode()) {
             throw translate(response, container, key);
         }
+    }
+
+    /**
+     * HEADs the object to determine whether it is a static large object: an
+     * SLO manifest carries {@code X-Static-Large-Object: True}.  Deleting an
+     * SLO with {@code multipart-manifest=delete} removes its segments too, but
+     * Swift rejects that parameter on a regular object with a 400, so it may
+     * be sent only for an SLO.  s3proxy's own multipart internals are never
+     * SLOs and skip the HEAD.
+     */
+    private boolean isStaticLargeObject(ObjectStorageService swift,
+            String container, String encodedKey) {
+        if (encodedKey.startsWith(MPU_PREFIX)) {
+            return false;
+        }
+        Map<String, String> metadata;
+        try {
+            metadata = swift.objects().getMetadata(container, encodedKey);
+        } catch (ResponseException re) {
+            return false;
+        }
+        for (var entry : metadata.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase("X-Static-Large-Object")) {
+                var value = entry.getValue();
+                return value != null && (value.equalsIgnoreCase("true") ||
+                        value.equals("1"));
+            }
+        }
+        return false;
     }
 
     @Override
