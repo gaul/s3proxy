@@ -360,6 +360,48 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         }
     }
 
+    /**
+     * Determines whether the container holds nothing but orphaned
+     * multipart-upload segments: objects under {@link #MPU_PREFIX} that a
+     * completed upload left behind, with no client-visible object and no
+     * in-progress upload (which would carry a {@code .meta} marker).  Such
+     * segments are hidden from S3 clients, so a container reduced to only
+     * these is empty from the caller's point of view.
+     */
+    private boolean containsOnlyOrphanSegments(String container) {
+        var swift = objectStorage();
+        String marker = null;
+        boolean sawSegment = false;
+        while (true) {
+            var options = ObjectListOptions.create();
+            if (marker != null) {
+                options.marker(marker);
+            }
+            List<? extends SwiftObject> objects;
+            try {
+                objects = swift.objects().list(container, options);
+            } catch (ResponseException re) {
+                throw translate(re, container, /*key=*/ null);
+            }
+            if (objects.isEmpty()) {
+                return sawSegment;
+            }
+            for (var object : objects) {
+                String name = object.getName();
+                if (name == null) {
+                    continue;
+                }
+                if (!name.startsWith(MPU_PREFIX) ||
+                        name.endsWith(MPU_META_SUFFIX)) {
+                    // a client-visible object, or an in-progress upload marker
+                    return false;
+                }
+                sawSegment = true;
+                marker = name;
+            }
+        }
+    }
+
     @Override
     public boolean deleteContainerIfEmpty(String container) {
         var response = deleteContainerResponse(container);
@@ -368,8 +410,28 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 code == Status.NOT_FOUND.getStatusCode()) {
             return true;
         }
+        if (code != Status.CONFLICT.getStatusCode()) {
+            throw translate(response, container, /*key=*/ null);
+        }
+        // Swift reports the container non-empty.  Overwriting or re-completing
+        // a multipart object can orphan the previous upload's segments under
+        // the reserved prefix, where no S3 client can see or remove them
+        // (Swift's s3api isolates segments in a hidden container instead).
+        // When those orphans are all that remain -- no visible object and no
+        // in-progress upload, whose .meta marker must keep blocking the delete
+        // -- purge them and retry, mirroring s3api's _delete_segments_bucket.
+        // Otherwise the container is genuinely non-empty, so leave it intact.
+        if (!containsOnlyOrphanSegments(container)) {
+            return false;
+        }
+        purgeMultipartObjects(container);
+        response = deleteContainerResponse(container);
+        code = response.getCode();
+        if (response.isSuccess() ||
+                code == Status.NOT_FOUND.getStatusCode()) {
+            return true;
+        }
         if (code == Status.CONFLICT.getStatusCode()) {
-            // Container is not empty.
             return false;
         }
         throw translate(response, container, /*key=*/ null);
