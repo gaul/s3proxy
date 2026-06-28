@@ -86,8 +86,7 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 * google-cloud-storage-sdk (recommended)
 * google-cloud-storage-jclouds (Google Cloud Storage via jclouds, deprecated)
 * openstack-swift (OpenStack Swift via jclouds)
-* openstack-swift-sdk (OpenStack Swift via openstack4j, Keystone v3 only, no
-  multipart upload yet)
+* openstack-swift-sdk (OpenStack Swift via openstack4j, Keystone v3 only)
 * rackspace-cloudfiles-uk and rackspace-cloudfiles-us
 * s3 (non-Amazon, alias for aws-s3-sdk)
 * s3-jclouds (non-Amazon S3 via jclouds, deprecated)

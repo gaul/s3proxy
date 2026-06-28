@@ -16,18 +16,29 @@
 
 package org.gaul.s3proxy.openstackswift;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
 import jakarta.inject.Inject;
@@ -102,6 +113,17 @@ import org.openstack4j.openstack.OSFactory;
 @Singleton
 public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     private static final long EXPIRY_MARGIN_MILLIS = 60_000L;
+
+    // Reserved key prefix for multipart-upload internals (segment objects and a
+    // metadata marker) stored alongside user objects in the same container.
+    // Keys under this prefix are hidden from list() so an in-progress or
+    // completed multipart upload does not expose its segments.
+    private static final String MPU_PREFIX = ".s3proxy-mpu/";
+    private static final String MPU_META_SUFFIX = "/.meta";
+    // User-metadata key on the marker object recording the target object name.
+    private static final String MPU_KEY_METADATA = "s3proxy-mpu-key";
+    // Serializes the Swift SLO manifest written by completeMultipartUpload.
+    private static final ObjectMapper MANIFEST_MAPPER = new ObjectMapper();
 
     private final String endpoint;
     private final Supplier<Credentials> creds;
@@ -239,6 +261,10 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             // false for subdir entries), so key off getDirectoryName().
             var directoryName = object.getDirectoryName();
             if (directoryName != null && !directoryName.isEmpty()) {
+                // Hide the multipart-upload segment pseudo-directory.
+                if (directoryName.startsWith(MPU_PREFIX)) {
+                    continue;
+                }
                 set.add(new StorageMetadataImpl(StorageType.RELATIVE_PATH,
                         /*id=*/ null, directoryName, /*location=*/ null,
                         /*uri=*/ null, /*eTag=*/ null, /*creationDate=*/ null,
@@ -246,6 +272,11 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                         Tier.STANDARD));
                 marker = directoryName;
             } else {
+                // Hide multipart-upload segments and metadata markers.
+                if (object.getName() != null &&
+                        object.getName().startsWith(MPU_PREFIX)) {
+                    continue;
+                }
                 set.add(new StorageMetadataImpl(StorageType.BLOB,
                         /*id=*/ null, object.getName(), /*location=*/ null,
                         /*uri=*/ null, object.getETag(),
@@ -300,10 +331,28 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     @Override
     public void deleteContainer(String container) {
         clearContainer(container);
+        // clearContainer lists via list(), which hides multipart-upload
+        // segments, so purge those directly before the container delete (which
+        // would otherwise fail because the container is not actually empty).
+        purgeMultipartObjects(container);
         var response = deleteContainerResponse(container);
         if (!response.isSuccess() &&
                 response.getCode() != Status.NOT_FOUND.getStatusCode()) {
             throw translate(response, container, /*key=*/ null);
+        }
+    }
+
+    private void purgeMultipartObjects(String container) {
+        var swift = objectStorage();
+        List<? extends SwiftObject> objects;
+        try {
+            objects = swift.objects().list(container,
+                    ObjectListOptions.create().startsWith(MPU_PREFIX));
+        } catch (ResponseException re) {
+            throw translate(re, container, /*key=*/ null);
+        }
+        for (var object : objects) {
+            removeBlob(container, object.getName());
         }
     }
 
@@ -617,45 +666,211 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 "blob-level access unsupported in Swift");
     }
 
-    // Multipart upload maps to Swift Static Large Objects (segment objects
-    // plus a manifest).  Not yet implemented; see README.
+    // Multipart upload maps to Swift Static Large Objects: each part is stored
+    // as a segment object under MPU_PREFIX in the same container, and
+    // completion writes an SLO manifest at the target key referencing them.  A
+    // metadata marker object holds the target content metadata between initiate
+    // and complete, since S3ProxyHandler reconstructs the upload from only the
+    // upload id.  All of this is hidden from list().
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
-        throw new UnsupportedOperationException(
-                "multipart upload not yet implemented for openstack-swift-sdk");
-    }
+        String uploadId = UUID.randomUUID().toString();
 
-    @Override
-    public void abortMultipartUpload(MultipartUpload mpu) {
-        throw new UnsupportedOperationException(
-                "multipart upload not yet implemented for openstack-swift-sdk");
-    }
+        var contentMetadata = blobMetadata.getContentMetadata();
+        var userMetadata = new HashMap<String, String>();
+        if (blobMetadata.getUserMetadata() != null) {
+            userMetadata.putAll(blobMetadata.getUserMetadata());
+        }
+        // Record the target key so listMultipartUploads can recover it.
+        userMetadata.put(MPU_KEY_METADATA, blobMetadata.getName());
 
-    @Override
-    public String completeMultipartUpload(MultipartUpload mpu,
-            List<MultipartPart> parts) {
-        throw new UnsupportedOperationException(
-                "multipart upload not yet implemented for openstack-swift-sdk");
+        var marker = new BlobBuilderImpl()
+                .name(mpuMetaKey(uploadId))
+                .payload(new byte[0])
+                .contentLength(0)
+                .contentType(contentMetadata.getContentType())
+                .contentDisposition(contentMetadata.getContentDisposition())
+                .contentEncoding(contentMetadata.getContentEncoding())
+                .userMetadata(userMetadata)
+                .build();
+        putBlob(container, marker);
+
+        return MultipartUpload.create(container, blobMetadata.getName(),
+                uploadId, blobMetadata, options);
     }
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
             int partNumber, Payload payload) {
-        throw new UnsupportedOperationException(
-                "multipart upload not yet implemented for openstack-swift-sdk");
+        Long contentLength = payload.getContentMetadata().getContentLength();
+        long length = contentLength == null ? -1 : contentLength;
+        var segment = new BlobBuilderImpl()
+                .name(mpuSegmentKey(mpu.id(), partNumber))
+                .payload(payload)
+                .contentLength(length)
+                .build();
+        String eTag = putBlob(mpu.containerName(), segment);
+        return MultipartPart.create(partNumber, length, eTag,
+                /*lastModified=*/ null);
     }
 
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
-        throw new UnsupportedOperationException(
-                "multipart upload not yet implemented for openstack-swift-sdk");
+        var swift = objectStorage();
+        String prefix = mpuSegmentPrefix(mpu.id());
+        String metaKey = mpuMetaKey(mpu.id());
+        List<? extends SwiftObject> objects;
+        try {
+            objects = swift.objects().list(mpu.containerName(),
+                    ObjectListOptions.create().startsWith(prefix));
+        } catch (ResponseException re) {
+            throw translate(re, mpu.containerName(), /*key=*/ null);
+        }
+        var parts = new ArrayList<MultipartPart>();
+        for (var object : objects) {
+            String name = object.getName();
+            if (name == null || name.equals(metaKey)) {
+                continue;
+            }
+            int partNumber;
+            try {
+                partNumber = Integer.parseInt(name.substring(prefix.length()));
+            } catch (NumberFormatException nfe) {
+                continue;
+            }
+            parts.add(MultipartPart.create(partNumber,
+                    object.getSizeInBytes(), object.getETag(),
+                    object.getLastModified()));
+        }
+        parts.sort(Comparator.comparingInt(MultipartPart::partNumber));
+        return parts;
+    }
+
+    @Override
+    public String completeMultipartUpload(MultipartUpload mpu,
+            List<MultipartPart> parts) {
+        var swift = objectStorage();
+        String container = mpu.containerName();
+        String uploadId = mpu.id();
+
+        // Restore the target metadata saved by initiateMultipartUpload.
+        var swiftOptions = ObjectPutOptions.create();
+        var marker = getBlob(container, mpuMetaKey(uploadId), GetOptions.NONE);
+        if (marker != null) {
+            var contentMetadata = marker.getMetadata().getContentMetadata();
+            if (contentMetadata.getContentType() != null) {
+                swiftOptions.contentType(contentMetadata.getContentType());
+            }
+            if (contentMetadata.getContentDisposition() != null) {
+                swiftOptions.getOptions().put(HttpHeaders.CONTENT_DISPOSITION,
+                        contentMetadata.getContentDisposition());
+            }
+            if (contentMetadata.getContentEncoding() != null) {
+                swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
+                        contentMetadata.getContentEncoding());
+            }
+            var userMetadata = new HashMap<>(
+                    marker.getMetadata().getUserMetadata());
+            userMetadata.remove(MPU_KEY_METADATA);
+            if (!userMetadata.isEmpty()) {
+                swiftOptions.metadata(userMetadata);
+            }
+        }
+
+        var sorted = new ArrayList<>(parts);
+        sorted.sort(Comparator.comparingInt(MultipartPart::partNumber));
+
+        // Build the Swift Static Large Object manifest -- a JSON array naming
+        // each segment by its "<container>/<object>" path, MD5 etag, and exact
+        // size -- and write it with the ?multipart-manifest=put query
+        // parameter.  This issues the same request openstack4j's
+        // createStaticLargeObject extension would, but through the stock put()
+        // API so the provider builds against an unmodified openstack4j.  Swift
+        // validates every segment's etag and size before creating the object.
+        var manifest = new ArrayList<Map<String, Object>>(sorted.size());
+        for (var part : sorted) {
+            var entry = new LinkedHashMap<String, Object>();
+            entry.put("path",
+                    container + "/" + mpuSegmentKey(uploadId,
+                            part.partNumber()));
+            entry.put("etag", part.partETag());
+            entry.put("size_bytes", part.partSize());
+            manifest.add(entry);
+        }
+        byte[] manifestJson;
+        try {
+            manifestJson = MANIFEST_MAPPER.writeValueAsBytes(manifest);
+        } catch (JsonProcessingException jpe) {
+            throw new RuntimeException(jpe);
+        }
+        swiftOptions.queryParam("multipart-manifest", "put");
+
+        String sloETag;
+        try {
+            sloETag = swift.objects().put(container, mpu.blobName(),
+                    Payloads.create(new ByteArrayInputStream(manifestJson)),
+                    swiftOptions);
+        } catch (ResponseException re) {
+            throw translate(re, container, mpu.blobName());
+        }
+
+        // The manifest now references the segments, which must persist; only
+        // the metadata marker is no longer needed.
+        removeBlob(container, mpuMetaKey(uploadId));
+
+        String mpuETag = multipartETag(sorted);
+        return mpuETag != null ? mpuETag : sloETag;
+    }
+
+    @Override
+    public void abortMultipartUpload(MultipartUpload mpu) {
+        var swift = objectStorage();
+        String container = mpu.containerName();
+        List<? extends SwiftObject> objects;
+        try {
+            objects = swift.objects().list(container, ObjectListOptions.create()
+                    .startsWith(mpuSegmentPrefix(mpu.id())));
+        } catch (ResponseException re) {
+            throw translate(re, container, /*key=*/ null);
+        }
+        if (objects.isEmpty()) {
+            throw new KeyNotFoundException(container, mpu.blobName(),
+                    "no such multipart upload: " + mpu.id());
+        }
+        for (var object : objects) {
+            removeBlob(container, object.getName());
+        }
     }
 
     @Override
     public List<MultipartUpload> listMultipartUploads(String container) {
-        throw new UnsupportedOperationException(
-                "multipart upload not yet implemented for openstack-swift-sdk");
+        var swift = objectStorage();
+        List<? extends SwiftObject> objects;
+        try {
+            objects = swift.objects().list(container,
+                    ObjectListOptions.create().startsWith(MPU_PREFIX));
+        } catch (ResponseException re) {
+            throw translate(re, container, /*key=*/ null);
+        }
+        var uploads = new ArrayList<MultipartUpload>();
+        for (var object : objects) {
+            String name = object.getName();
+            if (name == null || !name.endsWith(MPU_META_SUFFIX)) {
+                continue;
+            }
+            String uploadId = name.substring(MPU_PREFIX.length(),
+                    name.length() - MPU_META_SUFFIX.length());
+            var marker = getBlob(container, name, GetOptions.NONE);
+            String blobName = null;
+            if (marker != null) {
+                blobName = marker.getMetadata().getUserMetadata()
+                        .get(MPU_KEY_METADATA);
+            }
+            uploads.add(MultipartUpload.create(container, blobName, uploadId,
+                    /*blobMetadata=*/ null, /*putOptions=*/ null));
+        }
+        return uploads;
     }
 
     @Override
@@ -676,6 +891,49 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     @Override
     public java.io.InputStream streamBlob(String container, String name) {
         throw new UnsupportedOperationException("not yet implemented");
+    }
+
+    private static String mpuSegmentPrefix(String uploadId) {
+        return MPU_PREFIX + uploadId + "/";
+    }
+
+    private static String mpuMetaKey(String uploadId) {
+        return MPU_PREFIX + uploadId + MPU_META_SUFFIX;
+    }
+
+    private static String mpuSegmentKey(String uploadId, int partNumber) {
+        return mpuSegmentPrefix(uploadId) +
+                String.format(Locale.ROOT, "%05d", partNumber);
+    }
+
+    /**
+     * Computes the canonical S3 multipart ETag: the hex MD5 of the
+     * concatenated binary MD5s of each part, suffixed with "-{partCount}".
+     * Returns null if a part ETag is not a plain MD5 hex digest, so the caller
+     * can fall back to the manifest ETag.
+     */
+    @Nullable
+    private static String multipartETag(List<MultipartPart> parts) {
+        try {
+            var md = MessageDigest.getInstance("MD5");
+            for (var part : parts) {
+                String eTag = part.partETag();
+                if (eTag == null) {
+                    return null;
+                }
+                eTag = eTag.trim();
+                if (eTag.length() >= 2 && eTag.startsWith("\"") &&
+                        eTag.endsWith("\"")) {
+                    eTag = eTag.substring(1, eTag.length() - 1);
+                }
+                md.update(BaseEncoding.base16().lowerCase().decode(
+                        eTag.toLowerCase(Locale.ROOT)));
+            }
+            return BaseEncoding.base16().lowerCase().encode(md.digest()) +
+                    "-" + parts.size();
+        } catch (NoSuchAlgorithmException | IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**

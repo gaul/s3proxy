@@ -434,7 +434,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBigMultipartUpload() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -479,7 +478,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadReplace() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -633,7 +631,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testAtomicMpuAbort() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String key = "testAtomicMpuAbort";
         putBlob(containerName, key, BYTE_SOURCE);
 
@@ -751,7 +748,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testPartNumberMarker() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String blobName = "test-part-number-marker";
         CreateMultipartUploadResponse result = client.createMultipartUpload(
                 b -> b.bucket(containerName).key(blobName));
@@ -1247,7 +1243,6 @@ public final class AwsSdkTest {
     // TODO: fails for GCS (jclouds not implemented)
     @Test
     public void testMultipartUpload() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         String blobName = "multipart-upload";
         String cacheControl = "max-age=3600";
         String contentDisposition = "attachment; filename=new.jpg";
@@ -1382,7 +1377,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // TODO: fixed in jclouds 2.6.1
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
