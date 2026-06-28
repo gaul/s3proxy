@@ -18,6 +18,7 @@ package org.gaul.s3proxy.openstackswift;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.ZoneOffset;
@@ -124,6 +125,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     private static final String MPU_KEY_METADATA = "s3proxy-mpu-key";
     // Serializes the Swift SLO manifest written by completeMultipartUpload.
     private static final ObjectMapper MANIFEST_MAPPER = new ObjectMapper();
+    // Uppercase hex digits for percent-encoding object names.
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
 
     private final String endpoint;
     private final Supplier<Credentials> creds;
@@ -401,7 +404,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     public boolean blobExists(String container, String key) {
         var swift = objectStorage();
         try {
-            return swift.objects().get(container, key) != null;
+            return swift.objects().get(container, encodeName(key)) != null;
         } catch (ResponseException re) {
             if (re.getStatus() == Status.NOT_FOUND.getStatusCode()) {
                 return false;
@@ -447,7 +450,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
         DLPayload payload;
         try {
-            payload = swift.objects().download(container, key, downloadOptions);
+            payload = swift.objects().download(container, encodeName(key),
+                    downloadOptions);
         } catch (ResponseException re) {
             throw translate(re, container, key);
         }
@@ -534,8 +538,9 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             swiftOptions.metadata(userMetadata);
         }
         try (var is = blob.getPayload().openStream()) {
-            return swift.objects().put(container, metadata.getName(),
-                    Payloads.create(is), swiftOptions);
+            return swift.objects().put(container,
+                    encodeName(metadata.getName()), Payloads.create(is),
+                    swiftOptions);
         } catch (ResponseException re) {
             throw translate(re, container, metadata.getName());
         } catch (IOException ioe) {
@@ -576,8 +581,9 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         String etag;
         try {
             etag = swift.objects().copy(
-                    ObjectLocation.create(fromContainer, fromName),
-                    ObjectLocation.create(toContainer, toName));
+                    ObjectLocation.create(fromContainer,
+                            encodeName(fromName)),
+                    ObjectLocation.create(toContainer, encodeName(toName)));
         } catch (ResponseException re) {
             throw translate(re, fromContainer, fromName);
         }
@@ -592,7 +598,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
     @Override
     public void removeBlob(String container, String key) {
-        var response = objectStorage().objects().delete(container, key);
+        var response = objectStorage().objects().delete(container,
+                encodeName(key));
         if (!response.isSuccess() &&
                 response.getCode() != Status.NOT_FOUND.getStatusCode()) {
             throw translate(response, container, key);
@@ -604,7 +611,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         var swift = objectStorage();
         SwiftObject object;
         try {
-            object = swift.objects().get(container, key);
+            object = swift.objects().get(container, encodeName(key));
         } catch (ResponseException re) {
             if (re.getStatus() == Status.NOT_FOUND.getStatusCode()) {
                 return null;
@@ -808,7 +815,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
         String sloETag;
         try {
-            sloETag = swift.objects().put(container, mpu.blobName(),
+            sloETag = swift.objects().put(container,
+                    encodeName(mpu.blobName()),
                     Payloads.create(new ByteArrayInputStream(manifestJson)),
                     swiftOptions);
         } catch (ResponseException re) {
@@ -970,7 +978,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 }
             }
         }
-        var object = swift.objects().get(container, key);
+        var object = swift.objects().get(container, encodeName(key));
         return object != null ? object.getSizeInBytes() : 0L;
     }
 
@@ -1003,6 +1011,33 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             }
         }
         return false;
+    }
+
+    /**
+     * Percent-encodes an object name for the Swift request path.  Stock
+     * openstack4j places the raw name into the URL string the okhttp connector
+     * hands to {@code Request.Builder.url(String)}, which parses it as a URL,
+     * so a name containing {@code '%'}, {@code '#'}, or {@code '?'} is misread
+     * (the openstack4j fork patches this internally).  Encoding the RFC 3986
+     * unreserved set plus {@code '/'} here yields escapes that survive okhttp's
+     * parse; Swift decodes them back to the original name, and listings already
+     * return decoded names so the inbound path needs no change.
+     */
+    private static String encodeName(String name) {
+        var encoded = new StringBuilder(name.length() + 16);
+        for (byte rawByte : name.getBytes(StandardCharsets.UTF_8)) {
+            int c = rawByte & 0xFF;
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+                    c == '_' || c == '~' || c == '/') {
+                encoded.append((char) c);
+            } else {
+                encoded.append('%');
+                encoded.append(HEX[(c >> 4) & 0xF]);
+                encoded.append(HEX[c & 0xF]);
+            }
+        }
+        return encoded.toString();
     }
 
     /**

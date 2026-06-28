@@ -603,9 +603,6 @@ public final class AwsSdkTest {
         // TODO: fixed in jclouds 2.6.1
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
         assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
-        // openstack-swift-sdk relies on an unreleased openstack4j fix to
-        // percent-encode object names; '%', '#', and '?' break without it.
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
 
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
         if (blobStoreType.equals("azureblob") ||
@@ -864,9 +861,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobPutGet() throws Exception {
-        // openstack-swift-sdk relies on an unreleased openstack4j fix to
-        // percent-encode object names; '%', '#', and '?' break without it.
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         putBlobAndCheckIt("blob");
         putBlobAndCheckIt("blob%");
         putBlobAndCheckIt("blob%%");
@@ -874,9 +868,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobEscape() throws Exception {
-        // openstack-swift-sdk relies on an unreleased openstack4j fix to
-        // percent-encode object names; '%', '#', and '?' break without it.
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         ListObjectsResponse listing = client.listObjects(
                 b -> b.bucket(containerName));
         assertThat(listing.contents()).isEmpty();
