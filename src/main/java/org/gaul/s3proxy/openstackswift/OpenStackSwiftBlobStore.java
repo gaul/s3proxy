@@ -524,9 +524,19 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             return null;
         }
         if (status >= 300) {
+            // Carry the ETag on the exception's response so S3ProxyHandler can
+            // echo it: a 304 Not Modified from a conditional GET must return the
+            // object's ETag, which the client relies on as the validator.  Swift
+            // reports a bare MD5 digest, so quote it as S3 clients expect (the
+            // raw header is copied through verbatim, matching how jclouds-native
+            // backends surface the validator).
+            var failure = HttpResponse.builder().statusCode(status);
+            String etag = response.header(SwiftHeaders.ETAG);
+            if (etag != null) {
+                failure.addHeader(HttpHeaders.ETAG, maybeQuoteETag(etag));
+            }
             throw new HttpResponseException("unexpected status: " + status,
-                    /*command=*/ null,
-                    HttpResponse.builder().statusCode(status).build());
+                    /*command=*/ null, failure.build());
         }
 
         var userMetadata = ImmutableMap.<String, String>builder();
@@ -1188,5 +1198,12 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             return runtime;
         }
         return new RuntimeException(cause);
+    }
+
+    private static String maybeQuoteETag(String eTag) {
+        if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
+            eTag = "\"" + eTag + "\"";
+        }
+        return eTag;
     }
 }
