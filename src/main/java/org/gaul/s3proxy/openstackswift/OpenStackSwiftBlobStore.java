@@ -516,11 +516,20 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             payload = swift.objects().download(container, encodeName(key),
                     downloadOptions);
         } catch (ResponseException re) {
+            if (re.getStatus() == Status.NOT_FOUND.getStatusCode() &&
+                    !containerExists(container)) {
+                throw new ContainerNotFoundException(container, "");
+            }
             throw translate(re, container, key);
         }
         var response = payload.getHttpResponse();
         int status = response.getStatus();
         if (status == Status.NOT_FOUND.getStatusCode()) {
+            // The object is gone; distinguish a gone container so the GET
+            // reports NoSuchBucket rather than NoSuchKey.
+            if (!containerExists(container)) {
+                throw new ContainerNotFoundException(container, "");
+            }
             return null;
         }
         if (status >= 300) {
@@ -784,15 +793,27 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     @Override
     public ContainerAccess getContainerAccess(String container) {
         var swift = objectStorage();
-        for (var entry : swift.containers().getMetadata(container).entrySet()) {
-            if (entry.getKey().equalsIgnoreCase(SwiftHeaders.CONTAINER_READ)) {
+        var metadata = swift.containers().getMetadata(container);
+        // getMetadata returns an empty map for a missing container; the object
+        // count is present only when it exists.  Signal a gone container so the
+        // anonymous-access check reports NoSuchBucket instead of 403.
+        boolean exists = false;
+        var access = ContainerAccess.PRIVATE;
+        for (var entry : metadata.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase("X-Container-Object-Count")) {
+                exists = true;
+            } else if (entry.getKey().equalsIgnoreCase(
+                    SwiftHeaders.CONTAINER_READ)) {
                 var read = entry.getValue();
                 if (read != null && read.contains(".r:*")) {
-                    return ContainerAccess.PUBLIC_READ;
+                    access = ContainerAccess.PUBLIC_READ;
                 }
             }
         }
-        return ContainerAccess.PRIVATE;
+        if (!exists) {
+            throw new ContainerNotFoundException(container, "");
+        }
+        return access;
     }
 
     @Override
