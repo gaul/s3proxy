@@ -622,8 +622,9 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         if (userMetadata != null && !userMetadata.isEmpty()) {
             swiftOptions.metadata(userMetadata);
         }
+        String etag;
         try (var is = blob.getPayload().openStream()) {
-            return swift.objects().put(container,
+            etag = swift.objects().put(container,
                     encodeName(metadata.getName()), Payloads.create(is),
                     swiftOptions);
         } catch (ResponseException re) {
@@ -631,6 +632,18 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+        if (etag == null) {
+            // openstack4j's put() ignores the response status, so a PUT to a
+            // missing container silently returns a null ETag instead of
+            // failing.  Surface it as NoSuchBucket rather than letting the
+            // caller dereference null.
+            if (!containerExists(container)) {
+                throw new ContainerNotFoundException(container, "");
+            }
+            throw new RuntimeException(
+                    "could not write object " + metadata.getName());
+        }
+        return etag;
     }
 
     @Override
