@@ -565,6 +565,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 .contentDisposition(
                         response.header(HttpHeaders.CONTENT_DISPOSITION))
                 .contentEncoding(response.header(HttpHeaders.CONTENT_ENCODING))
+                .cacheControl(response.header(HttpHeaders.CACHE_CONTROL))
+                .expires(parseHttpDate(response.header(HttpHeaders.EXPIRES)))
                 .userMetadata(userMetadata.build())
                 .build();
         if (ranged) {
@@ -605,6 +607,16 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         if (contentEncoding != null) {
             swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
                     contentEncoding);
+        }
+        var cacheControl = contentMetadata.getCacheControl();
+        if (cacheControl != null) {
+            swiftOptions.getOptions().put(HttpHeaders.CACHE_CONTROL,
+                    cacheControl);
+        }
+        var expires = contentMetadata.getExpires();
+        if (expires != null) {
+            swiftOptions.getOptions().put(HttpHeaders.EXPIRES,
+                    toHttpDate(expires));
         }
         var userMetadata = metadata.getUserMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
