@@ -618,6 +618,13 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             swiftOptions.getOptions().put(HttpHeaders.EXPIRES,
                     toHttpDate(expires));
         }
+        // Forward the client's Content-MD5 as the Swift ETag so the backend
+        // verifies the object's integrity, replying 422 on a mismatch.
+        var contentMD5 = contentMetadata.getContentMD5AsHashCode();
+        if (contentMD5 != null) {
+            swiftOptions.getOptions().put(HttpHeaders.ETAG,
+                    contentMD5.toString());
+        }
         var userMetadata = metadata.getUserMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             swiftOptions.metadata(userMetadata);
@@ -633,12 +640,17 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             throw new RuntimeException(ioe);
         }
         if (etag == null) {
-            // openstack4j's put() ignores the response status, so a PUT to a
-            // missing container silently returns a null ETag instead of
-            // failing.  Surface it as NoSuchBucket rather than letting the
-            // caller dereference null.
+            // openstack4j's put() ignores the response status, so a failed PUT
+            // silently returns a null ETag instead of throwing.  Disambiguate:
+            // a missing container is NoSuchBucket, and a rejected Content-MD5
+            // (Swift replies 422) is BadDigest.
             if (!containerExists(container)) {
                 throw new ContainerNotFoundException(container, "");
+            }
+            if (contentMD5 != null) {
+                throw new HttpResponseException("Content-MD5 mismatch",
+                        /*command=*/ null,
+                        HttpResponse.builder().statusCode(400).build());
             }
             throw new RuntimeException(
                     "could not write object " + metadata.getName());
