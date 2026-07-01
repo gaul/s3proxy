@@ -51,6 +51,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
@@ -71,6 +72,7 @@ import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
@@ -2837,6 +2839,7 @@ public class S3ProxyHandler {
                 blobName, uploadId, metadata, options);
 
         final List<MultipartPart> parts = new ArrayList<>();
+        CompleteMultipartUploadRequest cmu = null;
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob")) {
             for (MultipartPart part : blobStore.listMultipartUpload(mpu)) {
@@ -2849,7 +2852,6 @@ public class S3ProxyHandler {
                         Collectors.toMap(
                                 part -> part.partNumber(),
                                 part -> part));
-            CompleteMultipartUploadRequest cmu;
             try {
                 cmu = mapper.readValue(
                         is, CompleteMultipartUploadRequest.class);
@@ -2919,7 +2921,6 @@ public class S3ProxyHandler {
                         Collectors.toMap(
                                 part -> part.partNumber(),
                                 part -> part));
-            CompleteMultipartUploadRequest cmu;
             try {
                 cmu = mapper.readValue(
                         is, CompleteMultipartUploadRequest.class);
@@ -2966,11 +2967,19 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
 
+        MpuChecksum mpuChecksum =
+                cmu == null ? null : computeMpuChecksum(request, cmu);
+
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(XML_CONTENT_TYPE);
+
+            if (mpuChecksum != null) {
+                response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE, "COMPOSITE");
+                response.addHeader(mpuChecksum.header(), mpuChecksum.value());
+            }
 
             // Launch async thread to allow main thread to emit newlines to
             // the client while completeMultipartUpload processes.
@@ -3027,10 +3036,175 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag.get()));
             }
 
+            if (mpuChecksum != null) {
+                writeSimpleElement(xml, "ChecksumType", "COMPOSITE");
+                writeSimpleElement(xml, mpuChecksum.element(),
+                        mpuChecksum.value());
+            }
+
             xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
+        }
+    }
+
+    /**
+     * Enforce the per-part flexible checksums carried by a
+     * CompleteMultipartUpload request and compute the composite checksum S3
+     * returns for the finished object.  Modern AWS SDKs attach a per-part
+     * checksum for every part when the upload was created with a checksum
+     * algorithm; S3 rejects the completion when those checksums are missing
+     * from some parts, use more than one algorithm, or are malformed.  Returns
+     * the composite checksum (base64(hash(concatenated part checksums)) plus a
+     * "-<partCount>" suffix), or null when the request carries no per-part
+     * checksums to enforce.
+     */
+    private static MpuChecksum computeMpuChecksum(HttpServletRequest request,
+            CompleteMultipartUploadRequest cmu) throws S3Exception {
+        if (cmu.parts() == null || cmu.parts().isEmpty()) {
+            return null;
+        }
+
+        // Deduplicate by part number (last wins) and sort ascending so the
+        // composite hashes the part checksums in canonical order.
+        SortedMap<Integer, CompleteMultipartUploadRequest.Part> sorted =
+                new TreeMap<>();
+        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+            sorted.put(part.partNumber(), part);
+        }
+
+        // Determine the single algorithm the parts declare, rejecting a mix.
+        FlexChecksum algorithm = null;
+        for (CompleteMultipartUploadRequest.Part part : sorted.values()) {
+            for (FlexChecksum candidate : FlexChecksum.values()) {
+                if (candidate.value(part) != null) {
+                    if (algorithm != null && algorithm != candidate) {
+                        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                                "More than one checksum algorithm was" +
+                                " supplied for the parts.");
+                    }
+                    algorithm = candidate;
+                }
+            }
+        }
+        if (algorithm == null) {
+            // No part carried a checksum, so there is nothing to enforce.
+            return null;
+        }
+
+        // Every part must supply the checksum, matching S3's requirement that
+        // a checksum-initiated upload include a per-part checksum for each
+        // part.  Hash the concatenated part checksums to form the composite.
+        Hasher hasher = algorithm.hashFunction().newHasher();
+        for (var entry : sorted.entrySet()) {
+            String value = algorithm.value(entry.getValue());
+            if (value == null) {
+                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                        "The upload was created using a " + algorithm.lower() +
+                        " checksum. The complete request must include the" +
+                        " checksum for each part. It was missing for part " +
+                        entry.getKey() + " in the request.");
+            }
+            byte[] decoded;
+            try {
+                decoded = Base64.getDecoder().decode(value);
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+            }
+            if (decoded.length != algorithm.length()) {
+                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
+            }
+            hasher.putBytes(decoded);
+        }
+
+        HashCode hash = hasher.hash();
+        byte[] raw = algorithm.bigEndianInt() ?
+                java.nio.ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
+                hash.asBytes();
+        String composite = Base64.getEncoder().encodeToString(raw) +
+                "-" + sorted.size();
+
+        // If the client asserted the expected composite checksum on the
+        // completion request, validate our computation against it.  Only a
+        // composite carries the "-<partCount>" suffix; a bare value in this
+        // header is the SDK's request-body integrity checksum, which is
+        // unrelated to the completed object.
+        String provided = request.getHeader(algorithm.header());
+        if (provided != null && provided.indexOf('-') >= 0 &&
+                !provided.equals(composite)) {
+            throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+        }
+
+        return new MpuChecksum(algorithm.element(), algorithm.header(),
+                composite);
+    }
+
+    private record MpuChecksum(String element, String header, String value) {
+    }
+
+    @SuppressWarnings("deprecation")
+    private enum FlexChecksum {
+        CRC32("crc32", "ChecksumCRC32", AwsHttpHeaders.CHECKSUM_CRC32, 4, true,
+                Hashing.crc32(),
+                CompleteMultipartUploadRequest.Part::checksumCRC32),
+        CRC32C("crc32c", "ChecksumCRC32C", AwsHttpHeaders.CHECKSUM_CRC32C, 4,
+                true, Hashing.crc32c(),
+                CompleteMultipartUploadRequest.Part::checksumCRC32C),
+        SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20, false,
+                Hashing.sha1(),
+                CompleteMultipartUploadRequest.Part::checksumSHA1),
+        SHA256("sha256", "ChecksumSHA256", AwsHttpHeaders.CHECKSUM_SHA256, 32,
+                false, Hashing.sha256(),
+                CompleteMultipartUploadRequest.Part::checksumSHA256);
+
+        private final String lower;
+        private final String element;
+        private final String header;
+        private final int length;
+        private final boolean bigEndianInt;
+        private final HashFunction hashFunction;
+        private final Function<CompleteMultipartUploadRequest.Part, String>
+                accessor;
+
+        FlexChecksum(String lower, String element, String header, int length,
+                boolean bigEndianInt, HashFunction hashFunction,
+                Function<CompleteMultipartUploadRequest.Part, String> accessor) {
+            this.lower = lower;
+            this.element = element;
+            this.header = header;
+            this.length = length;
+            this.bigEndianInt = bigEndianInt;
+            this.hashFunction = hashFunction;
+            this.accessor = accessor;
+        }
+
+        String lower() {
+            return lower;
+        }
+
+        String element() {
+            return element;
+        }
+
+        String header() {
+            return header;
+        }
+
+        int length() {
+            return length;
+        }
+
+        boolean bigEndianInt() {
+            return bigEndianInt;
+        }
+
+        HashFunction hashFunction() {
+            return hashFunction;
+        }
+
+        String value(CompleteMultipartUploadRequest.Part part) {
+            return accessor.apply(part);
         }
     }
 

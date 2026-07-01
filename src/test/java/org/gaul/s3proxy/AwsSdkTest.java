@@ -27,6 +27,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.security.KeyManagementException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -75,6 +76,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
@@ -474,6 +476,116 @@ public final class AwsSdkTest {
                 assertThat((InputStream) object).hasSameContentAs(expected);
             }
         }
+    }
+
+    @Test
+    public void testMultipartUploadWithChecksum() throws Exception {
+        // Only the request-body completion path enforces per-part checksums;
+        // the azureblob and native google-cloud-storage branches list parts
+        // from the backend and ignore the request body.
+        assumeTrue(!blobStoreType.equals("azureblob"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
+
+        String key = "multipart-upload-checksum";
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        long size = partSize + 1;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        CreateMultipartUploadResponse initResponse =
+                client.createMultipartUpload(
+                        b -> b.bucket(containerName).key(key));
+        String uploadId = initResponse.uploadId();
+
+        ByteSource byteSource1 = byteSource.slice(0, partSize);
+        byte[] content1 = byteSource1.read();
+        String checksum1 = Base64.getEncoder().encodeToString(sha256(content1));
+        UploadPartResponse part1 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1).checksumSHA256(checksum1),
+                RequestBody.fromBytes(content1));
+
+        ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
+        byte[] content2 = byteSource2.read();
+        String checksum2 = Base64.getEncoder().encodeToString(sha256(content2));
+        UploadPartResponse part2 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(2).checksumSHA256(checksum2),
+                RequestBody.fromBytes(content2));
+
+        // S3 returns the composite checksum: base64(SHA256(part checksums))-N.
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        md.update(Base64.getDecoder().decode(checksum1));
+        md.update(Base64.getDecoder().decode(checksum2));
+        String expected =
+                Base64.getEncoder().encodeToString(md.digest()) + "-2";
+
+        CompleteMultipartUploadResponse completeResponse =
+                client.completeMultipartUpload(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(
+                                CompletedPart.builder().partNumber(1)
+                                        .eTag(part1.eTag())
+                                        .checksumSHA256(checksum1).build(),
+                                CompletedPart.builder().partNumber(2)
+                                        .eTag(part2.eTag())
+                                        .checksumSHA256(checksum2).build())
+                        .build()));
+
+        assertThat(completeResponse.checksumSHA256()).isEqualTo(expected);
+    }
+
+    @Test
+    public void testMultipartUploadMissingPartChecksum() throws Exception {
+        assumeTrue(!blobStoreType.equals("azureblob"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
+
+        String key = "multipart-upload-missing-checksum";
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        long size = partSize + 1;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        CreateMultipartUploadResponse initResponse =
+                client.createMultipartUpload(
+                        b -> b.bucket(containerName).key(key));
+        String uploadId = initResponse.uploadId();
+
+        ByteSource byteSource1 = byteSource.slice(0, partSize);
+        byte[] content1 = byteSource1.read();
+        String checksum1 = Base64.getEncoder().encodeToString(sha256(content1));
+        UploadPartResponse part1 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1),
+                RequestBody.fromBytes(content1));
+
+        ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
+        byte[] content2 = byteSource2.read();
+        UploadPartResponse part2 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(2),
+                RequestBody.fromBytes(content2));
+
+        // Part 1 supplies a checksum but part 2 does not, so S3 rejects the
+        // completion.
+        try {
+            client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(
+                                    CompletedPart.builder().partNumber(1)
+                                            .eTag(part1.eTag())
+                                            .checksumSHA256(checksum1).build(),
+                                    CompletedPart.builder().partNumber(2)
+                                            .eTag(part2.eTag()).build())
+                            .build()));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+        }
+    }
+
+    private static byte[] sha256(byte[] data) throws NoSuchAlgorithmException {
+        return MessageDigest.getInstance("SHA-256").digest(data);
     }
 
     @Test

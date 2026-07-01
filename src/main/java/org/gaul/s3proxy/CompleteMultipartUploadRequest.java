@@ -29,7 +29,8 @@ record CompleteMultipartUploadRequest(
     record Part(
             @JacksonXmlProperty(localName = "PartNumber") int partNumber,
             @JacksonXmlProperty(localName = "ETag") String eTag,
-            // TODO: unsupported checksums
+            // Per-part flexible checksums, enforced in
+            // handleCompleteMultipartUpload to form the composite checksum.
             @JacksonXmlProperty(localName = "ChecksumCRC32") String checksumCRC32,
             @JacksonXmlProperty(localName = "ChecksumCRC32C")
             String checksumCRC32C,

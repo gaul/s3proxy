@@ -26,6 +26,7 @@ final class AwsHttpHeaders {
     static final String CHECKSUM_MODE = "x-amz-checksum-mode";
     static final String CHECKSUM_SHA1 = "x-amz-checksum-sha1";
     static final String CHECKSUM_SHA256 = "x-amz-checksum-sha256";
+    static final String CHECKSUM_TYPE = "x-amz-checksum-type";
     static final String CONTENT_SHA256 = "x-amz-content-sha256";
     static final String COPY_SOURCE = "x-amz-copy-source";
     static final String COPY_SOURCE_IF_MATCH = "x-amz-copy-source-if-match";
