@@ -28,7 +28,7 @@ jobs:
       container_revision: ${{ fromJSON(steps.docker_action_meta.outputs.json).labels['org.opencontainers.image.revision'] }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: false
           persist-credentials: false
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: [meta]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
 
@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: [meta]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - uses: actions/setup-java@v5
@@ -150,7 +150,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: [meta]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - uses: actions/setup-java@v5
@@ -205,7 +205,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: [meta]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - uses: actions/setup-java@v5
@@ -256,7 +256,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: [meta]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - uses: actions/setup-java@v5
@@ -295,7 +295,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: s3proxy
