@@ -437,7 +437,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
-    <aws-sdkv2.version>2.46.10</aws-sdkv2.version>
+    <aws-sdkv2.version>2.46.20</aws-sdkv2.version>
     <jclouds.version>2.7.0</jclouds.version>
     <openstack4j.version>3.12</openstack4j.version>
     <jetty.version>12.1.10</jetty.version>
