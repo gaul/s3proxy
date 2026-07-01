@@ -217,7 +217,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "stable"
 
@@ -264,7 +264,7 @@ jobs:
           distribution: "temurin"
           java-version: "21"
           cache: "maven"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "stable"
 
