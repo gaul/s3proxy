@@ -30,43 +30,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import com.google.common.base.Strings;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.io.MoreFiles;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
-import org.gaul.modernizer_maven_annotations.SuppressModernizer;
-import org.jclouds.Constants;
-import org.jclouds.ContextBuilder;
-import org.jclouds.JcloudsVersion;
-import org.jclouds.aws.domain.SessionCredentials;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.concurrent.DynamicExecutors;
-import org.jclouds.concurrent.config.ExecutorServiceModule;
-import org.jclouds.domain.Credentials;
-import org.jclouds.location.reference.LocationConstants;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.jclouds.openstack.swift.v1.blobstore.RegionScopedBlobStoreContext;
-import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import software.amazon.awssdk.auth.credentials.AwsCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 
 public final class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
@@ -107,12 +87,6 @@ public final class Main {
         }
 
         S3Proxy.Builder s3ProxyBuilder = null;
-        var factory = new ThreadFactoryBuilder()
-                .setNameFormat("user thread %d")
-                .setThreadFactory(Executors.defaultThreadFactory())
-                .build();
-        ExecutorService executorService = DynamicExecutors.newScalingThreadPool(
-                1, 20, 60 * 1000, factory);
         var locators = ImmutableMap
                 .<String, Map.Entry<String, BlobStore>>builder();
         var globLocators = ImmutableMap
@@ -126,10 +100,9 @@ public final class Main {
             }
             properties.putAll(System.getProperties());
 
-            BlobStore blobStore = createBlobStore(properties, executorService);
+            BlobStore blobStore = createBlobStore(properties);
 
-            blobStore = parseMiddlewareProperties(blobStore, executorService,
-                    properties);
+            blobStore = parseMiddlewareProperties(blobStore, properties);
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
@@ -200,8 +173,7 @@ public final class Main {
     }
 
     private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
-            ExecutorService executorService, Properties properties)
-            throws IOException {
+            Properties properties) throws IOException {
         var altProperties = new Properties();
         for (var entry : properties.entrySet()) {
             String key = (String) entry.getKey();
@@ -215,8 +187,7 @@ public final class Main {
         String eventualConsistency = properties.getProperty(
                 S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY);
         if ("true".equalsIgnoreCase(eventualConsistency)) {
-            BlobStore altBlobStore = createBlobStore(altProperties,
-                    executorService);
+            BlobStore altBlobStore = createBlobStore(altProperties);
             int delay = Integer.parseInt(properties.getProperty(
                     S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_DELAY,
                     "5"));
@@ -296,7 +267,7 @@ public final class Main {
             System.err.println("Configuration storage class: " + storageClass);
             // TODO: This only makes sense for S3 backends.
             System.err.println("Mapping storage storage class to: " +
-                    StorageClass.fromTier(storageClassBlobStore.getTier()));
+                    storageClassBlobStore.getStorageClass());
         }
 
         String userMetadataReplacerBlobStore = properties.getProperty(
@@ -358,16 +329,12 @@ public final class Main {
         };
     }
 
-    private static BlobStore createBlobStore(Properties properties,
-            ExecutorService executorService) throws IOException {
+    private static BlobStore createBlobStore(Properties properties)
+            throws IOException {
         String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
         String credential = properties.getProperty(
                 Constants.PROPERTY_CREDENTIAL);
-        String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT);
-        properties.remove(Constants.PROPERTY_ENDPOINT);
-        String region = properties.getProperty(
-                LocationConstants.PROPERTY_REGION);
 
         if (provider == null) {
             System.err.println(
@@ -379,15 +346,11 @@ public final class Main {
         provider = resolveProviderAlias(provider);
         properties.setProperty(Constants.PROPERTY_PROVIDER, provider);
 
-        if (provider.equals("filesystem") ||
-                provider.equals("filesystem-nio2") ||
-                provider.equals("transient") ||
+        if (provider.equals("filesystem-nio2") ||
                 provider.equals("transient-nio2")) {
-            // local blobstores do not require credentials
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
-        } else if (provider.equals("google-cloud-storage") ||
-                provider.equals("google-cloud-storage-sdk")) {
+        } else if (provider.equals("google-cloud-storage-sdk")) {
             if (credential != null && !credential.isEmpty()) {
                 var path = FileSystems.getDefault().getPath(credential);
                 if (Files.exists(path)) {
@@ -398,8 +361,6 @@ public final class Main {
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
             properties.remove(Constants.PROPERTY_CREDENTIAL);
-            // We also need to clear the system property, otherwise the
-            // credential will be overridden by the system property.
             System.clearProperty(Constants.PROPERTY_CREDENTIAL);
         }
 
@@ -411,54 +372,10 @@ public final class Main {
             System.exit(1);
         }
 
-        properties.setProperty(Constants.PROPERTY_USER_AGENT,
-                "s3proxy/%s jclouds/%s java/%s".formatted(
-                        Main.class.getPackage().getImplementationVersion(),
-                        JcloudsVersion.get(),
-                        System.getProperty("java.version")));
+        properties.setProperty(Constants.PROPERTY_IDENTITY, identity);
+        properties.setProperty(Constants.PROPERTY_CREDENTIAL, credential);
 
-        ContextBuilder builder = ContextBuilder
-                .newBuilder(provider)
-                .modules(List.of(
-                        new SLF4JLoggingModule(),
-                        new ExecutorServiceModule(executorService)))
-                .overrides(properties);
-        if (!Strings.isNullOrEmpty(endpoint)) {
-            builder = builder.endpoint(endpoint);
-        }
-
-        if ((identity.isEmpty() || credential.isEmpty()) && provider.equals("aws-s3")) {
-            AwsCredentialsProvider authChain = DefaultCredentialsProvider.create();
-            @SuppressModernizer
-            Supplier<Credentials> credentialsSupplier = new Supplier<Credentials>() {
-                @Override
-                public Credentials get() {
-                    AwsCredentials newCreds = authChain.resolveCredentials();
-                    if (newCreds instanceof AwsSessionCredentials sessionCreds) {
-                        return SessionCredentials.builder()
-                                .accessKeyId(newCreds.accessKeyId())
-                                .secretAccessKey(newCreds.secretAccessKey())
-                                .sessionToken(sessionCreds.sessionToken())
-                                .build();
-                    }
-                    return new Credentials(
-                            newCreds.accessKeyId(), newCreds.secretAccessKey());
-                }
-            };
-            builder = builder.credentialsSupplier(credentialsSupplier);
-        } else {
-            builder = builder.credentials(identity, credential);
-        }
-
-        BlobStoreContext context = builder.build(BlobStoreContext.class);
-        BlobStore blobStore;
-        if (context instanceof RegionScopedBlobStoreContext regionContext &&
-                region != null) {
-            blobStore = regionContext.getBlobStore(region);
-        } else {
-            blobStore = context.getBlobStore();
-        }
-        return blobStore;
+        return BlobStores.create(provider, properties);
     }
 
     /**

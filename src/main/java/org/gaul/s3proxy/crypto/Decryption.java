@@ -27,10 +27,10 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.io.ByteStreams;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.domain.Blob;
-import org.jclouds.blobstore.domain.BlobMetadata;
-import org.jclouds.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
 
 public class Decryption {
     private final SecretKey encryptionKey;
@@ -60,9 +60,10 @@ public class Decryption {
         }
 
         // get the 64 byte of part padding from the end of the blob
-        var options = new GetOptions();
-        options.range(meta.getSize() - Constants.PADDING_BLOCK_SIZE,
-            meta.getSize() - 1);
+        var options = GetOptions.builder()
+            .range(meta.getSize() - Constants.PADDING_BLOCK_SIZE,
+                meta.getSize() - 1)
+            .build();
         Blob blob =
             blobStore.getBlob(meta.getContainer(), meta.getName(), options);
 
@@ -97,11 +98,10 @@ public class Decryption {
                 // get the next block
                 // rewind by the current encrypted block size
                 // minus the encryption padding
-                options = new GetOptions();
                 long startAt = (meta.getSize() - encryptedSize) -
                     Constants.PADDING_BLOCK_SIZE;
                 long endAt = meta.getSize() - encryptedSize - 1;
-                options.range(startAt, endAt);
+                options = GetOptions.builder().range(startAt, endAt).build();
                 blob = blobStore.getBlob(meta.getContainer(), meta.getName(),
                     options);
 

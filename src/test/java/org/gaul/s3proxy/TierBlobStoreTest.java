@@ -18,23 +18,17 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.List;
-
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.BlobStoreContext;
-import org.jclouds.blobstore.domain.Tier;
-import org.jclouds.blobstore.options.PutOptions;
-import org.jclouds.io.Payloads;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.jclouds.s3.domain.ObjectMetadata.StorageClass;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ByteSourcePayload;
+import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class TierBlobStoreTest {
-    private BlobStoreContext context;
     private BlobStore blobStore;
     private String containerName;
     private BlobStore tierBlobStore;
@@ -44,13 +38,8 @@ public final class TierBlobStoreTest {
         containerName = TestUtils.createRandomContainerName();
 
         //noinspection UnstableApiUsage
-        context = ContextBuilder
-                .newBuilder("transient")
-                .credentials("identity", "credential")
-                .modules(List.of(new SLF4JLoggingModule()))
-                .build(BlobStoreContext.class);
-        blobStore = context.getBlobStore();
-        blobStore.createContainerInLocation(null, containerName);
+        blobStore = TestUtils.createTransientBlobStore();
+        blobStore.createContainer(containerName);
 
         tierBlobStore = StorageClassBlobStore.newStorageClassBlobStore(
                 blobStore, StorageClass.DEEP_ARCHIVE.toString());
@@ -58,9 +47,8 @@ public final class TierBlobStoreTest {
 
     @AfterEach
     public void tearDown() throws Exception {
-        if (context != null) {
+        if (blobStore != null) {
             blobStore.deleteContainer(containerName);
-            context.close();
         }
     }
 
@@ -68,59 +56,59 @@ public final class TierBlobStoreTest {
     public void testPutNewBlob() {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = tierBlobStore.blobBuilder(blobName).payload(content).build();
+        var blob = Blob.builder(blobName).payload(content).build();
         tierBlobStore.putBlob(containerName, blob);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getTier()).isEqualTo(Tier.ARCHIVE);
+        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
     }
 
     @Test
     public void testGetExistingBlob() {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = blobStore.blobBuilder(blobName).payload(content).build();
+        var blob = Blob.builder(blobName).payload(content).build();
         blobStore.putBlob(containerName, blob);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getTier()).isEqualTo(Tier.STANDARD);
+        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.STANDARD);
     }
 
     @Test
     public void testPutNewMpu() {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = tierBlobStore.blobBuilder(blobName).payload(content).build();
+        var blob = Blob.builder(blobName).payload(content).build();
 
         var mpu = tierBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), new PutOptions());
+                containerName, blob.getMetadata(), PutOptions.NONE);
 
-        var payload = Payloads.newByteSourcePayload(content);
+        var payload = new ByteSourcePayload(content);
         tierBlobStore.uploadMultipartPart(mpu, 1, payload);
 
         var parts = tierBlobStore.listMultipartUpload(mpu);
         tierBlobStore.completeMultipartUpload(mpu, parts);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getTier()).isEqualTo(Tier.ARCHIVE);
+        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
     }
 
     @Test
     public void testGetExistingMpu() {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = blobStore.blobBuilder(blobName).payload(content).build();
+        var blob = Blob.builder(blobName).payload(content).build();
 
         var mpu = blobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), new PutOptions());
+                containerName, blob.getMetadata(), PutOptions.NONE);
 
-        var payload = Payloads.newByteSourcePayload(content);
+        var payload = new ByteSourcePayload(content);
         blobStore.uploadMultipartPart(mpu, 1, payload);
 
         var parts = blobStore.listMultipartUpload(mpu);
         blobStore.completeMultipartUpload(mpu, parts);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getTier()).isEqualTo(Tier.STANDARD);
+        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.STANDARD);
     }
 }

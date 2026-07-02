@@ -20,18 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Properties;
 
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStoreContext;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.Test;
 
 public final class OpenStackSwiftBlobStoreTest {
-
-    @Test
-    public void testProviderRegistration() {
-        // Verify that the provider is discoverable via jclouds
-        var providers = ContextBuilder.newBuilder("openstack-swift-sdk");
-        assertThat(providers).isNotNull();
-    }
 
     @Test
     public void testProviderInstantiation() {
@@ -43,17 +35,11 @@ public final class OpenStackSwiftBlobStoreTest {
         properties.setProperty("openstack-swift-sdk.project-name",
                 "test-project");
 
-        // Authentication is lazy, so building the context and obtaining the
-        // BlobStore must not require a running Keystone or Swift.  jclouds
-        // returns the BlobStore wrapped in a dynamic proxy, so assert only
-        // that it is non-null.
-        try (BlobStoreContext context = ContextBuilder
-                .newBuilder("openstack-swift-sdk")
-                .overrides(properties)
-                .buildView(BlobStoreContext.class)) {
-            assertThat(context).isNotNull();
-            assertThat(context.getBlobStore()).isNotNull();
-        }
+        // Authentication is lazy, so creating the BlobStore must not require a
+        // running Keystone or Swift.
+        BlobStore blobStore = BlobStores.create("openstack-swift-sdk",
+                properties);
+        assertThat(blobStore).isNotNull();
     }
 
     @Test
@@ -70,11 +56,8 @@ public final class OpenStackSwiftBlobStoreTest {
                 "ExampleDomain");
         properties.setProperty("openstack-swift-sdk.region", "RegionOne");
 
-        try (BlobStoreContext context = ContextBuilder
-                .newBuilder("openstack-swift-sdk")
-                .overrides(properties)
-                .buildView(BlobStoreContext.class)) {
-            assertThat(context.getBlobStore()).isNotNull();
-        }
+        BlobStore blobStore = BlobStores.create("openstack-swift-sdk",
+                properties);
+        assertThat(blobStore).isNotNull();
     }
 }

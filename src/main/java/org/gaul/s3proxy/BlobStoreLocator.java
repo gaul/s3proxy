@@ -18,7 +18,7 @@ package org.gaul.s3proxy;
 
 import java.util.Map;
 
-import org.jclouds.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 
 public interface BlobStoreLocator {
     Map.Entry<String, BlobStore> locateBlobStore(String identity,

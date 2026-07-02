@@ -21,19 +21,18 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+import com.google.common.base.Throwables;
 import com.google.common.net.HttpHeaders;
 
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.jclouds.blobstore.BlobStore;
-import org.jclouds.blobstore.ContainerNotFoundException;
-import org.jclouds.blobstore.KeyNotFoundException;
-import org.jclouds.http.HttpResponse;
-import org.jclouds.http.HttpResponseException;
-import org.jclouds.rest.AuthorizationException;
-import org.jclouds.util.Throwables2;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
+import org.gaul.s3proxy.blobstore.HttpResponse;
+import org.gaul.s3proxy.blobstore.HttpResponseException;
+import org.gaul.s3proxy.blobstore.KeyNotFoundException;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,21 +85,12 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             return;
         } catch (HttpResponseException hre) {
             HttpResponse hr = hre.getResponse();
-            if (hr == null) {
-                logger.debug("HttpResponseException without HttpResponse:",
-                        hre);
-                response.sendError(
-                        HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-                        hre.getMessage());
-                return;
-            }
-
-            String eTag = hr.getFirstHeaderOrNull(HttpHeaders.ETAG);
+            String eTag = hr.firstHeaderOrNull(HttpHeaders.ETAG);
             if (eTag != null) {
                 response.setHeader(HttpHeaders.ETAG, eTag);
             }
 
-            int status = hr.getStatusCode();
+            int status = hr.statusCode();
             switch (status) {
             case 412 -> {
                 // Backends report any conditional-header failure as 412.
@@ -129,6 +119,11 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendS3Exception(
                     request, response,
                     new S3Exception(S3ErrorCode.BAD_DIGEST));
+            // Backends report authorization failures as 403; surface a proper
+            // AccessDenied error document rather than a bare 403 status.
+            case HttpServletResponse.SC_FORBIDDEN -> sendS3Exception(
+                    request, response,
+                    new S3Exception(S3ErrorCode.ACCESS_DENIED));
             default -> {
                 logger.debug("HttpResponseException:", hre);
                 response.setStatus(status);
@@ -152,8 +147,11 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                     ise.getMessage());
             return;
         } catch (IOException ioe) {
-            var cause = Throwables2.getFirstThrowableOfType(ioe,
-                    S3Exception.class);
+            var cause = Throwables.getCausalChain(ioe).stream()
+                    .filter(S3Exception.class::isInstance)
+                    .map(S3Exception.class::cast)
+                    .findFirst()
+                    .orElse(null);
             if (cause != null) {
                 sendS3Exception(request, response, cause);
                 return;
@@ -173,23 +171,21 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                     uoe.getMessage());
             return;
         } catch (Throwable throwable) {
+            var causes = Throwables.getCausalChain(throwable);
             // Backends may wrap a body-validation S3Exception (e.g. BadDigest
             // from a checksum mismatch thrown while reading the payload) in an
             // unchecked exception; surface the original error code.
-            var s3 = Throwables2.getFirstThrowableOfType(throwable,
-                    S3Exception.class);
+            var s3 = causes.stream()
+                    .filter(S3Exception.class::isInstance)
+                    .map(S3Exception.class::cast)
+                    .findFirst()
+                    .orElse(null);
             if (s3 != null) {
                 sendS3Exception(request, response, s3);
                 return;
             }
-            if (Throwables2.getFirstThrowableOfType(throwable,
-                    AuthorizationException.class) != null) {
-                S3ErrorCode code = S3ErrorCode.ACCESS_DENIED;
-                handler.sendSimpleErrorResponse(request, response, code,
-                        code.getMessage(), Map.of());
-                return;
-            } else if (Throwables2.getFirstThrowableOfType(throwable,
-                    TimeoutException.class) != null) {
+            if (causes.stream().anyMatch(
+                    TimeoutException.class::isInstance)) {
                 S3ErrorCode code = S3ErrorCode.REQUEST_TIMEOUT;
                 handler.sendSimpleErrorResponse(request, response, code,
                         code.getMessage(), Map.of());

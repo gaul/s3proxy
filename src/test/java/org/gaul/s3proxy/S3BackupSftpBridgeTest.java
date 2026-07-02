@@ -22,9 +22,10 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Suppliers;
 
 import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
@@ -32,10 +33,8 @@ import org.apache.sshd.common.keyprovider.KeyIdentityProvider;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
-import org.gaul.s3proxy.sftp.SftpBlobStoreApiMetadata;
-import org.jclouds.Constants;
-import org.jclouds.ContextBuilder;
-import org.jclouds.blobstore.BlobStoreContext;
+import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.sftp.SftpBlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,7 +58,7 @@ public final class S3BackupSftpBridgeTest {
     private static final String BASEDIR = "/s3proxy-test";
 
     private SshServer sshServer;
-    private BlobStoreContext context;
+    private SftpBlobStore sftpBlobStore;
     private S3Proxy s3Proxy;
     private S3AsyncClient s3Client;
     @TempDir
@@ -82,22 +81,17 @@ public final class S3BackupSftpBridgeTest {
                 new SftpSubsystemFactory.Builder().build()));
         sshServer.start();
 
-        var properties = new Properties();
-        properties.setProperty(Constants.PROPERTY_ENDPOINT,
-                "sftp://127.0.0.1:" + sshServer.getPort() + "/");
-        properties.setProperty(SftpBlobStoreApiMetadata.BASEDIR, BASEDIR);
-        properties.setProperty(SftpBlobStoreApiMetadata.HOST_KEY,
+        var creds = Suppliers.ofInstance(new Credentials(
+                SFTP_USER, SFTP_PASSWORD));
+        var endpoint = "sftp://127.0.0.1:" + sshServer.getPort() + "/";
+        sftpBlobStore = new SftpBlobStore(creds, endpoint, BASEDIR,
                 hostKeyFingerprint(hostKeyProvider));
-        context = ContextBuilder.newBuilder("sftp")
-                .credentials(SFTP_USER, SFTP_PASSWORD)
-                .overrides(properties)
-                .build(BlobStoreContext.class);
 
         s3Proxy = S3Proxy.builder()
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4,
                         S3_IDENTITY, S3_CREDENTIAL)
-                .blobStore(context.getBlobStore())
+                .blobStore(sftpBlobStore)
                 .ignoreUnknownHeaders(true)
                 .build();
         s3Proxy.start();
@@ -128,8 +122,8 @@ public final class S3BackupSftpBridgeTest {
         if (s3Proxy != null) {
             s3Proxy.stop();
         }
-        if (context != null) {
-            context.close();
+        if (sftpBlobStore != null) {
+            sftpBlobStore.close();
         }
         if (sshServer != null) {
             sshServer.stop();
