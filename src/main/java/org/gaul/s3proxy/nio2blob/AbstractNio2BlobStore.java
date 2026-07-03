@@ -108,6 +108,14 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             "user.user-metadata.";
     private static final Set<String> NO_ATTRIBUTES = Set.of();
     private static final String MULTIPART_PREFIX = ".mpus-";
+    // Reserved in-container name that backs the object whose S3 key is exactly
+    // "/". Path.resolve("/") yields the filesystem root, so this key cannot be
+    // stored at its literal path; it previously had to be munged onto the
+    // container directory itself, which let object operations (DELETE, PUT,
+    // ACL) mutate bucket-level state. Redirecting it to a dedicated child keeps
+    // it an ordinary directory-marker blob while isolating it from the
+    // container inode. Hidden from listings and reserved from client keys.
+    private static final String SLASH_BLOB_NAME = ".s3proxy-slash";
     private static final int UUID_STRING_LENGTH =
             UUID.randomUUID().toString().length();
     @SuppressWarnings("deprecation")
@@ -250,6 +258,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                         .startsWith(MULTIPART_PREFIX)) {
                     continue;
                 }
+                // The reserved backing store for the "/" key is not itself a
+                // client-visible object; the key "/" is never enumerated.
+                if (path.getFileName().toString().equals(SLASH_BLOB_NAME)) {
+                    continue;
+                }
                 if (!path.toAbsolutePath().toString().startsWith(pathPrefixString)) {
                     // ignore
                     continue;
@@ -378,8 +391,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     private Blob getBlobInternal(String container, String key,
             GetOptions options, boolean openStream) {
         var containerPath = requireContainerPath(container);
-        var path = containerPath.resolve(key).normalize();
-        checkValidPath(containerPath, path);
+        var path = resolveBlobPath(containerPath, key);
         logger.debug("Getting blob at: {}", path);
 
         try {
@@ -612,8 +624,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final String putBlob(String container, Blob blob, PutOptions options) {
         var containerPath = requireContainerPath(container);
-        var path = containerPath.resolve(blob.getMetadata().getName()).normalize();
-        checkValidPath(containerPath, path);
+        var path = resolveBlobPath(containerPath, blob.getMetadata().getName());
         // TODO: should we use a known suffix to filter these out during list?
         var tmpPath = containerPath.resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
         logger.debug("Creating blob at: {}", path);
@@ -796,8 +807,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     public final void removeBlob(String container, String key) {
         try {
             var containerPath = resolveContainer(container);
-            var path = containerPath.resolve(key).normalize();
-            checkValidPath(containerPath, path);
+            var path = resolveBlobPath(containerPath, key);
             if (!key.endsWith("/") && Files.isDirectory(path)) {
                 // POSIX path normalization conflates "key" with "key/";
                 // a non-slash key must not match a directory marker.
@@ -871,8 +881,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         if (!blobExists(container, key)) {
             throw new KeyNotFoundException(container, key, "");
         }
-        var path = containerPath.resolve(key).normalize();
-        checkValidPath(containerPath, path);
+        var path = resolveBlobPath(containerPath, key);
 
         Set<PosixFilePermission> permissions;
         try {
@@ -893,8 +902,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         if (!blobExists(container, key)) {
             throw new KeyNotFoundException(container, key, "");
         }
-        var path = containerPath.resolve(key).normalize();
-        checkValidPath(containerPath, path);
+        var path = resolveBlobPath(containerPath, key);
 
         setBlobAccessHelper(path, access);
     }
@@ -1301,6 +1309,35 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         if (!path.normalize().startsWith(container)) {
             throw new IllegalArgumentException("Path traversal attempt detected: " + container + " " + path);
         }
+    }
+
+    /**
+     * Resolve an S3 object key to its filesystem path within a container.
+     *
+     * <p>The key "/" is special: {@code containerPath.resolve("/")} yields the
+     * absolute filesystem root, which {@link #checkValidPath} rejects. Real S3
+     * treats "/" as a legitimate, distinct object, so it is redirected to a
+     * reserved child ({@link #SLASH_BLOB_NAME}). Because "/" ends in a slash it
+     * flows through the existing directory-marker code as an ordinary 0-byte
+     * marker, but backed by its own inode -- so DELETE/PUT/ACL of "/" never
+     * touch the container directory (which represents the bucket).
+     *
+     * <p>To keep that reserved namespace private, any other key that would
+     * resolve to the slash blob or a descendant of it is rejected with 400.
+     */
+    private static Path resolveBlobPath(Path containerPath, String key) {
+        var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
+        Path path;
+        if (key.equals("/")) {
+            path = slashBlob;
+        } else {
+            path = containerPath.resolve(key).normalize();
+            if (path.startsWith(slashBlob)) {
+                throw returnResponseException(400);
+            }
+        }
+        checkValidPath(containerPath, path);
+        return path;
     }
 
     /** Resolves a container name relative to root and rejects names that

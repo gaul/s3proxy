@@ -53,6 +53,8 @@ import org.assertj.core.api.Fail;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.domain.BlobAccess;
+import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.rest.HttpClient;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -1268,6 +1270,123 @@ public final class AwsSdkTest {
                 .findFirst().orElse(null);
         assertThat(v1Self).isNotNull();
         assertThat(v1Self.size()).isEqualTo(0L);
+    }
+
+    @Test
+    public void testSlashKeyIsDistinctObject() throws Exception {
+        // Real S3 accepts "/" as a legitimate object key distinct from the
+        // bucket. In the nio2 backends "/" resolves to the filesystem root, so
+        // it is stored under a reserved child rather than being munged onto
+        // the container directory (which previously let DELETE/PUT of "/"
+        // mutate the bucket). s3fs-fuse depends on this: touching the mount
+        // point PUTs the bucket-root directory marker whose key is "/".
+        //
+        // Driven at the BlobStore layer: a key of "/" produces a "//" request
+        // path whose empty segment the AWS SDK's SigV4 canonicalization signs
+        // incompatibly (a client artifact, not a server behavior), so it 403s
+        // before reaching the backend. The s3fs integration test covers the
+        // end-to-end HTTP path with a client that signs "//" correctly.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        BlobStore blobStore = context.getBlobStore();
+        blobStore.putBlob(containerName, blobStore.blobBuilder("sibling.txt")
+                .payload(ByteSource.wrap(new byte[4])).build());
+
+        // PUT key "/" as a 0-byte directory marker with user metadata,
+        // mimicking an s3fs mount-point stamp.
+        blobStore.putBlob(containerName, blobStore.blobBuilder("/")
+                .payload(ByteSource.empty())
+                .userMetadata(Map.of("mode", "16832"))
+                .build());
+
+        // The bucket and the unrelated object survive the PUT.
+        assertThat(blobStore.containerExists(containerName)).isTrue();
+        assertThat(blobStore.blobExists(containerName, "sibling.txt")).isTrue();
+
+        // "/" round-trips as its own distinct 0-byte object with the metadata.
+        var meta = blobStore.blobMetadata(containerName, "/");
+        assertThat(meta).isNotNull();
+        assertThat(meta.getContentMetadata().getContentLength()).isEqualTo(0L);
+        assertThat(meta.getUserMetadata()).containsEntry("mode", "16832");
+
+        // The reserved backing store is hidden: "/" is not enumerated.
+        ListObjectsV2Response list = client.listObjectsV2(
+                b -> b.bucket(containerName));
+        assertThat(list.contents().stream().map(S3Object::key))
+                .containsExactly("sibling.txt");
+
+        // DELETE "/" removes only that object, never the bucket or the sibling.
+        blobStore.removeBlob(containerName, "/");
+        assertThat(blobStore.containerExists(containerName)).isTrue();
+        assertThat(blobStore.blobExists(containerName, "sibling.txt")).isTrue();
+        assertThat(blobStore.blobMetadata(containerName, "/")).isNull();
+    }
+
+    @Test
+    public void testSlashKeyDeleteDoesNotDeleteEmptyBucket() throws Exception {
+        // The original vulnerability: DELETE bucket/%2F ran
+        // Files.delete(containerPath) and silently removed an empty bucket.
+        // Removing key "/" must be an idempotent no-op on the empty bucket.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        BlobStore blobStore = context.getBlobStore();
+        blobStore.removeBlob(containerName, "/");
+        assertThat(blobStore.containerExists(containerName)).isTrue();
+    }
+
+    @Test
+    public void testSlashKeyAccessIsolatedFromContainer() throws Exception {
+        // A blob ACL and a container ACL are both the OTHERS_READ POSIX bit on
+        // their respective paths. If "/" aliased the container directory,
+        // get/setBlobAccess("/") would read and write the bucket ACL. The
+        // reserved backing store keeps the two independent.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        BlobStore blobStore = context.getBlobStore();
+        blobStore.putBlob(containerName, blobStore.blobBuilder("/")
+                .payload(ByteSource.empty()).build());
+
+        blobStore.setContainerAccess(containerName,
+                ContainerAccess.PUBLIC_READ);
+        // Skip on filesystems that cannot represent POSIX permissions; there
+        // the ACL bit does not exist and there is nothing to isolate.
+        assumeTrue(blobStore.getContainerAccess(containerName) ==
+                ContainerAccess.PUBLIC_READ);
+
+        // Making the "/" object private must not touch the bucket ACL.
+        blobStore.setBlobAccess(containerName, "/", BlobAccess.PRIVATE);
+        assertThat(blobStore.getContainerAccess(containerName))
+                .isEqualTo(ContainerAccess.PUBLIC_READ);
+        assertThat(blobStore.getBlobAccess(containerName, "/"))
+                .isEqualTo(BlobAccess.PRIVATE);
+
+        // And the reverse: bucket private, "/" object public.
+        blobStore.setContainerAccess(containerName, ContainerAccess.PRIVATE);
+        blobStore.setBlobAccess(containerName, "/", BlobAccess.PUBLIC_READ);
+        assertThat(blobStore.getContainerAccess(containerName))
+                .isEqualTo(ContainerAccess.PRIVATE);
+        assertThat(blobStore.getBlobAccess(containerName, "/"))
+                .isEqualTo(BlobAccess.PUBLIC_READ);
+    }
+
+    @Test
+    public void testReservedSlashBlobNameRejected() throws Exception {
+        // The reserved name backing "/" must not be addressable as an ordinary
+        // key, or a client could interfere with the "/" object's storage.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        try {
+            client.putObject(
+                    b -> b.bucket(containerName).key(".s3proxy-slash"),
+                    RequestBody.fromString("x"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+        }
     }
 
     @Test
