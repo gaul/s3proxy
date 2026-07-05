@@ -35,6 +35,7 @@ import java.util.UUID;
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.identity.DefaultAzureCredentialBuilder;
+import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.AccessTier;
@@ -128,6 +129,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             /*secondaryHost=*/ null);
 
     private final BlobServiceClient blobServiceClient;
+    private final BlobServiceAsyncClient blobServiceAsyncClient;
     private final String endpoint;
     private final Supplier<Credentials> creds;
 
@@ -142,7 +144,9 @@ public final class AzureBlobStore extends BaseBlobStore {
         this.endpoint = provider.getEndpoint();
         this.creds = creds;
         var cred = creds.get();
-        var blobServiceClientBuilder = new BlobServiceClientBuilder();
+        var blobServiceClientBuilder = new BlobServiceClientBuilder()
+                .endpoint(endpoint)
+                .retryOptions(NO_RETRY_OPTIONS);
         if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
             blobServiceClientBuilder.credential(
                 new AzureNamedKeyCredential(cred.identity, cred.credential));
@@ -150,10 +154,12 @@ public final class AzureBlobStore extends BaseBlobStore {
             blobServiceClientBuilder.credential(
                 new DefaultAzureCredentialBuilder().build());
         }
-        blobServiceClient = blobServiceClientBuilder
-                .endpoint(endpoint)
-                .retryOptions(NO_RETRY_OPTIONS)
-                .buildClient();
+        // Build the sync and async clients once from a single builder so they
+        // share one credential instance.  Rebuilding the credential per request
+        // would defeat token caching and, for DefaultAzureCredential, trigger a
+        // fresh IMDS token acquisition on every multipart part upload.
+        blobServiceClient = blobServiceClientBuilder.buildClient();
+        blobServiceAsyncClient = blobServiceClientBuilder.buildAsyncClient();
     }
 
     @Override
@@ -967,27 +973,17 @@ public final class AzureBlobStore extends BaseBlobStore {
     }
 
     /**
-     * Creates a BlockBlobAsyncClient with retries disabled for streaming uploads.
+     * Returns a BlockBlobAsyncClient with retries disabled for streaming uploads.
      * This allows us to stream directly from non-markable InputStreams without
      * needing temp files or buffering. The S3 client can retry the entire part
      * upload if needed.
+     *
+     * Reuses the shared async service client so its credential and token cache
+     * are shared across part uploads instead of being rebuilt per part.
      */
     private BlockBlobAsyncClient createNonRetryingBlockBlobAsyncClient(
             String container, String blobName) {
-        var cred = creds.get();
-
-        var clientBuilder = new BlobServiceClientBuilder()
-                .endpoint(endpoint)
-                .retryOptions(NO_RETRY_OPTIONS);
-
-        if (!cred.identity.isEmpty() && !cred.credential.isEmpty()) {
-            clientBuilder.credential(
-                new AzureNamedKeyCredential(cred.identity, cred.credential));
-        } else {
-            clientBuilder.credential(new DefaultAzureCredentialBuilder().build());
-        }
-
-        return clientBuilder.buildAsyncClient()
+        return blobServiceAsyncClient
                 .getBlobContainerAsyncClient(container)
                 .getBlobAsyncClient(blobName)
                 .getBlockBlobAsyncClient();
