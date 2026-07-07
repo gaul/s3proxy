@@ -1895,6 +1895,26 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testGetObjectSuffixRange() throws Exception {
+        var blobName = "test-suffix-range";
+        var byteSource = TestUtils.randomByteSource().slice(0, 1024);
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromInputStream(byteSource.openStream(),
+                        byteSource.size()));
+
+        // bytes=-100 returns the last 100 bytes of the object.
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(blobName)
+                        .range("bytes=-100"))) {
+            assertThat(object.response().contentLength()).isEqualTo(100);
+            try (var expected = byteSource.slice(1024 - 100, 100)
+                    .openStream()) {
+                assertThat((InputStream) object).hasSameContentAs(expected);
+            }
+        }
+    }
+
+    @Test
     public void testUnknownHeader() throws Exception {
         String blobName = "test-unknown-header";
         try {

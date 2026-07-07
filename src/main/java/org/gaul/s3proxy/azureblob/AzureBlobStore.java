@@ -304,13 +304,18 @@ public final class AzureBlobStore extends BaseBlobStore {
             var ranges = options.getRanges().get(0).split("-", 2);
 
             if (ranges[0].isEmpty()) {
-                // handle to read from the end
-                long offset = 0;
-                long end = Long.parseLong(ranges[1]);
-                long length = end;
-                azureRange = new BlobRange(offset, length);
-                throw new UnsupportedOperationException(
-                        "trailing ranges unsupported");
+                // suffix range (bytes=-N): the last N bytes.  Azure has no
+                // native suffix range, so resolve it against the blob size.
+                // N greater than the size returns the whole blob, matching S3.
+                long tail = Long.parseLong(ranges[1]);
+                long blobSize;
+                try {
+                    blobSize = client.getProperties().getBlobSize();
+                } catch (BlobStorageException bse) {
+                    throw translate(bse, container, key);
+                }
+                long count = Math.min(tail, blobSize);
+                azureRange = new BlobRange(blobSize - count, count);
             } else if (ranges[1].isEmpty()) {
                 // handle to read from an offset till the end
                 long offset = Long.parseLong(ranges[0]);
