@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -301,6 +302,36 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.removeBlobs(containerName, singleList);
         blobs = encryptedBlobStore.list(containerName);
         assertThat(blobs.size()).isEqualTo(0);
+    }
+
+    @Test
+    public void testEncryptionMultipartUploadAbort() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        var content = "0123456789ABCDEF0123456789ABCDEF";
+        BlobMetadata blobMetadata = makeBlob(encryptedBlobStore, blobName,
+            content.getBytes(StandardCharsets.UTF_8),
+            content.length()).getMetadata();
+
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            containerName, blobMetadata, new PutOptions());
+        List<MultipartPart> parts = new ArrayList<>();
+        parts.add(encryptedBlobStore.uploadMultipartPart(mpu, 1,
+            Payloads.newByteArrayPayload(
+                content.getBytes(StandardCharsets.UTF_8))));
+
+        encryptedBlobStore.abortMultipartUpload(mpu);
+
+        // The abort removed the in-progress upload: nothing was committed and
+        // no encrypted (.s3enc) backend blob was left behind, on either the
+        // wrapper or the underlying delegate.
+        assertThat(encryptedBlobStore.list(containerName)).isEmpty();
+        assertThat(blobStore.list(containerName)).isEmpty();
+
+        // The upload no longer exists, so completing it now fails rather than
+        // resurrecting the object from a dangling upload.
+        assertThatThrownBy(() ->
+            encryptedBlobStore.completeMultipartUpload(mpu, parts))
+            .isInstanceOf(RuntimeException.class);
     }
 
     @Test

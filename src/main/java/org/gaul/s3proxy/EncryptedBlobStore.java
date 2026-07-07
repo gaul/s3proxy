@@ -796,6 +796,22 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public void abortMultipartUpload(MultipartUpload mpu) {
+        // Reconstruct the upload under the encrypted (.s3enc) name, the same
+        // transform uploadMultipartPart and completeMultipartUpload apply, so
+        // the abort targets the object initiateMultipartUpload created rather
+        // than the plaintext key -- otherwise the real upload is left dangling
+        // on backends that key uploads by object name.
+        delegate().abortMultipartUpload(filterMultipartUpload(mpu));
+
+        // cleanup mpu placeholder on gcp, mirroring completeMultipartUpload
+        if (getBlobStoreType().equals("google-cloud-storage")) {
+            delegate().removeBlob(mpu.containerName(),
+                Constants.MPU_FOLDER + mpu.id());
+        }
+    }
+
+    @Override
     public BlobMetadata blobMetadata(String container, String name) {
 
         name = blobNameWithSuffix(container, name);
