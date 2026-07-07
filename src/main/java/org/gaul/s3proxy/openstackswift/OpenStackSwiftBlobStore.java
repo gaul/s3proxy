@@ -667,9 +667,59 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         return etag;
     }
 
+    // Swift has no native copy-source conditionals, so emulate the
+    // x-amz-copy-source-if-* preconditions against the source object's current
+    // metadata and report a violation as 412 PreconditionFailed.
+    private void enforceCopySourcePreconditions(String container, String name,
+            CopyOptions options) {
+        String ifMatch = options.ifMatch();
+        String ifNoneMatch = options.ifNoneMatch();
+        Date ifModifiedSince = options.ifModifiedSince();
+        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        if (ifMatch == null && ifNoneMatch == null &&
+                ifModifiedSince == null && ifUnmodifiedSince == null) {
+            return;
+        }
+        BlobMetadata metadata = blobMetadata(container, name);
+        if (metadata == null) {
+            throw new KeyNotFoundException(container, name, "while copying");
+        }
+        String eTag = metadata.getETag();
+        if (eTag != null) {
+            String quoted = maybeQuoteETag(eTag);
+            if (ifMatch != null && !maybeQuoteETag(ifMatch).equals(quoted)) {
+                throw preconditionFailed();
+            }
+            if (ifNoneMatch != null &&
+                    maybeQuoteETag(ifNoneMatch).equals(quoted)) {
+                throw preconditionFailed();
+            }
+        }
+        Date lastModified = metadata.getLastModified();
+        if (lastModified != null) {
+            if (ifModifiedSince != null &&
+                    lastModified.compareTo(ifModifiedSince) <= 0) {
+                throw preconditionFailed();
+            }
+            if (ifUnmodifiedSince != null &&
+                    lastModified.compareTo(ifUnmodifiedSince) > 0) {
+                throw preconditionFailed();
+            }
+        }
+    }
+
+    private static HttpResponseException preconditionFailed() {
+        return new HttpResponseException("copy source precondition failed",
+                /*command=*/ null,
+                HttpResponse.builder()
+                        .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                        .build());
+    }
+
     @Override
     public String copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        enforceCopySourcePreconditions(fromContainer, fromName, options);
         var contentMetadata = options.contentMetadata();
         var userMetadata = options.userMetadata();
         if (contentMetadata != null || userMetadata != null) {
