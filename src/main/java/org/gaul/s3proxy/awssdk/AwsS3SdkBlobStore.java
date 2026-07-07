@@ -460,6 +460,10 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 metadata.setLastModified(Date.from(response.lastModified()));
             }
             metadata.setSize(response.contentLength());
+            // Carry the storage class so GET reports x-amz-storage-class
+            // consistently with HEAD (blobMetadata) instead of defaulting to
+            // STANDARD for GLACIER/IA objects.
+            metadata.setTier(toTier(response.storageClass()));
 
             return blob;
         } catch (NoSuchKeyException e) {

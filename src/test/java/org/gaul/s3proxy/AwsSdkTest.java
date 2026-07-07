@@ -1872,6 +1872,18 @@ public final class AwsSdkTest {
         HeadObjectResponse meta = client.headObject(
                 b -> b.bucket(containerName).key(blobName));
         assertThat(meta.storageClassAsString()).isEqualTo("STANDARD_IA");
+
+        // GET must report the storage class consistently with HEAD.  Scoped to
+        // aws-s3-sdk since other backends (e.g. azureblob-sdk) still drop the
+        // storage class on getBlob, which is a separate issue.
+        if (blobStoreType.equals("aws-s3-sdk")) {
+            try (ResponseInputStream<GetObjectResponse> object =
+                    client.getObject(b -> b.bucket(containerName)
+                            .key(blobName))) {
+                assertThat(object.response().storageClassAsString())
+                        .isEqualTo("STANDARD_IA");
+            }
+        }
     }
 
     @Test
