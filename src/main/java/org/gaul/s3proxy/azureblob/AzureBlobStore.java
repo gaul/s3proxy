@@ -385,6 +385,15 @@ public final class AzureBlobStore extends BaseBlobStore {
         metadata.setETag(properties.getETag());
         metadata.setCreationDate(toDate(properties.getCreationTime()));
         metadata.setLastModified(toDate(properties.getLastModified()));
+        // Carry the access tier so GET reports x-amz-storage-class
+        // consistently with HEAD (blobMetadata).  Get Blob does not always
+        // return the tier that Get Blob Properties does (e.g. the emulator
+        // omits it), so fall back to a properties fetch only when it is absent.
+        var accessTier = properties.getAccessTier();
+        if (accessTier == null) {
+            accessTier = client.getProperties().getAccessTier();
+        }
+        metadata.setTier(toTier(accessTier));
         return blob;
     }
 
