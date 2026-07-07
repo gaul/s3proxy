@@ -597,17 +597,51 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
         azureOptions.setHeaders(headers);
 
-        // TODO: setSourceRequestConditions(BlobRequestConditions)
-        var response = client.uploadFromUrlWithResponse(
-                azureOptions, /*timeout=*/ null, /*context=*/ null);
-
-        // TODO: cannot do this as part of uploadFromUrlWithResponse?
-        var userMetadata = options.userMetadata();
-        if (userMetadata != null) {
-            client.setMetadata(userMetadata);
+        // Enforce the x-amz-copy-source-if-* preconditions against the source
+        // blob.  A failed source condition surfaces as SOURCE_CONDITION_NOT_MET
+        // which translate() maps to PreconditionFailed.
+        var sourceConditions = new BlobRequestConditions();
+        boolean haveSourceConditions = false;
+        String ifMatch = options.ifMatch();
+        if (ifMatch != null) {
+            sourceConditions.setIfMatch(ifMatch);
+            haveSourceConditions = true;
+        }
+        String ifNoneMatch = options.ifNoneMatch();
+        if (ifNoneMatch != null) {
+            sourceConditions.setIfNoneMatch(ifNoneMatch);
+            haveSourceConditions = true;
+        }
+        Date ifModifiedSince = options.ifModifiedSince();
+        if (ifModifiedSince != null) {
+            sourceConditions.setIfModifiedSince(
+                    ifModifiedSince.toInstant().atOffset(ZoneOffset.UTC));
+            haveSourceConditions = true;
+        }
+        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        if (ifUnmodifiedSince != null) {
+            sourceConditions.setIfUnmodifiedSince(
+                    ifUnmodifiedSince.toInstant().atOffset(ZoneOffset.UTC));
+            haveSourceConditions = true;
+        }
+        if (haveSourceConditions) {
+            azureOptions.setSourceRequestConditions(sourceConditions);
         }
 
-        return response.getValue().getETag();
+        try {
+            var response = client.uploadFromUrlWithResponse(
+                    azureOptions, /*timeout=*/ null, /*context=*/ null);
+
+            // TODO: cannot do this as part of uploadFromUrlWithResponse?
+            var userMetadata = options.userMetadata();
+            if (userMetadata != null) {
+                client.setMetadata(userMetadata);
+            }
+
+            return response.getValue().getETag();
+        } catch (BlobStorageException bse) {
+            throw translate(bse, fromContainer, fromName);
+        }
     }
 
     @Override
@@ -1189,7 +1223,9 @@ public final class AzureBlobStore extends BaseBlobStore {
             var exception = new ContainerNotFoundException(container, "");
             exception.initCause(bse);
             return exception;
-        } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET)) {
+        } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET) ||
+                code.equals(BlobErrorCode.SOURCE_CONDITION_NOT_MET) ||
+                code.equals(BlobErrorCode.TARGET_CONDITION_NOT_MET)) {
             var request = HttpRequest.builder()
                     .method("GET")
                     .endpoint(endpoint)
