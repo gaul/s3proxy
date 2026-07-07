@@ -614,6 +614,25 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.metadataDirective("REPLACE");
         }
 
+        String ifMatch = options.ifMatch();
+        if (ifMatch != null) {
+            requestBuilder.copySourceIfMatch(ifMatch);
+        }
+        String ifNoneMatch = options.ifNoneMatch();
+        if (ifNoneMatch != null) {
+            requestBuilder.copySourceIfNoneMatch(ifNoneMatch);
+        }
+        Date ifModifiedSince = options.ifModifiedSince();
+        if (ifModifiedSince != null) {
+            requestBuilder.copySourceIfModifiedSince(
+                    ifModifiedSince.toInstant());
+        }
+        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        if (ifUnmodifiedSince != null) {
+            requestBuilder.copySourceIfUnmodifiedSince(
+                    ifUnmodifiedSince.toInstant());
+        }
+
         try {
             var response = s3Client.copyObject(requestBuilder.build());
             return response.copyObjectResult().eTag();
