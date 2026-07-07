@@ -53,8 +53,11 @@ public class Decryption {
         isEncrypted = true;
 
         // if blob does not exist or size is smaller than the part padding
-        // then the file is considered not encrypted
-        if (meta == null || meta.getSize() <= 64) {
+        // then the file is considered not encrypted.  An empty object encrypts
+        // to exactly one 64-byte padding block, so a 64-byte blob is still a
+        // (zero-length) encrypted object; the delimiter check below rejects a
+        // genuinely unencrypted 64-byte blob.
+        if (meta == null || meta.getSize() < Constants.PADDING_BLOCK_SIZE) {
             blobIsNotEncrypted(offset);
             return;
         }

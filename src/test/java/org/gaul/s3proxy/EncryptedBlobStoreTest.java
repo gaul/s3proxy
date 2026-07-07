@@ -242,6 +242,31 @@ public final class EncryptedBlobStoreTest {
     }
 
     @Test
+    public void testEncryptedEmptyBlob() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        Blob blob = makeBlob(encryptedBlobStore, blobName, new byte[0], 0);
+        encryptedBlobStore.putBlob(containerName, blob);
+
+        // An empty object is stored as a single 64-byte padding block.  HEAD
+        // and the list view report zero; GET must also return zero bytes
+        // rather than exposing the padding block.
+        BlobMetadata metadata = encryptedBlobStore.blobMetadata(
+            containerName, blobName);
+        assertThat(metadata.getSize()).isEqualTo(0L);
+
+        Blob got = encryptedBlobStore.getBlob(containerName, blobName);
+        try (InputStream is = got.getPayload().openStream()) {
+            assertThat(is.readAllBytes()).isEmpty();
+        }
+        assertThat(got.getMetadata().getContentMetadata().getContentLength())
+            .isEqualTo(0L);
+
+        PageSet<? extends StorageMetadata> blobs =
+            encryptedBlobStore.list(containerName);
+        assertThat(blobs.iterator().next().getSize()).isEqualTo(0L);
+    }
+
+    @Test
     public void testListEncryptedMultipart() {
 
         String blobName = TestUtils.createRandomBlobName();
