@@ -178,6 +178,14 @@ public final class GCloudBlobStore extends BaseBlobStore {
                     options.getMaxResults()));
         }
         String marker = options.getMarker();
+        if (marker != null) {
+            // Begin the server-side scan at the marker rather than paging from
+            // the start of the bucket, which would make listing a bucket of N
+            // objects cost O(N^2).  GCS startOffset is inclusive while the S3
+            // marker is exclusive, so the loop below still skips the single
+            // entry equal to the marker; results are otherwise identical.
+            gcsOptions.add(BlobListOption.startOffset(marker));
+        }
         if (options.getDelimiter() != null) {
             gcsOptions.add(BlobListOption.delimiter(options.getDelimiter()));
         }
