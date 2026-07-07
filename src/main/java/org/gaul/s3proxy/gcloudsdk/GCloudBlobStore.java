@@ -44,6 +44,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobField;
 import com.google.cloud.storage.Storage.BlobGetOption;
 import com.google.cloud.storage.Storage.BlobListOption;
+import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.Storage.BucketField;
 import com.google.cloud.storage.Storage.BucketGetOption;
@@ -599,9 +600,55 @@ public final class GCloudBlobStore extends BaseBlobStore {
             targetBuilder.setMetadata(userMetadata);
         }
 
+        // GCS has no native ETag/time copy-source preconditions, so emulate the
+        // x-amz-copy-source-if-* conditions against the source object's current
+        // metadata.  For If-Match, additionally pin the copy to the verified
+        // generation so a concurrent change to the source fails the copy rather
+        // than silently copying a different version.
+        var sourceOptions = new java.util.ArrayList<BlobSourceOption>();
+        String ifMatch = options.ifMatch();
+        String ifNoneMatch = options.ifNoneMatch();
+        Date ifModifiedSince = options.ifModifiedSince();
+        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        if (ifMatch != null || ifNoneMatch != null ||
+                ifModifiedSince != null || ifUnmodifiedSince != null) {
+            Blob sourceBlob = storage.get(source);
+            if (sourceBlob != null) {
+                String sourceETag = sourceBlob.getEtag();
+                if (sourceETag != null) {
+                    String quoted = maybeQuoteETag(sourceETag);
+                    if (ifMatch != null &&
+                            !maybeQuoteETag(ifMatch).equals(quoted)) {
+                        throw preconditionFailed(sourceETag);
+                    }
+                    if (ifNoneMatch != null &&
+                            maybeQuoteETag(ifNoneMatch).equals(quoted)) {
+                        throw preconditionFailed(sourceETag);
+                    }
+                }
+                Date lastModified = toDate(
+                        sourceBlob.getUpdateTimeOffsetDateTime());
+                if (lastModified != null) {
+                    if (ifModifiedSince != null &&
+                            lastModified.compareTo(ifModifiedSince) <= 0) {
+                        throw preconditionFailed(sourceETag);
+                    }
+                    if (ifUnmodifiedSince != null &&
+                            lastModified.compareTo(ifUnmodifiedSince) > 0) {
+                        throw preconditionFailed(sourceETag);
+                    }
+                }
+                if (ifMatch != null) {
+                    sourceOptions.add(BlobSourceOption.generationMatch(
+                            sourceBlob.getGeneration()));
+                }
+            }
+        }
+
         try {
             var copyRequest = CopyRequest.newBuilder()
                     .setSource(source)
+                    .setSourceOptions(sourceOptions)
                     .setTarget(targetBuilder.build())
                     .build();
             var result = storage.copy(copyRequest);
