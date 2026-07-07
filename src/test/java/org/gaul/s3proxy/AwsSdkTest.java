@@ -437,6 +437,40 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testMultipartCopyPreconditionFailed() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+        assumeTrue(!blobStoreType.equals("b2"));
+
+        String sourceBlobName = "testMultipartCopyPrecondition-source";
+        String targetBlobName = "testMultipartCopyPrecondition-target";
+
+        putBlob(containerName, sourceBlobName, BYTE_SOURCE);
+
+        CreateMultipartUploadResponse initResult = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(targetBlobName));
+        String uploadId = initResult.uploadId();
+
+        long lastByte = BYTE_SOURCE.size() - 1;
+        // A copy-source-if-match that cannot match the source ETag must fail
+        // the precondition (and must not leak the opened source stream).
+        try {
+            client.uploadPartCopy(b -> b
+                    .sourceBucket(containerName)
+                    .sourceKey(sourceBlobName)
+                    .destinationBucket(containerName)
+                    .destinationKey(targetBlobName)
+                    .uploadId(uploadId)
+                    .copySourceIfMatch("\"00000000000000000000000000000000\"")
+                    .copySourceRange("bytes=0-" + lastByte)
+                    .partNumber(1));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+    }
+
+    @Test
     public void testBigMultipartUpload() throws Exception {
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;

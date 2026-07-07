@@ -3435,7 +3435,6 @@ public class S3ProxyHandler {
                 blobName, uploadId, createFakeBlobMetadata(blobStore),
                 new PutOptions());
 
-        // TODO: Blob can leak on precondition failures.
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 options);
         if (blob == null) {
@@ -3443,40 +3442,48 @@ public class S3ProxyHandler {
         }
 
         BlobMetadata blobMetadata = blob.getMetadata();
-        // HTTP GET allow overlong ranges but S3 CopyPart does not
-        if (expectedSize != -1 && blobMetadata.getSize() < expectedSize) {
-            throw new S3Exception(S3ErrorCode.INVALID_RANGE);
-        }
-
-        String ifMatch = request.getHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
-        String ifNoneMatch = request.getHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
-        long ifModifiedSince = request.getDateHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
-        long ifUnmodifiedSince = request.getDateHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
         String eTag = blobMetadata.getETag();
-        if (eTag != null) {
-            eTag = maybeQuoteETag(eTag);
-            if (ifMatch != null && !ifMatch.equals(eTag)) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-            }
-            if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-            }
-        }
-
         Date lastModified = blobMetadata.getLastModified();
-        if (lastModified != null) {
-            if (ifModifiedSince != -1 && lastModified.compareTo(
-                    new Date(ifModifiedSince)) <= 0) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+        try {
+            // HTTP GET allow overlong ranges but S3 CopyPart does not
+            if (expectedSize != -1 && blobMetadata.getSize() < expectedSize) {
+                throw new S3Exception(S3ErrorCode.INVALID_RANGE);
             }
-            if (ifUnmodifiedSince != -1 && lastModified.compareTo(
-                    new Date(ifUnmodifiedSince)) > 0) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+
+            String ifMatch = request.getHeader(
+                    AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
+            String ifNoneMatch = request.getHeader(
+                    AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
+            long ifModifiedSince = request.getDateHeader(
+                    AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
+            long ifUnmodifiedSince = request.getDateHeader(
+                    AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
+            if (eTag != null) {
+                eTag = maybeQuoteETag(eTag);
+                if (ifMatch != null && !ifMatch.equals(eTag)) {
+                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                }
+                if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
+                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                }
             }
+
+            if (lastModified != null) {
+                if (ifModifiedSince != -1 && lastModified.compareTo(
+                        new Date(ifModifiedSince)) <= 0) {
+                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                }
+                if (ifUnmodifiedSince != -1 && lastModified.compareTo(
+                        new Date(ifUnmodifiedSince)) > 0) {
+                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                }
+            }
+        } catch (S3Exception se) {
+            // A precondition failure here would otherwise leak the source
+            // payload's open backend stream; the happy-path try-with-resources
+            // below closes it only once reached.
+            blob.getPayload().release();
+            throw se;
         }
 
         long contentLength =
