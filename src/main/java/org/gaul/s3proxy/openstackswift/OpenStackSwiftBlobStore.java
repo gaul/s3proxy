@@ -1055,16 +1055,26 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     public void abortMultipartUpload(MultipartUpload mpu) {
         var swift = objectStorage();
         String container = mpu.containerName();
+
+        // The .meta marker exists only while the upload is in progress:
+        // completeMultipartUpload removes it but deliberately leaves the
+        // segments, which the SLO manifest now references.  If the marker is
+        // gone the upload has already completed (or never existed), so abort
+        // must report no such upload rather than delete the segments that back
+        // the live object.
+        if (!blobExists(container, mpuMetaKey(mpu.id()))) {
+            throw new KeyNotFoundException(container, mpu.blobName(),
+                    "no such multipart upload: " + mpu.id());
+        }
+
+        // The marker sorts under the segment prefix, so this removes the
+        // segments together with the marker.
         List<? extends SwiftObject> objects;
         try {
             objects = swift.objects().list(container, ObjectListOptions.create()
                     .startsWith(mpuSegmentPrefix(mpu.id())));
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
-        }
-        if (objects.isEmpty()) {
-            throw new KeyNotFoundException(container, mpu.blobName(),
-                    "no such multipart upload: " + mpu.id());
         }
         for (var object : objects) {
             removeBlob(container, object.getName());

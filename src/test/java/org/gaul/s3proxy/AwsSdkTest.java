@@ -515,6 +515,62 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testAbortAfterCompleteKeepsObject() throws Exception {
+        String key = "abort-after-complete";
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        long size = partSize + 1;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        CreateMultipartUploadResponse initResponse =
+                client.createMultipartUpload(
+                        b -> b.bucket(containerName).key(key));
+        String uploadId = initResponse.uploadId();
+
+        ByteSource byteSource1 = byteSource.slice(0, partSize);
+        UploadPartResponse part1 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1),
+                RequestBody.fromInputStream(byteSource1.openStream(),
+                        byteSource1.size()));
+
+        ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
+        UploadPartResponse part2 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(2),
+                RequestBody.fromInputStream(byteSource2.openStream(),
+                        byteSource2.size()));
+
+        client.completeMultipartUpload(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(
+                                CompletedPart.builder().partNumber(1)
+                                        .eTag(part1.eTag()).build(),
+                                CompletedPart.builder().partNumber(2)
+                                        .eTag(part2.eTag()).build())
+                        .build()));
+
+        // A late or retried abort of the now-completed upload must not destroy
+        // the object.  Backends report NoSuchUpload for a completed upload, but
+        // the exact status is backend-specific; the invariant under test is
+        // that the completed object survives regardless.
+        try {
+            client.abortMultipartUpload(b -> b.bucket(containerName).key(key)
+                    .uploadId(uploadId));
+        } catch (S3Exception e) {
+            // expected on most backends; object survival is asserted below
+        }
+
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(key))) {
+            assertThat(object.response().contentLength()).isEqualTo(size);
+            try (InputStream expected = byteSource.openStream()) {
+                assertThat((InputStream) object).hasSameContentAs(expected);
+            }
+        }
+    }
+
+    @Test
     public void testMultipartUploadWithChecksum() throws Exception {
         // Only the request-body completion path enforces per-part checksums;
         // the azureblob and native google-cloud-storage branches list parts
