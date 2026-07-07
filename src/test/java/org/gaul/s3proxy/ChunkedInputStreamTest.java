@@ -78,6 +78,34 @@ public final class ChunkedInputStreamTest {
     }
 
     @Test
+    public void readWithSmallBufferRoundTripsAcrossChunks() throws IOException {
+        byte[] one = "first-chunk".getBytes(StandardCharsets.UTF_8);
+        byte[] two = "second".getBytes(StandardCharsets.UTF_8);
+        byte[] three = "third-chunk-data".getBytes(StandardCharsets.UTF_8);
+        byte[] body = unsignedChunked(new byte[][] {one, two, three});
+        byte[] expected = "first-chunksecondthird-chunk-data"
+                .getBytes(StandardCharsets.UTF_8);
+
+        try (var in = new ChunkedInputStream(new ByteArrayInputStream(body),
+                MAX_CHUNK_SIZE)) {
+            // A zero-length read must consume nothing and return 0.
+            assertThat(in.read(new byte[4], 0, 0)).isEqualTo(0);
+
+            // Read through a buffer smaller than the chunks so the bulk-copy
+            // path is exercised with len as the limiting bound and across
+            // chunk boundaries.
+            var out = new ByteArrayOutputStream();
+            byte[] buf = new byte[3];
+            int n;
+            while ((n = in.read(buf, 0, buf.length)) != -1) {
+                assertThat(n).isBetween(1, buf.length);
+                out.write(buf, 0, n);
+            }
+            assertThat(out.toByteArray()).isEqualTo(expected);
+        }
+    }
+
+    @Test
     public void chunkLargerThanMaxIsRejected() {
         byte[] tooBig = new byte[16];
         byte[] body = unsignedChunked(new byte[][] {tooBig});

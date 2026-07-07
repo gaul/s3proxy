@@ -202,18 +202,27 @@ final class ChunkedInputStream extends FilterInputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        int i;
-        for (i = 0; i < len; ++i) {
-            int ch = read();
-            if (ch == -1) {
-                break;
-            }
-            b[off + i] = (byte) ch;
+        if (len == 0) {
+            return 0;
         }
-        if (i == 0) {
+        // Read one byte through read() so the chunk (re)fill, per-chunk
+        // signature verification, trailer validation, and EOF handling all
+        // run exactly as before; this also consumes the first byte.
+        int first = read();
+        if (first == -1) {
             return -1;
         }
-        return i;
+        b[off] = (byte) first;
+        int total = 1;
+        // Bulk-copy the remainder of the already-materialized chunk instead of
+        // dispatching every byte through read().
+        if (currentIndex < currentLength) {
+            int n = Math.min(len - total, currentLength - currentIndex);
+            System.arraycopy(chunk, currentIndex, b, off + total, n);
+            currentIndex += n;
+            total += n;
+        }
+        return total;
     }
 
     private void verifyChunkSignature(byte[] data, @Nullable String signature)
