@@ -83,6 +83,7 @@ import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
 import org.jclouds.rest.AuthorizationException;
+import org.jclouds.util.Closeables2;
 import org.jspecify.annotations.Nullable;
 import org.openstack4j.api.OSClient.OSClientV3;
 import org.openstack4j.api.exceptions.ResponseException;
@@ -566,15 +567,20 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         }
         var response = payload.getHttpResponse();
         int status = response.getStatus();
-        if (status == Status.NOT_FOUND.getStatusCode()) {
-            // The object is gone; distinguish a gone container so the GET
-            // reports NoSuchBucket rather than NoSuchKey.
-            if (!containerExists(container)) {
-                throw new ContainerNotFoundException(container, "");
-            }
-            return null;
-        }
         if (status >= 300) {
+            // A non-2xx response's body is never handed to the caller, so
+            // capture the header we need and close the okhttp response to
+            // release its connection rather than leaking it.
+            String etag = response.header(SwiftHeaders.ETAG);
+            Closeables2.closeQuietly(response);
+            if (status == Status.NOT_FOUND.getStatusCode()) {
+                // The object is gone; distinguish a gone container so the GET
+                // reports NoSuchBucket rather than NoSuchKey.
+                if (!containerExists(container)) {
+                    throw new ContainerNotFoundException(container, "");
+                }
+                return null;
+            }
             // Carry the ETag on the exception's response so S3ProxyHandler can
             // echo it: a 304 Not Modified from a conditional GET must return the
             // object's ETag, which the client relies on as the validator.  Swift
@@ -582,7 +588,6 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             // raw header is copied through verbatim, matching how jclouds-native
             // backends surface the validator).
             var failure = HttpResponse.builder().statusCode(status);
-            String etag = response.header(SwiftHeaders.ETAG);
             if (etag != null) {
                 failure.addHeader(HttpHeaders.ETAG, maybeQuoteETag(etag));
             }
