@@ -201,10 +201,11 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 bucket, Hashing.consistentHash(hash, bucket.shards));
     }
 
-    private void checkSuperBlock(Blob blob, Map<String, String> expectedMeta,
+    private void checkSuperBlock(BlobMetadata blob,
+                                 Map<String, String> expectedMeta,
                                  String container) {
         Map<String, String> currentSuperblockMeta =
-                blob.getMetadata().getUserMetadata();
+                blob.getUserMetadata();
         for (var entry : expectedMeta.entrySet()) {
             String current = currentSuperblockMeta.get(entry.getKey());
             String expected = entry.getValue();
@@ -263,22 +264,25 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
 
         Map<String, String> superblockMeta = this.createSuperblockMeta(bucket);
-        Blob superblockBlob = null;
+        // Fetch only the superblock metadata: getBlob would open a payload
+        // stream that checkSuperBlock never reads, leaking the connection.
+        BlobMetadata existingSuperblock = null;
         try {
-            superblockBlob = this.delegate().getBlob(
+            existingSuperblock = this.delegate().blobMetadata(
                     ShardedBlobStore.getShardContainer(bucket, 0),
                     SUPERBLOCK_BLOB_NAME);
         } catch (ContainerNotFoundException ignored) {
         }
-        if (superblockBlob != null) {
-            checkSuperBlock(superblockBlob, superblockMeta, container);
+        if (existingSuperblock != null) {
+            checkSuperBlock(existingSuperblock, superblockMeta, container);
         }
 
         boolean ret = createShards(bucket, location, createContainerOptions);
 
         // Upload the superblock
-        if (superblockBlob == null) {
-            superblockBlob = this.delegate().blobBuilder(SUPERBLOCK_BLOB_NAME)
+        if (existingSuperblock == null) {
+            Blob superblockBlob = this.delegate().blobBuilder(
+                    SUPERBLOCK_BLOB_NAME)
                     .payload("")
                     .userMetadata(superblockMeta)
                     .build();
