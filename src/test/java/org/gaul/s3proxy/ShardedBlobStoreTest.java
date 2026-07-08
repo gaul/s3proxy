@@ -117,6 +117,40 @@ public final class ShardedBlobStoreTest {
     }
 
     @Test
+    public void testDeleteContainerNonEmptyShard() {
+        this.createContainer(containerName);
+        // Place an object directly on a non-zero shard so shard 0 keeps only
+        // the superblock.  deleteContainerIfEmpty must report the bucket as
+        // non-empty and leave every shard and the superblock intact.
+        String nonZeroShard = "%s-3".formatted(prefix);
+        ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
+        blobStore.putBlob(nonZeroShard,
+                blobStore.blobBuilder("object").payload(content).build());
+
+        assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
+                .isFalse();
+        assertThat(this.countShards()).isEqualTo(this.shards);
+        assertThat(blobStore.blobExists(nonZeroShard, "object")).isTrue();
+        assertThat(blobStore.blobExists("%s-0".formatted(prefix),
+                ".s3proxy-sharded-superblock")).isTrue();
+
+        blobStore.removeBlob(nonZeroShard, "object");
+    }
+
+    @Test
+    public void testDeleteContainerEmptyShardZero() {
+        this.createContainer(containerName);
+        // Remove the superblock so shard 0 is empty; the delete must not throw
+        // NoSuchElementException and the empty bucket deletes cleanly.
+        blobStore.removeBlob("%s-0".formatted(prefix),
+                ".s3proxy-sharded-superblock");
+
+        assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
+                .isTrue();
+        assertThat(this.countShards()).isZero();
+    }
+
+    @Test
     public void testPutBlob() throws Exception {
         String blobName = "foo";
         String blobName2 = "bar";

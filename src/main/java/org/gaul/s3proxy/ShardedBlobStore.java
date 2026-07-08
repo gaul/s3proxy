@@ -413,6 +413,38 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         return ret;
     }
 
+    private boolean shardsAreEmpty(ShardedBucket bucket) {
+        // Shard 0 is inspected separately for the superblock; only shards
+        // 1..N-1 need to be empty here.
+        if (bucket.shards <= 1) {
+            return true;
+        }
+        var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
+        ExecutorService executor = Executors.newFixedThreadPool(
+                Math.min(bucket.shards - 1, MAX_SHARD_THREADS));
+        BlobStore blobStore = this.delegate();
+        for (int n = 1; n < bucket.shards; ++n) {
+            String shard = ShardedBlobStore.getShardContainer(bucket, n);
+            futuresBuilder.add(executor.submit(() -> {
+                try {
+                    return blobStore.list(shard).isEmpty();
+                } catch (ContainerNotFoundException cnfe) {
+                    return true;
+                }
+            }));
+        }
+        executor.shutdown();
+        boolean empty = true;
+        for (Future<Boolean> future : futuresBuilder.build()) {
+            try {
+                empty &= future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException("Failed to list shards", e);
+            }
+        }
+        return empty;
+    }
+
     @Override
     public boolean deleteContainerIfEmpty(String container) {
         ShardedBucket bucket = this.buckets.get(container);
@@ -420,19 +452,29 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             return this.delegate().deleteContainerIfEmpty(container);
         }
 
+        // A sharded bucket is empty only when shard 0 holds nothing but the
+        // superblock and every other shard is empty.  Verify all shards
+        // before deleting anything; otherwise removing the superblock and the
+        // empty shards would corrupt a bucket whose objects hash to other
+        // shards.
         String zeroShardContainer = ShardedBlobStore.getShardContainer(
                 bucket, 0);
-        PageSet<? extends StorageMetadata> listing = this.delegate().list(
-                zeroShardContainer);
-        if (listing.size() > 1) {
+        boolean superblockPresent = false;
+        for (StorageMetadata sm : this.delegate().list(zeroShardContainer)) {
+            if (sm.getName().equals(SUPERBLOCK_BLOB_NAME)) {
+                superblockPresent = true;
+            } else {
+                return false;
+            }
+        }
+        if (!this.shardsAreEmpty(bucket)) {
             return false;
         }
-        StorageMetadata sm = listing.iterator().next();
-        if (!sm.getName().equals(SUPERBLOCK_BLOB_NAME)) {
-            return false;
+
+        if (superblockPresent) {
+            this.delegate().removeBlob(zeroShardContainer,
+                    SUPERBLOCK_BLOB_NAME);
         }
-        // Remove the superblock
-        this.delegate().removeBlob(zeroShardContainer, SUPERBLOCK_BLOB_NAME);
         return this.deleteShards(bucket);
     }
 
