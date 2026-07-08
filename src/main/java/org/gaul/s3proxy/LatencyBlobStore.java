@@ -454,7 +454,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
                 .contentEncoding(contentMeta.getContentEncoding())
                 .contentLanguage(contentMeta.getContentLanguage())
                 .contentLength(contentMeta.getContentLength())
+                .contentMD5(contentMeta.getContentMD5AsHashCode())
                 .contentType(contentMeta.getContentType())
+                .expires(contentMeta.getExpires())
                 .build();
 
         newBlob.getMetadata().setUri(blobMeta.getUri());
@@ -463,6 +465,10 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         newBlob.getMetadata().setSize(blobMeta.getSize());
         newBlob.getMetadata().setPublicUri(blobMeta.getPublicUri());
         newBlob.getMetadata().setContainer(blobMeta.getContainer());
+        // Preserve raw response headers such as Content-Range, which the
+        // handler reads from getAllHeaders() and which the blob builder above
+        // does not carry.
+        newBlob.setAllHeaders(blob.getAllHeaders());
 
         return newBlob;
     }
