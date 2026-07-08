@@ -2105,6 +2105,11 @@ public class S3ProxyHandler {
                 exposedHeaders);
         }
 
+        if (corsRules.isAllowCredentials()) {
+            response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                    "true");
+        }
+
         response.setStatus(HttpServletResponse.SC_OK);
     }
 

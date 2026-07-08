@@ -286,6 +286,40 @@ public final class CrossOriginResourceSharingResponseTest {
     }
 
     @Test
+    public void testCorsPreflightAllowCredentials() throws Exception {
+        // A preflight response must echo Access-Control-Allow-Credentials when
+        // credentials are enabled, otherwise the browser blocks credentialed
+        // (credentials: "include") cross-origin requests.
+        TestUtils.S3ProxyLaunchInfo credInfo = TestUtils.startS3Proxy(
+                "s3proxy-cors-credentials.conf");
+        try {
+            String container = createRandomContainerName();
+            credInfo.getBlobStore().createContainerInLocation(null, container);
+            URI endpoint = URI.create(credInfo.getSecureEndpoint().toString() +
+                    credInfo.getServicePath() + "/" + container + "/key");
+
+            var request = new HttpOptions(endpoint);
+            request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+            request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
+            HttpResponse response = httpClient.execute(request);
+
+            assertThat(response.getStatusLine().getStatusCode())
+                    .isEqualTo(HttpStatus.SC_OK);
+            assertThat(response.getFirstHeader(
+                    HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS))
+                    .isNotNull();
+            assertThat(response.getFirstHeader(
+                    HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS).getValue())
+                    .isEqualTo("true");
+
+            credInfo.getBlobStore().deleteContainer(container);
+        } finally {
+            credInfo.getS3Proxy().stop();
+            credInfo.getBlobStore().getContext().close();
+        }
+    }
+
+    @Test
     public void testCorsActual() throws Exception {
         var request = new HttpGet(presignedGET);
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
