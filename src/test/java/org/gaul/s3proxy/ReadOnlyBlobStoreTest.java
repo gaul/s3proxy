@@ -67,6 +67,17 @@ public final class ReadOnlyBlobStoreTest {
     }
 
     @Test
+    public void testCreateContainer() throws Exception {
+        try {
+            readOnlyBlobStore.createContainerInLocation(null, containerName);
+            Fail.failBecauseExceptionWasNotThrown(
+                    UnsupportedOperationException.class);
+        } catch (UnsupportedOperationException ne) {
+            // expected
+        }
+    }
+
+    @Test
     public void testPutBlob() throws Exception {
         try {
             readOnlyBlobStore.putBlob(containerName, null);

@@ -25,6 +25,7 @@ import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.MutableBlobMetadata;
+import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
@@ -107,6 +108,43 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
         }
         blob.getMetadata().setUserMetadata(metadata.build());
         return blob;
+    }
+
+    @Override
+    public String copyBlob(String fromContainer, String fromName,
+            String toContainer, String toName, CopyOptions options) {
+        var userMetadata = options.userMetadata();
+        if (userMetadata != null) {
+            // A copy that replaces user metadata must munge the new keys and
+            // values the same way putBlob does, so the backend stores the
+            // mapped form and getBlob reverses it.  A copy without replacement
+            // metadata carries the source's already-munged metadata forward
+            // untouched.
+            var metadata = ImmutableMap.<String, String>builder();
+            for (var entry : userMetadata.entrySet()) {
+                metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
+                        replaceChars(entry.getValue(), fromChars, toChars));
+            }
+            var builder = CopyOptions.builder().userMetadata(metadata.build());
+            if (options.contentMetadata() != null) {
+                builder.contentMetadata(options.contentMetadata());
+            }
+            if (options.ifMatch() != null) {
+                builder.ifMatch(options.ifMatch());
+            }
+            if (options.ifNoneMatch() != null) {
+                builder.ifNoneMatch(options.ifNoneMatch());
+            }
+            if (options.ifModifiedSince() != null) {
+                builder.ifModifiedSince(options.ifModifiedSince());
+            }
+            if (options.ifUnmodifiedSince() != null) {
+                builder.ifUnmodifiedSince(options.ifUnmodifiedSince());
+            }
+            options = builder.build();
+        }
+        return super.copyBlob(fromContainer, fromName, toContainer, toName,
+                options);
     }
 
     @Override

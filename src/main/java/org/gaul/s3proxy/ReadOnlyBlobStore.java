@@ -45,6 +45,12 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public boolean createContainerInLocation(Location location,
+            String container) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public boolean createContainerInLocation(Location location,
             String container, CreateContainerOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }

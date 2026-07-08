@@ -191,6 +191,37 @@ public final class EventualBlobStoreTest {
         assertThat(eventualBlobStore.list(containerName)).isNotEmpty();
     }
 
+    @Test
+    public void testCreateContainerInBothStores() throws Exception {
+        String newContainer = createRandomContainerName();
+        try {
+            assertThat(eventualBlobStore.createContainerInLocation(
+                    null, newContainer)).isTrue();
+            // Container operations apply synchronously to both stores.
+            assertThat(nearBlobStore.containerExists(newContainer)).isTrue();
+            assertThat(farBlobStore.containerExists(newContainer)).isTrue();
+        } finally {
+            nearBlobStore.deleteContainer(newContainer);
+            farBlobStore.deleteContainer(newContainer);
+        }
+    }
+
+    @Test
+    public void testClearContainerClearsBothStores() throws Exception {
+        nearBlobStore.putBlob(containerName,
+                makeBlob(nearBlobStore, createRandomBlobName()));
+        farBlobStore.putBlob(containerName,
+                makeBlob(farBlobStore, createRandomBlobName()));
+        assertThat(nearBlobStore.list(containerName)).isNotEmpty();
+        assertThat(farBlobStore.list(containerName)).isNotEmpty();
+
+        eventualBlobStore.clearContainer(containerName);
+
+        // clearContainer must clear both stores, not only the read store.
+        assertThat(nearBlobStore.list(containerName)).isEmpty();
+        assertThat(farBlobStore.list(containerName)).isEmpty();
+    }
+
     private static String createRandomContainerName() {
         return "container-" + new Random().nextInt(Integer.MAX_VALUE);
     }

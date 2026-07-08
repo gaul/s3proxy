@@ -30,10 +30,12 @@ import java.util.concurrent.TimeUnit;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 import org.jclouds.blobstore.domain.BlobMetadata;
+import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.CreateContainerOptions;
+import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
 import org.jclouds.domain.Location;
@@ -79,11 +81,51 @@ final class EventualBlobStore extends ForwardingBlobStore {
 
     @Override
     public boolean createContainerInLocation(Location location,
+            String container) {
+        return delegate().createContainerInLocation(location, container) &&
+                writeStore.createContainerInLocation(location, container);
+    }
+
+    @Override
+    public boolean createContainerInLocation(Location location,
             String container, CreateContainerOptions options) {
         return delegate().createContainerInLocation(
                         location, container, options) &&
                 writeStore.createContainerInLocation(
                         location, container, options);
+    }
+
+    // Container operations are not eventually consistent: apply them
+    // synchronously to both the read (delegate) and write stores so the two
+    // stores keep the same container structure.
+    @Override
+    public void setContainerAccess(String container, ContainerAccess access) {
+        delegate().setContainerAccess(container, access);
+        writeStore.setContainerAccess(container, access);
+    }
+
+    @Override
+    public void clearContainer(String container) {
+        delegate().clearContainer(container);
+        writeStore.clearContainer(container);
+    }
+
+    @Override
+    public void clearContainer(String container, ListContainerOptions options) {
+        delegate().clearContainer(container, options);
+        writeStore.clearContainer(container, options);
+    }
+
+    @Override
+    public void createDirectory(String container, String directory) {
+        delegate().createDirectory(container, directory);
+        writeStore.createDirectory(container, directory);
+    }
+
+    @Override
+    public void deleteDirectory(String container, String directory) {
+        delegate().deleteDirectory(container, directory);
+        writeStore.deleteDirectory(container, directory);
     }
 
     @Override

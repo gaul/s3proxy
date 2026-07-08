@@ -24,6 +24,7 @@ import java.util.Map;
 import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
+import org.jclouds.blobstore.options.CopyOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.junit.jupiter.api.AfterEach;
@@ -99,6 +100,61 @@ public final class UserMetadataReplacerBlobStoreTest {
         entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my-key");
         assertThat(entry.getValue()).isEqualTo("my-value-");
+    }
+
+    @Test
+    public void testCopyBlobReplaceMetadata() {
+        var fromName = TestUtils.createRandomBlobName();
+        var toName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        var blob = userMetadataReplacerBlobStore.blobBuilder(fromName)
+                .payload(content)
+                .build();
+        userMetadataReplacerBlobStore.putBlob(containerName, blob);
+
+        // A copy with a metadata-replace directive must munge the new
+        // metadata into the backend the same way putBlob does.
+        userMetadataReplacerBlobStore.copyBlob(containerName, fromName,
+                containerName, toName, CopyOptions.builder()
+                        .userMetadata(Map.of("my-key", "my-value-"))
+                        .build());
+
+        // check underlying blobStore stores the munged form
+        var backend = blobStore.blobMetadata(containerName, toName)
+                .getUserMetadata();
+        assertThat(backend).isEqualTo(Map.of("my_key", "my_value_"));
+
+        // check getBlob reverses it
+        var replaced = userMetadataReplacerBlobStore.getBlob(
+                containerName, toName).getMetadata().getUserMetadata();
+        assertThat(replaced).isEqualTo(Map.of("my-key", "my-value-"));
+    }
+
+    @Test
+    public void testCopyBlobPreservesMetadata() {
+        var fromName = TestUtils.createRandomBlobName();
+        var toName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        var blob = userMetadataReplacerBlobStore.blobBuilder(fromName)
+                .payload(content)
+                .userMetadata(Map.of("my-key", "my-value-"))
+                .build();
+        userMetadataReplacerBlobStore.putBlob(containerName, blob);
+
+        // A copy without a replace directive carries the source's stored
+        // (already-munged) metadata forward untouched; it must not be
+        // re-munged or wiped.
+        userMetadataReplacerBlobStore.copyBlob(containerName, fromName,
+                containerName, toName, CopyOptions.NONE);
+
+        // backend still holds the single munged form
+        assertThat(blobStore.blobMetadata(containerName, toName)
+                .getUserMetadata()).isEqualTo(Map.of("my_key", "my_value_"));
+
+        // getBlob reverses it
+        assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName)
+                .getMetadata().getUserMetadata())
+                .isEqualTo(Map.of("my-key", "my-value-"));
     }
 
     @Test
