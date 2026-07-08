@@ -1972,11 +1972,13 @@ public final class AwsSdkTest {
     public void testConditionalGetWildcard() throws Exception {
         // If-Match: * matches any existing object, so the GET succeeds;
         // If-None-Match: * also matches any existing object, so the GET is
-        // 304 Not Modified.  google-cloud-storage-sdk emulates these
-        // preconditions in s3proxy (GCS has no ETag preconditions), which is
-        // what this exercises; the nio2 backends share the same emulation bug
-        // and are fixed separately.
-        assumeTrue(blobStoreType.equals("google-cloud-storage-sdk"));
+        // 304 Not Modified.  Real S3 and Swift evaluate the wildcard natively;
+        // google-cloud-storage-sdk and the nio2 backends emulate the
+        // conditional inside s3proxy, which is what this primarily exercises.
+        assumeTrue(!blobStoreType.equals("b2"));
+        // TODO: azureblob returns 500 for If-None-Match: * instead of 304.
+        assumeTrue(!blobStoreType.equals("azureblob"));
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
 
         String blobName = "blob-name";
         client.putObject(b -> b.bucket(containerName).key(blobName),

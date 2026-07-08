@@ -478,16 +478,34 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             // Evaluate conditional headers and range bounds before opening
             // the file so that failing preconditions do not leak the
             // InputStream.
+            String ifMatch = options.getIfMatch();
+            String ifNoneMatch = options.getIfNoneMatch();
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
-                if (options.getIfMatch() != null) {
-                    if (!eTag.equals(maybeQuoteETag(options.getIfMatch()))) {
+            }
+            // The wildcard "*" matches any existing object rather than a
+            // literal ETag.  The object exists here, so If-Match: * passes and
+            // If-None-Match: * yields 304 Not Modified.
+            if ("*".equals(ifMatch)) {
+                ifMatch = null;
+            }
+            if ("*".equals(ifNoneMatch)) {
+                @SuppressWarnings("rawtypes")
+                HttpResponse.Builder response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode());
+                if (eTag != null) {
+                    response.addHeader(HttpHeaders.ETAG, eTag);
+                }
+                throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response.build());
+            }
+            if (eTag != null) {
+                if (ifMatch != null) {
+                    if (!eTag.equals(maybeQuoteETag(ifMatch))) {
                         HttpResponse response = HttpResponse.builder().statusCode(Status.PRECONDITION_FAILED.getStatusCode()).addHeader(HttpHeaders.ETAG, eTag).build();
                         throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response);
                     }
                 }
-                if (options.getIfNoneMatch() != null) {
-                    if (eTag.equals(maybeQuoteETag(options.getIfNoneMatch()))) {
+                if (ifNoneMatch != null) {
+                    if (eTag.equals(maybeQuoteETag(ifNoneMatch))) {
                         HttpResponse response = HttpResponse.builder().statusCode(Status.NOT_MODIFIED.getStatusCode()).addHeader(HttpHeaders.ETAG, eTag).build();
                         throw new HttpResponseException(new HttpCommand(HttpRequest.builder().method("GET").endpoint("http://stub").build()), response);
                     }
