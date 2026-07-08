@@ -123,6 +123,11 @@
         <version>3.1.4</version>
       </plugin>
       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>versions-maven-plugin</artifactId>
+        <version>2.21.0</version>
+      </plugin>
+      <plugin>
         <groupId>net.revelc.code</groupId>
         <artifactId>impsort-maven-plugin</artifactId>
         <version>1.13.0</version>
