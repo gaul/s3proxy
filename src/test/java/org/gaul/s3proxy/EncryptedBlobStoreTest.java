@@ -739,6 +739,72 @@ public final class EncryptedBlobStoreTest {
     }
 
     @Test
+    public void testReadOverLengthRange() throws Exception {
+        String content =
+            "123456789A123456-123456789B123456-123456789C123456-" +
+                "123456789D123456-123456789E123456";
+        int length = content.length();
+
+        // An explicit range bytes=A-B whose end runs past the object returns
+        // only the bytes up to the end; Content-Length and Content-Range must
+        // report what is actually sent, not the over-large requested end.
+        for (int offset : new int[] {0, 10, 40}) {
+            String blobName = TestUtils.createRandomBlobName();
+            InputStream is = new ByteArrayInputStream(
+                content.getBytes(StandardCharsets.UTF_8));
+            Blob blob = makeBlob(encryptedBlobStore, blobName, is, length);
+            encryptedBlobStore.putBlob(containerName, blob);
+
+            var options = new GetOptions();
+            options.range(offset, length + 1000);
+            blob = encryptedBlobStore.getBlob(containerName, blobName, options);
+
+            try (InputStream blobIs = blob.getPayload().openStream()) {
+                var reader = new BufferedReader(new InputStreamReader(blobIs));
+                String plaintext = reader.lines().collect(Collectors.joining());
+                assertThat(plaintext).isEqualTo(content.substring(offset));
+            }
+
+            assertThat(blob.getMetadata().getContentMetadata()
+                .getContentLength()).isEqualTo((long) length - offset);
+            assertThat(blob.getAllHeaders().get("Content-Range"))
+                .contains("bytes " + offset + "-" + (length - 1) +
+                    "/" + length);
+        }
+    }
+
+    @Test
+    public void testReadOverLengthTail() throws Exception {
+        String content =
+            "123456789A123456-123456789B123456-123456789C123456-" +
+                "123456789D123456-123456789E123456";
+        int length = content.length();
+
+        // A suffix range bytes=-N whose N exceeds the object returns the whole
+        // object with Content-Range starting at 0, not a negative offset.
+        String blobName = TestUtils.createRandomBlobName();
+        InputStream is = new ByteArrayInputStream(
+            content.getBytes(StandardCharsets.UTF_8));
+        Blob blob = makeBlob(encryptedBlobStore, blobName, is, length);
+        encryptedBlobStore.putBlob(containerName, blob);
+
+        var options = new GetOptions();
+        options.tail(length + 1000);
+        blob = encryptedBlobStore.getBlob(containerName, blobName, options);
+
+        try (InputStream blobIs = blob.getPayload().openStream()) {
+            var reader = new BufferedReader(new InputStreamReader(blobIs));
+            String plaintext = reader.lines().collect(Collectors.joining());
+            assertThat(plaintext).isEqualTo(content);
+        }
+
+        assertThat(blob.getMetadata().getContentMetadata().getContentLength())
+            .isEqualTo((long) length);
+        assertThat(blob.getAllHeaders().get("Content-Range"))
+            .contains("bytes 0-" + (length - 1) + "/" + length);
+    }
+
+    @Test
     public void testMultipartReadPartial() throws Exception {
 
         for (int offset = 0; offset < 130; offset++) {

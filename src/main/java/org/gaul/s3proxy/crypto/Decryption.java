@@ -141,6 +141,14 @@ public class Decryption {
         if (offset > 0 && length <= 0) {
             outputLength = unencryptedSize - offset;
         }
+
+        // clamp an explicit length whose range runs past the end of the
+        // object so the reported length matches the bytes actually returned;
+        // S3 truncates such a range rather than padding it.
+        if (offset < unencryptedSize &&
+            outputLength > unencryptedSize - offset) {
+            outputLength = unencryptedSize - offset;
+        }
     }
 
     private void blobIsNotEncrypted(long offset) {

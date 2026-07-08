@@ -451,17 +451,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     long startRange;
                     long endRange;
                     if (offset == 0 && end > 0 && length == end) {
-                        // bytes=-N: last N bytes
-                        startRange = decryptedSize - end;
+                        // bytes=-N: last N bytes, clamped to the whole object
+                        // when N exceeds the size
+                        startRange = Math.max(0, decryptedSize - end);
                         endRange = decryptedSize - 1;
                     } else if (length < 0) {
                         // bytes=A-: from offset to end
                         startRange = offset;
                         endRange = decryptedSize - 1;
                     } else {
-                        // bytes=A-B
+                        // bytes=A-B, with the end clamped to the last byte so
+                        // an over-length range reports what is actually sent
                         startRange = offset;
-                        endRange = end;
+                        endRange = Math.min(end, decryptedSize - 1);
                     }
                     decryptedBlob.getAllHeaders()
                         .put(HttpHeaders.CONTENT_RANGE, "bytes " + startRange + "-" + endRange +
