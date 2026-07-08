@@ -1996,6 +1996,10 @@ public final class AwsSdkTest {
         // TODO: the jclouds-native azureblob provider is untested for this;
         // the azureblob-sdk backend emulates the wildcard (see AzureBlobStore).
         assumeTrue(!blobStoreType.equals("azureblob"));
+        // LocalStack and MinIO do not implement the If-Match/If-None-Match "*"
+        // wildcard, returning 412 where real S3 returns 200/304.
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+        assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
         String blobName = "blob-name";
         client.putObject(b -> b.bucket(containerName).key(blobName),
