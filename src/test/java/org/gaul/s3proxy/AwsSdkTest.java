@@ -1359,6 +1359,38 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testDeleteDirectoryMarkerWithContents() throws Exception {
+        // Deleting a directory-marker key whose directory still holds objects
+        // must succeed and remove only the marker, not fail with 500 because
+        // the underlying directory is non-empty.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        String marker = "testdir-9142/";
+        client.putObject(b -> b.bucket(containerName).key(marker),
+                RequestBody.empty());
+        putBlob(containerName, marker + "child", BYTE_SOURCE);
+
+        // Deleting the marker succeeds even though the directory is non-empty.
+        client.deleteObject(b -> b.bucket(containerName).key(marker));
+
+        // The marker object is gone...
+        try {
+            client.headObject(b -> b.bucket(containerName).key(marker));
+            Fail.failBecauseExceptionWasNotThrown(NoSuchKeyException.class);
+        } catch (NoSuchKeyException e) {
+            // expected
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+
+        // ...but the object beneath it remains.
+        assertThat(client.headObject(
+                b -> b.bucket(containerName).key(marker + "child")))
+                .isNotNull();
+    }
+
+    @Test
     public void testDirectoryMarkerListMetadata() throws Exception {
         // Per the S3 API every <Contents> entry in a ListObjects(V1/V2)
         // response must carry <Size>, <LastModified> and <ETag>, even for a

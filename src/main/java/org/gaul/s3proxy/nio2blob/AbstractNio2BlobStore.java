@@ -823,19 +823,35 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
 
     @Override
     public final void removeBlob(String container, String key) {
+        var containerPath = resolveContainer(container);
+        var path = resolveBlobPath(containerPath, key);
+        if (!key.endsWith("/") && Files.isDirectory(path)) {
+            // POSIX path normalization conflates "key" with "key/";
+            // a non-slash key must not match a directory marker.
+            return;
+        }
         try {
-            var containerPath = resolveContainer(container);
-            var path = resolveBlobPath(containerPath, key);
-            if (!key.endsWith("/") && Files.isDirectory(path)) {
-                // POSIX path normalization conflates "key" with "key/";
-                // a non-slash key must not match a directory marker.
-                return;
-            }
             logger.debug("Deleting blob at: {}", path);
             Files.delete(path);
             removeEmptyParentDirectories(containerPath, path.getParent());
         } catch (NoSuchFileException nsfe) {
             return;
+        } catch (DirectoryNotEmptyException dnee) {
+            // Deleting a directory-marker key ("dir/") whose directory still
+            // holds objects: the directory must stay for those objects, so
+            // drop only the marker attribute rather than failing with 500.  A
+            // later GET of the marker then correctly reports it absent.
+            var view = getXattrView(path);
+            if (view != null) {
+                try {
+                    if (view.list().contains(XATTR_CONTENT_MD5)) {
+                        view.delete(XATTR_CONTENT_MD5);
+                    }
+                } catch (IOException | UnsupportedOperationException e) {
+                    logger.debug("could not clear directory marker on {}",
+                            path);
+                }
+            }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
