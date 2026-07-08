@@ -1969,6 +1969,38 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testConditionalGetWildcard() throws Exception {
+        // If-Match: * matches any existing object, so the GET succeeds;
+        // If-None-Match: * also matches any existing object, so the GET is
+        // 304 Not Modified.  google-cloud-storage-sdk emulates these
+        // preconditions in s3proxy (GCS has no ETag preconditions), which is
+        // what this exercises; the nio2 backends share the same emulation bug
+        // and are fixed separately.
+        assumeTrue(blobStoreType.equals("google-cloud-storage-sdk"));
+
+        String blobName = "blob-name";
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
+
+        // If-Match: * on an existing object succeeds.
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(blobName).ifMatch("*"))) {
+            assertThat((InputStream) object).isNotNull();
+            object.transferTo(OutputStream.nullOutputStream());
+        }
+
+        // If-None-Match: * on an existing object is 304 Not Modified.
+        try {
+            client.getObject(b -> b.bucket(containerName).key(blobName)
+                    .ifNoneMatch("*"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(304);
+        }
+    }
+
+    @Test
     public void testConditionalGetModifiedSince() throws Exception {
         // HTTP conditional dates have one-second granularity while backend
         // timestamps may carry sub-second precision.  A request whose

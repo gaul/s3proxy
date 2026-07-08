@@ -442,13 +442,23 @@ public final class GCloudBlobStore extends BaseBlobStore {
     // misses to 304 Not Modified.
     private static void enforceConditionalGet(GetOptions options,
             @Nullable String eTag, @Nullable Date lastModified) {
+        String ifMatch = options.getIfMatch();
+        String ifNoneMatch = options.getIfNoneMatch();
+        // The wildcard "*" matches any existing object rather than a literal
+        // ETag.  The object exists here (getBlob already fetched it), so
+        // If-Match: * always passes and If-None-Match: * always fails the
+        // precondition (which the frontend remaps to 304 for GET/HEAD).
+        if ("*".equals(ifMatch)) {
+            ifMatch = null;
+        }
+        if ("*".equals(ifNoneMatch)) {
+            throw preconditionFailed(eTag);
+        }
         if (eTag != null) {
             String quoted = maybeQuoteETag(eTag);
-            String ifMatch = options.getIfMatch();
             if (ifMatch != null && !maybeQuoteETag(ifMatch).equals(quoted)) {
                 throw preconditionFailed(eTag);
             }
-            String ifNoneMatch = options.getIfNoneMatch();
             if (ifNoneMatch != null &&
                     maybeQuoteETag(ifNoneMatch).equals(quoted)) {
                 throw preconditionFailed(eTag);
