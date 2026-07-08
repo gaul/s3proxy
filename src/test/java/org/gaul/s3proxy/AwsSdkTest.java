@@ -1973,12 +1973,12 @@ public final class AwsSdkTest {
         // If-Match: * matches any existing object, so the GET succeeds;
         // If-None-Match: * also matches any existing object, so the GET is
         // 304 Not Modified.  Real S3 and Swift evaluate the wildcard natively;
-        // google-cloud-storage-sdk and the nio2 backends emulate the
-        // conditional inside s3proxy, which is what this primarily exercises.
+        // google-cloud-storage-sdk, azureblob-sdk, and the nio2 backends
+        // emulate the conditional inside s3proxy, which this also exercises.
         assumeTrue(!blobStoreType.equals("b2"));
-        // TODO: azureblob returns 500 for If-None-Match: * instead of 304.
+        // TODO: the jclouds-native azureblob provider is untested for this;
+        // the azureblob-sdk backend emulates the wildcard (see AzureBlobStore).
         assumeTrue(!blobStoreType.equals("azureblob"));
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
 
         String blobName = "blob-name";
         client.putObject(b -> b.bucket(containerName).key(blobName),

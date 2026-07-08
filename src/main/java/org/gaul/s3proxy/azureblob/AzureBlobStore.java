@@ -299,6 +299,26 @@ public final class AzureBlobStore extends BaseBlobStore {
     public Blob getBlob(String container, String key, GetOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
+        // Azure rejects the literal If-None-Match: * with 400
+        // UnsatisfiableCondition rather than treating it as "matches any
+        // existing blob", so emulate the S3 semantics here: an existing blob
+        // fails the precondition (412, which the frontend maps to 304 for
+        // GET/HEAD) and a missing blob falls through to 404.
+        if ("*".equals(options.getIfNoneMatch())) {
+            try {
+                client.getProperties();
+            } catch (BlobStorageException bse) {
+                throw translate(bse, container, key);
+            }
+            var request = HttpRequest.builder()
+                    .method("GET")
+                    .endpoint(endpoint)
+                    .build();
+            var response = HttpResponse.builder()
+                    .statusCode(Status.PRECONDITION_FAILED.getStatusCode())
+                    .build();
+            throw new HttpResponseException(new HttpCommand(request), response);
+        }
         BlobRange azureRange = null;
         if (!options.getRanges().isEmpty()) {
             var ranges = options.getRanges().get(0).split("-", 2);
