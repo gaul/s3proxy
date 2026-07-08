@@ -61,6 +61,7 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
+import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
@@ -151,6 +152,18 @@ public final class GCloudBlobStore extends BaseBlobStore {
             storageBuilder.setHost(endpoint);
         }
         storage = storageBuilder.build().getService();
+    }
+
+    // Invoked by jclouds when the BlobStoreContext is closed, releasing the
+    // SDK client's transport channels and background threads.
+    @PreDestroy
+    public void close() {
+        try {
+            storage.close();
+        } catch (Exception e) {
+            // Best effort: releasing the client on shutdown must not fail the
+            // context close.
+        }
     }
 
     @Override

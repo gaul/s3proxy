@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
 import com.google.common.net.HttpHeaders;
 
+import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.inject.Singleton;
@@ -194,6 +195,13 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         builder.region(this.awsRegion);
 
         this.s3Client = builder.build();
+    }
+
+    // Invoked by jclouds when the BlobStoreContext is closed, releasing the
+    // SDK client's connection pool and background threads.
+    @PreDestroy
+    public void close() {
+        s3Client.close();
     }
 
     @Override
