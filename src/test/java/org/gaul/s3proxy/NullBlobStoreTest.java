@@ -202,6 +202,53 @@ public final class NullBlobStoreTest {
         assertThat(nullBlobStore.list(containerName)).isEmpty();
     }
 
+    @Test
+    public void testCompleteMultipartUploadStubMetadataName() throws Exception {
+        // S3ProxyHandler reconstructs the completion MPU with blobMetadata
+        // taken from the upload stub, whose name is the stub name rather than
+        // the target object name.  The completed object must still land under
+        // blobName.
+        String blobName = "multipart-target";
+        MultipartUpload initiated = nullBlobStore.initiateMultipartUpload(
+                containerName, makeBlob(nullBlobStore, blobName).getMetadata(),
+                new PutOptions());
+
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, nullBlobStore.getMinimumMultipartPartSize() + 1);
+        Payload payload1 = Payloads.newByteSourcePayload(byteSource.slice(
+                0, nullBlobStore.getMinimumMultipartPartSize()));
+        Payload payload2 = Payloads.newByteSourcePayload(byteSource.slice(
+                nullBlobStore.getMinimumMultipartPartSize(), 1));
+        payload1.getContentMetadata().setContentLength(
+                nullBlobStore.getMinimumMultipartPartSize());
+        payload2.getContentMetadata().setContentLength(1L);
+        nullBlobStore.uploadMultipartPart(initiated, 1, payload1);
+        nullBlobStore.uploadMultipartPart(initiated, 2, payload2);
+        List<MultipartPart> parts = nullBlobStore.listMultipartUpload(
+                initiated);
+
+        // Rebuild the MPU the way the handler does: correct blobName, but
+        // blobMetadata carrying the (different) stub name.
+        BlobMetadata stubMetadata = makeBlob(nullBlobStore,
+                ".s3proxy-mpu-stub-" + initiated.id()).getMetadata();
+        MultipartUpload mpu = MultipartUpload.create(containerName, blobName,
+                initiated.id(), stubMetadata, new PutOptions());
+
+        nullBlobStore.completeMultipartUpload(mpu, parts);
+
+        Blob newBlob = nullBlobStore.getBlob(containerName, blobName);
+        assertThat(newBlob).isNotNull();
+        try (InputStream actual = newBlob.getPayload().openStream();
+                InputStream expected = byteSource.openStream()) {
+            assertThat(actual.transferTo(OutputStream.nullOutputStream()))
+                    .isEqualTo(expected.transferTo(
+                            OutputStream.nullOutputStream()));
+        }
+        assertThat(nullBlobStore.list(containerName).stream()
+                .map(StorageMetadata::getName))
+                .containsExactly(blobName);
+    }
+
     private static String createRandomContainerName() {
         return "container-" + new Random().nextInt(Integer.MAX_VALUE);
     }

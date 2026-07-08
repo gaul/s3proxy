@@ -35,6 +35,7 @@ import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
 import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
+import org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl;
 import org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl;
 import org.jclouds.blobstore.domain.internal.PageSetImpl;
 import org.jclouds.blobstore.options.GetOptions;
@@ -182,8 +183,17 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         super.abortMultipartUpload(mpu);
 
+        // Re-initiate a single-part upload holding the logical length.  The
+        // MPU's blobMetadata carries the stub name on MULTIPART_REQUIRES_STUB
+        // backends, or a null name otherwise, so restore the target object
+        // name before re-initiating to avoid writing to the wrong key or
+        // failing on a null name.
+        var metadata = mpu.blobMetadata() == null ?
+                new MutableBlobMetadataImpl() :
+                new MutableBlobMetadataImpl(mpu.blobMetadata());
+        metadata.setName(mpu.blobName());
         MultipartUpload mpu2 = super.initiateMultipartUpload(
-                mpu.containerName(), mpu.blobMetadata(), mpu.putOptions());
+                mpu.containerName(), metadata, mpu.putOptions());
 
         MultipartPart part = super.uploadMultipartPart(mpu2, 1, payload);
 
