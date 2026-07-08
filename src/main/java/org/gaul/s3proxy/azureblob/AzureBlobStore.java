@@ -19,7 +19,6 @@ package org.gaul.s3proxy.azureblob;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -183,9 +182,10 @@ public final class AzureBlobStore extends BaseBlobStore {
         var azureOptions = new ListBlobsOptions();
         azureOptions.setPrefix(options.getPrefix());
         azureOptions.setMaxResultsPerPage(options.getMaxResults());
-        var marker = options.getMarker() != null ?
-                URLDecoder.decode(options.getMarker(), StandardCharsets.UTF_8) :
-                null;
+        // Pass the continuation token through verbatim: it is the opaque
+        // marker Azure returned, round-tripped by the frontend.  Decoding it
+        // corrupts tokens containing '+' (turned into a space) or '%'.
+        var marker = options.getMarker();
 
         var set = ImmutableSet.<StorageMetadata>builder();
         PagedResponse<BlobItem> page;
