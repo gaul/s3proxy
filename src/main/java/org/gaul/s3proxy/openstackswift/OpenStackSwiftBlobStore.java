@@ -220,78 +220,120 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         var swift = objectStorage();
-        var swiftOptions = ObjectListOptions.create();
-        if (options.getPrefix() != null) {
-            swiftOptions.startsWith(options.getPrefix());
-        }
+        String prefix = options.getPrefix();
         var delimiter = options.getDelimiter();
-        if (delimiter != null && !delimiter.isEmpty()) {
-            swiftOptions.delimiter(delimiter.charAt(0));
-        }
-        if (options.getMarker() != null) {
-            swiftOptions.marker(options.getMarker());
-        }
+        Character delimiterChar = delimiter != null && !delimiter.isEmpty() ?
+                delimiter.charAt(0) : null;
         Integer maxResults = options.getMaxResults();
-        if (maxResults != null) {
-            // Fetch one extra object so truncation can be detected precisely:
-            // Swift's listing has no "truncated" flag, so a page filled exactly
-            // to the limit is otherwise indistinguishable from the last page.
-            swiftOptions.limit(maxResults + 1);
-        }
 
-        List<? extends SwiftObject> objects;
-        try {
-            objects = swift.objects().list(container, swiftOptions);
-        } catch (ResponseException re) {
-            throw translate(re, container, /*key=*/ null);
-        }
+        // Collect visible objects, hiding multipart-upload internals.  A whole
+        // Swift page can consist entirely of hidden keys, so keep fetching
+        // successive pages until enough visible objects are gathered or the
+        // container is exhausted; otherwise the listing would truncate early
+        // and the container could appear empty.  The continuation marker is a
+        // real visible key so it round-trips through the S3 client.
+        var visible = new ArrayList<StorageMetadata>();
+        String swiftMarker = options.getMarker();
+        boolean firstRequest = true;
+        boolean more = false;
 
-        // Swift returns an empty body for both an empty and a missing
-        // container; disambiguate so callers see ContainerNotFoundException.
-        if (objects.isEmpty() && !containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
-        }
-
-        boolean truncated = maxResults != null && objects.size() > maxResults;
-        if (truncated) {
-            objects = objects.subList(0, maxResults);
-        }
-
-        var set = ImmutableSet.<StorageMetadata>builder();
-        String marker = null;
-        for (var object : objects) {
-            // openstack4j maps Swift "subdir" (common prefix) entries to
-            // getDirectoryName(); its isDirectory() is unreliable (it returns
-            // false for subdir entries), so key off getDirectoryName().
-            var directoryName = object.getDirectoryName();
-            if (directoryName != null && !directoryName.isEmpty()) {
-                // Hide the multipart-upload segment pseudo-directory.
-                if (directoryName.startsWith(MPU_PREFIX)) {
-                    continue;
-                }
-                set.add(new StorageMetadataImpl(StorageType.RELATIVE_PATH,
-                        /*id=*/ null, directoryName, /*location=*/ null,
-                        /*uri=*/ null, /*eTag=*/ null, /*creationDate=*/ null,
-                        /*lastModified=*/ null, Map.of(), /*size=*/ null,
-                        Tier.STANDARD));
-                marker = directoryName;
-            } else {
-                // Hide multipart-upload segments and metadata markers.
-                if (object.getName() != null &&
-                        object.getName().startsWith(MPU_PREFIX)) {
-                    continue;
-                }
-                set.add(new StorageMetadataImpl(StorageType.BLOB,
-                        /*id=*/ null, object.getName(), /*location=*/ null,
-                        /*uri=*/ null, object.getETag(),
-                        /*creationDate=*/ null, object.getLastModified(),
-                        Map.of(), object.getSizeInBytes(), Tier.STANDARD));
-                marker = object.getName();
+        while (true) {
+            var swiftOptions = ObjectListOptions.create();
+            if (prefix != null) {
+                swiftOptions.startsWith(prefix);
             }
+            if (delimiterChar != null) {
+                swiftOptions.delimiter(delimiterChar);
+            }
+            if (swiftMarker != null) {
+                swiftOptions.marker(swiftMarker);
+            }
+            if (maxResults != null) {
+                // Fetch one extra object so truncation can be detected
+                // precisely: Swift's listing has no "truncated" flag, so a
+                // page filled exactly to the limit is otherwise
+                // indistinguishable from the last page.
+                swiftOptions.limit(maxResults + 1);
+            }
+
+            List<? extends SwiftObject> objects;
+            try {
+                objects = swift.objects().list(container, swiftOptions);
+            } catch (ResponseException re) {
+                throw translate(re, container, /*key=*/ null);
+            }
+
+            if (objects.isEmpty()) {
+                // Swift returns an empty body for both an empty and a missing
+                // container; disambiguate so callers see
+                // ContainerNotFoundException.
+                if (firstRequest && !containerExists(container)) {
+                    throw new ContainerNotFoundException(container, "");
+                }
+                break;
+            }
+            firstRequest = false;
+
+            int rawCount = objects.size();
+            for (var object : objects) {
+                // openstack4j maps Swift "subdir" (common prefix) entries to
+                // getDirectoryName(); its isDirectory() is unreliable (it
+                // returns false for subdir entries), so key off
+                // getDirectoryName().
+                var directoryName = object.getDirectoryName();
+                boolean isDirectory =
+                        directoryName != null && !directoryName.isEmpty();
+                String name = isDirectory ? directoryName : object.getName();
+                if (name == null) {
+                    continue;
+                }
+                // Advance the Swift position past this key even when it is
+                // hidden, so the next page continues correctly.
+                swiftMarker = name;
+
+                // Hide multipart-upload segments, metadata markers, and the
+                // segment pseudo-directory.
+                if (name.startsWith(MPU_PREFIX)) {
+                    continue;
+                }
+
+                if (maxResults != null && visible.size() == maxResults) {
+                    // At least one more visible object exists beyond the page.
+                    more = true;
+                    break;
+                }
+
+                if (isDirectory) {
+                    visible.add(new StorageMetadataImpl(
+                            StorageType.RELATIVE_PATH, /*id=*/ null, name,
+                            /*location=*/ null, /*uri=*/ null, /*eTag=*/ null,
+                            /*creationDate=*/ null, /*lastModified=*/ null,
+                            Map.of(), /*size=*/ null, Tier.STANDARD));
+                } else {
+                    visible.add(new StorageMetadataImpl(StorageType.BLOB,
+                            /*id=*/ null, name, /*location=*/ null,
+                            /*uri=*/ null, object.getETag(),
+                            /*creationDate=*/ null, object.getLastModified(),
+                            Map.of(), object.getSizeInBytes(), Tier.STANDARD));
+                }
+            }
+
+            if (more) {
+                break;
+            }
+            // A short page (fewer than requested) means Swift has no more
+            // objects; an unbounded request is served in a single pass.
+            if (maxResults == null || rawCount <= maxResults) {
+                break;
+            }
+            // Otherwise the page held only hidden keys or ran short of visible
+            // objects; fetch the next page from the advanced marker.
         }
 
-        return new PageSetImpl<StorageMetadata>(set.build(),
-                truncated ? marker : null);
+        String nextMarker = more && !visible.isEmpty() ?
+                visible.get(visible.size() - 1).getName() : null;
+        return new PageSetImpl<StorageMetadata>(
+                ImmutableSet.copyOf(visible), nextMarker);
     }
 
     @Override

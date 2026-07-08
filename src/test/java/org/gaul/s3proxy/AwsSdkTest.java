@@ -881,6 +881,61 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testListPaginationHidesMultipartSegments() throws Exception {
+        // The Swift backend stores in-progress multipart segments and markers
+        // under a reserved ".s3proxy-mpu/" prefix that list() hides.  These
+        // sort before ordinary keys, so a whole listing page can consist
+        // entirely of hidden objects; pagination must skip past them instead
+        // of terminating early and hiding the real objects that follow.
+        assumeTrue(blobStoreType.equals("openstack-swift-sdk"));
+
+        String key = "multipart-in-progress";
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        ByteSource part = TestUtils.randomByteSource().slice(0, partSize);
+        CreateMultipartUploadResponse initResponse =
+                client.createMultipartUpload(
+                        b -> b.bucket(containerName).key(key));
+        String uploadId = initResponse.uploadId();
+        for (int partNumber = 1; partNumber <= 2; ++partNumber) {
+            int number = partNumber;
+            client.uploadPart(b -> b.bucket(containerName).key(key)
+                    .uploadId(uploadId).partNumber(number),
+                    RequestBody.fromInputStream(part.openStream(),
+                            part.size()));
+        }
+
+        // Real objects that all sort after the hidden multipart internals.
+        List<String> expected = List.of("obj-a", "obj-b", "obj-c");
+        for (String name : expected) {
+            putBlob(containerName, name, BYTE_SOURCE);
+        }
+
+        // Page one key at a time so early pages hold only hidden segments.
+        List<String> seen = new ArrayList<>();
+        String continuationToken = null;
+        do {
+            String token = continuationToken;
+            ListObjectsV2Response listing = client.listObjectsV2(b -> {
+                b.bucket(containerName).maxKeys(1);
+                if (token != null) {
+                    b.continuationToken(token);
+                }
+            });
+            for (S3Object object : listing.contents()) {
+                assertThat(object.key()).doesNotStartWith(".s3proxy-mpu");
+                seen.add(object.key());
+            }
+            continuationToken = Boolean.TRUE.equals(listing.isTruncated()) ?
+                    listing.nextContinuationToken() : null;
+        } while (continuationToken != null);
+
+        assertThat(seen).containsExactlyElementsOf(expected);
+
+        client.abortMultipartUpload(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId));
+    }
+
+    @Test
     public void testOverrideResponseHeader() throws Exception {
         String blobName = "foo";
         putBlob(containerName, blobName, BYTE_SOURCE);
