@@ -100,6 +100,7 @@ import org.jclouds.io.ContentMetadata;
 import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
+import org.jclouds.rest.AuthorizationException;
 import org.jspecify.annotations.Nullable;
 
 @Singleton
@@ -1310,6 +1311,11 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
         case 412 -> {
             return httpResponseException(412, se);
+        }
+        case 401, 403 -> {
+            // Surface a permission failure as 403 AccessDenied rather than a
+            // generic 500.
+            return new AuthorizationException(se);
         }
         default -> { }
         }

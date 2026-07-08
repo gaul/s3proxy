@@ -111,6 +111,7 @@ import org.jclouds.io.ContentMetadataBuilder;
 import org.jclouds.io.Payload;
 import org.jclouds.io.PayloadSlicer;
 import org.jclouds.providers.ProviderMetadata;
+import org.jclouds.rest.AuthorizationException;
 import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
@@ -1298,6 +1299,11 @@ public final class AzureBlobStore extends BaseBlobStore {
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);
+        } else if (bse.getStatusCode() == Status.FORBIDDEN.getStatusCode() ||
+                bse.getStatusCode() == Status.UNAUTHORIZED.getStatusCode()) {
+            // Surface a permission failure as 403 AccessDenied rather than a
+            // generic 500.
+            return new AuthorizationException(bse);
         }
         return bse;
     }
