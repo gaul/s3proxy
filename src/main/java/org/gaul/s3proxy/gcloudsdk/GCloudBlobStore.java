@@ -756,7 +756,12 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 }
             }
         } catch (StorageException se) {
-            // ACL operations not supported (e.g., emulator)
+            // The emulator returns ACL responses the SDK cannot deserialize
+            // (StorageException with no HTTP status, code 0); tolerate those
+            // but surface real failures rather than reporting PRIVATE.
+            if (se.getCode() != 0) {
+                throw translate(se, container, /*key=*/ null);
+            }
         }
         return ContainerAccess.PRIVATE;
     }
@@ -772,7 +777,14 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 storage.deleteAcl(container, Acl.User.ofAllUsers());
             }
         } catch (StorageException se) {
-            // ACL operations not supported (e.g., emulator)
+            // The emulator returns ACL responses the SDK cannot deserialize
+            // (StorageException with no HTTP status, code 0); the ACL is
+            // applied server-side, so tolerate those.  Surface real failures
+            // (permission denied, uniform bucket-level access, missing bucket)
+            // rather than reporting success for a change that did not apply.
+            if (se.getCode() != 0) {
+                throw translate(se, container, /*key=*/ null);
+            }
         }
     }
 
@@ -787,13 +799,18 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         } catch (StorageException se) {
             // On 404, distinguish a missing bucket from a missing object so
-            // the caller can emit NoSuchBucket vs NoSuchKey.  Other failures
-            // (e.g. an emulator without object ACLs) fall back to PRIVATE.
+            // the caller can emit NoSuchBucket vs NoSuchKey.
             if (se.getCode() == 404) {
                 if (storage.get(container) == null) {
                     throw new ContainerNotFoundException(container, "");
                 }
                 throw new KeyNotFoundException(container, key, "");
+            }
+            // The emulator returns ACL responses the SDK cannot deserialize
+            // (StorageException with no HTTP status, code 0); tolerate those
+            // but surface real failures rather than reporting PRIVATE.
+            if (se.getCode() != 0) {
+                throw translate(se, container, key);
             }
         }
         return BlobAccess.PRIVATE;
@@ -811,7 +828,14 @@ public final class GCloudBlobStore extends BaseBlobStore {
                         Acl.User.ofAllUsers());
             }
         } catch (StorageException se) {
-            // ACL operations not supported (e.g., emulator)
+            // The emulator returns ACL responses the SDK cannot deserialize
+            // (StorageException with no HTTP status, code 0); the ACL is
+            // applied server-side, so tolerate those.  Surface real failures
+            // (permission denied, uniform bucket-level access, missing object)
+            // rather than reporting success for a change that did not apply.
+            if (se.getCode() != 0) {
+                throw translate(se, container, key);
+            }
         }
     }
 

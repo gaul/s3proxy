@@ -789,6 +789,23 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testSetBlobAclMissingObjectSurfacesError() throws Exception {
+        // A real ACL failure must surface rather than being swallowed as a
+        // false success.  google-cloud-storage-sdk previously discarded every
+        // StorageException from ACL operations; setting an ACL on a missing
+        // object must return NoSuchKey, not report success.
+        assumeTrue(blobStoreType.equals("google-cloud-storage-sdk"));
+
+        try {
+            client.putObjectAcl(b -> b.bucket(containerName).key("no-such-key")
+                    .acl(ObjectCannedACL.PUBLIC_READ));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
     public void testUnicodeObject() throws Exception {
         String blobName = "ŪņЇЌœđЗ/☺ unicode € rocks ™";
         putBlob(containerName, blobName, BYTE_SOURCE);
