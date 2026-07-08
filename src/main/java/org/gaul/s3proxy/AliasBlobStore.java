@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.ContainerAccess;
 import org.jclouds.blobstore.domain.MultipartPart;
@@ -73,6 +74,16 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     private MultipartUpload getDelegateMpu(MultipartUpload mpu) {
         return MultipartUpload.create(
                 getContainer(mpu.containerName()),
+                mpu.blobName(),
+                mpu.id(),
+                mpu.blobMetadata(),
+                mpu.putOptions());
+    }
+
+    private MultipartUpload getClientMpu(MultipartUpload mpu) {
+        return MultipartUpload.create(
+                aliases.inverse().getOrDefault(
+                        mpu.containerName(), mpu.containerName()),
                 mpu.blobName(),
                 mpu.id(),
                 mpu.blobMetadata(),
@@ -192,6 +203,31 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean directoryExists(String container, String directory) {
+        return delegate().directoryExists(getContainer(container), directory);
+    }
+
+    @Override
+    public void createDirectory(String container, String directory) {
+        delegate().createDirectory(getContainer(container), directory);
+    }
+
+    @Override
+    public void deleteDirectory(String container, String directory) {
+        delegate().deleteDirectory(getContainer(container), directory);
+    }
+
+    @Override
+    public long countBlobs(String container) {
+        return delegate().countBlobs(getContainer(container));
+    }
+
+    @Override
+    public long countBlobs(String container, ListContainerOptions options) {
+        return delegate().countBlobs(getContainer(container), options);
+    }
+
+    @Override
     public boolean blobExists(String container, String name) {
         return delegate().blobExists(getContainer(container), name);
     }
@@ -199,6 +235,17 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     @Override
     public BlobMetadata blobMetadata(String container, String name) {
         return delegate().blobMetadata(getContainer(container), name);
+    }
+
+    @Override
+    public BlobAccess getBlobAccess(String container, String name) {
+        return delegate().getBlobAccess(getContainer(container), name);
+    }
+
+    @Override
+    public void setBlobAccess(String container, String name,
+                              BlobAccess access) {
+        delegate().setBlobAccess(getContainer(container), name, access);
     }
 
     @Override
@@ -269,5 +316,21 @@ public final class AliasBlobStore extends ForwardingBlobStore {
                                              int partNumber, Payload payload) {
         return delegate().uploadMultipartPart(getDelegateMpu(mpu), partNumber,
                 payload);
+    }
+
+    @Override
+    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+        return delegate().listMultipartUpload(getDelegateMpu(mpu));
+    }
+
+    @Override
+    public List<MultipartUpload> listMultipartUploads(String container) {
+        List<MultipartUpload> uploads =
+                delegate().listMultipartUploads(getContainer(container));
+        var builder = new ImmutableList.Builder<MultipartUpload>();
+        for (MultipartUpload mpu : uploads) {
+            builder.add(getClientMpu(mpu));
+        }
+        return builder.build();
     }
 }

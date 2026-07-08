@@ -35,6 +35,7 @@ import org.jclouds.ContextBuilder;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
+import org.jclouds.blobstore.domain.BlobAccess;
 import org.jclouds.blobstore.domain.BlobMetadata;
 import org.jclouds.blobstore.domain.MultipartPart;
 import org.jclouds.blobstore.domain.MultipartUpload;
@@ -163,6 +164,51 @@ public final class AliasBlobStoreTest {
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
+    }
+
+    @Test
+    public void testAliasBlobAccess() throws IOException {
+        createContainer(aliasContainerName);
+        String blobName = TestUtils.createRandomBlobName();
+        ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
+        Blob blob = aliasBlobStore.blobBuilder(blobName).payload(content)
+                .build();
+        aliasBlobStore.putBlob(aliasContainerName, blob);
+
+        assertThat(aliasBlobStore.getBlobAccess(aliasContainerName, blobName))
+                .isEqualTo(BlobAccess.PRIVATE);
+        aliasBlobStore.setBlobAccess(aliasContainerName, blobName,
+                BlobAccess.PUBLIC_READ);
+        assertThat(aliasBlobStore.getBlobAccess(aliasContainerName, blobName))
+                .isEqualTo(BlobAccess.PUBLIC_READ);
+        // the change must be applied to the backend (real) container
+        assertThat(blobStore.getBlobAccess(containerName, blobName))
+                .isEqualTo(BlobAccess.PUBLIC_READ);
+    }
+
+    @Test
+    public void testAliasListMultipartUpload() throws IOException {
+        createContainer(aliasContainerName);
+        String blobName = TestUtils.createRandomBlobName();
+        ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
+        Blob blob = aliasBlobStore.blobBuilder(blobName).build();
+        MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
+                aliasContainerName, blob.getMetadata(), PutOptions.NONE);
+        MultipartPart part = aliasBlobStore.uploadMultipartPart(
+                mpu, 1, Payloads.newPayload(content));
+
+        List<MultipartPart> parts = aliasBlobStore.listMultipartUpload(mpu);
+        assertThat(parts).hasSize(1);
+        assertThat(parts.get(0).partNumber()).isEqualTo(1);
+
+        List<MultipartUpload> uploads = aliasBlobStore.listMultipartUploads(
+                aliasContainerName);
+        assertThat(uploads).hasSize(1);
+        assertThat(uploads.get(0).containerName()).isEqualTo(
+                aliasContainerName);
+        assertThat(uploads.get(0).id()).isEqualTo(mpu.id());
+
+        aliasBlobStore.completeMultipartUpload(mpu, ImmutableList.of(part));
     }
 
     @Test
