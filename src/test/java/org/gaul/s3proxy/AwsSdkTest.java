@@ -31,6 +31,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -1964,6 +1965,42 @@ public final class AwsSdkTest {
         } catch (S3Exception e) {
             // 304 Not Modified
             assertThat(e.statusCode()).isEqualTo(304);
+        }
+    }
+
+    @Test
+    public void testConditionalGetModifiedSince() throws Exception {
+        // HTTP conditional dates have one-second granularity while backend
+        // timestamps may carry sub-second precision.  A request whose
+        // If-Modified-Since equals the object's own Last-Modified must be
+        // treated as "not modified" (304), and If-Unmodified-Since with the
+        // same value as "unmodified" (200).
+        assumeTrue(blobStoreType.equals("google-cloud-storage-sdk") ||
+                blobStoreType.equals("azureblob-sdk"));
+
+        String blobName = "conditional-since";
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
+        HeadObjectResponse head = client.headObject(
+                b -> b.bucket(containerName).key(blobName));
+        Instant lastModified = head.lastModified();
+
+        // If-Modified-Since == Last-Modified -> 304 Not Modified
+        try {
+            client.getObject(b -> b.bucket(containerName).key(blobName)
+                    .ifModifiedSince(lastModified));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(304);
+        }
+
+        // If-Unmodified-Since == Last-Modified -> 200 OK
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(blobName)
+                        .ifUnmodifiedSince(lastModified))) {
+            assertThat((InputStream) object).isNotNull();
+            object.transferTo(OutputStream.nullOutputStream());
         }
     }
 

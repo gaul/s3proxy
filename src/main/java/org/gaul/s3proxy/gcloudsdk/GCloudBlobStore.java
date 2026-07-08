@@ -442,17 +442,26 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         }
         if (lastModified != null) {
+            Date modified = truncateToSecond(lastModified);
             Date ifModifiedSince = options.getIfModifiedSince();
             if (ifModifiedSince != null &&
-                    lastModified.compareTo(ifModifiedSince) <= 0) {
+                    modified.compareTo(ifModifiedSince) <= 0) {
                 throw preconditionFailed(eTag);
             }
             Date ifUnmodifiedSince = options.getIfUnmodifiedSince();
             if (ifUnmodifiedSince != null &&
-                    lastModified.compareTo(ifUnmodifiedSince) > 0) {
+                    modified.compareTo(ifUnmodifiedSince) > 0) {
                 throw preconditionFailed(eTag);
             }
         }
+    }
+
+    // HTTP dates (Last-Modified, If-Modified-Since, If-Unmodified-Since) have
+    // one-second granularity, but GCS timestamps carry sub-second precision.
+    // Truncate to whole seconds so a conditional header compares equal to the
+    // Last-Modified value the client previously saw.
+    private static Date truncateToSecond(Date date) {
+        return new Date(Math.floorDiv(date.getTime(), 1000L) * 1000L);
     }
 
     private static String maybeQuoteETag(String eTag) {
@@ -629,12 +638,13 @@ public final class GCloudBlobStore extends BaseBlobStore {
                 Date lastModified = toDate(
                         sourceBlob.getUpdateTimeOffsetDateTime());
                 if (lastModified != null) {
+                    Date modified = truncateToSecond(lastModified);
                     if (ifModifiedSince != null &&
-                            lastModified.compareTo(ifModifiedSince) <= 0) {
+                            modified.compareTo(ifModifiedSince) <= 0) {
                         throw preconditionFailed(sourceETag);
                     }
                     if (ifUnmodifiedSince != null &&
-                            lastModified.compareTo(ifUnmodifiedSince) > 0) {
+                            modified.compareTo(ifUnmodifiedSince) > 0) {
                         throw preconditionFailed(sourceETag);
                     }
                 }
