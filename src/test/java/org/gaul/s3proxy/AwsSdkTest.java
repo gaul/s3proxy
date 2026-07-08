@@ -2076,6 +2076,30 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testGetObjectRangeExceedingLength() throws Exception {
+        var blobName = "test-range-exceeding";
+        var byteSource = TestUtils.randomByteSource().slice(0, 1024);
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromInputStream(byteSource.openStream(),
+                        byteSource.size()));
+
+        // A range whose end lies past the object returns only the bytes up to
+        // the end of the object.  Content-Length and Content-Range must
+        // reflect what is actually sent, not the over-large requested end;
+        // otherwise the client stalls waiting for bytes that never come.
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(blobName)
+                        .range("bytes=42-100000"))) {
+            assertThat(object.response().contentLength()).isEqualTo(1024 - 42);
+            assertThat(object.response().contentRange()).isEqualTo(
+                    "bytes 42-1023/1024");
+            try (var expected = byteSource.slice(42, 1024 - 42).openStream()) {
+                assertThat((InputStream) object).hasSameContentAs(expected);
+            }
+        }
+    }
+
+    @Test
     public void testUnknownHeader() throws Exception {
         String blobName = "test-unknown-header";
         try {

@@ -360,7 +360,13 @@ public final class AzureBlobStore extends BaseBlobStore {
                 contentLength = properties.getBlobSize() -
                         azureRange.getOffset();
             } else {
-                contentLength = azureRange.getCount();
+                // An explicit range whose end lies past the blob returns only
+                // the bytes up to the end of the blob, so clamp the reported
+                // length to what Azure actually streams; otherwise
+                // Content-Length overstates the body and the client stalls
+                // waiting for bytes that never come.
+                contentLength = Math.min(azureRange.getCount(),
+                        properties.getBlobSize() - azureRange.getOffset());
             }
         }
         var blob = new BlobBuilderImpl()
