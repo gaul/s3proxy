@@ -1960,7 +1960,14 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is,
             BlobStore blobStore, String containerName)
             throws IOException, S3Exception {
-        byte[] body = is.readAllBytes();
+        // Bound the buffered body: a MultiObjectDelete is limited to 1000
+        // keys, but the request is otherwise attacker-controlled, so read at
+        // most one byte past the limit and reject rather than exhaust the heap.
+        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
+                .readAllBytes();
+        if (body.length == v4MaxNonChunkedRequestSize + 1) {
+            throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+        }
         validateMultiBlobRemoveChecksum(request, body);
         DeleteMultipleObjectsRequest dmor = mapper.readValue(
                 body, DeleteMultipleObjectsRequest.class);
