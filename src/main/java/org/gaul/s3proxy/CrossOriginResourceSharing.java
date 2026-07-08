@@ -167,11 +167,15 @@ public final class CrossOriginResourceSharing {
             if (this.allowedHeadersRaw.equals(ALLOW_ANY_HEADER)) {
                 result = true;
             } else {
-                for (String header : Splitter.on(HEADER_VALUE_SEPARATOR).split(
+                result = true;
+                // Header names are case-insensitive, and browsers send the
+                // preflight Access-Control-Request-Headers comma-separated
+                // and lowercased (with or without spaces).
+                for (String header : Splitter.on(',').trimResults().split(
                         headers)) {
-                    result = this.allowedHeaders.contains(header);
-                    if (!result) {
+                    if (!this.isHeaderAllowed(header)) {
                         // First not matching header breaks
+                        result = false;
                         break;
                     }
                 }
@@ -185,6 +189,15 @@ public final class CrossOriginResourceSharing {
         }
 
         return result;
+    }
+
+    private boolean isHeaderAllowed(String header) {
+        for (String allowedHeader : this.allowedHeaders) {
+            if (allowedHeader.equalsIgnoreCase(header)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean isAllowCredentials() {

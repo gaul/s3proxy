@@ -181,6 +181,21 @@ public final class CrossOriginResourceSharingRuleTest {
         probe = "Accept, Content-Type";
         assertThat(corsCfg.isEveryHeaderAllowed(probe))
                 .as("check '%s' as header", probe).isTrue();
+        // Header names are case-insensitive; browsers send them lowercased.
+        probe = "content-type";
+        assertThat(corsCfg.isEveryHeaderAllowed(probe))
+                .as("check '%s' as header", probe).isTrue();
+        probe = "ACCEPT";
+        assertThat(corsCfg.isEveryHeaderAllowed(probe))
+                .as("check '%s' as header", probe).isTrue();
+        // Browsers separate with a bare comma, not ", ".
+        probe = "accept,content-type";
+        assertThat(corsCfg.isEveryHeaderAllowed(probe))
+                .as("check '%s' as header", probe).isTrue();
+        // A disallowed header is still rejected regardless of case.
+        probe = "accept,x-not-allowed";
+        assertThat(corsCfg.isEveryHeaderAllowed(probe))
+                .as("check '%s' as header", probe).isFalse();
     }
 
     @Test
