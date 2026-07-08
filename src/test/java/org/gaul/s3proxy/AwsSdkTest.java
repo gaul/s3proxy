@@ -516,6 +516,57 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testMultipartUploadEtagPersisted() throws Exception {
+        // The multipart ETag ("<md5>-<n>") that CompleteMultipartUpload
+        // returns must be persisted, so a later HEAD reports the same ETag
+        // rather than the MD5 of the assembled object.
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
+
+        String key = "multipart-etag";
+        long partSize = MINIMUM_MULTIPART_SIZE;
+        long size = partSize + 1;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, size);
+
+        CreateMultipartUploadResponse initResponse =
+                client.createMultipartUpload(
+                        b -> b.bucket(containerName).key(key));
+        String uploadId = initResponse.uploadId();
+
+        ByteSource byteSource1 = byteSource.slice(0, partSize);
+        UploadPartResponse part1 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1),
+                RequestBody.fromInputStream(byteSource1.openStream(),
+                        byteSource1.size()));
+        ByteSource byteSource2 = byteSource.slice(partSize, size - partSize);
+        UploadPartResponse part2 = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(2),
+                RequestBody.fromInputStream(byteSource2.openStream(),
+                        byteSource2.size()));
+
+        CompleteMultipartUploadResponse completeResponse =
+                client.completeMultipartUpload(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(
+                                        CompletedPart.builder().partNumber(1)
+                                                .eTag(part1.eTag()).build(),
+                                        CompletedPart.builder().partNumber(2)
+                                                .eTag(part2.eTag()).build())
+                                .build()));
+        assertThat(completeResponse.eTag()).contains("-2");
+
+        // A later HEAD must report the same multipart ETag, not the MD5 of
+        // the assembled object.
+        HeadObjectResponse head = client.headObject(
+                b -> b.bucket(containerName).key(key));
+        assertThat(head.eTag()).isEqualTo(completeResponse.eTag());
+        assertThat(head.eTag()).contains("-2");
+    }
+
+    @Test
     public void testAbortAfterCompleteKeepsObject() throws Exception {
         String key = "abort-after-complete";
         long partSize = MINIMUM_MULTIPART_SIZE;

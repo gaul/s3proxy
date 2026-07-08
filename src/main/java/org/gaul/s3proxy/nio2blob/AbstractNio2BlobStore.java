@@ -698,7 +698,16 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             var view = getXattrView(tmpPath);
             if (view != null) {
                 try {
-                    var eTag = actualHashCode.asBytes();
+                    // A multipart-completion blob carries the S3 multipart
+                    // ETag ("<md5>-<n>"), which is not the MD5 of the assembled
+                    // payload; persist it verbatim (as ASCII) so a later
+                    // GET/HEAD reports the same ETag that
+                    // completeMultipartUpload returned.  A regular put has no
+                    // preset ETag, so store the computed MD5 as 16 raw bytes.
+                    var providedETag = blob.getMetadata().getETag();
+                    var eTag = providedETag != null ?
+                            providedETag.getBytes(StandardCharsets.US_ASCII) :
+                            actualHashCode.asBytes();
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(eTag));
                     writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.getCacheControl());
                     writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.getContentDisposition());
