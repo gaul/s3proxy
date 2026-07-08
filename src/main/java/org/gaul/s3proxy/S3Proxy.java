@@ -52,6 +52,9 @@ import org.jclouds.blobstore.BlobStore;
  */
 public final class S3Proxy {
     private final Server server;
+    // Non-null only when metrics are served on a dedicated port instead of
+    // the S3 endpoint.
+    private final Server metricsServer;
     private final S3ProxyHandlerJetty handler;
     private final S3ProxyMetrics metrics;
     private final boolean listenHTTP;
@@ -143,9 +146,35 @@ public final class S3Proxy {
         if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
             context.setContextPath(builder.servicePath);
         }
-        if (metrics != null) {
-            context.addServlet(new ServletHolder(
+        // Serve /metrics on a dedicated listener when a metrics port is
+        // configured, so it is not exposed on the S3 endpoint; otherwise
+        // register it on the S3 server for backwards compatibility.
+        if (metrics != null && builder.metricsPort >= 0) {
+            var metricsPool = new QueuedThreadPool();
+            metricsPool.setName("S3Proxy-Metrics");
+            metricsServer = new Server(metricsPool);
+            var metricsConnector = new ServerConnector(metricsServer,
+                    /*acceptors=*/ 1, /*selectors=*/ 1,
+                    new HttpConnectionFactory());
+            String metricsHost = builder.metricsHost;
+            if (metricsHost == null) {
+                metricsHost = builder.endpoint != null ?
+                        builder.endpoint.getHost() :
+                        builder.secureEndpoint.getHost();
+            }
+            metricsConnector.setHost(metricsHost);
+            metricsConnector.setPort(builder.metricsPort);
+            metricsServer.addConnector(metricsConnector);
+            var metricsContext = new ServletContextHandler();
+            metricsContext.addServlet(new ServletHolder(
                     new MetricsHandler(metrics)), "/metrics");
+            metricsServer.setHandler(metricsContext);
+        } else {
+            metricsServer = null;
+            if (metrics != null) {
+                context.addServlet(new ServletHolder(
+                        new MetricsHandler(metrics)), "/metrics");
+            }
         }
         context.addServlet(new ServletHolder(handler), "/*");
         server.setHandler(context);
@@ -172,6 +201,8 @@ public final class S3Proxy {
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
         private boolean metricsEnabled;
+        private int metricsPort = -1;
+        private String metricsHost;
 
         Builder() {
         }
@@ -344,6 +375,18 @@ public final class S3Proxy {
                 builder.metricsEnabled(Boolean.parseBoolean(metricsEnabled));
             }
 
+            String metricsPort = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_METRICS_PORT);
+            if (!Strings.isNullOrEmpty(metricsPort)) {
+                builder.metricsPort(Integer.parseInt(metricsPort));
+            }
+
+            String metricsHost = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_METRICS_HOST);
+            if (!Strings.isNullOrEmpty(metricsHost)) {
+                builder.metricsHost(metricsHost);
+            }
+
             return builder;
         }
 
@@ -447,6 +490,16 @@ public final class S3Proxy {
             return this;
         }
 
+        public Builder metricsPort(int metricsPort) {
+            this.metricsPort = metricsPort;
+            return this;
+        }
+
+        public Builder metricsHost(String metricsHost) {
+            this.metricsHost = metricsHost;
+            return this;
+        }
+
         public Builder servicePath(String s3ProxyServicePath) {
             String path = Strings.nullToEmpty(s3ProxyServicePath);
 
@@ -522,13 +575,32 @@ public final class S3Proxy {
 
     public void start() throws Exception {
         server.start();
+        if (metricsServer != null) {
+            metricsServer.start();
+        }
     }
 
     public void stop() throws Exception {
         server.stop();
+        if (metricsServer != null) {
+            metricsServer.stop();
+        }
         if (metrics != null) {
             metrics.close();
         }
+    }
+
+    /**
+     * Returns the port serving /metrics when a dedicated metrics port is
+     * configured, or -1 otherwise.  Resolves the ephemeral port when
+     * configured as 0.
+     */
+    public int getMetricsPort() {
+        if (metricsServer == null) {
+            return -1;
+        }
+        return ((ServerConnector) metricsServer.getConnectors()[0])
+                .getLocalPort();
     }
 
     public int getPort() {

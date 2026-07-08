@@ -151,6 +151,20 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_METRICS_ENABLED =
             "s3proxy.metrics.enabled";
 
+    /**
+     * Serve the /metrics endpoint on a dedicated port instead of the S3
+     * endpoint.  When set, /metrics is not exposed on the S3 endpoint.
+     */
+    public static final String PROPERTY_METRICS_PORT =
+            "s3proxy.metrics.port";
+
+    /**
+     * Host to bind the dedicated metrics port to.  Defaults to the S3
+     * endpoint host.  Only used when s3proxy.metrics.port is set.
+     */
+    public static final String PROPERTY_METRICS_HOST =
+            "s3proxy.metrics.host";
+
     static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
