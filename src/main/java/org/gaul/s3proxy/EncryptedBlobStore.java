@@ -565,6 +565,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     @Override
     public PageSet<? extends StorageMetadata> list(String container,
         ListContainerOptions options) {
+        var marker = options.getMarker();
+        if (marker != null && !isEncrypted(marker)) {
+            // filteredList strips the .s3enc suffix from the marker it returns;
+            // re-add it so the backend resumes after the encrypted key rather
+            // than re-listing it (which duplicates or stalls pagination).
+            options = options.clone().afterMarker(blobNameWithSuffix(marker));
+        }
         PageSet<? extends StorageMetadata> pageSet =
             delegate().list(container, options);
         return filteredList(pageSet);

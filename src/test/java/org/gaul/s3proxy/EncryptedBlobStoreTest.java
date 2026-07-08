@@ -242,6 +242,43 @@ public final class EncryptedBlobStoreTest {
     }
 
     @Test
+    public void testListEncryptedPagination() {
+        var expected = new java.util.TreeMap<String, Long>();
+        for (int i = 0; i < 5; i++) {
+            String blobName = "blob-" + i;
+            byte[] content = new byte[10 + i];
+            java.util.Arrays.fill(content, (byte) 'c');
+            expected.put(blobName, (long) content.length);
+            Blob blob = makeBlob(encryptedBlobStore, blobName, content,
+                content.length);
+            encryptedBlobStore.putBlob(containerName, blob);
+        }
+
+        // Page one blob at a time: the marker must advance so every blob is
+        // returned exactly once, with its unencrypted size.
+        var seen = new java.util.LinkedHashMap<String, Long>();
+        String marker = null;
+        for (int i = 0; i < expected.size() * 3; i++) {
+            var options = new ListContainerOptions().maxResults(1);
+            if (marker != null) {
+                options.afterMarker(marker);
+            }
+            PageSet<? extends StorageMetadata> page =
+                encryptedBlobStore.list(containerName, options);
+            for (StorageMetadata sm : page) {
+                assertThat(seen).doesNotContainKey(sm.getName());
+                seen.put(sm.getName(), sm.getSize());
+            }
+            marker = page.getNextMarker();
+            if (marker == null) {
+                break;
+            }
+        }
+
+        assertThat(seen).isEqualTo(expected);
+    }
+
+    @Test
     public void testEncryptedEmptyBlob() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
         Blob blob = makeBlob(encryptedBlobStore, blobName, new byte[0], 0);
