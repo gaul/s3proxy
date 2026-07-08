@@ -25,3 +25,4 @@ target/
 __blobstorage__/
 AzuriteConfig
 __azurite_db*
+swift.db
