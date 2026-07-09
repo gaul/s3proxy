@@ -3013,10 +3013,13 @@ public class S3ProxyHandler {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
-            xml.writeStartElement("CompleteMultipartUploadResult");
-            xml.writeDefaultNamespace(AWS_XMLNS);
             xml.flush();
 
+            // Emit whitespace in the prolog while completeMultipartUpload
+            // runs so a slow completion does not idle the connection.  The
+            // root element is written only once the outcome is known, so a
+            // late failure can still be reported instead of truncating a
+            // half-written success document.
             while (thread.isAlive()) {
                 try {
                     thread.join(1000);
@@ -3028,7 +3031,26 @@ public class S3ProxyHandler {
             }
 
             if (exception.get() != null) {
-                throw exception.get();
+                // The 200 status and XML prolog are already sent, so the
+                // failure cannot be signaled through the status code.  Write
+                // an <Error> body -- as S3 does for a late completion failure
+                // -- rather than truncating the response by rethrowing.
+                logger.error("completeMultipartUpload failed after the " +
+                        "response was committed", exception.get());
+                xml.writeStartElement("Error");
+                writeSimpleElement(xml, "Code",
+                        S3ErrorCode.INTERNAL_ERROR.getErrorCode());
+                writeSimpleElement(xml, "Message",
+                        S3ErrorCode.INTERNAL_ERROR.getMessage());
+                String requestId = response.getHeader(
+                        AwsHttpHeaders.REQUEST_ID);
+                if (requestId == null) {
+                    requestId = generateRequestId();
+                }
+                writeSimpleElement(xml, "RequestId", requestId);
+                xml.writeEndElement();
+                xml.flush();
+                return;
             }
 
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
@@ -3036,6 +3058,9 @@ public class S3ProxyHandler {
                 blobStore.removeBlob(containerName,
                         multipartStubName(uploadId));
             }
+
+            xml.writeStartElement("CompleteMultipartUploadResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
 
             // TODO: bogus value
             writeSimpleElement(xml, "Location",
