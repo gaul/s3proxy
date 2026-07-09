@@ -254,8 +254,17 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
                 builder.add(mbm);
             } else if (sm.getName() != null && isEncrypted(sm.getName())) {
-                // non-BlobMetadata list entries (e.g. from S3 list backends)
-                // still need the .s3enc suffix stripped from the name
+                // Bare StorageMetadata list entries (e.g. from the SDK
+                // backends such as aws-s3-sdk and google-cloud-storage-sdk)
+                // still need the .s3enc suffix stripped from the name.
+                // TODO: getSize() here is the encrypted, padding-inflated size
+                // rather than the plaintext size the BlobMetadata branch
+                // reports via calculateBlobSize.  Correcting it needs the part
+                // count, which a bare list entry lacks (it lives in user
+                // metadata or the multipart ETag), so recovering it requires a
+                // per-object HEAD/range-GET -- an N+1 too slow for listings.
+                // Fix once the plaintext size is recoverable without a
+                // per-entry backend call.
                 var msm = new MutableStorageMetadataImpl(sm);
                 msm.setName(removeEncryptedSuffix(sm.getName()));
                 builder.add(msm);
