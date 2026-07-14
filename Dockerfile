@@ -4,6 +4,7 @@ LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 WORKDIR /opt/s3proxy
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y dumb-init && \
     rm -rf /var/lib/apt/lists/*
 
