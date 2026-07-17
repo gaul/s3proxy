@@ -222,17 +222,8 @@ jobs:
         run: |
           mvn package -DskipTests
 
-      # gaul/fake-gcs-server is a fork that adds the bucket-ACL, upload
-      # checksum validation, and resumable-upload precondition support that
-      # the s3-tests exercise.  Its go.mod keeps the upstream module path, so
-      # `go install` of the fork path fails on a path mismatch; clone and
-      # build it instead, mirroring the openstackswift job below.
-      - name: Build fake-gcs-server
-        run: |
-          git clone --depth 1 https://github.com/gaul/fake-gcs-server \
-            "$RUNNER_TEMP/fake-gcs-server"
-          (cd "$RUNNER_TEMP/fake-gcs-server" &&
-            go build -o "$HOME/go/bin/fake-gcs-server" .)
+      - name: Install fake-gcs-server
+        run: go install github.com/fsouza/fake-gcs-server@v1.55.0
       - name: Start fake-gcs-server
         run: $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &
       - name: Maven Test with fake-gcs-server
