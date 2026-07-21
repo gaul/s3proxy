@@ -82,7 +82,7 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
     private Blob replaceStorageClass(Blob blob) {
         var blobMeta = blob.getMetadata();
         var contentMeta = blob.getMetadata().getContentMetadata();
-        return Blob.builder(blobMeta.name())
+        var builder = Blob.builder(blobMeta.name())
                 .storageClass(storageClass)
                 .userMetadata(blobMeta.userMetadata())
                 .payload(blob.getPayload())
@@ -90,8 +90,14 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
                 .contentDisposition(contentMeta.contentDisposition())
                 .contentEncoding(contentMeta.contentEncoding())
                 .contentLanguage(contentMeta.contentLanguage())
+                .contentMD5(contentMeta.contentMD5())
                 .contentType(contentMeta.contentType())
-                .build();
+                .expires(contentMeta.expires());
+        Long contentLength = contentMeta.contentLength();
+        if (contentLength != null) {
+            builder.contentLength(contentLength);
+        }
+        return builder.build();
     }
 
     private BlobMetadata replaceStorageClass(BlobMetadata meta) {

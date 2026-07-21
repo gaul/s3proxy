@@ -532,7 +532,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
                     Storage.PredefinedAcl.PUBLIC_READ));
         }
 
-        try (var is = blob.getPayload().openStream()) {
+        try (var is = blob.getPayload()) {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
                     writeOptions.toArray(new BlobWriteOption[0]));
             return gcsBlob.getEtag();

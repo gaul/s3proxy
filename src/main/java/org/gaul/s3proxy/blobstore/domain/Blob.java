@@ -19,7 +19,9 @@ package org.gaul.s3proxy.blobstore.domain;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.Date;
 import java.util.Map;
 import java.util.Objects;
@@ -27,10 +29,7 @@ import java.util.Objects;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
 
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
-import org.gaul.s3proxy.blobstore.InputStreamPayload;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -41,10 +40,10 @@ import org.jspecify.annotations.Nullable;
 public final class Blob {
 
     private final BlobMetadata metadata;
-    private final @Nullable Payload payload;
+    private final @Nullable InputStream payload;
     private final @Nullable String contentRange;
 
-    private Blob(BlobMetadata metadata, @Nullable Payload payload,
+    private Blob(BlobMetadata metadata, @Nullable InputStream payload,
             @Nullable String contentRange) {
         this.metadata = Objects.requireNonNull(metadata, "metadata");
         this.payload = payload;
@@ -56,7 +55,8 @@ public final class Blob {
         return metadata;
     }
 
-    public @Nullable Payload getPayload() {
+    /** Returns the single-use content stream, if any. */
+    public @Nullable InputStream getPayload() {
         return payload;
     }
 
@@ -86,7 +86,7 @@ public final class Blob {
 
         private final BlobMetadata.Builder metadataBuilder;
         private final ContentMetadata.Builder contentMetadataBuilder;
-        private @Nullable Payload payload;
+        private @Nullable InputStream payload;
         private @Nullable String contentRange;
 
         private Builder(String name) {
@@ -146,33 +146,27 @@ public final class Blob {
             return this;
         }
 
-        public Builder payload(Payload payload) {
-            this.payload = payload;
-            if (payload != null) {
-                // Inherit the payload's content metadata as a starting point;
-                // subsequent content-* setters override individual fields.
-                var pcm = payload.getContentMetadata();
-                contentMetadataBuilder
-                        .cacheControl(pcm.cacheControl())
-                        .contentType(pcm.contentType())
-                        .contentLength(pcm.contentLength())
-                        .contentMD5(pcm.contentMD5())
-                        .contentDisposition(pcm.contentDisposition())
-                        .contentLanguage(pcm.contentLanguage())
-                        .contentEncoding(pcm.contentEncoding())
-                        .expires(pcm.expires());
-            }
+        public Builder payload(InputStream data) {
+            this.payload = Objects.requireNonNull(data, "data");
             return this;
         }
 
-        public Builder payload(InputStream data) {
-            return payload(new InputStreamPayload(
-                    Objects.requireNonNull(data, "data")));
-        }
-
+        /**
+         * Opens {@code data} eagerly and seeds the content length when
+         * known.
+         */
         public Builder payload(ByteSource data) {
-            return payload(new ByteSourcePayload(
-                    Objects.requireNonNull(data, "data")));
+            Objects.requireNonNull(data, "data");
+            try {
+                this.payload = data.openStream();
+            } catch (IOException ioe) {
+                throw new UncheckedIOException(ioe);
+            }
+            Long size = data.sizeIfKnown().orNull();
+            if (size != null) {
+                contentMetadataBuilder.contentLength(size);
+            }
+            return this;
         }
 
         public Builder cacheControl(String cacheControl) {
@@ -224,12 +218,8 @@ public final class Blob {
         }
 
         public Blob build() {
-            var contentMetadata = contentMetadataBuilder.build();
-            metadataBuilder.contentMetadata(contentMetadata);
-            var finalPayload = payload == null ? null :
-                    payload.withContentMetadata(contentMetadata);
-            return new Blob(metadataBuilder.build(), finalPayload,
-                    contentRange);
+            metadataBuilder.contentMetadata(contentMetadataBuilder.build());
+            return new Blob(metadataBuilder.build(), payload, contentRange);
         }
     }
 }

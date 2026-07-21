@@ -393,7 +393,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(blob.getMetadata().name())
                 .getBlockBlobClient();
-        try (var is = blob.getPayload().openStream()) {
+        try (var is = blob.getPayload()) {
             // TODO: Expires?
             var blobHttpHeaders = new BlobHttpHeaders();
             var contentMetadata = blob.getMetadata().getContentMetadata();

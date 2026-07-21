@@ -77,7 +77,7 @@ public final class PrefixBlobStoreTest {
         assertThat(stored).isNotNull();
         assertThat(stored.getMetadata().name()).isEqualTo("object.txt");
         try (InputStream expected = content.openStream();
-             InputStream actual = stored.getPayload().openStream()) {
+             InputStream actual = stored.getPayload()) {
             assertThat(actual).hasSameContentAs(expected);
         }
     }

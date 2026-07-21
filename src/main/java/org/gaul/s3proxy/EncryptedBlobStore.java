@@ -151,7 +151,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         try {
             // open the streams and pass them through the encryption
-            InputStream isRaw = blob.getPayload().openStream();
+            InputStream isRaw = blob.getPayload();
             Encryption encryption =
                 new Encryption(secretKey, isRaw, 1);
             InputStream is = encryption.openStream();
@@ -176,7 +176,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             }
 
             // open the streams and pass them through the decryption
-            InputStream isRaw = blob.getPayload().openStream();
+            InputStream isRaw = blob.getPayload();
             InputStream is = decryption.openStream(isRaw);
 
             // adjust the content length if the blob is encrypted

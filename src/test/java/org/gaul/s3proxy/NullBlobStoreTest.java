@@ -76,7 +76,7 @@ public final class NullBlobStoreTest {
         validateBlobMetadata(blob.getMetadata());
 
         // content differs, only compare length
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             long actualLength = actual.transferTo(
                     OutputStream.nullOutputStream());
@@ -103,7 +103,7 @@ public final class NullBlobStoreTest {
         // bytes=A-B
         GetOptions explicit = GetOptions.builder().range(100, 199).build();
         blob = nullBlobStore.getBlob(containerName, blobName, explicit);
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(100);
         }
@@ -111,7 +111,7 @@ public final class NullBlobStoreTest {
         // bytes=A-
         GetOptions suffix = GetOptions.builder().startAt(500).build();
         blob = nullBlobStore.getBlob(containerName, blobName, suffix);
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(size - 500);
         }
@@ -119,7 +119,7 @@ public final class NullBlobStoreTest {
         // bytes=-N
         GetOptions tail = GetOptions.builder().tail(128).build();
         blob = nullBlobStore.getBlob(containerName, blobName, tail);
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(128);
         }
@@ -170,7 +170,7 @@ public final class NullBlobStoreTest {
         validateBlobMetadata(newBlob.getMetadata());
 
         // content differs, only compare length
-        try (InputStream actual = newBlob.getPayload().openStream();
+        try (InputStream actual = newBlob.getPayload();
                 InputStream expected = byteSource.openStream()) {
             long actualLength = actual.transferTo(
                     OutputStream.nullOutputStream());
@@ -218,7 +218,7 @@ public final class NullBlobStoreTest {
 
         Blob newBlob = nullBlobStore.getBlob(containerName, blobName);
         assertThat(newBlob).isNotNull();
-        try (InputStream actual = newBlob.getPayload().openStream();
+        try (InputStream actual = newBlob.getPayload();
                 InputStream expected = byteSource.openStream()) {
             assertThat(actual.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(expected.transferTo(

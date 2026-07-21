@@ -41,7 +41,7 @@ public class PartPadding {
             throws IOException {
         var partPadding = new PartPadding();
 
-        try (var is = blob.getPayload().openStream()) {
+        try (var is = blob.getPayload()) {
             byte[] paddingBytes = is.readAllBytes();
             ByteBuffer bb = ByteBuffer.wrap(paddingBytes);
 

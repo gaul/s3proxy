@@ -82,13 +82,13 @@ public final class RegexBlobStoreTest {
 
         assertThat(blobMetadata.eTag()).isEqualTo(contentHash);
         blob = regexBlobStore.getBlob(containerName, targetBlobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
 
         blob = regexBlobStore.getBlob(containerName, initialBlobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }

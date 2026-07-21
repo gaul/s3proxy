@@ -155,12 +155,12 @@ public final class ShardedBlobStoreTest {
         shardedBlobStore.putBlob(containerName, blob2);
 
         blob = shardedBlobStore.getBlob(containerName, blobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
         blob2 = shardedBlobStore.getBlob(containerName, blobName2);
-        try (InputStream actual = blob2.getPayload().openStream();
+        try (InputStream actual = blob2.getPayload();
              InputStream expected = content2.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
@@ -208,7 +208,7 @@ public final class ShardedBlobStoreTest {
         this.createContainer(unshardedContainer);
         shardedBlobStore.putBlob(unshardedContainer, blob);
         blob = blobStore.getBlob(unshardedContainer, blobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
@@ -227,7 +227,7 @@ public final class ShardedBlobStoreTest {
                 containerName, blobName, containerName, copyBlobName,
                 CopyOptions.NONE);
         blob = shardedBlobStore.getBlob(containerName, copyBlobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
@@ -247,7 +247,7 @@ public final class ShardedBlobStoreTest {
                 unshardedContainer, blobName, containerName, blobName,
                 CopyOptions.NONE);
         blob = shardedBlobStore.getBlob(containerName, blobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
@@ -267,7 +267,7 @@ public final class ShardedBlobStoreTest {
                 containerName, blobName, unshardedContainer, blobName,
                 CopyOptions.NONE);
         blob = shardedBlobStore.getBlob(unshardedContainer, blobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }

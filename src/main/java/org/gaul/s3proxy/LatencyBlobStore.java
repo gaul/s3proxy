@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
@@ -202,25 +201,15 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     @Override
     public String putBlob(String containerName, Blob blob) {
         simulateLatency(OP_PUT_BLOB);
-        try {
-            InputStream is = blob.getPayload().openStream();
-            Blob newBlob = replaceStream(blob, new ThrottledInputStream(is, getSpeed(OP_PUT_BLOB)));
-            return super.putBlob(containerName, newBlob);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        Blob newBlob = replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_PUT_BLOB)));
+        return super.putBlob(containerName, newBlob);
     }
 
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
         simulateLatency(OP_PUT_BLOB);
-        try {
-            InputStream is = blob.getPayload().openStream();
-            Blob newBlob = replaceStream(blob, new ThrottledInputStream(is, getSpeed(OP_PUT_BLOB)));
-            return super.putBlob(containerName, newBlob);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        Blob newBlob = replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_PUT_BLOB)));
+        return super.putBlob(containerName, newBlob);
     }
 
     @Override
@@ -242,12 +231,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         if (blob == null) {
             return null;
         }
-        try {
-            InputStream is = blob.getPayload().openStream();
-            return replaceStream(blob, new ThrottledInputStream(is, getSpeed(OP_GET_BLOB)));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        return replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_GET_BLOB)));
     }
 
     @Override
@@ -257,12 +241,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         if (blob == null) {
             return null;
         }
-        try {
-            InputStream is = blob.getPayload().openStream();
-            return replaceStream(blob, new ThrottledInputStream(is, getSpeed(OP_GET_BLOB)));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        return replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_GET_BLOB)));
     }
 
     @Override

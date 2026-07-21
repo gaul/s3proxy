@@ -30,7 +30,6 @@ import com.google.common.io.ByteSource;
 import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -89,7 +88,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array;
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             array = is.readAllBytes();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -115,14 +114,10 @@ final class NullBlobStore extends ForwardingBlobStore {
             }
         }
 
-        var contentMetadata = blob.getPayload().getContentMetadata().toBuilder()
+        return blob.toBuilder()
+                .payload(new NullByteSource().slice(0, length))
                 .contentLength(length)
                 .contentMD5(null)
-                .build();
-        var payload = new ByteSourcePayload(
-                new NullByteSource().slice(0, length), contentMetadata);
-        return blob.toBuilder()
-                .payload(payload)
                 .build();
     }
 
@@ -149,22 +144,20 @@ final class NullBlobStore extends ForwardingBlobStore {
     public String putBlob(String containerName, Blob blob,
             PutOptions options) {
         long length;
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             length = is.transferTo(OutputStream.nullOutputStream());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
 
         byte[] array = Longs.toByteArray(length);
-        var contentMetadata = blob.getPayload().getContentMetadata().toBuilder()
-                .contentLength((long) array.length)
-                .contentMD5(null)
-                .build();
-        var payload = new ByteSourcePayload(
-                ByteSource.wrap(array), contentMetadata);
 
         return super.putBlob(containerName,
-                blob.toBuilder().payload(payload).build(), options);
+                blob.toBuilder()
+                        .payload(ByteSource.wrap(array))
+                        .contentMD5(null)
+                        .build(),
+                options);
     }
 
     @Override
@@ -241,7 +234,7 @@ final class NullBlobStore extends ForwardingBlobStore {
             // get real blob size from stub blob
             Blob blob = getBlob(mpu.containerName(),
                     mpu.id() + "-" + part.partNumber());
-            long length = blob.getPayload().getContentMetadata()
+            long length = blob.getMetadata().getContentMetadata()
                     .contentLength();
             builder.add(new MultipartPart(part.partNumber(), length,
                     part.partETag(), part.lastModified()));

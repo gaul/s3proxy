@@ -243,7 +243,7 @@ public final class EventualBlobStoreTest {
         assertThat(blob.getMetadata().userMetadata())
                 .isEqualTo(Map.of("key", "value"));
 
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }

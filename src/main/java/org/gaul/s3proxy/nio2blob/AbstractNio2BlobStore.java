@@ -636,7 +636,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             // Close the streams before doing xattr writes, setBlobAccess,
             // and Files.move: Windows refuses to atomically move a file
             // that still has an open OutputStream.
-            try (var is = new HashingInputStream(md5, blob.getPayload().openStream());
+            try (var is = new HashingInputStream(md5, blob.getPayload());
                  var os = Files.newOutputStream(tmpPath)) {
                 is.transferTo(os);
                 actualHashCode = is.hash();
@@ -710,7 +710,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         // Evaluate preconditions inside the try-with-resources so that a
         // failing check still closes the file InputStream returned by
         // getBlob.
-        try (var is = blob.getPayload().openStream()) {
+        try (var is = blob.getPayload()) {
             var eTag = blob.getMetadata().eTag();
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
@@ -1214,7 +1214,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 throw new IOException("Part disappeared: " +
                         meta.getContainer() + "/" + meta.name());
             }
-            return blob.getPayload().openStream();
+            return blob.getPayload();
         }
 
         @Override

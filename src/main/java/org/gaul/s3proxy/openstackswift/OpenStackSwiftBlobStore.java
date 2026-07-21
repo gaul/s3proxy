@@ -677,7 +677,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             swiftOptions.metadata(userMetadata);
         }
         String etag;
-        try (var is = blob.getPayload().openStream()) {
+        try (var is = blob.getPayload()) {
             etag = swift.objects().put(container,
                     encodeName(metadata.name()), Payloads.create(is),
                     swiftOptions);

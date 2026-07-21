@@ -246,7 +246,7 @@ public final class LatencyBlobStoreTest {
     }
 
     private static void consume(Blob blob) {
-        try (InputStream stream = blob.getPayload().openStream()) {
+        try (InputStream stream = blob.getPayload()) {
             stream.readAllBytes();
         } catch (IOException ioe) {
             // Ignore

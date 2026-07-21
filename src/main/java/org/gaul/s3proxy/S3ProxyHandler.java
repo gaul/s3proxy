@@ -2199,7 +2199,7 @@ public class S3ProxyHandler {
             response.addHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
         }
 
-        try (InputStream is = blob.getPayload().openStream();
+        try (InputStream is = blob.getPayload();
              OutputStream os = response.getOutputStream()) {
             is.transferTo(os);
             os.flush();
@@ -2791,7 +2791,9 @@ public class S3ProxyHandler {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             blobStore.putBlob(containerName,
-                    builder.name(multipartStubName(mpu.id())).build(),
+                    builder.name(multipartStubName(mpu.id()))
+                            .payload(payload)
+                            .build(),
                     options);
         }
 
@@ -3449,7 +3451,7 @@ public class S3ProxyHandler {
             // payload's open backend stream; the happy-path try-with-resources
             // below closes it only once reached.
             try {
-                blob.getPayload().openStream().close();
+                blob.getPayload().close();
             } catch (IOException ioe) {
                 // The stream is being abandoned; ignore close failures.
             }
@@ -3459,7 +3461,7 @@ public class S3ProxyHandler {
         long contentLength =
                 blobMetadata.getContentMetadata().contentLength();
 
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             MultipartPart part = blobStore.uploadMultipartPart(mpu,
                     partNumber, is, contentLength, null);
             eTag = part.partETag();

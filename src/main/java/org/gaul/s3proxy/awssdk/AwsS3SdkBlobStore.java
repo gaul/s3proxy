@@ -522,7 +522,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.ifNoneMatch(maybeStripETagQuotes(ifNoneMatch));
         }
 
-        try (InputStream is = blob.getPayload().openStream()) {
+        try (InputStream is = blob.getPayload()) {
             Long contentLength = contentMetadata.contentLength();
             if (contentLength == null) {
                 // Mimic S3 behavior: Reject unknown length instead of crashing memory

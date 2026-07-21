@@ -119,7 +119,7 @@ public final class AliasBlobStoreTest {
                 aliasContainerName, blobName);
         assertThat(blobMetadata.eTag()).isEqualTo(contentMD5);
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
@@ -148,7 +148,7 @@ public final class AliasBlobStoreTest {
         assertThat(mpuETag).isEqualTo(
                 "\"%s-1\"".formatted(contentHash2));
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
-        try (InputStream actual = blob.getPayload().openStream();
+        try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
