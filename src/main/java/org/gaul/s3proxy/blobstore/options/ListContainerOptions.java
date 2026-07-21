@@ -27,8 +27,7 @@ public record ListContainerOptions(
         @Nullable String marker,
         @Nullable String delimiter,
         @Nullable String prefix,
-        boolean recursive,
-        boolean detailed) {
+        boolean recursive) {
 
     public static final ListContainerOptions NONE = builder().build();
 
@@ -42,8 +41,7 @@ public record ListContainerOptions(
                 .afterMarker(marker)
                 .delimiter(delimiter)
                 .prefix(prefix)
-                .recursive(recursive)
-                .detailed(detailed);
+                .recursive(recursive);
     }
 
     public static final class Builder {
@@ -52,7 +50,6 @@ public record ListContainerOptions(
         private @Nullable String delimiter;
         private @Nullable String prefix;
         private boolean recursive;
-        private boolean detailed;
 
         public Builder maxResults(@Nullable Integer maxResults) {
             if (maxResults != null) {
@@ -87,14 +84,9 @@ public record ListContainerOptions(
             return this;
         }
 
-        public Builder detailed(boolean detailed) {
-            this.detailed = detailed;
-            return this;
-        }
-
         public ListContainerOptions build() {
             return new ListContainerOptions(maxResults, marker, delimiter,
-                    prefix, recursive, detailed);
+                    prefix, recursive);
         }
     }
 }

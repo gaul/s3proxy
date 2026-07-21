@@ -336,11 +336,6 @@ public final class EncryptedBlobStoreTest {
         StorageMetadata metadata = blobs.iterator().next();
         assertThat((long) content.length()).isEqualTo(metadata.getSize());
 
-        var options = ListContainerOptions.builder().detailed(true).build();
-        blobs = encryptedBlobStore.list(containerName, options);
-        metadata = blobs.iterator().next();
-        assertThat((long) content.length()).isEqualTo(metadata.getSize());
-
         blobs = encryptedBlobStore.list();
         metadata = blobs.iterator().next();
         assertThat(StorageType.CONTAINER).isEqualTo(metadata.getType());
