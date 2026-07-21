@@ -982,12 +982,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         return 5L * 1024 * 1024;
     }
 
-    @Override
-    public long getMaximumMultipartPartSize() {
-        // S3 maximum part size is 5GB
-        return 5L * 1024 * 1024 * 1024;
-    }
-
     private static List<MultipartPart> sortAndValidateParts(
             List<MultipartPart> parts) {
         if (parts == null || parts.isEmpty()) {

@@ -108,6 +108,4 @@ public interface BlobStore extends AutoCloseable {
     List<MultipartUpload> listMultipartUploads(String container);
 
     long getMinimumMultipartPartSize();
-
-    long getMaximumMultipartPartSize();
 }

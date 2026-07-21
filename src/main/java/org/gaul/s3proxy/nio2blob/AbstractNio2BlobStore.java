@@ -1109,11 +1109,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         return 1;
     }
 
-    @Override
-    public final long getMaximumMultipartPartSize() {
-        return 100 * 1024 * 1024;
-    }
-
    /**
     * Read the String representation of a filesystem attribute, or return null
     * if not present.

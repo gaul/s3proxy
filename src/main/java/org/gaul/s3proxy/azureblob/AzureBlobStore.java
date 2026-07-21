@@ -98,6 +98,8 @@ import reactor.core.publisher.Flux;
 
 public final class AzureBlobStore extends BaseBlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
+    private static final long MAXIMUM_MULTIPART_PART_SIZE =
+            4000L * 1024 * 1024;
     private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
     private static final HashFunction MD5 = Hashing.md5();
     // Disable retries since client should retry on errors.
@@ -957,10 +959,10 @@ public final class AzureBlobStore extends BaseBlobStore {
                     "Content-Length must be non-negative, got: " + contentLength);
         }
 
-        if (contentLength > getMaximumMultipartPartSize()) {
+        if (contentLength > MAXIMUM_MULTIPART_PART_SIZE) {
             throw new IllegalArgumentException(
-                    "Part size exceeds maximum of " + getMaximumMultipartPartSize() +
-                    " bytes: " + contentLength);
+                    "Part size exceeds maximum of " +
+                    MAXIMUM_MULTIPART_PART_SIZE + " bytes: " + contentLength);
         }
 
         String uploadKey = mpu.id();
@@ -1117,11 +1119,6 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public long getMinimumMultipartPartSize() {
         return 1;
-    }
-
-    @Override
-    public long getMaximumMultipartPartSize() {
-        return 4000L * 1024 * 1024;
     }
 
     private static OffsetDateTime toOffsetDateTime(@Nullable Date date) {

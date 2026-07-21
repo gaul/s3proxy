@@ -850,10 +850,4 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
         return blobMetadata;
     }
-
-    @Override
-    public long getMaximumMultipartPartSize() {
-        long max = delegate().getMaximumMultipartPartSize();
-        return max - Constants.PADDING_BLOCK_SIZE;
-    }
 }

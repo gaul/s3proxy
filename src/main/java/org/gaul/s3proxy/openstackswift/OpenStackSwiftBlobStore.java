@@ -1157,11 +1157,6 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         return 1;
     }
 
-    @Override
-    public long getMaximumMultipartPartSize() {
-        return 5L * 1024 * 1024 * 1024;
-    }
-
     private static String mpuSegmentPrefix(String uploadId) {
         return MPU_PREFIX + uploadId + "/";
     }

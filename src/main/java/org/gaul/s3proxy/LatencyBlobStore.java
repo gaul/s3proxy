@@ -337,12 +337,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         return super.getMinimumMultipartPartSize();
     }
 
-    @Override
-    public long getMaximumMultipartPartSize() {
-        simulateLatency(OP_MULTIPART_PARAM);
-        return super.getMaximumMultipartPartSize();
-    }
-
     private long getLatency(String op) {
         return latencies.getOrDefault(op, latencies.getOrDefault(OP_ALL, 0L));
     }

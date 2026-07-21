@@ -1143,11 +1143,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
         return 5L * 1024 * 1024;
     }
 
-    @Override
-    public long getMaximumMultipartPartSize() {
-        return 5L * 1024 * 1024 * 1024;
-    }
-
     private static String makePartBlobName(String nonce, int partNumber) {
         return STUB_BLOB_PREFIX + nonce +
                 "/part_%05d".formatted(partNumber);

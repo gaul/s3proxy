@@ -215,9 +215,4 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public long getMinimumMultipartPartSize() {
         return delegate().getMinimumMultipartPartSize();
     }
-
-    @Override
-    public long getMaximumMultipartPartSize() {
-        return delegate().getMaximumMultipartPartSize();
-    }
 }
