@@ -286,10 +286,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             } catch (BlobStorageException bse) {
                 throw translate(bse, container, key);
             }
-            var response = HttpResponse.builder()
-                    .statusCode(412)
-                    .build();
-            throw new HttpResponseException(response);
+            throw new HttpResponseException(new HttpResponse(412));
         }
         BlobRange azureRange = null;
         if (!options.ranges().isEmpty()) {
@@ -334,9 +331,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             if (bse.getStatusCode() ==
                     416) {
                 throw new HttpResponseException(
-                        "illegal range: " + azureRange, HttpResponse.builder()
-                        .statusCode(416)
-                        .build());
+                        "illegal range: " + azureRange, new HttpResponse(416));
             }
             throw translate(bse, container, key);
         }
@@ -1206,30 +1201,18 @@ public final class AzureBlobStore extends BaseBlobStore {
         } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET) ||
                 code.equals(BlobErrorCode.SOURCE_CONDITION_NOT_MET) ||
                 code.equals(BlobErrorCode.TARGET_CONDITION_NOT_MET)) {
-            var response = HttpResponse.builder()
-                    .statusCode(412)
-                    .build();
-            return new HttpResponseException(response, bse);
+            return new HttpResponseException(new HttpResponse(412), bse);
         } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
-            var response = HttpResponse.builder()
-                    .statusCode(412)
-                    .build();
-            return new HttpResponseException(response, bse);
+            return new HttpResponseException(new HttpResponse(412), bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
-            var response = HttpResponse.builder()
-                    .statusCode(400)
-                    .build();
-            return new HttpResponseException(response, bse);
+            return new HttpResponseException(new HttpResponse(400), bse);
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);
         } else if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
             // Surface a permission failure as 403 AccessDenied rather than a
             // generic 500.
-            var response = HttpResponse.builder()
-                    .statusCode(403)
-                    .build();
-            return new HttpResponseException(response, bse);
+            return new HttpResponseException(new HttpResponse(403), bse);
         }
         return bse;
     }

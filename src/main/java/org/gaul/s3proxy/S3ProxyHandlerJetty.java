@@ -85,7 +85,7 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             return;
         } catch (HttpResponseException hre) {
             HttpResponse hr = hre.getResponse();
-            String eTag = hr.firstHeaderOrNull(HttpHeaders.ETAG);
+            String eTag = hr.eTag();
             if (eTag != null) {
                 response.setHeader(HttpHeaders.ETAG, eTag);
             }

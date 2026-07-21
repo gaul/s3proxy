@@ -48,7 +48,6 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
-import com.google.common.net.HttpHeaders;
 import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BaseBlobStore;
@@ -463,47 +462,33 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 ifMatch = null;
             }
             if ("*".equals(ifNoneMatch)) {
-                HttpResponse.Builder response = HttpResponse.builder().statusCode(304);
-                if (eTag != null) {
-                    response.addHeader(HttpHeaders.ETAG, eTag);
-                }
-                throw new HttpResponseException(response.build());
+                throw new HttpResponseException(new HttpResponse(304, eTag));
             }
             if (eTag != null) {
                 if (ifMatch != null) {
                     if (!eTag.equals(maybeQuoteETag(ifMatch))) {
-                        HttpResponse response = HttpResponse.builder().statusCode(412).addHeader(HttpHeaders.ETAG, eTag).build();
-                        throw new HttpResponseException(response);
+                        throw new HttpResponseException(
+                                new HttpResponse(412, eTag));
                     }
                 }
                 if (ifNoneMatch != null) {
                     if (eTag.equals(maybeQuoteETag(ifNoneMatch))) {
-                        HttpResponse response = HttpResponse.builder().statusCode(304).addHeader(HttpHeaders.ETAG, eTag).build();
-                        throw new HttpResponseException(response);
+                        throw new HttpResponseException(
+                                new HttpResponse(304, eTag));
                     }
                 }
             }
             if (options.ifModifiedSince() != null) {
                 Date modifiedSince = options.ifModifiedSince();
                 if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
-                    @SuppressWarnings("rawtypes")
-                    HttpResponse.Builder response = HttpResponse.builder().statusCode(304);
-                    if (eTag != null) {
-                        response.addHeader(HttpHeaders.ETAG, eTag);
-                    }
-                    throw new HttpResponseException("%1$s is before %2$s".formatted(lastModifiedTime, modifiedSince), response.build());
+                    throw new HttpResponseException("%1$s is before %2$s".formatted(lastModifiedTime, modifiedSince), new HttpResponse(304, eTag));
                 }
 
             }
             if (options.ifUnmodifiedSince() != null) {
                 Date unmodifiedSince = options.ifUnmodifiedSince();
                 if (lastModifiedTime.after(unmodifiedSince)) {
-                    @SuppressWarnings("rawtypes")
-                    HttpResponse.Builder response = HttpResponse.builder().statusCode(412);
-                    if (eTag != null) {
-                        response.addHeader(HttpHeaders.ETAG, eTag);
-                    }
-                    throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), response.build());
+                    throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), new HttpResponse(412, eTag));
                 }
             }
 
@@ -522,7 +507,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 if (hasRange) {
                     var range = options.ranges().get(0);
                     if (!range.contains("-")) {
-                        throw new HttpResponseException("illegal range: " + range, HttpResponse.builder().statusCode(416).build());
+                        throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
                     }
                     // HTTP uses a closed interval while Java array indexing uses a
                     // half-open interval.
@@ -540,11 +525,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                             last = Long.parseLong(firstLast[1]);
                         }
                     } catch (NumberFormatException nfe) {
-                        throw new HttpResponseException("illegal range: " + range, HttpResponse.builder().statusCode(416).build());
+                        throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
                     }
 
                     if (offset >= size || offset > last) {
-                        throw new HttpResponseException("illegal range: " + range, HttpResponse.builder().statusCode(416).build());
+                        throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
                     }
                     if (last + 1 > size) {
                         last = size - 1;
@@ -1244,8 +1229,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     private static HttpResponseException returnResponseException(int code) {
-        return new HttpResponseException(
-                HttpResponse.builder().statusCode(code).build());
+        return new HttpResponseException(new HttpResponse(code));
     }
 
     private static String maybeQuoteETag(String eTag) {

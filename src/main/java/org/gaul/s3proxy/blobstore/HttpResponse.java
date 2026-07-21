@@ -17,52 +17,11 @@
 
 package org.gaul.s3proxy.blobstore;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.Multimap;
-
 import org.jspecify.annotations.Nullable;
 
-public record HttpResponse(int statusCode, Multimap<String, String> headers) {
+public record HttpResponse(int statusCode, @Nullable String eTag) {
 
-    public @Nullable String firstHeaderOrNull(String name) {
-        for (Map.Entry<String, String> entry : headers.entries()) {
-            if (entry.getKey().equalsIgnoreCase(name)) {
-                return entry.getValue();
-            }
-        }
-        return null;
-    }
-
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public static final class Builder {
-        private int statusCode;
-        private final Map<String, List<String>> headers = new LinkedHashMap<>();
-
-        public Builder statusCode(int statusCode) {
-            this.statusCode = statusCode;
-            return this;
-        }
-
-        public Builder addHeader(String name, String value) {
-            headers.computeIfAbsent(name, k -> new ArrayList<>()).add(value);
-            return this;
-        }
-
-        public HttpResponse build() {
-            ImmutableMultimap.Builder<String, String> b =
-                    ImmutableMultimap.builder();
-            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-                b.putAll(entry.getKey(), entry.getValue());
-            }
-            return new HttpResponse(statusCode, b.build());
-        }
+    public HttpResponse(int statusCode) {
+        this(statusCode, null);
     }
 }

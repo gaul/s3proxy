@@ -586,12 +586,9 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             // reports a bare MD5 digest, so quote it as S3 clients expect (the
             // raw header is copied through verbatim, matching how jclouds-native
             // backends surface the validator).
-            var failure = HttpResponse.builder().statusCode(status);
-            if (etag != null) {
-                failure.addHeader(HttpHeaders.ETAG, maybeQuoteETag(etag));
-            }
             throw new HttpResponseException("unexpected status: " + status,
-                    failure.build());
+                    new HttpResponse(status,
+                            etag == null ? null : maybeQuoteETag(etag)));
         }
 
         var userMetadata = ImmutableMap.<String, String>builder();
@@ -700,8 +697,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             }
             if (contentMD5 != null) {
                 throw new HttpResponseException("Content-MD5 mismatch",
-                        HttpResponse.builder().statusCode(STATUS_BAD_REQUEST)
-                                .build());
+                        new HttpResponse(STATUS_BAD_REQUEST));
             }
             throw new RuntimeException(
                     "could not write object " + metadata.getName());
@@ -752,9 +748,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
     private static HttpResponseException preconditionFailed() {
         return new HttpResponseException("copy source precondition failed",
-                HttpResponse.builder()
-                        .statusCode(412)
-                        .build());
+                new HttpResponse(412));
     }
 
     @Override
@@ -1326,12 +1320,11 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             // The fork has no AuthorizationException; a 403 HttpResponseException
             // is mapped to AccessDenied by S3ProxyHandler.
             return new HttpResponseException(
-                    HttpResponse.builder().statusCode(STATUS_FORBIDDEN).build(),
-                    cause);
+                    new HttpResponse(STATUS_FORBIDDEN), cause);
         } else if (status == STATUS_PRECONDITION_FAILED ||
                 status == STATUS_RANGE_NOT_SATISFIABLE) {
             return new HttpResponseException(
-                    HttpResponse.builder().statusCode(status).build(), cause);
+                    new HttpResponse(status), cause);
         }
         if (cause instanceof RuntimeException runtime) {
             return runtime;

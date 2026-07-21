@@ -445,13 +445,10 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
             if (e.statusCode() == 304) {
-                var responseBuilder = HttpResponse.builder()
-                        .statusCode(304);
-
-                e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader("ETag")
-                        .ifPresent(etag -> responseBuilder.addHeader(HttpHeaders.ETAG, etag));
-
-                throw new HttpResponseException(responseBuilder.build(), e);
+                String eTag = e.awsErrorDetails().sdkHttpResponse()
+                        .firstMatchingHeader(HttpHeaders.ETAG).orElse(null);
+                throw new HttpResponseException(
+                        new HttpResponse(304, eTag), e);
             }
             throw translate(e, container, key);
         }
@@ -1078,15 +1075,12 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
                 return new ContainerNotFoundException(container, e.getMessage());
             }
         }
-        var responseBuilder = HttpResponse.builder()
-                .statusCode(e.statusCode());
-
-        if (e.statusCode() == 304) {
-            e.awsErrorDetails().sdkHttpResponse().firstMatchingHeader(HttpHeaders.ETAG)
-                    .ifPresent(etag -> responseBuilder.addHeader(HttpHeaders.ETAG, etag));
-        }
-
-        return new HttpResponseException(responseBuilder.build(), e);
+        String eTag = e.statusCode() == 304 ?
+                e.awsErrorDetails().sdkHttpResponse()
+                        .firstMatchingHeader(HttpHeaders.ETAG).orElse(null) :
+                null;
+        return new HttpResponseException(
+                new HttpResponse(e.statusCode(), eTag), e);
     }
 
     /**
@@ -1131,8 +1125,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     }
 
     private HttpResponseException preconditionFailed() {
-        return new HttpResponseException(
-                HttpResponse.builder().statusCode(412).build());
+        return new HttpResponseException(new HttpResponse(412));
     }
 
     private KeyNotFoundException keyNotFound(String container, String key) {

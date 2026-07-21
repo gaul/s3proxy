@@ -58,7 +58,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
-import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.blobstore.BaseBlobStore;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
@@ -1252,10 +1251,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
     // 400 -> BadDigest, 412 -> PreconditionFailed, 416 -> InvalidRange).
     private static HttpResponseException httpResponseException(int statusCode,
             Throwable cause) {
-        var response = HttpResponse.builder()
-                .statusCode(statusCode)
-                .build();
-        return new HttpResponseException(response, cause);
+        return new HttpResponseException(new HttpResponse(statusCode), cause);
     }
 
     // Build a 412 for a failed conditional-GET precondition, echoing the
@@ -1263,11 +1259,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
     // response (required by RFC 7232).
     private static HttpResponseException preconditionFailed(
             @Nullable String eTag) {
-        var response = HttpResponse.builder()
-                .statusCode(412);
-        if (eTag != null) {
-            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
-        }
-        return new HttpResponseException(response.build());
+        return new HttpResponseException(new HttpResponse(412,
+                eTag == null ? null : maybeQuoteETag(eTag)));
     }
 }
