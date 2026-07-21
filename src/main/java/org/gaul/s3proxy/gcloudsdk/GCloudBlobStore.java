@@ -146,11 +146,8 @@ public final class GCloudBlobStore extends BaseBlobStore {
     public PageSet<? extends StorageMetadata> list() {
         var set = ImmutableSet.<StorageMetadata>builder();
         for (Bucket bucket : storage.list().iterateAll()) {
-            set.add(new ContainerMetadata(bucket.getName(), Map.of(),
-                    /*eTag=*/ null,
-                    toDate(bucket.getCreateTimeOffsetDateTime()),
-                    toDate(bucket.getUpdateTimeOffsetDateTime()),
-                    /*size=*/ null, StorageClass.STANDARD));
+            set.add(new ContainerMetadata(bucket.getName(),
+                    toDate(bucket.getCreateTimeOffsetDateTime())));
         }
         return new PageSet<StorageMetadata>(set.build(), null);
     }

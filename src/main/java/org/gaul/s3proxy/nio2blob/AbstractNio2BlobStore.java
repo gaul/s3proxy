@@ -127,13 +127,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             for (var path : stream) {
                 var attr = Files.readAttributes(path,
                         BasicFileAttributes.class);
-                var lastModifiedTime = new Date(
-                        attr.lastModifiedTime().toMillis());
                 var creationTime = new Date(attr.creationTime().toMillis());
                 set.add(new ContainerMetadata(
-                        path.getFileName().toString(),
-                        Map.of(), /*eTag=*/ null, creationTime,
-                        lastModifiedTime, /*size=*/ null, StorageClass.STANDARD));
+                        path.getFileName().toString(), creationTime));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);

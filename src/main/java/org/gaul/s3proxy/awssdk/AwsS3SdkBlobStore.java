@@ -187,10 +187,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         try {
             var set = ImmutableSet.<StorageMetadata>builder();
             for (Bucket bucket : s3Client.listBuckets().buckets()) {
-                set.add(new ContainerMetadata(bucket.name(), Map.of(),
-                        /*eTag=*/ null, toDate(bucket.creationDate()),
-                        toDate(bucket.creationDate()),
-                        /*size=*/ null, StorageClass.STANDARD));
+                set.add(new ContainerMetadata(bucket.name(),
+                        toDate(bucket.creationDate())));
             }
             return new PageSet<StorageMetadata>(set.build(), null);
         } catch (S3Exception e) {

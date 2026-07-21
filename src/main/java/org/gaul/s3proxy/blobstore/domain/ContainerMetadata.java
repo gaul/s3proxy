@@ -18,23 +18,13 @@
 package org.gaul.s3proxy.blobstore.domain;
 
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
 
-/**
- * Immutable metadata for a top-level container. Use {@link #builder} or
- * {@link #toBuilder} to construct or modify.
- */
-public record ContainerMetadata(
-        String name,
-        Map<String, String> userMetadata,
-        @Nullable String eTag,
-        @Nullable Date creationDate,
-        @Nullable Date lastModified,
-        @Nullable Long size,
-        StorageClass storageClass) implements StorageMetadata {
+/** Immutable metadata for a top-level container. */
+public record ContainerMetadata(String name, @Nullable Date creationDate)
+        implements StorageMetadata {
 
     @Override
     public StorageType getType() {
@@ -48,12 +38,12 @@ public record ContainerMetadata(
 
     @Override
     public Map<String, String> getUserMetadata() {
-        return userMetadata;
+        return Map.of();
     }
 
     @Override
     public @Nullable String getETag() {
-        return eTag;
+        return null;
     }
 
     @Override
@@ -63,86 +53,16 @@ public record ContainerMetadata(
 
     @Override
     public @Nullable Date getLastModified() {
-        return lastModified;
+        return null;
     }
 
     @Override
     public @Nullable Long getSize() {
-        return size;
+        return null;
     }
 
     @Override
     public StorageClass getStorageClass() {
-        return storageClass;
-    }
-
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public Builder toBuilder() {
-        return builder()
-                .name(name)
-                .userMetadata(userMetadata)
-                .eTag(eTag)
-                .creationDate(creationDate)
-                .lastModified(lastModified)
-                .size(size)
-                .storageClass(storageClass);
-    }
-
-    public static final class Builder {
-        private String name;
-        private Map<String, String> userMetadata = new LinkedHashMap<>();
-        private @Nullable String eTag;
-        private @Nullable Date creationDate;
-        private @Nullable Date lastModified;
-        private @Nullable Long size;
-        private StorageClass storageClass = StorageClass.STANDARD;
-
-        private Builder() {
-        }
-
-        public Builder name(String name) {
-            this.name = name;
-            return this;
-        }
-
-        public Builder userMetadata(Map<String, String> userMetadata) {
-            this.userMetadata = userMetadata != null ?
-                    new LinkedHashMap<>(userMetadata) :
-                    new LinkedHashMap<>();
-            return this;
-        }
-
-        public Builder eTag(@Nullable String eTag) {
-            this.eTag = eTag;
-            return this;
-        }
-
-        public Builder creationDate(@Nullable Date creationDate) {
-            this.creationDate = creationDate;
-            return this;
-        }
-
-        public Builder lastModified(@Nullable Date lastModified) {
-            this.lastModified = lastModified;
-            return this;
-        }
-
-        public Builder size(@Nullable Long size) {
-            this.size = size;
-            return this;
-        }
-
-        public Builder storageClass(StorageClass storageClass) {
-            this.storageClass = storageClass;
-            return this;
-        }
-
-        public ContainerMetadata build() {
-            return new ContainerMetadata(name, userMetadata, eTag,
-                    creationDate, lastModified, size, storageClass);
-        }
+        return StorageClass.STANDARD;
     }
 }

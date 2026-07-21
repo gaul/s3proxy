@@ -193,9 +193,9 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                         .name(trimPrefix(container, blobMetadata.getName()))
                         .build());
             } else if (metadata instanceof ContainerMetadata cm) {
-                builder.add(cm.toBuilder()
-                        .name(trimPrefix(container, cm.getName()))
-                        .build());
+                builder.add(new ContainerMetadata(
+                        trimPrefix(container, cm.getName()),
+                        cm.getCreationDate()));
             }
         }
         String nextMarker = listing.getNextMarker();

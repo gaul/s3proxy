@@ -303,17 +303,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             }
             if (!virtualBuckets.contains(prefix)) {
                 virtualBuckets.add(prefix);
-                results.add(ContainerMetadata.builder()
-                        .creationDate(sm.getCreationDate())
-                        .eTag(sm.getETag())
-                        .lastModified(sm.getLastModified())
-                        .name(virtualBucketName)
-                        .size(sm.getSize())
-                        .storageClass(sm.getStorageClass())
-                        // copy the user metadata from the first shard as
-                        // part of the response
-                        .userMetadata(sm.getUserMetadata())
-                        .build());
+                results.add(new ContainerMetadata(virtualBucketName,
+                        sm.getCreationDate()));
             }
         }
         return new PageSet<>(results.build(), upstream.getNextMarker());

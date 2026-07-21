@@ -142,15 +142,9 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         var results = new ImmutableList.Builder<StorageMetadata>();
         for (StorageMetadata sm : upstream) {
             if (aliases.containsValue(sm.getName())) {
-                results.add(ContainerMetadata.builder()
-                        .name(aliases.inverse().get(sm.getName()))
-                        .creationDate(sm.getCreationDate())
-                        .eTag(sm.getETag())
-                        .lastModified(sm.getLastModified())
-                        .size(sm.getSize())
-                        .storageClass(sm.getStorageClass())
-                        .userMetadata(sm.getUserMetadata())
-                        .build());
+                results.add(new ContainerMetadata(
+                        aliases.inverse().get(sm.getName()),
+                        sm.getCreationDate()));
             } else {
                 results.add(sm);
             }

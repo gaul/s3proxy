@@ -209,10 +209,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         var swift = objectStorage();
         var set = ImmutableSet.<StorageMetadata>builder();
         for (var container : swift.containers().list()) {
-            set.add(new ContainerMetadata(container.getName(), Map.of(),
-                    /*eTag=*/ null, /*creationDate=*/ null,
-                    /*lastModified=*/ null, /*size=*/ null,
-                    StorageClass.STANDARD));
+            set.add(new ContainerMetadata(container.getName(),
+                    /*creationDate=*/ null));
         }
         return new PageSet<StorageMetadata>(set.build(), null);
     }

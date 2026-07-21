@@ -33,7 +33,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
@@ -133,8 +132,8 @@ final class NullBlobStore extends ForwardingBlobStore {
         for (StorageMetadata sm : pageSet) {
             if (sm instanceof BlobMetadata bm) {
                 builder.add(bm.toBuilder().contentLength(0L).build());
-            } else if (sm instanceof ContainerMetadata cm) {
-                builder.add(cm.toBuilder().size(0L).build());
+            } else {
+                builder.add(sm);
             }
         }
         return new PageSet<>(builder.build(), pageSet.getNextMarker());

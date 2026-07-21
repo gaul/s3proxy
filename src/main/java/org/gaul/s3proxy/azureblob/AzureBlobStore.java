@@ -146,10 +146,8 @@ public final class AzureBlobStore extends BaseBlobStore {
     public PageSet<? extends StorageMetadata> list() {
         var set = ImmutableSet.<StorageMetadata>builder();
         for (var container : blobServiceClient.listBlobContainers()) {
-            set.add(new ContainerMetadata(container.getName(), Map.of(),
-                    /*eTag=*/ null, /*creationDate=*/ null,
-                    toDate(container.getProperties().getLastModified()),
-                    /*size=*/ null, StorageClass.STANDARD));
+            set.add(new ContainerMetadata(container.getName(),
+                    /*creationDate=*/ null));
         }
         return new PageSet<StorageMetadata>(set.build(), null);
     }

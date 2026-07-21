@@ -244,9 +244,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 // sizes: a per-entry backend call is an N+1 too slow for
                 // listings.
                 if (sm instanceof ContainerMetadata cm) {
-                    builder.add(cm.toBuilder()
-                            .name(removeEncryptedSuffix(sm.getName()))
-                            .build());
+                    builder.add(new ContainerMetadata(
+                            removeEncryptedSuffix(cm.getName()),
+                            cm.getCreationDate()));
                 } else {
                     builder.add(sm);
                 }
