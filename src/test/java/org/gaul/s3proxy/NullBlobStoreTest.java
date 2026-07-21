@@ -37,6 +37,7 @@ import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -91,6 +92,11 @@ public final class NullBlobStoreTest {
         StorageMetadata sm = pageSet.iterator().next();
         assertThat(sm.name()).isEqualTo(blobName);
         assertThat(sm.size()).isEqualTo(0);
+
+        // the canonical overload which S3ProxyHandler calls also zeroes sizes
+        pageSet = nullBlobStore.list(containerName, ListContainerOptions.NONE);
+        assertThat(pageSet).hasSize(1);
+        assertThat(pageSet.iterator().next().size()).isEqualTo(0);
     }
 
     @Test

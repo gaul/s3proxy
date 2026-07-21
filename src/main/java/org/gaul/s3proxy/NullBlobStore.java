@@ -38,6 +38,7 @@ import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
@@ -123,8 +124,15 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     public PageSet<? extends StorageMetadata> list(String container) {
+        return list(container, ListContainerOptions.NONE);
+    }
+
+    @Override
+    public PageSet<? extends StorageMetadata> list(String container,
+            ListContainerOptions options) {
         var builder = ImmutableSet.<StorageMetadata>builder();
-        PageSet<? extends StorageMetadata> pageSet = super.list(container);
+        PageSet<? extends StorageMetadata> pageSet = super.list(container,
+                options);
         for (StorageMetadata sm : pageSet) {
             if (sm instanceof BlobMetadata bm) {
                 builder.add(bm.toBuilder().contentLength(0L).build());
