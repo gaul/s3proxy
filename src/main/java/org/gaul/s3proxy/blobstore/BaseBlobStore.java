@@ -50,7 +50,7 @@ public abstract class BaseBlobStore implements BlobStore {
         while (true) {
             PageSet<? extends StorageMetadata> page = list(containerName, opts);
             for (StorageMetadata sm : page) {
-                String name = sm.getName();
+                String name = sm.name();
                 if (name != null) {
                     removeBlob(containerName, name);
                 }

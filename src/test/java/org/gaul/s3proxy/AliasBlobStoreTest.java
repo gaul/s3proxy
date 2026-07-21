@@ -88,7 +88,7 @@ public final class AliasBlobStoreTest {
         createContainer(regularContainer);
         PageSet<? extends StorageMetadata> listing = aliasBlobStore.list();
         assertThat(listing.size()).isEqualTo(1);
-        assertThat(listing.iterator().next().getName()).isEqualTo(
+        assertThat(listing.iterator().next().name()).isEqualTo(
                 regularContainer);
     }
 
@@ -97,11 +97,11 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         PageSet<? extends StorageMetadata> listing = aliasBlobStore.list();
         assertThat(listing.size()).isEqualTo(1);
-        assertThat(listing.iterator().next().getName()).isEqualTo(
+        assertThat(listing.iterator().next().name()).isEqualTo(
                 aliasContainerName);
         listing = blobStore.list();
         assertThat(listing.size()).isEqualTo(1);
-        assertThat(listing.iterator().next().getName()).isEqualTo(
+        assertThat(listing.iterator().next().name()).isEqualTo(
                 containerName);
     }
 
@@ -118,7 +118,7 @@ public final class AliasBlobStoreTest {
         assertThat(eTag).isEqualTo(contentMD5);
         BlobMetadata blobMetadata = aliasBlobStore.blobMetadata(
                 aliasContainerName, blobName);
-        assertThat(blobMetadata.getETag()).isEqualTo(contentMD5);
+        assertThat(blobMetadata.eTag()).isEqualTo(contentMD5);
         blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {

@@ -331,7 +331,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         }
 
         String nextMarker = more && !visible.isEmpty() ?
-                visible.get(visible.size() - 1).getName() : null;
+                visible.get(visible.size() - 1).name() : null;
         return new PageSet<StorageMetadata>(
                 ImmutableSet.copyOf(visible), nextMarker);
     }
@@ -671,17 +671,17 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             swiftOptions.getOptions().put(HttpHeaders.ETAG,
                     contentMD5.toString());
         }
-        var userMetadata = metadata.getUserMetadata();
+        var userMetadata = metadata.userMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             swiftOptions.metadata(userMetadata);
         }
         String etag;
         try (var is = blob.getPayload().openStream()) {
             etag = swift.objects().put(container,
-                    encodeName(metadata.getName()), Payloads.create(is),
+                    encodeName(metadata.name()), Payloads.create(is),
                     swiftOptions);
         } catch (ResponseException re) {
-            throw translate(re, container, metadata.getName());
+            throw translate(re, container, metadata.name());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -698,7 +698,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                         new HttpResponse(STATUS_BAD_REQUEST));
             }
             throw new RuntimeException(
-                    "could not write object " + metadata.getName());
+                    "could not write object " + metadata.name());
         }
         return etag;
     }
@@ -720,7 +720,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         if (metadata == null) {
             throw new KeyNotFoundException(container, name, "while copying");
         }
-        String eTag = metadata.getETag();
+        String eTag = metadata.eTag();
         if (eTag != null) {
             String quoted = maybeQuoteETag(eTag);
             if (ifMatch != null && !maybeQuoteETag(ifMatch).equals(quoted)) {
@@ -731,7 +731,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 throw preconditionFailed();
             }
         }
-        Date lastModified = metadata.getLastModified();
+        Date lastModified = metadata.lastModified();
         if (lastModified != null) {
             if (ifModifiedSince != null &&
                     lastModified.compareTo(ifModifiedSince) <= 0) {
@@ -936,11 +936,11 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
         var contentMetadata = blobMetadata.getContentMetadata();
         var userMetadata = new HashMap<String, String>();
-        if (blobMetadata.getUserMetadata() != null) {
-            userMetadata.putAll(blobMetadata.getUserMetadata());
+        if (blobMetadata.userMetadata() != null) {
+            userMetadata.putAll(blobMetadata.userMetadata());
         }
         // Record the target key so listMultipartUploads can recover it.
-        userMetadata.put(MPU_KEY_METADATA, blobMetadata.getName());
+        userMetadata.put(MPU_KEY_METADATA, blobMetadata.name());
 
         var markerBuilder = Blob.builder(mpuMetaKey(uploadId))
                 .payload(new ByteArrayInputStream(new byte[0]))
@@ -958,7 +958,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         }
         putBlob(container, markerBuilder.build());
 
-        return new MultipartUpload(container, blobMetadata.getName(),
+        return new MultipartUpload(container, blobMetadata.name(),
                 uploadId, blobMetadata, options);
     }
 
@@ -1031,7 +1031,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                         contentMetadata.contentEncoding());
             }
             var userMetadata = new HashMap<>(
-                    marker.getMetadata().getUserMetadata());
+                    marker.getMetadata().userMetadata());
             userMetadata.remove(MPU_KEY_METADATA);
             if (!userMetadata.isEmpty()) {
                 swiftOptions.metadata(userMetadata);
@@ -1135,7 +1135,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             var marker = getBlob(container, name, GetOptions.NONE);
             String blobName = null;
             if (marker != null) {
-                blobName = marker.getMetadata().getUserMetadata()
+                blobName = marker.getMetadata().userMetadata()
                         .get(MPU_KEY_METADATA);
             }
             uploads.add(new MultipartUpload(container, blobName, uploadId,

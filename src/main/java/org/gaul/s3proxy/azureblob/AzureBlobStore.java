@@ -391,7 +391,7 @@ public final class AzureBlobStore extends BaseBlobStore {
     @Override
     public String putBlob(String container, Blob blob, PutOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
-                .getBlobClient(blob.getMetadata().getName())
+                .getBlobClient(blob.getMetadata().name())
                 .getBlockBlobClient();
         try (var is = blob.getPayload().openStream()) {
             // TODO: Expires?
@@ -408,11 +408,11 @@ public final class AzureBlobStore extends BaseBlobStore {
             blobHttpHeaders.setContentMd5(hash != null ? hash.asBytes() : null);
             blobHttpHeaders.setContentType(contentMetadata.contentType());
 
-            var metadata = blob.getMetadata().getUserMetadata();
+            var metadata = blob.getMetadata().userMetadata();
 
             AccessTier tier = null;
-            if (blob.getMetadata().getStorageClass() != StorageClass.STANDARD) {
-                tier = toAccessTier(blob.getMetadata().getStorageClass());
+            if (blob.getMetadata().storageClass() != StorageClass.STANDARD) {
+                tier = toAccessTier(blob.getMetadata().storageClass());
             }
 
             BlobRequestConditions requestConditions = null;
@@ -461,11 +461,11 @@ public final class AzureBlobStore extends BaseBlobStore {
             // TODO: racy
             return blobServiceClient
                     .getBlobContainerClient(container)
-                    .getBlobClient(blob.getMetadata().getName())
+                    .getBlobClient(blob.getMetadata().name())
                     .getProperties()
                     .getETag();
         } catch (BlobStorageException bse) {
-            throw translate(bse, container, blob.getMetadata().getName());
+            throw translate(bse, container, blob.getMetadata().name());
         } catch (IOException ioe) {
             if (ioe.getCause() instanceof BlobStorageException bse) {
                 throw translate(bse, container, /*key=*/ null);
@@ -721,7 +721,7 @@ public final class AzureBlobStore extends BaseBlobStore {
             throw translate(bse, container, /*key=*/ null);
         }
 
-        var userMetadata = blobMetadata.getUserMetadata();
+        var userMetadata = blobMetadata.userMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             for (var key : userMetadata.keySet()) {
                 if (!isValidMetadataKey(key)) {
@@ -732,7 +732,7 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
 
         String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
-        String targetBlobName = blobMetadata.getName();
+        String targetBlobName = blobMetadata.name();
         var stubBlobClient = containerClient.getBlobClient(uploadKey).getBlockBlobClient();
 
         var contentMetadata = blobMetadata.getContentMetadata();
@@ -751,8 +751,8 @@ public final class AzureBlobStore extends BaseBlobStore {
         if (userMetadata != null && !userMetadata.isEmpty()) {
             uploadOptions.setMetadata(userMetadata);
         }
-        if (blobMetadata.getStorageClass() != null && blobMetadata.getStorageClass() != StorageClass.STANDARD) {
-            uploadOptions.setTier(toAccessTier(blobMetadata.getStorageClass()));
+        if (blobMetadata.storageClass() != null && blobMetadata.storageClass() != StorageClass.STANDARD) {
+            uploadOptions.setTier(toAccessTier(blobMetadata.storageClass()));
         }
 
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);

@@ -181,13 +181,13 @@ public final class EncryptedBlobStoreTest {
         PageSet<? extends StorageMetadata> blobs =
             encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
         for (StorageMetadata blob : blobs) {
-            assertThat(blob.getSize()).isEqualTo(
-                contentLengths.get(blob.getName()));
+            assertThat(blob.size()).isEqualTo(
+                contentLengths.get(blob.name()));
         }
 
         blobs = encryptedBlobStore.list();
         StorageMetadata metadata = blobs.iterator().next();
-        assertThat(StorageType.CONTAINER).isEqualTo(metadata.getType());
+        assertThat(StorageType.CONTAINER).isEqualTo(metadata.type());
     }
 
     @Test
@@ -214,16 +214,16 @@ public final class EncryptedBlobStoreTest {
         PageSet<? extends StorageMetadata> blobs =
             encryptedBlobStore.list(containerName);
         for (StorageMetadata blob : blobs) {
-            assertThat(blob.getSize()).isEqualTo(
-                contentLengths.get(blob.getName()));
+            assertThat(blob.size()).isEqualTo(
+                contentLengths.get(blob.name()));
         }
 
         blobs =
             encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
         for (StorageMetadata blob : blobs) {
-            assertThat(blob.getSize()).isEqualTo(
-                contentLengths.get(blob.getName()));
-            encryptedBlobStore.removeBlob(containerName, blob.getName());
+            assertThat(blob.size()).isEqualTo(
+                contentLengths.get(blob.name()));
+            encryptedBlobStore.removeBlob(containerName, blob.name());
         }
 
         blobs =
@@ -255,8 +255,8 @@ public final class EncryptedBlobStoreTest {
             PageSet<? extends StorageMetadata> page =
                 encryptedBlobStore.list(containerName, optionsBuilder.build());
             for (StorageMetadata sm : page) {
-                assertThat(seen).doesNotContainKey(sm.getName());
-                seen.put(sm.getName(), sm.getSize());
+                assertThat(seen).doesNotContainKey(sm.name());
+                seen.put(sm.name(), sm.size());
             }
             marker = page.getNextMarker();
             if (marker == null) {
@@ -278,7 +278,7 @@ public final class EncryptedBlobStoreTest {
         // rather than exposing the padding block.
         BlobMetadata metadata = encryptedBlobStore.blobMetadata(
             containerName, blobName);
-        assertThat(metadata.getSize()).isEqualTo(0L);
+        assertThat(metadata.size()).isEqualTo(0L);
 
         Blob got = encryptedBlobStore.getBlob(containerName, blobName);
         try (InputStream is = got.getPayload().openStream()) {
@@ -289,7 +289,7 @@ public final class EncryptedBlobStoreTest {
 
         PageSet<? extends StorageMetadata> blobs =
             encryptedBlobStore.list(containerName);
-        assertThat(blobs.iterator().next().getSize()).isEqualTo(0L);
+        assertThat(blobs.iterator().next().size()).isEqualTo(0L);
     }
 
     @Test
@@ -334,11 +334,11 @@ public final class EncryptedBlobStoreTest {
         PageSet<? extends StorageMetadata> blobs =
             encryptedBlobStore.list(containerName);
         StorageMetadata metadata = blobs.iterator().next();
-        assertThat((long) content.length()).isEqualTo(metadata.getSize());
+        assertThat((long) content.length()).isEqualTo(metadata.size());
 
         blobs = encryptedBlobStore.list();
         metadata = blobs.iterator().next();
-        assertThat(StorageType.CONTAINER).isEqualTo(metadata.getType());
+        assertThat(StorageType.CONTAINER).isEqualTo(metadata.type());
 
         List<String> singleList = new ArrayList<>();
         singleList.add(blobName);
@@ -977,7 +977,7 @@ public final class EncryptedBlobStoreTest {
 
         GetOptions options = GetOptions.NONE;
         blob = encryptedBlobStore.getBlob(containerName, blobName, options);
-        String etag = blob.getMetadata().getETag();
+        String etag = blob.getMetadata().eTag();
 
         GetOptions conditionalOptions = GetOptions.builder()
                 .ifETagDoesntMatch(etag).build();

@@ -80,7 +80,7 @@ public final class RegexBlobStoreTest {
         BlobMetadata blobMetadata = regexBlobStore.blobMetadata(
                 containerName, targetBlobName);
 
-        assertThat(blobMetadata.getETag()).isEqualTo(contentHash);
+        assertThat(blobMetadata.eTag()).isEqualTo(contentHash);
         blob = regexBlobStore.getBlob(containerName, targetBlobName);
         try (InputStream actual = blob.getPayload().openStream();
              InputStream expected = content.openStream()) {

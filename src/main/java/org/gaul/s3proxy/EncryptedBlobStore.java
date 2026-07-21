@@ -115,7 +115,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // make a copy of the blob with the new payload stream
         BlobMetadata blobMeta = blob.getMetadata();
         ContentMetadata contentMeta = blob.getMetadata().getContentMetadata();
-        Map<String, String> userMetadata = blobMeta.getUserMetadata();
+        Map<String, String> userMetadata = blobMeta.userMetadata();
         String contentType = contentMeta.contentType();
 
         // suffix the content type with -s3enc if we need to encrypt
@@ -124,16 +124,16 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         } else {
             // remove the -s3enc suffix while decrypting
             // but not if it contains a multipart meta
-            if (!blobMeta.getUserMetadata()
+            if (!blobMeta.userMetadata()
                 .containsKey(Constants.METADATA_IS_ENCRYPTED_MULTIPART)) {
                 blobMeta = removeEncryptedSuffix(blobMeta);
             }
         }
 
         // we do not set contentMD5 as it will not match due to the encryption
-        return Blob.builder(blobMeta.getName())
-            .type(blobMeta.getType())
-            .storageClass(blobMeta.getStorageClass())
+        return Blob.builder(blobMeta.name())
+            .type(blobMeta.type())
+            .storageClass(blobMeta.storageClass())
             .userMetadata(userMetadata)
             .payload(payload)
             .cacheControl(contentMeta.cacheControl())
@@ -142,8 +142,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             .contentLanguage(contentMeta.contentLanguage())
             .contentLength(contentLength)
             .contentType(contentType)
-            .eTag(blobMeta.getETag())
-            .lastModified(blobMeta.getLastModified())
+            .eTag(blobMeta.eTag())
+            .lastModified(blobMeta.lastModified())
             .container(blobMeta.getContainer())
             .build();
     }
@@ -236,7 +236,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
 
                 builder.add(mbm);
-            } else if (sm.getName() != null && isEncrypted(sm.getName())) {
+            } else if (sm.name() != null && isEncrypted(sm.name())) {
                 // Bare list entries still need the .s3enc suffix stripped
                 // from the name.  Object entries are always BlobMetadata in
                 // this API and take the branch above, so only containers
@@ -245,8 +245,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 // listings.
                 if (sm instanceof ContainerMetadata cm) {
                     builder.add(new ContainerMetadata(
-                            removeEncryptedSuffix(cm.getName()),
-                            cm.getCreationDate()));
+                            removeEncryptedSuffix(cm.name()),
+                            cm.creationDate()));
                 } else {
                     builder.add(sm);
                 }
@@ -264,7 +264,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private boolean isEncrypted(BlobMetadata blobMeta) {
-        return isEncrypted(blobMeta.getName());
+        return isEncrypted(blobMeta.name());
     }
 
     private boolean isEncrypted(String blobName) {
@@ -272,9 +272,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private BlobMetadata setEncryptedSuffix(BlobMetadata blobMeta) {
-        if (blobMeta.getName() != null && !isEncrypted(blobMeta.getName())) {
+        if (blobMeta.name() != null && !isEncrypted(blobMeta.name())) {
             return blobMeta.toBuilder()
-                    .name(blobNameWithSuffix(blobMeta.getName()))
+                    .name(blobNameWithSuffix(blobMeta.name()))
                     .build();
         }
         return blobMeta;
@@ -286,9 +286,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private BlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
-        if (isEncrypted(blobMeta.getName())) {
+        if (isEncrypted(blobMeta.name())) {
             return blobMeta.toBuilder()
-                    .name(removeEncryptedSuffix(blobMeta.getName()))
+                    .name(removeEncryptedSuffix(blobMeta.name()))
                     .build();
         }
         return blobMeta;
@@ -299,39 +299,39 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // we are using on non-s3 backends like azure or gcp a metadata key to
         // calculate the part padding sizes that needs to be removed
-        if (mbm.getUserMetadata()
+        if (mbm.userMetadata()
             .containsKey(Constants.METADATA_ENCRYPTION_PARTS)) {
             int parts = Integer.parseInt(
-                mbm.getUserMetadata().get(Constants.METADATA_ENCRYPTION_PARTS));
+                mbm.userMetadata().get(Constants.METADATA_ENCRYPTION_PARTS));
             int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-            long size = blobMeta.getSize() - partPaddingSizes;
+            long size = blobMeta.size() - partPaddingSizes;
             mbm = mbm.toBuilder()
                     .contentLength(size)
                     .build();
         } else {
             // on s3 backends like aws or minio we rely on the eTag suffix
             Matcher matcher =
-                Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(blobMeta.getETag());
+                Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(blobMeta.eTag());
             if (matcher.find()) {
                 int parts = Integer.parseInt(matcher.group(1));
                 int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-                long size = blobMeta.getSize() - partPaddingSizes;
+                long size = blobMeta.size() - partPaddingSizes;
                 mbm = mbm.toBuilder()
                         .contentLength(size)
                         .build();
             } else {
                 // if there is also no eTag suffix then get the number of parts from last padding
                 var options = GetOptions.builder()
-                    .range(blobMeta.getSize() - Constants.PADDING_BLOCK_SIZE,
-                            blobMeta.getSize() - 1)
+                    .range(blobMeta.size() - Constants.PADDING_BLOCK_SIZE,
+                            blobMeta.size() - 1)
                     .build();
-                var name = blobNameWithSuffix(blobMeta.getName());
+                var name = blobNameWithSuffix(blobMeta.name());
                 var blob = delegate().getBlob(blobMeta.getContainer(), name, options);
                 try {
                     PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
                     int parts = lastPartPadding.getPart();
                     int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-                    long size = blobMeta.getSize() - partPaddingSizes;
+                    long size = blobMeta.size() - partPaddingSizes;
                     mbm = mbm.toBuilder()
                             .contentLength(size)
                             .build();
@@ -603,7 +603,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // handle non-s3 backends
         // by setting a metadata key for multipart stubs
         if (multipartRequiresStub()) {
-            mbm.getUserMetadata()
+            mbm.userMetadata()
                 .put(Constants.METADATA_IS_ENCRYPTED_MULTIPART, "true");
 
             if (getBlobStoreType().equals("azureblob")) {
@@ -614,23 +614,23 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
                 // since azure does not have a uploadId
                 // we use the sha256 of the path
-                String uploadId = generateUploadId(container, mbm.getName());
+                String uploadId = generateUploadId(container, mbm.name());
 
                 mpu = new MultipartUpload(mpu.containerName(),
                     mpu.blobName(), uploadId, mpu.blobMetadata(), options);
             } else if (getBlobStoreType().equals("google-cloud-storage")) {
-                mbm.getUserMetadata()
-                    .put(Constants.METADATA_MULTIPART_KEY, mbm.getName());
+                mbm.userMetadata()
+                    .put(Constants.METADATA_MULTIPART_KEY, mbm.name());
 
                 // since gcp does not have a uploadId
                 // we use the sha256 of the path
-                String uploadId = generateUploadId(container, mbm.getName());
+                String uploadId = generateUploadId(container, mbm.name());
 
                 // to emulate later the list of multipart uploads
                 // we create a placeholder
                 Blob.Builder builder = Blob.builder(Constants.MPU_FOLDER + uploadId)
                     .payload(ByteSource.empty())
-                    .userMetadata(mbm.getUserMetadata());
+                    .userMetadata(mbm.userMetadata());
                 delegate().putBlob(container, builder.build(), options);
 
                 // final mpu on gcp
@@ -656,13 +656,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
             // find all blobs in .mpu folder and build the list
             for (StorageMetadata blob : mpuList) {
-                Map<String, String> meta = blob.getUserMetadata();
+                Map<String, String> meta = blob.userMetadata();
                 if (meta.containsKey(Constants.METADATA_MULTIPART_KEY)) {
                     String blobName =
                         meta.get(Constants.METADATA_MULTIPART_KEY);
                     String uploadId =
-                        blob.getName()
-                            .substring(blob.getName().lastIndexOf("/") + 1);
+                        blob.name()
+                            .substring(blob.name().lastIndexOf("/") + 1);
                     MultipartUpload mpu =
                         new MultipartUpload(container,
                             blobName, uploadId, null, null);
@@ -788,9 +788,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                             part.partNumber());
                     BlobMetadata metadata =
                         delegate().blobMetadata(mpu.containerName(), blobName);
-                    if (metadata != null && metadata.getUserMetadata()
+                    if (metadata != null && metadata.userMetadata()
                         .containsKey(Constants.METADATA_ENCRYPTION_PARTS)) {
-                        String partMetaCount = metadata.getUserMetadata()
+                        String partMetaCount = metadata.userMetadata()
                             .get(Constants.METADATA_ENCRYPTION_PARTS);
                         partCount = partCount + Long.parseLong(partMetaCount);
                     } else {
@@ -799,10 +799,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
             }
 
-            mpuWithSuffix.blobMetadata().getUserMetadata()
+            mpuWithSuffix.blobMetadata().userMetadata()
                 .put(Constants.METADATA_ENCRYPTION_PARTS,
                     String.valueOf(partCount));
-            mpuWithSuffix.blobMetadata().getUserMetadata()
+            mpuWithSuffix.blobMetadata().userMetadata()
                 .remove(Constants.METADATA_IS_ENCRYPTED_MULTIPART);
         }
 
@@ -842,7 +842,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             // only remove the -s3enc suffix
             // if the blob is encrypted and not a multipart stub
             if (isEncrypted(blobMetadata) &&
-                !blobMetadata.getUserMetadata()
+                !blobMetadata.userMetadata()
                     .containsKey(Constants.METADATA_IS_ENCRYPTED_MULTIPART)) {
                 blobMetadata = removeEncryptedSuffix(blobMetadata);
                 blobMetadata = calculateBlobSize(blobMetadata);

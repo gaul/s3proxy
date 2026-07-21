@@ -82,7 +82,7 @@ public final class ShardedBlobStoreTest {
         PageSet<? extends StorageMetadata> listing = blobStore.list();
         int blobStoreShards = 0;
         for (StorageMetadata entry: listing) {
-            if (entry.getName().startsWith(prefix)) {
+            if (entry.name().startsWith(prefix)) {
                 blobStoreShards++;
             }
         }
@@ -170,10 +170,10 @@ public final class ShardedBlobStoreTest {
         for (int i = 0; i < shards; i++) {
             String shard = "%s-%d".formatted(prefix, i);
             for (StorageMetadata entry : blobStore.list(shard)) {
-                if (entry.getName().equals(blobName)) {
+                if (entry.name().equals(blobName)) {
                     blobContainer = shard;
                 }
-                if (entry.getName().equals(blobName2)) {
+                if (entry.name().equals(blobName2)) {
                     blob2Container = shard;
                 }
             }

@@ -141,10 +141,10 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         PageSet<? extends StorageMetadata> upstream = this.delegate().list();
         var results = new ImmutableList.Builder<StorageMetadata>();
         for (StorageMetadata sm : upstream) {
-            if (aliases.containsValue(sm.getName())) {
+            if (aliases.containsValue(sm.name())) {
                 results.add(new ContainerMetadata(
-                        aliases.inverse().get(sm.getName()),
-                        sm.getCreationDate()));
+                        aliases.inverse().get(sm.name()),
+                        sm.creationDate()));
             } else {
                 results.add(sm);
             }
@@ -252,7 +252,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
             String container, BlobMetadata blobMetadata, PutOptions options) {
         MultipartUpload mpu = delegate().initiateMultipartUpload(
                 getContainer(container), blobMetadata, options);
-        return new MultipartUpload(container, blobMetadata.getName(),
+        return new MultipartUpload(container, blobMetadata.name(),
                 mpu.id(), mpu.blobMetadata(), mpu.putOptions());
     }
 

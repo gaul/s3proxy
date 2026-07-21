@@ -117,7 +117,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             return metadata;
         }
         return metadata.toBuilder()
-                .name(trimPrefix(container, metadata.getName()))
+                .name(trimPrefix(container, metadata.name()))
                 .build();
     }
 
@@ -126,7 +126,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             return blob;
         }
         return blob.toBuilder().name(
-                trimPrefix(container, blob.getMetadata().getName())).build();
+                trimPrefix(container, blob.getMetadata().name())).build();
     }
 
     private MultipartUpload toDelegateMultipartUpload(MultipartUpload upload) {
@@ -136,7 +136,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         var metadata = upload.blobMetadata() == null ? null :
                 upload.blobMetadata().toBuilder()
                         .name(addPrefix(upload.containerName(),
-                                upload.blobMetadata().getName()))
+                                upload.blobMetadata().name()))
                         .build();
         return new MultipartUpload(upload.containerName(),
                 addPrefix(upload.containerName(), upload.blobName()),
@@ -150,7 +150,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         var metadata = upload.blobMetadata() == null ? null :
                 upload.blobMetadata().toBuilder()
                         .name(trimPrefix(upload.containerName(),
-                                upload.blobMetadata().getName()))
+                                upload.blobMetadata().name()))
                         .build();
         return new MultipartUpload(upload.containerName(),
                 trimPrefix(upload.containerName(), upload.blobName()),
@@ -190,12 +190,12 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         for (StorageMetadata metadata : listing) {
             if (metadata instanceof BlobMetadata blobMetadata) {
                 builder.add(blobMetadata.toBuilder()
-                        .name(trimPrefix(container, blobMetadata.getName()))
+                        .name(trimPrefix(container, blobMetadata.name()))
                         .build());
             } else if (metadata instanceof ContainerMetadata cm) {
                 builder.add(new ContainerMetadata(
-                        trimPrefix(container, cm.getName()),
-                        cm.getCreationDate()));
+                        trimPrefix(container, cm.name()),
+                        cm.creationDate()));
             }
         }
         String nextMarker = listing.getNextMarker();
@@ -234,7 +234,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     @Override
     public String putBlob(String containerName, Blob blob) {
         return super.putBlob(containerName, blob.toBuilder()
-                .name(addPrefix(containerName, blob.getMetadata().getName()))
+                .name(addPrefix(containerName, blob.getMetadata().name()))
                 .build());
     }
 
@@ -242,7 +242,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     public String putBlob(String containerName, Blob blob,
                           PutOptions options) {
         return super.putBlob(containerName, blob.toBuilder()
-                .name(addPrefix(containerName, blob.getMetadata().getName()))
+                .name(addPrefix(containerName, blob.getMetadata().name()))
                 .build(), options);
     }
 
@@ -326,7 +326,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
         BlobMetadata renamed = blobMetadata.toBuilder()
-                .name(addPrefix(container, blobMetadata.getName()))
+                .name(addPrefix(container, blobMetadata.name()))
                 .build();
         MultipartUpload upload = super.initiateMultipartUpload(container,
                 renamed, options);

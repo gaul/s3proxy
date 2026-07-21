@@ -201,7 +201,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                                  Map<String, String> expectedMeta,
                                  String container) {
         Map<String, String> currentSuperblockMeta =
-                blob.getUserMetadata();
+                blob.userMetadata();
         for (var entry : expectedMeta.entrySet()) {
             String current = currentSuperblockMeta.get(entry.getKey());
             String expected = entry.getValue();
@@ -290,7 +290,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         var results = new ImmutableList.Builder<StorageMetadata>();
         Set<String> virtualBuckets = new HashSet<>();
         for (StorageMetadata sm : upstream) {
-            Matcher matcher = SHARD_RE.matcher(sm.getName());
+            Matcher matcher = SHARD_RE.matcher(sm.name());
             if (!matcher.matches()) {
                 results.add(sm);
                 continue;
@@ -304,7 +304,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             if (!virtualBuckets.contains(prefix)) {
                 virtualBuckets.add(prefix);
                 results.add(new ContainerMetadata(virtualBucketName,
-                        sm.getCreationDate()));
+                        sm.creationDate()));
             }
         }
         return new PageSet<>(results.build(), upstream.getNextMarker());
@@ -442,7 +442,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 bucket, 0);
         boolean superblockPresent = false;
         for (StorageMetadata sm : this.delegate().list(zeroShardContainer)) {
-            if (sm.getName().equals(SUPERBLOCK_BLOB_NAME)) {
+            if (sm.name().equals(SUPERBLOCK_BLOB_NAME)) {
                 superblockPresent = true;
             } else {
                 return false;
@@ -467,14 +467,14 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     @Override
     public String putBlob(String containerName, Blob blob) {
         return this.delegate().putBlob(this.getShard(containerName,
-                blob.getMetadata().getName()), blob);
+                blob.getMetadata().name()), blob);
     }
 
     @Override
     public String putBlob(final String containerName, Blob blob,
                           final PutOptions putOptions) {
         return this.delegate().putBlob(
-                this.getShard(containerName, blob.getMetadata().getName()),
+                this.getShard(containerName, blob.getMetadata().name()),
                 blob, putOptions);
     }
 

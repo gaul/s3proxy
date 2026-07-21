@@ -132,7 +132,7 @@ final class EventualBlobStore extends ForwardingBlobStore {
     @Override
     public String putBlob(final String containerName, Blob blob,
             final PutOptions options) {
-        final String nearName = blob.getMetadata().getName();
+        final String nearName = blob.getMetadata().name();
         String nearETag = writeStore.putBlob(containerName, blob, options);
         schedule(new Callable<String>() {
                 @Override

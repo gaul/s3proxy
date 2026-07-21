@@ -91,8 +91,8 @@ public final class NullBlobStoreTest {
                 containerName);
         assertThat(pageSet).hasSize(1);
         StorageMetadata sm = pageSet.iterator().next();
-        assertThat(sm.getName()).isEqualTo(blobName);
-        assertThat(sm.getSize()).isEqualTo(0);
+        assertThat(sm.name()).isEqualTo(blobName);
+        assertThat(sm.size()).isEqualTo(0);
     }
 
     @Test
@@ -227,7 +227,7 @@ public final class NullBlobStoreTest {
                             OutputStream.nullOutputStream()));
         }
         assertThat(nullBlobStore.list(containerName).stream()
-                .map(StorageMetadata::getName))
+                .map(StorageMetadata::name))
                 .containsExactly(blobName);
     }
 
@@ -263,7 +263,7 @@ public final class NullBlobStoreTest {
         assertThat(contentMetadata.contentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
-        assertThat(metadata.getUserMetadata())
+        assertThat(metadata.userMetadata())
                 .isEqualTo(Map.of("key", "value"));
     }
 }

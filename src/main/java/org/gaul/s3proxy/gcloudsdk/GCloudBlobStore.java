@@ -457,7 +457,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             org.gaul.s3proxy.blobstore.domain.Blob blob, PutOptions options) {
         var contentMetadata = blob.getMetadata().getContentMetadata();
         var blobInfo = BlobInfo.newBuilder(
-                BlobId.of(container, blob.getMetadata().getName()));
+                BlobId.of(container, blob.getMetadata().name()));
         blobInfo.setContentType(contentMetadata.contentType());
         blobInfo.setContentDisposition(
                 contentMetadata.contentDisposition());
@@ -468,13 +468,13 @@ public final class GCloudBlobStore extends BaseBlobStore {
         if (hash != null) {
             blobInfo.setMd5(Base64.getEncoder().encodeToString(hash.asBytes()));
         }
-        if (blob.getMetadata().getUserMetadata() != null) {
-            blobInfo.setMetadata(blob.getMetadata().getUserMetadata());
+        if (blob.getMetadata().userMetadata() != null) {
+            blobInfo.setMetadata(blob.getMetadata().userMetadata());
         }
-        if (blob.getMetadata().getStorageClass() != null &&
-                blob.getMetadata().getStorageClass() != StorageClass.STANDARD) {
+        if (blob.getMetadata().storageClass() != null &&
+                blob.getMetadata().storageClass() != StorageClass.STANDARD) {
             blobInfo.setStorageClass(
-                    toGcsStorageClass(blob.getMetadata().getStorageClass()));
+                    toGcsStorageClass(blob.getMetadata().storageClass()));
         }
 
         var writeOptions = new java.util.ArrayList<BlobWriteOption>();
@@ -486,7 +486,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             writeOptions.add(BlobWriteOption.md5Match());
         }
         if (options != null) {
-            String name = blob.getMetadata().getName();
+            String name = blob.getMetadata().name();
             String ifMatch = options.ifMatch();
             String ifNoneMatch = options.ifNoneMatch();
             if (ifMatch != null) {
@@ -785,7 +785,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
         }
 
         String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
-        String targetBlobName = blobMetadata.getName();
+        String targetBlobName = blobMetadata.name();
 
         // Store stub blob with metadata for later use during complete
         var stubMetadata = new HashMap<String, String>();
@@ -815,7 +815,7 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         }
 
-        var userMetadata = blobMetadata.getUserMetadata();
+        var userMetadata = blobMetadata.userMetadata();
         if (userMetadata != null) {
             for (var entry : userMetadata.entrySet()) {
                 stubMetadata.put("s3proxy_user_" + entry.getKey(),
@@ -823,10 +823,10 @@ public final class GCloudBlobStore extends BaseBlobStore {
             }
         }
 
-        if (blobMetadata.getStorageClass() != null &&
-                blobMetadata.getStorageClass() != StorageClass.STANDARD) {
+        if (blobMetadata.storageClass() != null &&
+                blobMetadata.storageClass() != StorageClass.STANDARD) {
             stubMetadata.put("s3proxy_storage_class",
-                    blobMetadata.getStorageClass().name());
+                    blobMetadata.storageClass().name());
         }
 
         var stubInfo = BlobInfo.newBuilder(

@@ -68,7 +68,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         // check underlying blobStore
         var mutableBlobMetadata = blobStore.getBlob(containerName, blobName)
                 .getMetadata();
-        var userMetadata = mutableBlobMetadata.getUserMetadata();
+        var userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         var entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my_key");
@@ -77,7 +77,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         // check getBlob
         mutableBlobMetadata = userMetadataReplacerBlobStore.getBlob(
                 containerName, blobName).getMetadata();
-        userMetadata = mutableBlobMetadata.getUserMetadata();
+        userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my-key");
@@ -86,7 +86,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         // check blobMetadata
         var blobMetadata = userMetadataReplacerBlobStore.blobMetadata(
                 containerName, blobName);
-        userMetadata = blobMetadata.getUserMetadata();
+        userMetadata = blobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my-key");
@@ -112,12 +112,12 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check underlying blobStore stores the munged form
         var backend = blobStore.blobMetadata(containerName, toName)
-                .getUserMetadata();
+                .userMetadata();
         assertThat(backend).isEqualTo(Map.of("my_key", "my_value_"));
 
         // check getBlob reverses it
         var replaced = userMetadataReplacerBlobStore.getBlob(
-                containerName, toName).getMetadata().getUserMetadata();
+                containerName, toName).getMetadata().userMetadata();
         assertThat(replaced).isEqualTo(Map.of("my-key", "my-value-"));
     }
 
@@ -140,11 +140,11 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // backend still holds the single munged form
         assertThat(blobStore.blobMetadata(containerName, toName)
-                .getUserMetadata()).isEqualTo(Map.of("my_key", "my_value_"));
+                .userMetadata()).isEqualTo(Map.of("my_key", "my_value_"));
 
         // getBlob reverses it
         assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName)
-                .getMetadata().getUserMetadata())
+                .getMetadata().userMetadata())
                 .isEqualTo(Map.of("my-key", "my-value-"));
     }
 
@@ -166,7 +166,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         // check underlying blobStore
         var mutableBlobMetadata = blobStore.getBlob(containerName, blobName)
                 .getMetadata();
-        var userMetadata = mutableBlobMetadata.getUserMetadata();
+        var userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         var entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my_key");
@@ -175,7 +175,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         // check getBlob
         mutableBlobMetadata = userMetadataReplacerBlobStore.getBlob(
                 containerName, blobName).getMetadata();
-        userMetadata = mutableBlobMetadata.getUserMetadata();
+        userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my-key");
@@ -184,7 +184,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         // check blobMetadata
         var blobMetadata = userMetadataReplacerBlobStore.blobMetadata(
                 containerName, blobName);
-        userMetadata = blobMetadata.getUserMetadata();
+        userMetadata = blobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my-key");

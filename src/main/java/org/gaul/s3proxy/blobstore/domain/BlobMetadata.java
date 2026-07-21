@@ -41,43 +41,8 @@ public record BlobMetadata(
         ContentMetadata contentMetadata) implements StorageMetadata {
 
     @Override
-    public StorageType getType() {
-        return type;
-    }
-
-    @Override
-    public String getName() {
-        return name;
-    }
-
-    @Override
-    public Map<String, String> getUserMetadata() {
-        return userMetadata;
-    }
-
-    @Override
-    public @Nullable String getETag() {
-        return eTag;
-    }
-
-    @Override
-    public @Nullable Date getCreationDate() {
-        return creationDate;
-    }
-
-    @Override
-    public @Nullable Date getLastModified() {
-        return lastModified;
-    }
-
-    @Override
-    public @Nullable Long getSize() {
+    public @Nullable Long size() {
         return contentMetadata.contentLength();
-    }
-
-    @Override
-    public StorageClass getStorageClass() {
-        return storageClass;
     }
 
     public @Nullable String getContainer() {

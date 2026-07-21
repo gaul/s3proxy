@@ -462,7 +462,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         var contentMetadata = blob.getMetadata().getContentMetadata();
         var requestBuilder = PutObjectRequest.builder()
                 .bucket(container)
-                .key(blob.getMetadata().getName());
+                .key(blob.getMetadata().name());
 
         if (contentMetadata.cacheControl() != null) {
             requestBuilder.cacheControl(contentMetadata.cacheControl());
@@ -489,7 +489,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.expires(contentMetadata.expires().toInstant());
         }
 
-        var userMetadata = blob.getMetadata().getUserMetadata();
+        var userMetadata = blob.getMetadata().userMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             requestBuilder.metadata(userMetadata);
         }
@@ -499,10 +499,10 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
         }
 
-        if (blob.getMetadata().getStorageClass() != null &&
-                blob.getMetadata().getStorageClass() != StorageClass.STANDARD) {
+        if (blob.getMetadata().storageClass() != null &&
+                blob.getMetadata().storageClass() != StorageClass.STANDARD) {
             requestBuilder.storageClass(
-                    toAwsStorageClass(blob.getMetadata().getStorageClass()));
+                    toAwsStorageClass(blob.getMetadata().storageClass()));
         }
 
         String ifMatch = options != null ? options.ifMatch() : null;
@@ -510,7 +510,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
 
         boolean hasConditionalHeaders = ifMatch != null || ifNoneMatch != null;
         if (hasConditionalHeaders && !useNativeConditionalWrites) {
-            validateConditionalPut(container, blob.getMetadata().getName(),
+            validateConditionalPut(container, blob.getMetadata().name(),
                     ifMatch, ifNoneMatch);
             ifMatch = null;
             ifNoneMatch = null;
@@ -536,7 +536,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
         } catch (IOException e) {
             throw new RuntimeException("Failed to read blob payload", e);
         } catch (S3Exception e) {
-            throw translate(e, container, blob.getMetadata().getName());
+            throw translate(e, container, blob.getMetadata().name());
         }
     }
 
@@ -772,7 +772,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             BlobMetadata blobMetadata, PutOptions options) {
         var requestBuilder = CreateMultipartUploadRequest.builder()
                 .bucket(container)
-                .key(blobMetadata.getName());
+                .key(blobMetadata.name());
 
         var contentMetadata = blobMetadata.getContentMetadata();
         if (contentMetadata != null) {
@@ -796,7 +796,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             }
         }
 
-        var userMetadata = blobMetadata.getUserMetadata();
+        var userMetadata = blobMetadata.userMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
             requestBuilder.metadata(userMetadata);
         }
@@ -805,21 +805,21 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
         }
 
-        if (blobMetadata.getStorageClass() != null &&
-                blobMetadata.getStorageClass() != StorageClass.STANDARD) {
+        if (blobMetadata.storageClass() != null &&
+                blobMetadata.storageClass() != StorageClass.STANDARD) {
             requestBuilder.storageClass(
-                    toAwsStorageClass(blobMetadata.getStorageClass()));
+                    toAwsStorageClass(blobMetadata.storageClass()));
         }
 
         try {
             var response = s3Client.createMultipartUpload(
                     requestBuilder.build());
-            return new MultipartUpload(container, blobMetadata.getName(),
+            return new MultipartUpload(container, blobMetadata.name(),
                     response.uploadId(), blobMetadata, options);
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, blobMetadata.getName());
+            throw translate(e, container, blobMetadata.name());
         }
     }
 
@@ -1161,7 +1161,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             throw keyNotFound(container, blobName);
         }
 
-        String currentETag = metadata.getETag();
+        String currentETag = metadata.eTag();
         if (currentETag == null ||
                 !equalsIgnoringSurroundingQuotes(ifMatch,
                     maybeQuoteETag(currentETag))) {
@@ -1182,7 +1182,7 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             return;
         }
 
-        String currentETag = metadata.getETag();
+        String currentETag = metadata.eTag();
         if (currentETag != null &&
                 equalsIgnoringSurroundingQuotes(ifNoneMatch,
                     maybeQuoteETag(currentETag))) {

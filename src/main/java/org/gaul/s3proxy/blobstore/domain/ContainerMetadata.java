@@ -27,42 +27,32 @@ public record ContainerMetadata(String name, @Nullable Date creationDate)
         implements StorageMetadata {
 
     @Override
-    public StorageType getType() {
+    public StorageType type() {
         return StorageType.CONTAINER;
     }
 
     @Override
-    public String getName() {
-        return name;
-    }
-
-    @Override
-    public Map<String, String> getUserMetadata() {
+    public Map<String, String> userMetadata() {
         return Map.of();
     }
 
     @Override
-    public @Nullable String getETag() {
+    public @Nullable String eTag() {
         return null;
     }
 
     @Override
-    public @Nullable Date getCreationDate() {
-        return creationDate;
-    }
-
-    @Override
-    public @Nullable Date getLastModified() {
+    public @Nullable Date lastModified() {
         return null;
     }
 
     @Override
-    public @Nullable Long getSize() {
+    public @Nullable Long size() {
         return null;
     }
 
     @Override
-    public StorageClass getStorageClass() {
+    public StorageClass storageClass() {
         return StorageClass.STANDARD;
     }
 }

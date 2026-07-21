@@ -157,7 +157,7 @@ public class S3ProxyJunitCore {
         try {
             s3Proxy.stop();
             for (StorageMetadata metadata : blobStore.list()) {
-                blobStore.deleteContainer(metadata.getName());
+                blobStore.deleteContainer(metadata.name());
             }
             blobStore.close();
         } catch (Exception e) {

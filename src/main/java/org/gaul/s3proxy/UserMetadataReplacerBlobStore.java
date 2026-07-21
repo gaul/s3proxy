@@ -61,7 +61,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     public String putBlob(String containerName, Blob blob,
             PutOptions putOptions) {
         var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
+        for (var entry : blob.getMetadata().userMetadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
                     replaceChars(entry.getValue(), fromChars, toChars));
         }
@@ -79,7 +79,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
 
         var metadata = ImmutableMap.<String, String>builder();
         // TODO: duplication
-        for (var entry : blobMetadata.getUserMetadata().entrySet()) {
+        for (var entry : blobMetadata.userMetadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
@@ -100,7 +100,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
         }
 
         var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
+        for (var entry : blob.getMetadata().userMetadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
@@ -150,7 +150,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions overrides) {
         var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blobMetadata.getUserMetadata().entrySet()) {
+        for (var entry : blobMetadata.userMetadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ fromChars, /*toChars=*/ toChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ fromChars, /*toChars=*/ toChars));
         }

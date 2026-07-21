@@ -359,11 +359,11 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     private Blob replaceStream(Blob blob, InputStream is) {
         BlobMetadata blobMeta = blob.getMetadata();
         ContentMetadata contentMeta = blobMeta.getContentMetadata();
-        Map<String, String> userMetadata = blobMeta.getUserMetadata();
+        Map<String, String> userMetadata = blobMeta.userMetadata();
 
-        return Blob.builder(blobMeta.getName())
-                .type(blobMeta.getType())
-                .storageClass(blobMeta.getStorageClass())
+        return Blob.builder(blobMeta.name())
+                .type(blobMeta.type())
+                .storageClass(blobMeta.storageClass())
                 .userMetadata(userMetadata)
                 .payload(is)
                 .cacheControl(contentMeta.cacheControl())
@@ -374,8 +374,8 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
                 .contentMD5(contentMeta.contentMD5())
                 .contentType(contentMeta.contentType())
                 .expires(contentMeta.expires())
-                .eTag(blobMeta.getETag())
-                .lastModified(blobMeta.getLastModified())
+                .eTag(blobMeta.eTag())
+                .lastModified(blobMeta.lastModified())
                 .container(blobMeta.getContainer())
                 // Preserve the Content-Range response header, which the
                 // handler reads for ranged GET responses.

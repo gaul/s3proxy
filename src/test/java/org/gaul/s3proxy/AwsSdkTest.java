@@ -1521,7 +1521,7 @@ public final class AwsSdkTest {
         var meta = blobStore.blobMetadata(containerName, "/");
         assertThat(meta).isNotNull();
         assertThat(meta.getContentMetadata().contentLength()).isEqualTo(0L);
-        assertThat(meta.getUserMetadata()).containsEntry("mode", "16832");
+        assertThat(meta.userMetadata()).containsEntry("mode", "16832");
 
         // The reserved backing store is hidden: "/" is not enumerated.
         ListObjectsV2Response list = client.listObjectsV2(

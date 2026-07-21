@@ -209,7 +209,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     } else {
                         var last = sortedList.get(maxResults - 1);
                         sorted = sorted.headSet(last, /*inclusive=*/ true);
-                        marker = last.getName();
+                        marker = last.name();
                     }
                 }
             }
@@ -593,12 +593,12 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final String putBlob(String container, Blob blob, PutOptions options) {
         var containerPath = requireContainerPath(container);
-        var path = resolveBlobPath(containerPath, blob.getMetadata().getName());
+        var path = resolveBlobPath(containerPath, blob.getMetadata().name());
         // TODO: should we use a known suffix to filter these out during list?
-        var tmpPath = containerPath.resolve(blob.getMetadata().getName() + "-" + UUID.randomUUID());
+        var tmpPath = containerPath.resolve(blob.getMetadata().name() + "-" + UUID.randomUUID());
         logger.debug("Creating blob at: {}", path);
 
-        if (blob.getMetadata().getName().endsWith("/")) {
+        if (blob.getMetadata().name().endsWith("/")) {
             try {
                 logger.debug("Creating directory blob: {}", path);
                 Files.createDirectories(path);
@@ -655,7 +655,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                     // GET/HEAD reports the same ETag that
                     // completeMultipartUpload returned.  A regular put has no
                     // preset ETag, so store the computed MD5 as 16 raw bytes.
-                    var providedETag = blob.getMetadata().getETag();
+                    var providedETag = blob.getMetadata().eTag();
                     var eTag = providedETag != null ?
                             providedETag.getBytes(StandardCharsets.US_ASCII) :
                             actualHashCode.asBytes();
@@ -671,8 +671,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                         buf.flip();
                         view.write(XATTR_EXPIRES, buf);
                     }
-                    writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getStorageClass().toString());
-                    for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
+                    writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().storageClass().toString());
+                    for (var entry : blob.getMetadata().userMetadata().entrySet()) {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
                 } catch (IOException | UnsupportedOperationException e) {
@@ -711,7 +711,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         // failing check still closes the file InputStream returned by
         // getBlob.
         try (var is = blob.getPayload().openStream()) {
-            var eTag = blob.getMetadata().getETag();
+            var eTag = blob.getMetadata().eTag();
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
                 if (options.ifMatch() != null && !maybeQuoteETag(options.ifMatch()).equals(eTag)) {
@@ -722,7 +722,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 }
             }
 
-            var lastModified = blob.getMetadata().getLastModified();
+            var lastModified = blob.getMetadata().lastModified();
             if (lastModified != null) {
                 if (options.ifModifiedSince() != null && lastModified.compareTo(options.ifModifiedSince()) <= 0) {
                     throw returnResponseException(412);
@@ -773,7 +773,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             if (userMetadata != null) {
                 builder.userMetadata(userMetadata);
             } else {
-                builder.userMetadata(blob.getMetadata().getUserMetadata());
+                builder.userMetadata(blob.getMetadata().userMetadata());
             }
             return putBlob(toContainer, builder.build());
         } catch (IOException ioe) {
@@ -826,7 +826,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
         var in = blob.getMetadata();
         var lowerCaseUserMetadata = new HashMap<String, String>();
-        for (var entry : in.getUserMetadata().entrySet()) {
+        for (var entry : in.userMetadata().entrySet()) {
             lowerCaseUserMetadata.put(entry.getKey().toLowerCase(),
                     entry.getValue());
         }
@@ -918,9 +918,9 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             BlobMetadata blobMetadata, PutOptions options) {
         var uploadId = UUID.randomUUID().toString();
         // create a stub blob
-        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.getName() + "-stub").payload(ByteSource.empty()).build();
+        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.name() + "-stub").payload(ByteSource.empty()).build();
         putBlob(container, blob);
-        return new MultipartUpload(container, blobMetadata.getName(), uploadId,
+        return new MultipartUpload(container, blobMetadata.name(), uploadId,
                 blobMetadata, options);
     }
 
@@ -948,8 +948,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
             contentLength += meta.getContentMetadata().contentLength();
             metas.add(meta);
-            if (meta.getETag() != null) {
-                var eTag = meta.getETag();
+            if (meta.eTag() != null) {
+                var eTag = meta.eTag();
                 if (eTag.startsWith("\"") && eTag.endsWith("\"") &&
                        eTag.length() >= 2) {
                     eTag = eTag.substring(1, eTag.length() - 1);
@@ -964,7 +964,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 .eTag(mpuETag);
         var mpuBlobMetadata = mpu.blobMetadata();
         if (mpuBlobMetadata != null) {
-            blobBuilder.userMetadata(mpuBlobMetadata.getUserMetadata());
+            blobBuilder.userMetadata(mpuBlobMetadata.userMetadata());
             var contentMetadata = mpuBlobMetadata.getContentMetadata();
             var cacheControl = contentMetadata.cacheControl();
             if (cacheControl != null) {
@@ -991,7 +991,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             if (expires != null) {
                 blobBuilder.expires(expires);
             }
-            var storageClass = mpuBlobMetadata.getStorageClass();
+            var storageClass = mpuBlobMetadata.storageClass();
             if (storageClass != null) {
                 blobBuilder.storageClass(storageClass);
             }
@@ -1023,7 +1023,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var partETag = putBlob(mpu.containerName(), blob);
         var metadata = blobMetadata(mpu.containerName(), partName);  // TODO: racy, how to get this from payload?
         var partSize = metadata.getContentMetadata().contentLength();
-        return new MultipartPart(partNumber, partSize, partETag, metadata.getLastModified());
+        return new MultipartPart(partNumber, partSize, partETag, metadata.lastModified());
     }
 
     @Override
@@ -1035,18 +1035,18 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         while (true) {
             var pageSet = list(mpu.containerName(), options);
             for (var sm : pageSet) {
-                if (sm.getName().endsWith("-stub")) {
+                if (sm.name().endsWith("-stub")) {
                     continue;
                 }
                 int partNumber;
                 try {
-                    partNumber = Integer.parseInt(sm.getName().substring(partPrefix.length()));
+                    partNumber = Integer.parseInt(sm.name().substring(partPrefix.length()));
                 } catch (NumberFormatException nfe) {
-                    logger.warn("ignoring multipart entry with non-numeric suffix: {}", sm.getName());
+                    logger.warn("ignoring multipart entry with non-numeric suffix: {}", sm.name());
                     continue;
                 }
-                long partSize = sm.getSize();
-                parts.add(new MultipartPart(partNumber, partSize, sm.getETag(), sm.getLastModified()));
+                long partSize = sm.size();
+                parts.add(new MultipartPart(partNumber, partSize, sm.eTag(), sm.lastModified()));
             }
             if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
                 break;
@@ -1065,11 +1065,11 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         while (true) {
             var pageSet = list(container, options);
             for (StorageMetadata sm : pageSet) {
-                if (!sm.getName().endsWith("-stub")) {
+                if (!sm.name().endsWith("-stub")) {
                     continue;
                 }
-                var uploadId = sm.getName().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
-                var blobName = sm.getName().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
+                var uploadId = sm.name().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
+                var blobName = sm.name().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
                 int index = blobName.lastIndexOf('-');
                 blobName = blobName.substring(0, index);
 
@@ -1207,10 +1207,10 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         private InputStream openPartStream(BlobMetadata meta) throws IOException {
-            Blob blob = blobStore.getBlob(meta.getContainer(), meta.getName());
+            Blob blob = blobStore.getBlob(meta.getContainer(), meta.name());
             if (blob == null) {
                 throw new IOException("Part disappeared: " +
-                        meta.getContainer() + "/" + meta.getName());
+                        meta.getContainer() + "/" + meta.name());
             }
             return blob.getPayload().openStream();
         }
@@ -1269,8 +1269,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             buf.flip();
             view.write(XATTR_EXPIRES, buf);
         }
-        writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().getStorageClass().toString());
-        for (var entry : blob.getMetadata().getUserMetadata().entrySet()) {
+        writeStringAttributeIfPresent(view, XATTR_STORAGE_TIER, blob.getMetadata().storageClass().toString());
+        for (var entry : blob.getMetadata().userMetadata().entrySet()) {
             writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
         }
     }

@@ -123,7 +123,7 @@ public final class RegexBlobStore extends ForwardingBlobStore {
 
     @Override
     public String putBlob(String containerName, Blob blob) {
-        String name = blob.getMetadata().getName();
+        String name = blob.getMetadata().name();
         String newName = replaceBlobName(name);
         logger.debug("Renaming blob name from {} to {}", name, newName);
 
@@ -134,7 +134,7 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     @Override
     public String putBlob(String containerName, Blob blob,
             PutOptions putOptions) {
-        String name = blob.getMetadata().getName();
+        String name = blob.getMetadata().name();
         String newName = replaceBlobName(name);
         logger.debug("Renaming blob name from {} to {}", name, newName);
 
@@ -221,7 +221,7 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     private BlobMetadata rewriteBlobMetadata(BlobMetadata metadata) {
-        String name = metadata.getName();
+        String name = metadata.name();
         String newName = replaceBlobName(name);
         if (name.equals(newName)) {
             return metadata;

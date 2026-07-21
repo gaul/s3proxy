@@ -76,7 +76,7 @@ public final class PrefixBlobStoreTest {
 
         Blob stored = prefixBlobStore.getBlob(containerName, "object.txt");
         assertThat(stored).isNotNull();
-        assertThat(stored.getMetadata().getName()).isEqualTo("object.txt");
+        assertThat(stored.getMetadata().name()).isEqualTo("object.txt");
         try (InputStream expected = content.openStream();
              InputStream actual = stored.getPayload().openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -96,7 +96,7 @@ public final class PrefixBlobStoreTest {
         PageSet<? extends StorageMetadata> listing =
                 prefixBlobStore.list(containerName);
         List<String> names = List.copyOf(listing).stream()
-                .map(StorageMetadata::getName)
+                .map(StorageMetadata::name)
                 .toList();
         assertThat(names).containsExactlyInAnyOrder(
                 "file-one.txt", "file-two.txt");

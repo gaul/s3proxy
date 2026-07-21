@@ -1329,9 +1329,9 @@ public class S3ProxyHandler {
             for (StorageMetadata metadata : buckets) {
                 xml.writeStartElement("Bucket");
 
-                writeSimpleElement(xml, "Name", metadata.getName());
+                writeSimpleElement(xml, "Name", metadata.name());
 
-                Date creationDate = metadata.getCreationDate();
+                Date creationDate = metadata.creationDate();
                 if (creationDate == null) {
                     // Some providers, e.g., Swift, do not provide container
                     // creation date.  Emit a bogus one to satisfy clients like
@@ -1683,7 +1683,7 @@ public class S3ProxyHandler {
         if (filterStub) {
             filteredCount = 0;
             for (StorageMetadata sm : set) {
-                if (!sm.getName().startsWith(MULTIPART_STUB_PREFIX)) {
+                if (!sm.name().startsWith(MULTIPART_STUB_PREFIX)) {
                     filteredCount++;
                 }
             }
@@ -1768,14 +1768,14 @@ public class S3ProxyHandler {
 
             Set<String> commonPrefixes = new TreeSet<>();
             for (StorageMetadata metadata : set) {
-                if (filterStub && metadata.getName().startsWith(
+                if (filterStub && metadata.name().startsWith(
                         MULTIPART_STUB_PREFIX)) {
                     continue;
                 }
-                switch (metadata.getType()) {
+                switch (metadata.type()) {
                 case FOLDER, RELATIVE_PATH -> {
                     if (delimiter != null) {
-                        commonPrefixes.add(metadata.getName());
+                        commonPrefixes.add(metadata.name());
                         continue;
                     }
                 }
@@ -1785,25 +1785,25 @@ public class S3ProxyHandler {
                 xml.writeStartElement("Contents");
 
                 writeSimpleElement(xml, "Key", encodeBlob(encodingType,
-                        metadata.getName()));
+                        metadata.name()));
 
-                Date lastModified = metadata.getLastModified();
+                Date lastModified = metadata.lastModified();
                 if (lastModified != null) {
                     writeSimpleElement(xml, "LastModified",
                             formatDate(lastModified));
                 }
 
-                String eTag = metadata.getETag();
+                String eTag = metadata.eTag();
                 if (eTag != null) {
                     writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
-                Long size = metadata.getSize();
+                Long size = metadata.size();
                 if (size != null) {
                     writeSimpleElement(xml, "Size", String.valueOf(size));
                 }
 
-                StorageClass storageClass = metadata.getStorageClass();
+                StorageClass storageClass = metadata.storageClass();
                 if (storageClass != null) {
                     writeSimpleElement(xml, "StorageClass",
                             storageClass.toString());
@@ -2034,7 +2034,7 @@ public class S3ProxyHandler {
         long ifUnmodifiedSince = request.getDateHeader(
                 HttpHeaders.IF_UNMODIFIED_SINCE);
 
-        String eTag = metadata.getETag();
+        String eTag = metadata.eTag();
         if (eTag != null) {
             eTag = maybeQuoteETag(eTag);
             if (ifMatch != null && !ifMatch.equals(eTag)) {
@@ -2046,7 +2046,7 @@ public class S3ProxyHandler {
             }
         }
 
-        Date lastModified = metadata.getLastModified();
+        Date lastModified = metadata.lastModified();
         if (lastModified != null) {
             if (ifModifiedSince != -1 && lastModified.compareTo(
                     new Date(ifModifiedSince)) <= 0) {
@@ -2321,7 +2321,7 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            var lastModified = blobMetadata.getLastModified();
+            var lastModified = blobMetadata.lastModified();
             if (lastModified != null) {
                 writeSimpleElement(xml, "LastModified",
                         formatDate(lastModified));
@@ -2430,7 +2430,7 @@ public class S3ProxyHandler {
                     if (metadata == null) {
                         throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
                     }
-                    String eTag = metadata.getETag();
+                    String eTag = metadata.eTag();
                     if (eTag != null) {
                         eTag = maybeQuoteETag(eTag);
                         if (!equalsIgnoringSurroundingQuotes(ifMatch, eTag)) {
@@ -2448,7 +2448,7 @@ public class S3ProxyHandler {
                         throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
                     }
                 } else if (metadata != null) {
-                    String eTag = metadata.getETag();
+                    String eTag = metadata.eTag();
                     if (eTag != null) {
                         eTag = maybeQuoteETag(eTag);
                         if (equalsIgnoringSurroundingQuotes(ifNoneMatch, eTag)) {
@@ -3410,11 +3410,11 @@ public class S3ProxyHandler {
         }
 
         BlobMetadata blobMetadata = blob.getMetadata();
-        String eTag = blobMetadata.getETag();
-        Date lastModified = blobMetadata.getLastModified();
+        String eTag = blobMetadata.eTag();
+        Date lastModified = blobMetadata.lastModified();
         try {
             // HTTP GET allow overlong ranges but S3 CopyPart does not
-            if (expectedSize != -1 && blobMetadata.getSize() < expectedSize) {
+            if (expectedSize != -1 && blobMetadata.size() < expectedSize) {
                 throw new S3Exception(S3ErrorCode.INVALID_RANGE);
             }
 
@@ -3640,7 +3640,7 @@ public class S3ProxyHandler {
                 "response-content-type");
         response.setContentType(overrideContentType != null ?
                 overrideContentType : contentMetadata.contentType());
-        String eTag = metadata.getETag();
+        String eTag = metadata.eTag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
         }
@@ -3653,17 +3653,17 @@ public class S3ProxyHandler {
                 response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
             }
         }
-        Date lastModified = metadata.getLastModified();
+        Date lastModified = metadata.lastModified();
         if (lastModified != null) {
             response.addDateHeader(HttpHeaders.LAST_MODIFIED,
                     lastModified.getTime());
         }
-        StorageClass storageClass = metadata.getStorageClass();
+        StorageClass storageClass = metadata.storageClass();
         if (storageClass != null) {
             response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
                     storageClass.toString());
         }
-        for (var entry : metadata.getUserMetadata().entrySet()) {
+        for (var entry : metadata.userMetadata().entrySet()) {
             response.addHeader(USER_METADATA_PREFIX + entry.getKey(),
                     entry.getValue());
         }

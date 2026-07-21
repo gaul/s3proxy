@@ -25,40 +25,35 @@ import org.jspecify.annotations.Nullable;
 /**
  * Identifies containers, files, etc. Permits exactly
  * {@link ContainerMetadata} and {@link BlobMetadata}.
- *
- * TODO: drop the {@code get} prefix on these accessors so the record
- * components in {@link BlobMetadata} and {@link ContainerMetadata} satisfy
- * the interface directly, eliminating the manual {@code @Override}
- * getters in each.
  */
 public sealed interface StorageMetadata extends Comparable<StorageMetadata>
         permits ContainerMetadata, BlobMetadata {
 
-    StorageType getType();
+    StorageType type();
 
-    String getName();
+    String name();
 
-    Map<String, String> getUserMetadata();
-
-    @Nullable
-    String getETag();
+    Map<String, String> userMetadata();
 
     @Nullable
-    Date getCreationDate();
+    String eTag();
 
     @Nullable
-    Date getLastModified();
+    Date creationDate();
 
     @Nullable
-    Long getSize();
+    Date lastModified();
 
-    StorageClass getStorageClass();
+    @Nullable
+    Long size();
+
+    StorageClass storageClass();
 
     @Override
     default int compareTo(StorageMetadata o) {
-        if (getName() == null) {
+        if (name() == null) {
             return -1;
         }
-        return (this == o) ? 0 : getName().compareTo(o.getName());
+        return (this == o) ? 0 : name().compareTo(o.name());
     }
 }

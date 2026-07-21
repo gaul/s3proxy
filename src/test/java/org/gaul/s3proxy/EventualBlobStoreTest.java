@@ -239,7 +239,7 @@ public final class EventualBlobStoreTest {
         assertThat(contentMetadata.contentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
-        assertThat(blob.getMetadata().getUserMetadata())
+        assertThat(blob.getMetadata().userMetadata())
                 .isEqualTo(Map.of("key", "value"));
 
         try (InputStream actual = blob.getPayload().openStream();

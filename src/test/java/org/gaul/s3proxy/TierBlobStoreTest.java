@@ -60,7 +60,7 @@ public final class TierBlobStoreTest {
         tierBlobStore.putBlob(containerName, blob);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
+        assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
     }
 
     @Test
@@ -71,7 +71,7 @@ public final class TierBlobStoreTest {
         blobStore.putBlob(containerName, blob);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.STANDARD);
+        assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.STANDARD);
     }
 
     @Test
@@ -90,7 +90,7 @@ public final class TierBlobStoreTest {
         tierBlobStore.completeMultipartUpload(mpu, parts);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
+        assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
     }
 
     @Test
@@ -109,6 +109,6 @@ public final class TierBlobStoreTest {
         blobStore.completeMultipartUpload(mpu, parts);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
-        assertThat(blobMetadata.getStorageClass()).isEqualTo(StorageClass.STANDARD);
+        assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.STANDARD);
     }
 }

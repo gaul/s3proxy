@@ -57,18 +57,18 @@ public class Decryption {
         // to exactly one 64-byte padding block, so a 64-byte blob is still a
         // (zero-length) encrypted object; the delimiter check below rejects a
         // genuinely unencrypted 64-byte blob.
-        if (meta == null || meta.getSize() < Constants.PADDING_BLOCK_SIZE) {
+        if (meta == null || meta.size() < Constants.PADDING_BLOCK_SIZE) {
             blobIsNotEncrypted(offset);
             return;
         }
 
         // get the 64 byte of part padding from the end of the blob
         var options = GetOptions.builder()
-            .range(meta.getSize() - Constants.PADDING_BLOCK_SIZE,
-                meta.getSize() - 1)
+            .range(meta.size() - Constants.PADDING_BLOCK_SIZE,
+                meta.size() - 1)
             .build();
         Blob blob =
-            blobStore.getBlob(meta.getContainer(), meta.getName(), options);
+            blobStore.getBlob(meta.getContainer(), meta.name(), options);
 
         // read the padding structure
         PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
@@ -83,7 +83,7 @@ public class Decryption {
 
         // detect multipart
         if (lastPartPadding.getPart() > 1 &&
-            meta.getSize() >
+            meta.size() >
                 (lastPartPadding.getSize() + Constants.PADDING_BLOCK_SIZE)) {
             unencryptedSize = lastPartPadding.getSize();
             encryptedSize =
@@ -97,15 +97,15 @@ public class Decryption {
 
             // loop part by part from end to the beginning
             // to build a list of all blocks
-            while (encryptedSize < meta.getSize()) {
+            while (encryptedSize < meta.size()) {
                 // get the next block
                 // rewind by the current encrypted block size
                 // minus the encryption padding
-                long startAt = (meta.getSize() - encryptedSize) -
+                long startAt = (meta.size() - encryptedSize) -
                     Constants.PADDING_BLOCK_SIZE;
-                long endAt = meta.getSize() - encryptedSize - 1;
+                long endAt = meta.size() - encryptedSize - 1;
                 options = GetOptions.builder().range(startAt, endAt).build();
-                blob = blobStore.getBlob(meta.getContainer(), meta.getName(),
+                blob = blobStore.getBlob(meta.getContainer(), meta.name(),
                     options);
 
                 part++;
@@ -128,10 +128,10 @@ public class Decryption {
             partList.put(1, lastPartPadding);
 
             // update the unencrypted size
-            unencryptedSize = meta.getSize() - Constants.PADDING_BLOCK_SIZE;
+            unencryptedSize = meta.size() - Constants.PADDING_BLOCK_SIZE;
 
             // update the encrypted size
-            encryptedSize = meta.getSize();
+            encryptedSize = meta.size();
         }
 
         // calculate the offset
