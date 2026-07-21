@@ -354,15 +354,12 @@ public final class AwsSdkTest {
         // A precomputed-checksum mismatch is detected mid-stream while the
         // body is forwarded to the backend, so it surfaces as a clean
         // BadDigest only on backends whose putBlob reads the payload once and
-        // propagates the error.  Skip the two that cannot:
-        //   - google-cloud-storage-sdk: Storage.createFrom() finalizes the
-        //     resumable upload on close, leaving a 0-byte object that is
-        //     indistinguishable on the wire from a legitimate empty-object
-        //     PUT, so the rejected key still exists afterwards.
-        //   - s3 (jclouds): the jclouds command layer wraps the upload failure
-        //     and strips the S3Exception cause, returning 500/null not 400.
+        // propagates the error.  Skip the one that cannot:
+        // google-cloud-storage-sdk's Storage.createFrom() finalizes the
+        // resumable upload on close, leaving a 0-byte object that is
+        // indistinguishable on the wire from a legitimate empty-object PUT,
+        // so the rejected key still exists afterwards.
         assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
-        assumeTrue(!blobStoreType.equals("s3"));
 
         var key = "testPutObjectInvalidChecksumHeader";
         var content = TestUtils.randomByteSource().slice(0, 1024).read();
@@ -437,7 +434,6 @@ public final class AwsSdkTest {
     public void testMultipartCopyPreconditionFailed() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
         assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-        assumeTrue(!blobStoreType.equals("b2"));
 
         String sourceBlobName = "testMultipartCopyPrecondition-source";
         String targetBlobName = "testMultipartCopyPrecondition-target";
@@ -620,12 +616,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadWithChecksum() throws Exception {
-        // Only the request-body completion path enforces per-part checksums;
-        // the azureblob and native google-cloud-storage branches list parts
-        // from the backend and ignore the request body.
-        assumeTrue(!blobStoreType.equals("azureblob"));
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
-
         String key = "multipart-upload-checksum";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -677,9 +667,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadMissingPartChecksum() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob"));
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
-
         String key = "multipart-upload-missing-checksum";
         long partSize = MINIMUM_MULTIPART_SIZE;
         long size = partSize + 1;
@@ -1763,8 +1750,8 @@ public final class AwsSdkTest {
     @Test
     public void testMaximumMultipartUpload() throws Exception {
         // skip with remote blobstores to avoid excessive run-times
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
+                blobStoreType.equals("transient-nio2"));
 
         String blobName = "multipart-upload";
         int numParts = 32;
@@ -2034,10 +2021,6 @@ public final class AwsSdkTest {
         // 304 Not Modified.  Real S3 and Swift evaluate the wildcard natively;
         // google-cloud-storage-sdk, azureblob-sdk, and the nio2 backends
         // emulate the conditional inside s3proxy, which this also exercises.
-        assumeTrue(!blobStoreType.equals("b2"));
-        // TODO: the jclouds-native azureblob provider is untested for this;
-        // the azureblob-sdk backend emulates the wildcard (see AzureBlobStore).
-        assumeTrue(!blobStoreType.equals("azureblob"));
         // LocalStack and MinIO do not implement the If-Match/If-None-Match "*"
         // wildcard, returning 412 where real S3 returns 200/304.
         assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
@@ -2299,8 +2282,7 @@ public final class AwsSdkTest {
         try {
             client.deleteObject(b -> b.bucket(containerName)
                     .key("../evil.txt"));
-            if (blobStoreType.equals("filesystem") ||
-                    blobStoreType.equals("filesystem-nio2") ||
+            if (blobStoreType.equals("filesystem-nio2") ||
                     blobStoreType.equals("transient-nio2")) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
@@ -2326,8 +2308,7 @@ public final class AwsSdkTest {
             client.putObject(b -> b.bucket(containerName).key("../evil.txt"),
                     RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
                             BYTE_SOURCE.size()));
-            if (blobStoreType.equals("filesystem") ||
-                    blobStoreType.equals("filesystem-nio2") ||
+            if (blobStoreType.equals("filesystem-nio2") ||
                     blobStoreType.equals("transient-nio2")) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
@@ -2339,12 +2320,10 @@ public final class AwsSdkTest {
 
     @Test
     public void testListRelativePath() throws Exception {
-        assumeTrue(!blobStoreType.equals("filesystem"));
         try {
             client.listObjects(b -> b.bucket(containerName)
                     .prefix("../evil/"));
-            if (blobStoreType.equals("filesystem") ||
-                    blobStoreType.equals("filesystem-nio2") ||
+            if (blobStoreType.equals("filesystem-nio2") ||
                     blobStoreType.equals("transient-nio2")) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);

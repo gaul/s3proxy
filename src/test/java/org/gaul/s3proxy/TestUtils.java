@@ -160,8 +160,7 @@ final class TestUtils {
                 Constants.PROPERTY_IDENTITY);
         String credential = info.getProperties().getProperty(
                 Constants.PROPERTY_CREDENTIAL);
-        if (provider.equals("google-cloud-storage") ||
-                provider.equals("google-cloud-storage-sdk")) {
+        if (provider.equals("google-cloud-storage-sdk")) {
             if (credential != null && !credential.isEmpty()) {
                 var path = FileSystems.getDefault().getPath(credential);
                 if (Files.exists(path)) {
