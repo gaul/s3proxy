@@ -622,6 +622,8 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
       <artifactId>slf4j-api</artifactId>
       <version>${slf4j.version}</version>
     </dependency>
+    <!-- commons-logging bridge for Apache HttpClient 4, a transitive
+         dependency of google-http-client, and for the CORS tests -->
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>jcl-over-slf4j</artifactId>
