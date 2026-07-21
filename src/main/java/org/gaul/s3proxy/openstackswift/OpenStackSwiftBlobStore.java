@@ -43,7 +43,7 @@ import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
-import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -95,7 +95,7 @@ import org.openstack4j.openstack.OSFactory;
  * the catalog.  The Keystone project and domains are supplied via the
  * {@code openstack-swift-sdk.*} properties.
  */
-public final class OpenStackSwiftBlobStore extends BaseBlobStore {
+public final class OpenStackSwiftBlobStore implements BlobStore {
     /**
      * Keystone project (tenant) name to scope the token to.  Required:
      * Swift object storage is only reachable through a project-scoped token.

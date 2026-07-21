@@ -60,7 +60,7 @@ import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 
-import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -84,7 +84,7 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
-public final class GCloudBlobStore extends BaseBlobStore {
+public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";

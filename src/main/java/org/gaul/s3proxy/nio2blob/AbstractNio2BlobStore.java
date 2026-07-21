@@ -50,7 +50,6 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Longs;
 
-import org.gaul.s3proxy.blobstore.BaseBlobStore;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
@@ -77,7 +76,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public abstract class AbstractNio2BlobStore extends BaseBlobStore {
+public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
             AbstractNio2BlobStore.class);
     private static final String XATTR_CACHE_CONTROL = "user.cache-control";

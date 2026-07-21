@@ -69,7 +69,7 @@ import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 
-import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -96,7 +96,7 @@ import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 
-public final class AzureBlobStore extends BaseBlobStore {
+public final class AzureBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final long MAXIMUM_MULTIPART_PART_SIZE =
             4000L * 1024 * 1024;

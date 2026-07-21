@@ -34,7 +34,7 @@ import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
 import com.google.common.net.HttpHeaders;
 
-import org.gaul.s3proxy.blobstore.BaseBlobStore;
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
@@ -108,7 +108,7 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
-public final class AwsS3SdkBlobStore extends BaseBlobStore {
+public final class AwsS3SdkBlobStore implements BlobStore {
     private final S3Client s3Client;
     private final String endpoint;
     private final boolean useNativeConditionalWrites;

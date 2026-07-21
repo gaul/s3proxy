@@ -57,9 +57,34 @@ public interface BlobStore extends AutoCloseable {
 
     void setContainerAccess(String container, ContainerAccess access);
 
-    void clearContainer(String container, ListContainerOptions options);
+    default void clearContainer(String container,
+            ListContainerOptions options) {
+        ListContainerOptions opts = options;
+        while (true) {
+            PageSet<? extends StorageMetadata> page = list(container, opts);
+            for (StorageMetadata sm : page) {
+                String name = sm.name();
+                if (name != null) {
+                    removeBlob(container, name);
+                }
+            }
+            String marker = page.getNextMarker();
+            if (marker == null) {
+                return;
+            }
+            opts = options.toBuilder().afterMarker(marker).build();
+        }
+    }
 
-    void deleteContainer(String container);
+    default void deleteContainer(String container) {
+        try {
+            clearContainer(container,
+                    ListContainerOptions.builder().recursive().build());
+        } catch (ContainerNotFoundException e) {
+            return;
+        }
+        deleteContainerIfEmpty(container);
+    }
 
     boolean deleteContainerIfEmpty(String container);
 
@@ -78,7 +103,11 @@ public interface BlobStore extends AutoCloseable {
 
     void removeBlob(String container, String name);
 
-    void removeBlobs(String container, Iterable<String> names);
+    default void removeBlobs(String container, Iterable<String> names) {
+        for (String name : names) {
+            removeBlob(container, name);
+        }
+    }
 
     BlobAccess getBlobAccess(String container, String name);
 
