@@ -54,17 +54,11 @@ final class NullBlobStore extends ForwardingBlobStore {
     @Override
     @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
-        Blob blob = getBlob(container, name);
+        Blob blob = getBlob(container, name, GetOptions.NONE);
         if (blob == null) {
             return null;
         }
         return blob.getMetadata();
-    }
-
-    @Override
-    @Nullable
-    public Blob getBlob(String container, String name) {
-        return getBlob(container, name, GetOptions.NONE);
     }
 
     @Override
@@ -123,11 +117,6 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        return list(container, ListContainerOptions.NONE);
-    }
-
-    @Override
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         var builder = ImmutableSet.<StorageMetadata>builder();
@@ -141,11 +130,6 @@ final class NullBlobStore extends ForwardingBlobStore {
             }
         }
         return new PageSet<>(builder.build(), pageSet.getNextMarker());
-    }
-
-    @Override
-    public String putBlob(String containerName, Blob blob) {
-        return putBlob(containerName, blob, PutOptions.NONE);
     }
 
     @Override
@@ -227,7 +211,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         Blob blob = Blob.builder(mpu.id() + "-" + partNumber)
                 .payload(ByteSource.wrap(array))
                 .build();
-        super.putBlob(mpu.containerName(), blob);
+        super.putBlob(mpu.containerName(), blob, PutOptions.NONE);
 
         MultipartPart part = super.uploadMultipartPart(mpu, partNumber,
                 new ByteArrayInputStream(array), array.length, null);
@@ -241,7 +225,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         for (MultipartPart part : super.listMultipartUpload(mpu)) {
             // get real blob size from stub blob
             Blob blob = getBlob(mpu.containerName(),
-                    mpu.id() + "-" + part.partNumber());
+                    mpu.id() + "-" + part.partNumber(), GetOptions.NONE);
             long length = blob.getMetadata().getContentMetadata()
                     .contentLength();
             builder.add(new MultipartPart(part.partNumber(), length,

@@ -46,11 +46,6 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
@@ -59,11 +54,6 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     @Override
     public void setContainerAccess(String container,
             ContainerAccess containerAccess) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
-    public void clearContainer(String container) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
@@ -79,11 +69,6 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public boolean deleteContainerIfEmpty(String container) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
-    public String putBlob(String containerName, Blob blob) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

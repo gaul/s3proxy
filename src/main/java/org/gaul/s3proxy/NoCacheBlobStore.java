@@ -36,11 +36,6 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public Blob getBlob(String containerName, String name) {
-        return getBlob(containerName, name, GetOptions.NONE);
-    }
-
-    @Override
     public Blob getBlob(String containerName, String name, GetOptions getOptions) {
         return super.getBlob(containerName, name, resetCacheHeaders(getOptions));
     }

@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +39,7 @@ public final class TierBlobStoreTest {
 
         //noinspection UnstableApiUsage
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName);
+        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
 
         tierBlobStore = StorageClassBlobStore.newStorageClassBlobStore(
                 blobStore, StorageClass.DEEP_ARCHIVE.toString());
@@ -56,7 +57,7 @@ public final class TierBlobStoreTest {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
         var blob = Blob.builder(blobName).payload(content).build();
-        tierBlobStore.putBlob(containerName, blob);
+        tierBlobStore.putBlob(containerName, blob, PutOptions.NONE);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
@@ -67,7 +68,7 @@ public final class TierBlobStoreTest {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
         var blob = Blob.builder(blobName).payload(content).build();
-        blobStore.putBlob(containerName, blob);
+        blobStore.putBlob(containerName, blob, PutOptions.NONE);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.STANDARD);

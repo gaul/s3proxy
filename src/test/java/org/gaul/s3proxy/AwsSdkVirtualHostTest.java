@@ -33,6 +33,8 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,10 +78,11 @@ public final class AwsSdkVirtualHostTest {
         assertThat(virtualHost).isNotEmpty();
 
         containerName = AwsSdkTest.createRandomContainerName();
-        info.getBlobStore().createContainer(containerName);
+        info.getBlobStore().createContainer(containerName,
+                CreateContainerOptions.NONE);
         Blob blob = Blob.builder("foo")
                 .payload(BYTE_SOURCE).contentLength(BYTE_SOURCE.size()).build();
-        info.getBlobStore().putBlob(containerName, blob);
+        info.getBlobStore().putBlob(containerName, blob, PutOptions.NONE);
     }
 
     @AfterEach

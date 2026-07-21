@@ -365,11 +365,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public Blob getBlob(String containerName, String blobName) {
-        return getBlob(containerName, blobName, GetOptions.NONE);
-    }
-
-    @Override
     public Blob getBlob(String containerName, String blobName,
         GetOptions getOptions) {
 
@@ -471,12 +466,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob) {
-        return delegate().putBlob(containerName,
-            encryptBlob(blob));
-    }
-
-    @Override
     public String putBlob(String containerName, Blob blob,
         PutOptions putOptions) {
         return delegate().putBlob(containerName,
@@ -542,12 +531,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public PageSet<? extends StorageMetadata> list() {
         PageSet<? extends StorageMetadata> pageSet = delegate().list();
         return filteredList(/*container=*/ null, pageSet);
-    }
-
-    @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        PageSet<? extends StorageMetadata> pageSet = delegate().list(container);
-        return filteredList(container, pageSet);
     }
 
     @Override

@@ -126,12 +126,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        simulateLatency(OP_LIST);
-        return super.list(container);
-    }
-
-    @Override
     public PageSet<? extends StorageMetadata> list(String container, ListContainerOptions options) {
         simulateLatency(OP_LIST);
         return super.list(container, options);
@@ -141,12 +135,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public boolean containerExists(String container) {
         simulateLatency(OP_CONTAINER_EXISTS);
         return super.containerExists(container);
-    }
-
-    @Override
-    public boolean createContainer(String container) {
-        simulateLatency(OP_CREATE_CONTAINER);
-        return super.createContainer(container);
     }
 
     @Override
@@ -166,12 +154,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public void setContainerAccess(String container, ContainerAccess containerAccess) {
         simulateLatency(OP_CONTAINER_ACCESS);
         super.setContainerAccess(container, containerAccess);
-    }
-
-    @Override
-    public void clearContainer(String container) {
-        simulateLatency(OP_CLEAR_CONTAINER);
-        super.clearContainer(container);
     }
 
     @Override
@@ -199,17 +181,10 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob) {
-        simulateLatency(OP_PUT_BLOB);
-        Blob newBlob = replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_PUT_BLOB)));
-        return super.putBlob(containerName, newBlob);
-    }
-
-    @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
         simulateLatency(OP_PUT_BLOB);
         Blob newBlob = replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_PUT_BLOB)));
-        return super.putBlob(containerName, newBlob);
+        return super.putBlob(containerName, newBlob, PutOptions.NONE);
     }
 
     @Override
@@ -222,16 +197,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public BlobMetadata blobMetadata(String container, String name) {
         simulateLatency(OP_BLOB_METADATA);
         return super.blobMetadata(container, name);
-    }
-
-    @Override
-    public Blob getBlob(String containerName, String blobName) {
-        simulateLatency(OP_GET_BLOB);
-        Blob blob = super.getBlob(containerName, blobName);
-        if (blob == null) {
-            return null;
-        }
-        return replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_GET_BLOB)));
     }
 
     @Override

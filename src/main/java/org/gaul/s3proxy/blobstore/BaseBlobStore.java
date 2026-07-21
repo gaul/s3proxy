@@ -17,30 +17,17 @@
 
 package org.gaul.s3proxy.blobstore;
 
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 
 public abstract class BaseBlobStore implements BlobStore {
-
-    @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        return this.list(container, ListContainerOptions.NONE);
-    }
 
     @Override
     public void removeBlobs(String container, Iterable<String> names) {
         for (String name : names) {
             removeBlob(container, name);
         }
-    }
-
-    @Override
-    public void clearContainer(String containerName) {
-        clearContainer(containerName,
-                ListContainerOptions.builder().recursive().build());
     }
 
     @Override
@@ -64,14 +51,10 @@ public abstract class BaseBlobStore implements BlobStore {
     }
 
     @Override
-    public Blob getBlob(String container, String key) {
-        return getBlob(container, key, GetOptions.NONE);
-    }
-
-    @Override
     public void deleteContainer(String container) {
         try {
-            clearContainer(container);
+            clearContainer(container,
+                    ListContainerOptions.builder().recursive().build());
         } catch (ContainerNotFoundException e) {
             return;
         }

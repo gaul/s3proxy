@@ -219,25 +219,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public Blob getBlob(String containerName, String blobName) {
-        return trimBlob(containerName,
-                super.getBlob(containerName, addPrefix(containerName,
-                        blobName)));
-    }
-
-    @Override
     public Blob getBlob(String containerName, String blobName,
                         GetOptions getOptions) {
         return trimBlob(containerName,
                 super.getBlob(containerName, addPrefix(containerName,
                         blobName), getOptions));
-    }
-
-    @Override
-    public String putBlob(String containerName, Blob blob) {
-        return super.putBlob(containerName, blob.toBuilder()
-                .name(addPrefix(containerName, blob.getMetadata().name()))
-                .build());
     }
 
     @Override
@@ -285,14 +271,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        if (!hasPrefix(container)) {
-            return super.list(container);
-        }
-        return list(container, ListContainerOptions.NONE);
-    }
-
-    @Override
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         if (!hasPrefix(container)) {
@@ -300,19 +278,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         }
         var effective = applyPrefix(container, options);
         return trimListing(container, super.list(container, effective));
-    }
-
-    @Override
-    public void clearContainer(String container) {
-        if (!hasPrefix(container)) {
-            super.clearContainer(container);
-            return;
-        }
-        var options = ListContainerOptions.builder()
-                .prefix(getPrefix(container))
-                .recursive()
-                .build();
-        super.clearContainer(container, options);
     }
 
     @Override

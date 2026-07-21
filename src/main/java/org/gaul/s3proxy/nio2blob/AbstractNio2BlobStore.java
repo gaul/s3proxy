@@ -325,11 +325,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public final boolean createContainer(String container) {
-        return createContainer(container, CreateContainerOptions.NONE);
-    }
-
-    @Override
     public final boolean createContainer(String container,
             CreateContainerOptions options) {
         try {
@@ -586,11 +581,6 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public final String putBlob(String container, Blob blob) {
-        return putBlob(container, blob, PutOptions.NONE);
-    }
-
-    @Override
     public final String putBlob(String container, Blob blob, PutOptions options) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
@@ -702,7 +692,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     @Override
     public final String copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
-        var blob = getBlob(fromContainer, fromName);
+        var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
         if (blob == null) {
             throw new KeyNotFoundException(fromContainer, fromName, "while copying");
         }
@@ -775,7 +765,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
-            return putBlob(toContainer, builder.build());
+            return putBlob(toContainer, builder.build(), PutOptions.NONE);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -919,7 +909,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         var uploadId = UUID.randomUUID().toString();
         // create a stub blob
         var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.name() + "-stub").payload(ByteSource.empty()).build();
-        putBlob(container, blob);
+        putBlob(container, blob, PutOptions.NONE);
         return new MultipartUpload(container, blobMetadata.name(), uploadId,
                 blobMetadata, options);
     }
@@ -997,7 +987,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
             }
         }
 
-        putBlob(mpu.containerName(), blobBuilder.build());
+        putBlob(mpu.containerName(), blobBuilder.build(), PutOptions.NONE);
 
         // Remove every uploaded part, not just the ones referenced by the
         // manifest, so parts excluded from the final object do not leak.
@@ -1022,7 +1012,7 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 .contentLength(contentLength)
                 .contentMD5(contentMD5)
                 .build();
-        var partETag = putBlob(mpu.containerName(), blob);
+        var partETag = putBlob(mpu.containerName(), blob, PutOptions.NONE);
         var metadata = blobMetadata(mpu.containerName(), partName);
         return new MultipartPart(partNumber, contentLength, partETag, metadata.lastModified());
     }
@@ -1208,7 +1198,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
         }
 
         private InputStream openPartStream(BlobMetadata meta) throws IOException {
-            Blob blob = blobStore.getBlob(meta.getContainer(), meta.name());
+            Blob blob = blobStore.getBlob(meta.getContainer(), meta.name(),
+                    GetOptions.NONE);
             if (blob == null) {
                 throw new IOException("Part disappeared: " +
                         meta.getContainer() + "/" + meta.name());

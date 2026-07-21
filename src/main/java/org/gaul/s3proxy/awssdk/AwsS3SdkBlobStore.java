@@ -279,11 +279,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        return createContainer(container, CreateContainerOptions.NONE);
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         if (options == null) {
@@ -325,7 +320,8 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
     @Override
     public void deleteContainer(String container) {
         try {
-            clearContainer(container);
+            clearContainer(container,
+                    ListContainerOptions.builder().recursive().build());
             s3Client.deleteBucket(DeleteBucketRequest.builder()
                     .bucket(container)
                     .build());
@@ -449,11 +445,6 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
             }
             throw translate(e, container, key);
         }
-    }
-
-    @Override
-    public String putBlob(String container, Blob blob) {
-        return putBlob(container, blob, PutOptions.NONE);
     }
 
     @Override

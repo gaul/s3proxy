@@ -206,11 +206,6 @@ public final class AzureBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        return createContainer(container, CreateContainerOptions.NONE);
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         var azureOptions = new BlobContainerCreateOptions();
@@ -381,11 +376,6 @@ public final class AzureBlobStore extends BaseBlobStore {
         }
         builder.storageClass(fromAccessTier(accessTier));
         return builder.build();
-    }
-
-    @Override
-    public String putBlob(String container, Blob blob) {
-        return putBlob(container, blob, PutOptions.NONE);
     }
 
     @Override

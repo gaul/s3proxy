@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 import java.util.Arrays;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +47,7 @@ public final class S3ProxyMultiDeleteLimitTest {
     public void testMultiDeleteBodyExceedingLimitRejected() throws Exception {
         blobStore = TestUtils.createTransientBlobStore();
         String container = TestUtils.createRandomContainerName();
-        blobStore.createContainer(container);
+        blobStore.createContainer(container, CreateContainerOptions.NONE);
 
         long limit = 1024;
         s3Proxy = S3Proxy.builder()

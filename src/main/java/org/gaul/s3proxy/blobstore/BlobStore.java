@@ -46,22 +46,16 @@ public interface BlobStore extends AutoCloseable {
 
     PageSet<? extends StorageMetadata> list();
 
-    PageSet<? extends StorageMetadata> list(String container);
-
     PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options);
 
     boolean containerExists(String container);
-
-    boolean createContainer(String container);
 
     boolean createContainer(String container, CreateContainerOptions options);
 
     ContainerAccess getContainerAccess(String container);
 
     void setContainerAccess(String container, ContainerAccess access);
-
-    void clearContainer(String container);
 
     void clearContainer(String container, ListContainerOptions options);
 
@@ -71,8 +65,6 @@ public interface BlobStore extends AutoCloseable {
 
     boolean blobExists(String container, String name);
 
-    String putBlob(String container, Blob blob);
-
     String putBlob(String container, Blob blob, PutOptions options);
 
     String copyBlob(String fromContainer, String fromName, String toContainer,
@@ -80,9 +72,6 @@ public interface BlobStore extends AutoCloseable {
 
     @Nullable
     BlobMetadata blobMetadata(String container, String name);
-
-    @Nullable
-    Blob getBlob(String container, String name);
 
     @Nullable
     Blob getBlob(String container, String name, GetOptions options);

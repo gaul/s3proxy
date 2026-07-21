@@ -33,6 +33,9 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +52,7 @@ public final class PrefixBlobStoreTest {
         containerName = TestUtils.createRandomContainerName();
         prefix = "forward-prefix/";
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName);
+        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
         prefixBlobStore = PrefixBlobStore.newPrefixBlobStore(
                 blobStore, Map.of(containerName, prefix));
     }
@@ -57,7 +60,8 @@ public final class PrefixBlobStoreTest {
     @AfterEach
     public void tearDown() {
         if (blobStore != null) {
-            blobStore.clearContainer(containerName);
+            blobStore.clearContainer(containerName,
+                    ListContainerOptions.builder().recursive().build());
             blobStore.deleteContainer(containerName);
         }
     }
@@ -68,12 +72,13 @@ public final class PrefixBlobStoreTest {
         Blob blob = Blob.builder("object.txt")
                 .payload(content)
                 .build();
-        prefixBlobStore.putBlob(containerName, blob);
+        prefixBlobStore.putBlob(containerName, blob, PutOptions.NONE);
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "object.txt")).isTrue();
 
-        Blob stored = prefixBlobStore.getBlob(containerName, "object.txt");
+        Blob stored = prefixBlobStore.getBlob(containerName, "object.txt",
+                GetOptions.NONE);
         assertThat(stored).isNotNull();
         assertThat(stored.getMetadata().name()).isEqualTo("object.txt");
         try (InputStream expected = content.openStream();
@@ -86,14 +91,15 @@ public final class PrefixBlobStoreTest {
     public void testListTrimsPrefix() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 64);
         prefixBlobStore.putBlob(containerName, Blob.builder(
-                "file-one.txt").payload(content).build());
+                "file-one.txt").payload(content).build(), PutOptions.NONE);
         blobStore.putBlob(containerName, Blob.builder(
-                prefix + "file-two.txt").payload(content).build());
+                prefix + "file-two.txt").payload(content).build(),
+                        PutOptions.NONE);
         blobStore.putBlob(containerName, Blob.builder(
-                "outside.txt").payload(content).build());
+                "outside.txt").payload(content).build(), PutOptions.NONE);
 
         PageSet<? extends StorageMetadata> listing =
-                prefixBlobStore.list(containerName);
+                prefixBlobStore.list(containerName, ListContainerOptions.NONE);
         List<String> names = List.copyOf(listing).stream()
                 .map(StorageMetadata::name)
                 .toList();
@@ -106,11 +112,12 @@ public final class PrefixBlobStoreTest {
     public void testClearContainerKeepsOtherObjects() {
         ByteSource content = TestUtils.randomByteSource().slice(0, 32);
         prefixBlobStore.putBlob(containerName, Blob.builder(
-                "inside.txt").payload(content).build());
+                "inside.txt").payload(content).build(), PutOptions.NONE);
         blobStore.putBlob(containerName, Blob.builder(
-                "outside.txt").payload(content).build());
+                "outside.txt").payload(content).build(), PutOptions.NONE);
 
-        prefixBlobStore.clearContainer(containerName);
+        prefixBlobStore.clearContainer(containerName,
+                ListContainerOptions.builder().recursive().build());
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "inside.txt")).isFalse();

@@ -34,6 +34,9 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,7 +50,7 @@ public final class RegexBlobStoreTest {
         containerName = createRandomContainerName();
 
         delegate = TestUtils.createTransientBlobStore();
-        delegate.createContainer(containerName);
+        delegate.createContainer(containerName, CreateContainerOptions.NONE);
 
     }
 
@@ -74,20 +77,23 @@ public final class RegexBlobStoreTest {
         Blob blob = Blob.builder(initialBlobName).payload(
                 content).build();
 
-        String eTag = regexBlobStore.putBlob(containerName, blob);
+        String eTag = regexBlobStore.putBlob(containerName, blob,
+                PutOptions.NONE);
         assertThat(eTag).isEqualTo(contentHash);
 
         BlobMetadata blobMetadata = regexBlobStore.blobMetadata(
                 containerName, targetBlobName);
 
         assertThat(blobMetadata.eTag()).isEqualTo(contentHash);
-        blob = regexBlobStore.getBlob(containerName, targetBlobName);
+        blob = regexBlobStore.getBlob(containerName, targetBlobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
 
-        blob = regexBlobStore.getBlob(containerName, initialBlobName);
+        blob = regexBlobStore.getBlob(containerName, initialBlobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);

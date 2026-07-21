@@ -38,7 +38,7 @@ public final class ReadOnlyBlobStoreTest {
         containerName = createRandomContainerName();
 
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName);
+        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
         readOnlyBlobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
     }
 
@@ -59,7 +59,7 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testPutBlob() throws Exception {
         try {
-            readOnlyBlobStore.putBlob(containerName, null);
+            readOnlyBlobStore.putBlob(containerName, null, PutOptions.NONE);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {
@@ -81,7 +81,8 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testCreateContainer() throws Exception {
         try {
-            readOnlyBlobStore.createContainer(containerName);
+            readOnlyBlobStore.createContainer(containerName,
+                    CreateContainerOptions.NONE);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {

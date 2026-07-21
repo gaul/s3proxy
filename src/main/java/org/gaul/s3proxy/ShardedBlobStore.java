@@ -240,11 +240,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         return ret;
     }
 
-    @Override
-    public boolean createContainer(String container) {
-        return createContainer(container, CreateContainerOptions.NONE);
-    }
-
     @SuppressWarnings("EmptyCatch")
     @Override
     public boolean createContainer(String container,
@@ -279,7 +274,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                     .userMetadata(superblockMeta)
                     .build();
             this.delegate().putBlob(ShardedBlobStore.getShardContainer(
-                    bucket, 0), superblockBlob);
+                    bucket, 0), superblockBlob, PutOptions.NONE);
         }
 
         return ret;
@@ -309,15 +304,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             }
         }
         return new PageSet<>(results.build(), upstream.getNextMarker());
-    }
-
-    @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate().list(container);
-        }
-        // TODO: implement listing a sharded container
-        throw new UnsupportedOperationException("sharded bucket");
     }
 
     @Override
@@ -355,11 +341,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             return;
         }
         throw new UnsupportedOperationException("sharded bucket");
-    }
-
-    @Override
-    public void clearContainer(String container) {
-        clearContainer(container, ListContainerOptions.NONE);
     }
 
     @Override
@@ -409,7 +390,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String shard = ShardedBlobStore.getShardContainer(bucket, n);
             futuresBuilder.add(executor.submit(() -> {
                 try {
-                    return blobStore.list(shard).isEmpty();
+                    return blobStore.list(shard,
+                            ListContainerOptions.NONE).isEmpty();
                 } catch (ContainerNotFoundException cnfe) {
                     return true;
                 }
@@ -442,7 +424,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         String zeroShardContainer = ShardedBlobStore.getShardContainer(
                 bucket, 0);
         boolean superblockPresent = false;
-        for (StorageMetadata sm : this.delegate().list(zeroShardContainer)) {
+        for (StorageMetadata sm : this.delegate().list(zeroShardContainer,
+                ListContainerOptions.NONE)) {
             if (sm.name().equals(SUPERBLOCK_BLOB_NAME)) {
                 superblockPresent = true;
             } else {
@@ -463,12 +446,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     @Override
     public boolean blobExists(String container, String name) {
         return this.delegate().blobExists(this.getShard(container, name), name);
-    }
-
-    @Override
-    public String putBlob(String containerName, Blob blob) {
-        return this.delegate().putBlob(this.getShard(containerName,
-                blob.getMetadata().name()), blob);
     }
 
     @Override
@@ -493,12 +470,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     public BlobMetadata blobMetadata(String container, String name) {
         return this.delegate().blobMetadata(this.getShard(container, name),
                 name);
-    }
-
-    @Override
-    public Blob getBlob(String containerName, String blobName) {
-        return this.delegate().getBlob(this.getShard(containerName, blobName),
-                blobName);
     }
 
     @Override

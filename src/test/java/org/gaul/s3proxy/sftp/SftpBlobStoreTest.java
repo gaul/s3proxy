@@ -36,6 +36,9 @@ import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -76,15 +79,16 @@ public final class SftpBlobStoreTest {
                 hostKeyProvider))) {
             var bucket = "bucket";
             var key = "object.txt";
-            blobStore.createContainer(bucket);
+            blobStore.createContainer(bucket, CreateContainerOptions.NONE);
             var payload = ByteSource.wrap("value".getBytes(
                     StandardCharsets.UTF_8));
             blobStore.putBlob(bucket, Blob.builder(key)
                     .payload(payload)
                     .contentLength(payload.size())
-                    .build());
+                    .build(), PutOptions.NONE);
 
-            try (InputStream input = blobStore.getBlob(bucket, key)
+            try (InputStream input = blobStore.getBlob(bucket, key,
+                    GetOptions.NONE)
                     .getPayload()) {
                 assertThat(new String(input.readAllBytes(),
                         StandardCharsets.UTF_8)).isEqualTo("value");

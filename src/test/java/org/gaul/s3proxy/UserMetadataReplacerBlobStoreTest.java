@@ -24,6 +24,8 @@ import java.util.Map;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +44,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         //noinspection UnstableApiUsage
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName);
+        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
 
         userMetadataReplacerBlobStore = UserMetadataReplacerBlobStore
                 .newUserMetadataReplacerBlobStore(blobStore, "-", "_");
@@ -63,10 +65,12 @@ public final class UserMetadataReplacerBlobStoreTest {
                 .payload(content)
                 .userMetadata(Map.of("my-key", "my-value-"))
                 .build();
-        userMetadataReplacerBlobStore.putBlob(containerName, blob);
+        userMetadataReplacerBlobStore.putBlob(containerName, blob,
+                PutOptions.NONE);
 
         // check underlying blobStore
-        var mutableBlobMetadata = blobStore.getBlob(containerName, blobName)
+        var mutableBlobMetadata = blobStore.getBlob(containerName, blobName,
+                GetOptions.NONE)
                 .getMetadata();
         var userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
@@ -76,7 +80,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check getBlob
         mutableBlobMetadata = userMetadataReplacerBlobStore.getBlob(
-                containerName, blobName).getMetadata();
+                containerName, blobName, GetOptions.NONE).getMetadata();
         userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();
@@ -101,7 +105,8 @@ public final class UserMetadataReplacerBlobStoreTest {
         var blob = Blob.builder(fromName)
                 .payload(content)
                 .build();
-        userMetadataReplacerBlobStore.putBlob(containerName, blob);
+        userMetadataReplacerBlobStore.putBlob(containerName, blob,
+                PutOptions.NONE);
 
         // A copy with a metadata-replace directive must munge the new
         // metadata into the backend the same way putBlob does.
@@ -117,7 +122,8 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check getBlob reverses it
         var replaced = userMetadataReplacerBlobStore.getBlob(
-                containerName, toName).getMetadata().userMetadata();
+                containerName, toName,
+                        GetOptions.NONE).getMetadata().userMetadata();
         assertThat(replaced).isEqualTo(Map.of("my-key", "my-value-"));
     }
 
@@ -130,7 +136,8 @@ public final class UserMetadataReplacerBlobStoreTest {
                 .payload(content)
                 .userMetadata(Map.of("my-key", "my-value-"))
                 .build();
-        userMetadataReplacerBlobStore.putBlob(containerName, blob);
+        userMetadataReplacerBlobStore.putBlob(containerName, blob,
+                PutOptions.NONE);
 
         // A copy without a replace directive carries the source's stored
         // (already-munged) metadata forward untouched; it must not be
@@ -143,7 +150,8 @@ public final class UserMetadataReplacerBlobStoreTest {
                 .userMetadata()).isEqualTo(Map.of("my_key", "my_value_"));
 
         // getBlob reverses it
-        assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName)
+        assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName,
+                GetOptions.NONE)
                 .getMetadata().userMetadata())
                 .isEqualTo(Map.of("my-key", "my-value-"));
     }
@@ -164,7 +172,8 @@ public final class UserMetadataReplacerBlobStoreTest {
                 mpu, List.of(part));
 
         // check underlying blobStore
-        var mutableBlobMetadata = blobStore.getBlob(containerName, blobName)
+        var mutableBlobMetadata = blobStore.getBlob(containerName, blobName,
+                GetOptions.NONE)
                 .getMetadata();
         var userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
@@ -174,7 +183,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check getBlob
         mutableBlobMetadata = userMetadataReplacerBlobStore.getBlob(
-                containerName, blobName).getMetadata();
+                containerName, blobName, GetOptions.NONE).getMetadata();
         userMetadata = mutableBlobMetadata.userMetadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();

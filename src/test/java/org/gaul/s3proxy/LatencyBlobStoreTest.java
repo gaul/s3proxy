@@ -35,6 +35,9 @@ import com.google.common.io.ByteSource;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +51,7 @@ public final class LatencyBlobStoreTest {
         containerName = createRandomContainerName();
 
         delegate = TestUtils.createTransientBlobStore();
-        delegate.createContainer(containerName);
+        delegate.createContainer(containerName, CreateContainerOptions.NONE);
     }
 
     @AfterEach
@@ -107,7 +110,7 @@ public final class LatencyBlobStoreTest {
                 .contentLength(1024)
                 .build();
 
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
+        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
     }
 
@@ -124,7 +127,7 @@ public final class LatencyBlobStoreTest {
                 .contentLength(1024)
                 .build();
 
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
+        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
     }
 
@@ -154,7 +157,7 @@ public final class LatencyBlobStoreTest {
                 .contentLength(1024)
                 .build();
 
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
+        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
         assertThat(timeTaken).isGreaterThanOrEqualTo(2000L);
     }
 
@@ -170,7 +173,7 @@ public final class LatencyBlobStoreTest {
                 .contentLength(0)
                 .build();
 
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob));
+        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
     }
 
@@ -187,8 +190,8 @@ public final class LatencyBlobStoreTest {
                 .build();
 
         long timeTaken = time(() -> {
-            latencyBlobStore.putBlob(containerName, blob);
-            consume(latencyBlobStore.getBlob(containerName, blobName));
+            latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+            consume(latencyBlobStore.getBlob(containerName, blobName, GetOptions.NONE));
         });
         assertThat(timeTaken).isGreaterThanOrEqualTo(3000L);
     }
@@ -204,7 +207,7 @@ public final class LatencyBlobStoreTest {
                 .payload(content)
                 .contentLength(1024)
                 .build();
-        latencyBlobStore.putBlob(containerName, blob);
+        latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE);
 
         ExecutorService executorService = null;
         try {
@@ -212,7 +215,7 @@ public final class LatencyBlobStoreTest {
 
             List<Callable<Object>> tasks = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
-                tasks.add(Executors.callable(() -> consume(latencyBlobStore.getBlob(containerName, blobName))));
+                tasks.add(Executors.callable(() -> consume(latencyBlobStore.getBlob(containerName, blobName, GetOptions.NONE))));
             }
 
             final ExecutorService service = executorService;

@@ -30,6 +30,10 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +79,8 @@ public final class ShardedBlobStoreTest {
         } else {
             this.createdContainers.add(container);
         }
-        assertThat(shardedBlobStore.createContainer(container)).isTrue();
+        assertThat(shardedBlobStore.createContainer(container,
+                CreateContainerOptions.NONE)).isTrue();
     }
 
     public int countShards() {
@@ -114,7 +119,8 @@ public final class ShardedBlobStoreTest {
         String nonZeroShard = "%s-3".formatted(prefix);
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         blobStore.putBlob(nonZeroShard,
-                Blob.builder("object").payload(content).build());
+                Blob.builder("object").payload(content).build(),
+                        PutOptions.NONE);
 
         assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
                 .isFalse();
@@ -151,15 +157,17 @@ public final class ShardedBlobStoreTest {
                 .build();
 
         createContainer(containerName);
-        shardedBlobStore.putBlob(containerName, blob);
-        shardedBlobStore.putBlob(containerName, blob2);
+        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        shardedBlobStore.putBlob(containerName, blob2, PutOptions.NONE);
 
-        blob = shardedBlobStore.getBlob(containerName, blobName);
+        blob = shardedBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
-        blob2 = shardedBlobStore.getBlob(containerName, blobName2);
+        blob2 = shardedBlobStore.getBlob(containerName, blobName2,
+                GetOptions.NONE);
         try (InputStream actual = blob2.getPayload();
              InputStream expected = content2.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -169,7 +177,8 @@ public final class ShardedBlobStoreTest {
         String blob2Container = null;
         for (int i = 0; i < shards; i++) {
             String shard = "%s-%d".formatted(prefix, i);
-            for (StorageMetadata entry : blobStore.list(shard)) {
+            for (StorageMetadata entry : blobStore.list(shard,
+                    ListContainerOptions.NONE)) {
                 if (entry.name().equals(blobName)) {
                     blobContainer = shard;
                 }
@@ -190,7 +199,7 @@ public final class ShardedBlobStoreTest {
         Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(containerName);
-        shardedBlobStore.putBlob(containerName, blob);
+        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         assertThat(shardedBlobStore.blobExists(containerName, blobName))
                 .isTrue();
         shardedBlobStore.removeBlob(containerName, blobName);
@@ -206,8 +215,8 @@ public final class ShardedBlobStoreTest {
         Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(unshardedContainer);
-        shardedBlobStore.putBlob(unshardedContainer, blob);
-        blob = blobStore.getBlob(unshardedContainer, blobName);
+        shardedBlobStore.putBlob(unshardedContainer, blob, PutOptions.NONE);
+        blob = blobStore.getBlob(unshardedContainer, blobName, GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -221,12 +230,13 @@ public final class ShardedBlobStoreTest {
         Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         this.createContainer(containerName);
-        shardedBlobStore.putBlob(containerName, blob);
+        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         String copyBlobName = TestUtils.createRandomBlobName();
         shardedBlobStore.copyBlob(
                 containerName, blobName, containerName, copyBlobName,
                 CopyOptions.NONE);
-        blob = shardedBlobStore.getBlob(containerName, copyBlobName);
+        blob = shardedBlobStore.getBlob(containerName, copyBlobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -242,11 +252,12 @@ public final class ShardedBlobStoreTest {
                 .build();
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
-        shardedBlobStore.putBlob(unshardedContainer, blob);
+        shardedBlobStore.putBlob(unshardedContainer, blob, PutOptions.NONE);
         shardedBlobStore.copyBlob(
                 unshardedContainer, blobName, containerName, blobName,
                 CopyOptions.NONE);
-        blob = shardedBlobStore.getBlob(containerName, blobName);
+        blob = shardedBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -262,11 +273,12 @@ public final class ShardedBlobStoreTest {
                 .build();
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
-        shardedBlobStore.putBlob(containerName, blob);
+        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         shardedBlobStore.copyBlob(
                 containerName, blobName, unshardedContainer, blobName,
                 CopyOptions.NONE);
-        blob = shardedBlobStore.getBlob(unshardedContainer, blobName);
+        blob = shardedBlobStore.getBlob(unshardedContainer, blobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);

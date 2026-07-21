@@ -39,6 +39,8 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +75,8 @@ public final class AliasBlobStoreTest {
     }
 
     private void createContainer(String container) {
-        assertThat(aliasBlobStore.createContainer(container)).isTrue();
+        assertThat(aliasBlobStore.createContainer(container,
+                CreateContainerOptions.NONE)).isTrue();
         if (container.equals(aliasContainerName)) {
             createdContainers.add(containerName);
         } else {
@@ -113,12 +116,14 @@ public final class AliasBlobStoreTest {
         String contentMD5 = Hashing.md5().hashBytes(content.read()).toString();
         Blob blob = Blob.builder(blobName).payload(content)
                 .build();
-        String eTag = aliasBlobStore.putBlob(aliasContainerName, blob);
+        String eTag = aliasBlobStore.putBlob(aliasContainerName, blob,
+                PutOptions.NONE);
         assertThat(eTag).isEqualTo(contentMD5);
         BlobMetadata blobMetadata = aliasBlobStore.blobMetadata(
                 aliasContainerName, blobName);
         assertThat(blobMetadata.eTag()).isEqualTo(contentMD5);
-        blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
+        blob = aliasBlobStore.getBlob(aliasContainerName, blobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -147,7 +152,8 @@ public final class AliasBlobStoreTest {
         HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(
                 "\"%s-1\"".formatted(contentHash2));
-        blob = aliasBlobStore.getBlob(aliasContainerName, blobName);
+        blob = aliasBlobStore.getBlob(aliasContainerName, blobName,
+                GetOptions.NONE);
         try (InputStream actual = blob.getPayload();
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -161,7 +167,7 @@ public final class AliasBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         Blob blob = Blob.builder(blobName).payload(content)
                 .build();
-        aliasBlobStore.putBlob(aliasContainerName, blob);
+        aliasBlobStore.putBlob(aliasContainerName, blob, PutOptions.NONE);
 
         assertThat(aliasBlobStore.getBlobAccess(aliasContainerName, blobName))
                 .isEqualTo(BlobAccess.PRIVATE);

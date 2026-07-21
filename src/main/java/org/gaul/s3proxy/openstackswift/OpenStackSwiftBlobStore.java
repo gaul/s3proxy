@@ -351,11 +351,6 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        return createContainer(container, CreateContainerOptions.NONE);
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         var swift = objectStorage();
@@ -376,7 +371,8 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     @Override
     public void deleteContainer(String container) {
         try {
-            clearContainer(container);
+            clearContainer(container,
+                    ListContainerOptions.builder().recursive().build());
         } catch (ContainerNotFoundException cnfe) {
             // The container is already gone; deleteContainer is idempotent.
             return;
@@ -631,11 +627,6 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public String putBlob(String container, Blob blob) {
-        return putBlob(container, blob, PutOptions.NONE);
-    }
-
-    @Override
     public String putBlob(String container, Blob blob, PutOptions options) {
         var swift = objectStorage();
         var metadata = blob.getMetadata();
@@ -774,7 +765,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
             }
             builder.userMetadata(userMetadata != null ? userMetadata :
                     ImmutableMap.of());
-            return putBlob(toContainer, builder.build());
+            return putBlob(toContainer, builder.build(), PutOptions.NONE);
         }
         var swift = objectStorage();
         String etag;
@@ -957,7 +948,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
         if (contentMetadata.contentEncoding() != null) {
             markerBuilder.contentEncoding(contentMetadata.contentEncoding());
         }
-        putBlob(container, markerBuilder.build());
+        putBlob(container, markerBuilder.build(), PutOptions.NONE);
 
         return new MultipartUpload(container, blobMetadata.name(),
                 uploadId, blobMetadata, options);
@@ -972,7 +963,7 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
                 .contentLength(contentLength)
                 .contentMD5(contentMD5)
                 .build();
-        String eTag = putBlob(mpu.containerName(), segment);
+        String eTag = putBlob(mpu.containerName(), segment, PutOptions.NONE);
         return new MultipartPart(partNumber, contentLength, eTag,
                 /*lastModified=*/ null);
     }

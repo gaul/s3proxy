@@ -36,6 +36,7 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -55,7 +56,7 @@ public final class NullBlobStoreTest {
         containerName = createRandomContainerName();
 
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName);
+        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
 
         nullBlobStore = NullBlobStore.newNullBlobStore(blobStore);
     }
@@ -71,9 +72,9 @@ public final class NullBlobStoreTest {
     public void testCreateBlobGetBlob() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        nullBlobStore.putBlob(containerName, blob);
+        nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
 
-        blob = nullBlobStore.getBlob(containerName, blobName);
+        blob = nullBlobStore.getBlob(containerName, blobName, GetOptions.NONE);
         validateBlobMetadata(blob.getMetadata());
 
         // content differs, only compare length
@@ -87,7 +88,7 @@ public final class NullBlobStoreTest {
         }
 
         PageSet<? extends StorageMetadata> pageSet = nullBlobStore.list(
-                containerName);
+                containerName, ListContainerOptions.NONE);
         assertThat(pageSet).hasSize(1);
         StorageMetadata sm = pageSet.iterator().next();
         assertThat(sm.name()).isEqualTo(blobName);
@@ -103,7 +104,7 @@ public final class NullBlobStoreTest {
     public void testGetBlobRange() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        nullBlobStore.putBlob(containerName, blob);
+        nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         long size = BYTE_SOURCE.size();
 
         // bytes=A-B
@@ -135,7 +136,7 @@ public final class NullBlobStoreTest {
     public void testCreateBlobBlobMetadata() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        nullBlobStore.putBlob(containerName, blob);
+        nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         BlobMetadata metadata = nullBlobStore.blobMetadata(containerName,
                 blobName);
         validateBlobMetadata(metadata);
@@ -172,7 +173,8 @@ public final class NullBlobStoreTest {
 
         nullBlobStore.completeMultipartUpload(mpu, parts);
 
-        Blob newBlob = nullBlobStore.getBlob(containerName, blobName);
+        Blob newBlob = nullBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE);
         validateBlobMetadata(newBlob.getMetadata());
 
         // content differs, only compare length
@@ -186,7 +188,8 @@ public final class NullBlobStoreTest {
         }
 
         nullBlobStore.removeBlob(containerName, blobName);
-        assertThat(nullBlobStore.list(containerName)).isEmpty();
+        assertThat(nullBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isEmpty();
     }
 
     @Test
@@ -222,7 +225,8 @@ public final class NullBlobStoreTest {
 
         nullBlobStore.completeMultipartUpload(mpu, parts);
 
-        Blob newBlob = nullBlobStore.getBlob(containerName, blobName);
+        Blob newBlob = nullBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE);
         assertThat(newBlob).isNotNull();
         try (InputStream actual = newBlob.getPayload();
                 InputStream expected = byteSource.openStream()) {
@@ -230,7 +234,8 @@ public final class NullBlobStoreTest {
                     .isEqualTo(expected.transferTo(
                             OutputStream.nullOutputStream()));
         }
-        assertThat(nullBlobStore.list(containerName).stream()
+        assertThat(nullBlobStore.list(containerName,
+                ListContainerOptions.NONE).stream()
                 .map(StorageMetadata::name))
                 .containsExactly(blobName);
     }

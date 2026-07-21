@@ -59,12 +59,6 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob) {
-        var newBlob = replaceStorageClass(blob);
-        return delegate().putBlob(containerName, newBlob);
-    }
-
-    @Override
     public String putBlob(String containerName, Blob blob,
             PutOptions options) {
         var newBlob = replaceStorageClass(blob);

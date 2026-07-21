@@ -233,11 +233,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        return createContainer(container, CreateContainerOptions.NONE);
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         try {
@@ -445,12 +440,6 @@ public final class GCloudBlobStore extends BaseBlobStore {
             eTag = "\"" + eTag + "\"";
         }
         return eTag;
-    }
-
-    @Override
-    public String putBlob(String container,
-            org.gaul.s3proxy.blobstore.domain.Blob blob) {
-        return putBlob(container, blob, PutOptions.NONE);
     }
 
     @Override

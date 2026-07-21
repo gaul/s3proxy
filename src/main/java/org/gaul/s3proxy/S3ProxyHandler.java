@@ -2722,7 +2722,7 @@ public class S3ProxyHandler {
             builder.contentType(contentType);
         }
         Blob blob = builder.build();
-        blobStore.putBlob(containerName, blob);
+        blobStore.putBlob(containerName, blob, PutOptions.NONE);
 
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 

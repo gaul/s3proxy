@@ -39,6 +39,7 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -82,12 +83,6 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        return delegate().createContainer(container) &&
-                writeStore.createContainer(container);
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         return delegate().createContainer(container, options) &&
@@ -101,12 +96,6 @@ final class EventualBlobStore extends ForwardingBlobStore {
     public void setContainerAccess(String container, ContainerAccess access) {
         delegate().setContainerAccess(container, access);
         writeStore.setContainerAccess(container, access);
-    }
-
-    @Override
-    public void clearContainer(String container) {
-        delegate().clearContainer(container);
-        writeStore.clearContainer(container);
     }
 
     @Override
@@ -128,11 +117,6 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob) {
-        return putBlob(containerName, blob, PutOptions.NONE);
-    }
-
-    @Override
     public String putBlob(final String containerName, Blob blob,
             final PutOptions options) {
         final String nearName = blob.getMetadata().name();
@@ -140,7 +124,8 @@ final class EventualBlobStore extends ForwardingBlobStore {
         schedule(new Callable<String>() {
                 @Override
                 public String call() {
-                    Blob nearBlob = writeStore.getBlob(containerName, nearName);
+                    Blob nearBlob = writeStore.getBlob(containerName, nearName,
+                            GetOptions.NONE);
                     String farETag = delegate().putBlob(containerName,
                             nearBlob, options);
                     return farETag;

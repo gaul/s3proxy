@@ -56,6 +56,8 @@ import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -142,7 +144,8 @@ public final class AwsSdkTest {
         client = buildClient(awsCreds);
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainer(containerName);
+        info.getBlobStore().createContainer(containerName,
+                CreateContainerOptions.NONE);
 
         blobStoreEndpoint = URI.create(info.getProperties().getProperty(
                 Constants.PROPERTY_ENDPOINT, "http://stub"));
@@ -1491,14 +1494,15 @@ public final class AwsSdkTest {
                 blobStoreType.equals("transient-nio2"));
 
         blobStore.putBlob(containerName, Blob.builder("sibling.txt")
-                .payload(ByteSource.wrap(new byte[4])).build());
+                .payload(ByteSource.wrap(new byte[4])).build(),
+                        PutOptions.NONE);
 
         // PUT key "/" as a 0-byte directory marker with user metadata,
         // mimicking an s3fs mount-point stamp.
         blobStore.putBlob(containerName, Blob.builder("/")
                 .payload(ByteSource.empty())
                 .userMetadata(Map.of("mode", "16832"))
-                .build());
+                .build(), PutOptions.NONE);
 
         // The bucket and the unrelated object survive the PUT.
         assertThat(blobStore.containerExists(containerName)).isTrue();
@@ -1545,7 +1549,7 @@ public final class AwsSdkTest {
                 blobStoreType.equals("transient-nio2"));
 
         blobStore.putBlob(containerName, Blob.builder("/")
-                .payload(ByteSource.empty()).build());
+                .payload(ByteSource.empty()).build(), PutOptions.NONE);
 
         blobStore.setContainerAccess(containerName,
                 ContainerAccess.PUBLIC_READ);

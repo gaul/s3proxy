@@ -112,11 +112,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container) {
-        return this.delegate().createContainer(getContainer(container));
-    }
-
-    @Override
     public boolean createContainer(String container,
             CreateContainerOptions options) {
         return delegate().createContainer(getContainer(container), options);
@@ -155,19 +150,9 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        return delegate().list(getContainer(container));
-    }
-
-    @Override
     public PageSet<? extends StorageMetadata> list(
             String container, ListContainerOptions options) {
         return delegate().list(getContainer(container), options);
-    }
-
-    @Override
-    public void clearContainer(String container) {
-        delegate().clearContainer(getContainer(container));
     }
 
     @Override
@@ -207,20 +192,10 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public Blob getBlob(String containerName, String blobName) {
-        return delegate().getBlob(getContainer(containerName), blobName);
-    }
-
-    @Override
     public Blob getBlob(String containerName, String blobName,
                         GetOptions getOptions) {
         return delegate().getBlob(getContainer(containerName), blobName,
                 getOptions);
-    }
-
-    @Override
-    public String putBlob(String containerName, Blob blob) {
-        return delegate().putBlob(getContainer(containerName), blob);
     }
 
     @Override

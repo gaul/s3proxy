@@ -63,11 +63,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container) {
-        return delegate().list(container);
-    }
-
-    @Override
     public PageSet<? extends StorageMetadata> list(String container,
             ListContainerOptions options) {
         return delegate().list(container, options);
@@ -76,11 +71,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     @Override
     public boolean containerExists(String container) {
         return delegate().containerExists(container);
-    }
-
-    @Override
-    public boolean createContainer(String container) {
-        return delegate().createContainer(container);
     }
 
     @Override
@@ -98,11 +88,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public void setContainerAccess(String container, ContainerAccess
             containerAccess) {
         delegate().setContainerAccess(container, containerAccess);
-    }
-
-    @Override
-    public void clearContainer(String container) {
-        delegate().clearContainer(container);
     }
 
     @Override
@@ -126,11 +111,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob) {
-        return delegate().putBlob(containerName, blob);
-    }
-
-    @Override
     public String putBlob(String containerName, Blob blob,
             PutOptions putOptions) {
         return delegate().putBlob(containerName, blob, putOptions);
@@ -146,11 +126,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     @Override
     public BlobMetadata blobMetadata(String container, String name) {
         return delegate().blobMetadata(container, name);
-    }
-
-    @Override
-    public Blob getBlob(String containerName, String blobName) {
-        return delegate().getBlob(containerName, blobName);
     }
 
     @Override

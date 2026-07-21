@@ -48,6 +48,8 @@ import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -110,7 +112,8 @@ public final class CrossOriginResourceSharingResponseTest {
         httpClient = getHttpClient();
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainer(containerName);
+        info.getBlobStore().createContainer(containerName,
+                CreateContainerOptions.NONE);
 
         s3Client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ));
@@ -120,7 +123,7 @@ public final class CrossOriginResourceSharingResponseTest {
                 StandardCharsets.UTF_8));
         Blob blob = Blob.builder(blobName)
                 .payload(payload).contentLength(payload.size()).build();
-        info.getBlobStore().putBlob(containerName, blob);
+        info.getBlobStore().putBlob(containerName, blob, PutOptions.NONE);
 
         try (S3Presigner presigner = S3Presigner.builder()
                 .credentialsProvider(credsProvider)
@@ -293,7 +296,8 @@ public final class CrossOriginResourceSharingResponseTest {
                 "s3proxy-cors-credentials.conf");
         try {
             String container = createRandomContainerName();
-            credInfo.getBlobStore().createContainer(container);
+            credInfo.getBlobStore().createContainer(container,
+                    CreateContainerOptions.NONE);
             URI endpoint = URI.create(credInfo.getSecureEndpoint().toString() +
                     credInfo.getServicePath() + "/" + container + "/key");
 

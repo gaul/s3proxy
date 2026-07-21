@@ -53,11 +53,6 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob) {
-        return putBlob(containerName, blob, PutOptions.NONE);
-    }
-
-    @Override
     public String putBlob(String containerName, Blob blob,
             PutOptions putOptions) {
         var metadata = ImmutableMap.<String, String>builder();
@@ -84,11 +79,6 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
         return blobMetadata.toBuilder().userMetadata(metadata.build()).build();
-    }
-
-    @Override
-    public Blob getBlob(String containerName, String name) {
-        return getBlob(containerName, name, GetOptions.NONE);
     }
 
     @Override

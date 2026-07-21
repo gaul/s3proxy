@@ -36,6 +36,9 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
+import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
+import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,10 +60,12 @@ public final class EventualBlobStoreTest {
         containerName = createRandomContainerName();
 
         nearBlobStore = TestUtils.createTransientBlobStore();
-        nearBlobStore.createContainer(containerName);
+        nearBlobStore.createContainer(containerName,
+                CreateContainerOptions.NONE);
 
         farBlobStore = TestUtils.createTransientBlobStore();
-        farBlobStore.createContainer(containerName);
+        farBlobStore.createContainer(containerName,
+                CreateContainerOptions.NONE);
 
         executorService = Executors.newScheduledThreadPool(1);
 
@@ -86,25 +91,30 @@ public final class EventualBlobStoreTest {
     public void testReadAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob);
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        assertThat(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE))
                 .isNull();
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE));
     }
 
     @Test
     public void testReadAfterDelete() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob);
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        assertThat(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE))
                 .isNull();
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE));
         delay();
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        assertThat(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE))
                 .isNull();
     }
 
@@ -112,13 +122,14 @@ public final class EventualBlobStoreTest {
     public void testOverwriteAfterDelete() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob);
+        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
         blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob);
+        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE));
     }
 
     @Test
@@ -126,14 +137,16 @@ public final class EventualBlobStoreTest {
         String fromName = createRandomBlobName();
         String toName = createRandomBlobName();
         Blob blob = makeBlob(fromName);
-        eventualBlobStore.putBlob(containerName, blob);
+        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         delay();
         eventualBlobStore.copyBlob(containerName, fromName, containerName,
                 toName, CopyOptions.NONE);
-        assertThat(eventualBlobStore.getBlob(containerName, toName))
+        assertThat(eventualBlobStore.getBlob(containerName, toName,
+                GetOptions.NONE))
                 .isNull();
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, toName));
+        validateBlob(eventualBlobStore.getBlob(containerName, toName,
+                GetOptions.NONE));
     }
 
     @Test
@@ -146,10 +159,12 @@ public final class EventualBlobStoreTest {
                 /*partNumber=*/ 1, BYTE_SOURCE.openStream(),
                 BYTE_SOURCE.size(), null);
         eventualBlobStore.completeMultipartUpload(mpu, List.of(part));
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
+        assertThat(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE))
                 .isNull();
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE));
     }
 
     @Test
@@ -159,7 +174,7 @@ public final class EventualBlobStoreTest {
                 DELAY_UNIT, /*probability=*/ 0.0);
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        store.putBlob(containerName, blob);
+        store.putBlob(containerName, blob, PutOptions.NONE);
         delay();
         assertThat(farBlobStore.blobMetadata(containerName, blobName))
                 .isNotNull();
@@ -169,17 +184,20 @@ public final class EventualBlobStoreTest {
     public void testListAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob);
-        assertThat(eventualBlobStore.list(containerName)).isEmpty();
+        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        assertThat(eventualBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isEmpty();
         delay();
-        assertThat(eventualBlobStore.list(containerName)).isNotEmpty();
+        assertThat(eventualBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isNotEmpty();
     }
 
     @Test
     public void testCreateContainerInBothStores() throws Exception {
         String newContainer = createRandomContainerName();
         try {
-            assertThat(eventualBlobStore.createContainer(newContainer))
+            assertThat(eventualBlobStore.createContainer(newContainer,
+                    CreateContainerOptions.NONE))
                     .isTrue();
             // Container operations apply synchronously to both stores.
             assertThat(nearBlobStore.containerExists(newContainer)).isTrue();
@@ -193,17 +211,22 @@ public final class EventualBlobStoreTest {
     @Test
     public void testClearContainerClearsBothStores() throws Exception {
         nearBlobStore.putBlob(containerName,
-                makeBlob(createRandomBlobName()));
+                makeBlob(createRandomBlobName()), PutOptions.NONE);
         farBlobStore.putBlob(containerName,
-                makeBlob(createRandomBlobName()));
-        assertThat(nearBlobStore.list(containerName)).isNotEmpty();
-        assertThat(farBlobStore.list(containerName)).isNotEmpty();
+                makeBlob(createRandomBlobName()), PutOptions.NONE);
+        assertThat(nearBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isNotEmpty();
+        assertThat(farBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isNotEmpty();
 
-        eventualBlobStore.clearContainer(containerName);
+        eventualBlobStore.clearContainer(containerName,
+                ListContainerOptions.builder().recursive().build());
 
         // clearContainer must clear both stores, not only the read store.
-        assertThat(nearBlobStore.list(containerName)).isEmpty();
-        assertThat(farBlobStore.list(containerName)).isEmpty();
+        assertThat(nearBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isEmpty();
+        assertThat(farBlobStore.list(containerName,
+                ListContainerOptions.NONE)).isEmpty();
     }
 
     private static String createRandomContainerName() {
