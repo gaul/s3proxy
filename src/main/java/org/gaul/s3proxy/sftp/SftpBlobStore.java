@@ -35,8 +35,7 @@ import org.apache.sshd.sftp.client.fs.SftpFileSystemProvider;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 
-public final class SftpBlobStore extends AbstractNio2BlobStore
-        implements AutoCloseable {
+public final class SftpBlobStore extends AbstractNio2BlobStore {
     public static final String PROPERTY_BASEDIR = "s3proxy.sftp.basedir";
     public static final String PROPERTY_HOST_KEY = "s3proxy.sftp.host-key";
 

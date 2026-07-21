@@ -159,6 +159,7 @@ public class S3ProxyJunitCore {
             for (StorageMetadata metadata : blobStore.list()) {
                 blobStore.deleteContainer(metadata.getName());
             }
+            blobStore.close();
         } catch (Exception e) {
             throw new RuntimeException("Unable to stop S3 proxy", e);
         }
