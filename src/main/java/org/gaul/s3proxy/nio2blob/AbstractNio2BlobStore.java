@@ -1023,9 +1023,8 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
                 .contentMD5(contentMD5)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob);
-        var metadata = blobMetadata(mpu.containerName(), partName);  // TODO: racy, how to get this from payload?
-        var partSize = metadata.getContentMetadata().contentLength();
-        return new MultipartPart(partNumber, partSize, partETag, metadata.lastModified());
+        var metadata = blobMetadata(mpu.containerName(), partName);
+        return new MultipartPart(partNumber, contentLength, partETag, metadata.lastModified());
     }
 
     @Override
