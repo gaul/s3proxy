@@ -36,9 +36,7 @@ import java.util.stream.Collectors;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -312,13 +310,16 @@ public final class EncryptedBlobStoreTest {
             encryptedBlobStore.initiateMultipartUpload(containerName,
                 blobMetadata, PutOptions.NONE);
 
-        Payload payload1 = new ByteSourcePayload(ByteSource.wrap(contentParts[0].getBytes(StandardCharsets.UTF_8)));
-        Payload payload2 = new ByteSourcePayload(ByteSource.wrap(contentParts[1].getBytes(StandardCharsets.UTF_8)));
-        Payload payload3 = new ByteSourcePayload(ByteSource.wrap(contentParts[2].getBytes(StandardCharsets.UTF_8)));
+        byte[] bytes1 = contentParts[0].getBytes(StandardCharsets.UTF_8);
+        byte[] bytes2 = contentParts[1].getBytes(StandardCharsets.UTF_8);
+        byte[] bytes3 = contentParts[2].getBytes(StandardCharsets.UTF_8);
 
-        encryptedBlobStore.uploadMultipartPart(mpu, 1, payload1);
-        encryptedBlobStore.uploadMultipartPart(mpu, 2, payload2);
-        encryptedBlobStore.uploadMultipartPart(mpu, 3, payload3);
+        encryptedBlobStore.uploadMultipartPart(mpu, 1,
+            new ByteArrayInputStream(bytes1), bytes1.length, null);
+        encryptedBlobStore.uploadMultipartPart(mpu, 2,
+            new ByteArrayInputStream(bytes2), bytes2.length, null);
+        encryptedBlobStore.uploadMultipartPart(mpu, 3,
+            new ByteArrayInputStream(bytes3), bytes3.length, null);
 
         List<MultipartPart> parts = encryptedBlobStore.listMultipartUpload(mpu);
 
@@ -358,9 +359,9 @@ public final class EncryptedBlobStoreTest {
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
             containerName, blobMetadata, PutOptions.NONE);
         List<MultipartPart> parts = new ArrayList<>();
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         parts.add(encryptedBlobStore.uploadMultipartPart(mpu, 1,
-            new ByteSourcePayload(ByteSource.wrap(
-                content.getBytes(StandardCharsets.UTF_8)))));
+            new ByteArrayInputStream(bytes), bytes.length, null));
 
         encryptedBlobStore.abortMultipartUpload(mpu);
 
@@ -595,13 +596,16 @@ public final class EncryptedBlobStoreTest {
             encryptedBlobStore.initiateMultipartUpload(containerName,
                 blobMetadata, PutOptions.NONE);
 
-        Payload payload1 = new ByteSourcePayload(ByteSource.wrap(content1.getBytes(StandardCharsets.UTF_8)));
-        Payload payload2 = new ByteSourcePayload(ByteSource.wrap(content2.getBytes(StandardCharsets.UTF_8)));
-        Payload payload3 = new ByteSourcePayload(ByteSource.wrap(content3.getBytes(StandardCharsets.UTF_8)));
+        byte[] bytes1 = content1.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes3 = content3.getBytes(StandardCharsets.UTF_8);
 
-        encryptedBlobStore.uploadMultipartPart(mpu, 1, payload1);
-        encryptedBlobStore.uploadMultipartPart(mpu, 2, payload2);
-        encryptedBlobStore.uploadMultipartPart(mpu, 3, payload3);
+        encryptedBlobStore.uploadMultipartPart(mpu, 1,
+            new ByteArrayInputStream(bytes1), bytes1.length, null);
+        encryptedBlobStore.uploadMultipartPart(mpu, 2,
+            new ByteArrayInputStream(bytes2), bytes2.length, null);
+        encryptedBlobStore.uploadMultipartPart(mpu, 3,
+            new ByteArrayInputStream(bytes3), bytes3.length, null);
 
         List<MultipartUpload> mpus =
             encryptedBlobStore.listMultipartUploads(containerName);
@@ -836,13 +840,16 @@ public final class EncryptedBlobStoreTest {
                 encryptedBlobStore.initiateMultipartUpload(containerName,
                     blobMetadata, PutOptions.NONE);
 
-            Payload payload1 = new ByteSourcePayload(ByteSource.wrap(content1.getBytes(StandardCharsets.UTF_8)));
-            Payload payload2 = new ByteSourcePayload(ByteSource.wrap(content2.getBytes(StandardCharsets.UTF_8)));
-            Payload payload3 = new ByteSourcePayload(ByteSource.wrap(content3.getBytes(StandardCharsets.UTF_8)));
+            byte[] bytes1 = content1.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes3 = content3.getBytes(StandardCharsets.UTF_8);
 
-            encryptedBlobStore.uploadMultipartPart(mpu, 1, payload1);
-            encryptedBlobStore.uploadMultipartPart(mpu, 2, payload2);
-            encryptedBlobStore.uploadMultipartPart(mpu, 3, payload3);
+            encryptedBlobStore.uploadMultipartPart(mpu, 1,
+                new ByteArrayInputStream(bytes1), bytes1.length, null);
+            encryptedBlobStore.uploadMultipartPart(mpu, 2,
+                new ByteArrayInputStream(bytes2), bytes2.length, null);
+            encryptedBlobStore.uploadMultipartPart(mpu, 3,
+                new ByteArrayInputStream(bytes3), bytes3.length, null);
 
             List<MultipartPart> parts =
                 encryptedBlobStore.listMultipartUpload(mpu);
@@ -881,13 +888,16 @@ public final class EncryptedBlobStoreTest {
                 encryptedBlobStore.initiateMultipartUpload(containerName,
                     blobMetadata, PutOptions.NONE);
 
-            Payload payload1 = new ByteSourcePayload(ByteSource.wrap(content1.getBytes(StandardCharsets.UTF_8)));
-            Payload payload2 = new ByteSourcePayload(ByteSource.wrap(content2.getBytes(StandardCharsets.UTF_8)));
-            Payload payload3 = new ByteSourcePayload(ByteSource.wrap(content3.getBytes(StandardCharsets.UTF_8)));
+            byte[] bytes1 = content1.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes3 = content3.getBytes(StandardCharsets.UTF_8);
 
-            encryptedBlobStore.uploadMultipartPart(mpu, 1, payload1);
-            encryptedBlobStore.uploadMultipartPart(mpu, 2, payload2);
-            encryptedBlobStore.uploadMultipartPart(mpu, 3, payload3);
+            encryptedBlobStore.uploadMultipartPart(mpu, 1,
+                new ByteArrayInputStream(bytes1), bytes1.length, null);
+            encryptedBlobStore.uploadMultipartPart(mpu, 2,
+                new ByteArrayInputStream(bytes2), bytes2.length, null);
+            encryptedBlobStore.uploadMultipartPart(mpu, 3,
+                new ByteArrayInputStream(bytes3), bytes3.length, null);
 
             List<MultipartPart> parts =
                 encryptedBlobStore.listMultipartUpload(mpu);
@@ -937,13 +947,16 @@ public final class EncryptedBlobStoreTest {
                     encryptedBlobStore.initiateMultipartUpload(containerName,
                         blobMetadata, PutOptions.NONE);
 
-                Payload payload1 = new ByteSourcePayload(ByteSource.wrap(content1.getBytes(StandardCharsets.UTF_8)));
-                Payload payload2 = new ByteSourcePayload(ByteSource.wrap(content2.getBytes(StandardCharsets.UTF_8)));
-                Payload payload3 = new ByteSourcePayload(ByteSource.wrap(content3.getBytes(StandardCharsets.UTF_8)));
+                byte[] bytes1 = content1.getBytes(StandardCharsets.UTF_8);
+                byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
+                byte[] bytes3 = content3.getBytes(StandardCharsets.UTF_8);
 
-                encryptedBlobStore.uploadMultipartPart(mpu, 1, payload1);
-                encryptedBlobStore.uploadMultipartPart(mpu, 2, payload2);
-                encryptedBlobStore.uploadMultipartPart(mpu, 3, payload3);
+                encryptedBlobStore.uploadMultipartPart(mpu, 1,
+                    new ByteArrayInputStream(bytes1), bytes1.length, null);
+                encryptedBlobStore.uploadMultipartPart(mpu, 2,
+                    new ByteArrayInputStream(bytes2), bytes2.length, null);
+                encryptedBlobStore.uploadMultipartPart(mpu, 3,
+                    new ByteArrayInputStream(bytes3), bytes3.length, null);
 
                 List<MultipartPart> parts =
                     encryptedBlobStore.listMultipartUpload(mpu);

@@ -17,7 +17,10 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.io.InputStream;
 import java.util.List;
+
+import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
@@ -100,8 +103,15 @@ public interface BlobStore extends AutoCloseable {
     String completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts);
 
+    /**
+     * Uploads a part of a multipart upload, consuming and closing
+     * {@code is}.
+     *
+     * @param contentMD5 MD5 of the part content, used for integrity
+     *        validation where the backend supports it
+     */
     MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber,
-            Payload payload);
+            InputStream is, long contentLength, @Nullable HashCode contentMD5);
 
     List<MultipartPart> listMultipartUpload(MultipartUpload mpu);
 

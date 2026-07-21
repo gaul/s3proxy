@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,7 +47,6 @@ import com.google.common.io.ByteSource;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -61,6 +61,7 @@ import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This class implements the ability to split objects destined for specified
@@ -577,10 +578,12 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-                                             int partNumber, Payload payload) {
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
         if (!this.buckets.containsKey(mpu.containerName())) {
             return this.delegate()
-                    .uploadMultipartPart(mpu, partNumber, payload);
+                    .uploadMultipartPart(mpu, partNumber, is, contentLength,
+                            contentMD5);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }

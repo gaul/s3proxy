@@ -54,6 +54,7 @@ import com.google.cloud.storage.StorageOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
@@ -1029,18 +1030,12 @@ public final class GCloudBlobStore extends BaseBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, org.gaul.s3proxy.blobstore.Payload payload) {
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " +
                     partNumber);
-        }
-
-        Long contentLength = payload.getContentMetadata()
-                .contentLength();
-        if (contentLength == null) {
-            throw new IllegalArgumentException(
-                    "Content-Length is required");
         }
 
         String uploadKey = mpu.id();
@@ -1048,19 +1043,16 @@ public final class GCloudBlobStore extends BaseBlobStore {
         String partBlobName = makePartBlobName(nonce, partNumber);
 
         byte[] md5Hash;
-        try (var is = payload.openStream();
-             var his = new HashingInputStream(MD5, is)) {
+        try (var his = new HashingInputStream(MD5, is)) {
             var partInfo = BlobInfo.newBuilder(
                     BlobId.of(mpu.containerName(), partBlobName)).build();
             storage.createFrom(partInfo, his);
 
             md5Hash = his.hash().asBytes();
 
-            var providedMd5 = payload.getContentMetadata()
-                    .contentMD5();
-            if (providedMd5 != null) {
+            if (contentMD5 != null) {
                 if (!MessageDigest.isEqual(md5Hash,
-                        providedMd5.asBytes())) {
+                        contentMD5.asBytes())) {
                     // Clean up the uploaded part
                     storage.delete(BlobId.of(mpu.containerName(),
                             partBlobName));

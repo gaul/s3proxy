@@ -88,9 +88,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
-import org.gaul.s3proxy.blobstore.InputStreamPayload;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -3462,12 +3460,8 @@ public class S3ProxyHandler {
                 blobMetadata.getContentMetadata().contentLength();
 
         try (InputStream is = blob.getPayload().openStream()) {
-            var contentMetadata = ContentMetadata.builder()
-                    .contentLength(contentLength).build();
-            Payload payload = new InputStreamPayload(is, contentMetadata);
-
             MultipartPart part = blobStore.uploadMultipartPart(mpu,
-                    partNumber, payload);
+                    partNumber, is, contentLength, null);
             eTag = part.partETag();
         }
 
@@ -3584,14 +3578,8 @@ public class S3ProxyHandler {
         MultipartUpload mpu = new MultipartUpload(containerName,
                 blobName, uploadId, blobMetadata, PutOptions.NONE);
 
-        MultipartPart part;
-        var cmBuilder = ContentMetadata.builder().contentLength(contentLength);
-        if (contentMD5 != null) {
-            cmBuilder.contentMD5(contentMD5);
-        }
-        Payload payload = new InputStreamPayload(is, cmBuilder.build());
-
-        part = blobStore.uploadMultipartPart(mpu, partNumber, payload);
+        MultipartPart part = blobStore.uploadMultipartPart(mpu, partNumber,
+                is, contentLength, contentMD5);
 
         if (part.partETag() != null) {
             response.addHeader(HttpHeaders.ETAG,

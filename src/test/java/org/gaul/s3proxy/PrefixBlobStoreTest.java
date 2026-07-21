@@ -28,7 +28,6 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -129,7 +128,7 @@ public final class PrefixBlobStoreTest {
         assertThat(mpu.blobName()).isEqualTo("archive.bin");
 
         MultipartPart part = prefixBlobStore.uploadMultipartPart(
-                mpu, 1, new ByteSourcePayload(content));
+                mpu, 1, content.openStream(), content.size(), null);
         prefixBlobStore.completeMultipartUpload(mpu, List.of(part));
 
         assertThat(blobStore.blobExists(containerName,

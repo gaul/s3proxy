@@ -28,12 +28,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.InputStreamPayload;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -47,6 +46,7 @@ import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
 public final class LatencyBlobStore extends ForwardingBlobStore {
     private static final Pattern PROPERTIES_LATENCY_RE = Pattern.compile(
@@ -308,15 +308,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
+    public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
         simulateLatency(OP_UPLOAD_PART);
-        try {
-            InputStream is = payload.openStream();
-            payload = new InputStreamPayload(new ThrottledInputStream(is, getSpeed(OP_UPLOAD_PART)));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return super.uploadMultipartPart(mpu, partNumber, payload);
+        return super.uploadMultipartPart(mpu, partNumber, new ThrottledInputStream(is, getSpeed(OP_UPLOAD_PART)), contentLength, contentMD5);
     }
 
     @Override

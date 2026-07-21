@@ -17,10 +17,12 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.Objects;
 
 import com.google.common.collect.ForwardingObject;
+import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
@@ -35,6 +37,7 @@ import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
 public abstract class ForwardingBlobStore extends ForwardingObject
         implements BlobStore {
@@ -197,8 +200,10 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, Payload payload) {
-        return delegate().uploadMultipartPart(mpu, partNumber, payload);
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
+        return delegate().uploadMultipartPart(mpu, partNumber, is,
+                contentLength, contentMD5);
     }
 
     @Override

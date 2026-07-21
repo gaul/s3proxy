@@ -63,6 +63,7 @@ import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
@@ -75,7 +76,6 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.HttpResponse;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -936,20 +936,12 @@ public final class AzureBlobStore extends BaseBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, Payload payload) {
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
 
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " + partNumber);
-        }
-
-        Long contentLength = payload.getContentMetadata().contentLength();
-        if (contentLength == null) {
-            throw new IllegalArgumentException("Content-Length is required");
-        }
-        if (contentLength < 0) {
-            throw new IllegalArgumentException(
-                    "Content-Length must be non-negative, got: " + contentLength);
         }
 
         if (contentLength > MAXIMUM_MULTIPART_PART_SIZE) {
@@ -965,18 +957,15 @@ public final class AzureBlobStore extends BaseBlobStore {
                 mpu.containerName(), mpu.blobName());
 
         byte[] md5Hash;
-        try (var is = payload.openStream();
-             var his = new HashingInputStream(MD5, is)) {
-            var providedMd5 = payload.getContentMetadata().contentMD5();
-
+        try (var his = new HashingInputStream(MD5, is)) {
             Flux<ByteBuffer> body = chunkedByteBufferFlux(his, contentLength);
 
             asyncClient.stageBlock(blockId, body, contentLength).block();
 
             md5Hash = his.hash().asBytes();
 
-            if (providedMd5 != null) {
-                if (!MessageDigest.isEqual(md5Hash, providedMd5.asBytes())) {
+            if (contentMD5 != null) {
+                if (!MessageDigest.isEqual(md5Hash, contentMD5.asBytes())) {
                     throw new IllegalArgumentException("Content-MD5 mismatch");
                 }
             }

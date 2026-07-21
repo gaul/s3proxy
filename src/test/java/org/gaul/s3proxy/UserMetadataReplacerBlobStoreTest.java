@@ -149,7 +149,7 @@ public final class UserMetadataReplacerBlobStoreTest {
     }
 
     @Test
-    public void testPutNewMultipartBlob() {
+    public void testPutNewMultipartBlob() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
         var blob = Blob.builder(blobName)
@@ -159,7 +159,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         var mpu = userMetadataReplacerBlobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
         var part = userMetadataReplacerBlobStore.uploadMultipartPart(
-                mpu, 1, blob.getPayload());
+                mpu, 1, content.openStream(), content.size(), null);
         userMetadataReplacerBlobStore.completeMultipartUpload(
                 mpu, List.of(part));
 

@@ -42,7 +42,6 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.HttpResponse;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -875,13 +874,9 @@ public final class AwsS3SdkBlobStore extends BaseBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, Payload payload) {
-        Long contentLength = payload.getContentMetadata().contentLength();
-        if (contentLength == null) {
-            throw new IllegalArgumentException("Content-Length is required");
-        }
-
-        try (InputStream is = payload.openStream()) {
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
+        try (is) {
             var response = s3Client.uploadPart(UploadPartRequest.builder()
                     .bucket(mpu.containerName())
                     .key(mpu.blobName())

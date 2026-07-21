@@ -32,7 +32,6 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -138,7 +137,7 @@ public final class AliasBlobStoreTest {
                 aliasContainerName, blob.getMetadata(), PutOptions.NONE);
         assertThat(mpu.containerName()).isEqualTo(aliasContainerName);
         MultipartPart part = aliasBlobStore.uploadMultipartPart(
-                mpu, 1, new ByteSourcePayload(content));
+                mpu, 1, content.openStream(), content.size(), null);
         assertThat(part.partETag()).isEqualTo(contentHash.toString());
         var parts = new ImmutableList.Builder<MultipartPart>();
         parts.add(part);
@@ -184,7 +183,7 @@ public final class AliasBlobStoreTest {
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 aliasContainerName, blob.getMetadata(), PutOptions.NONE);
         MultipartPart part = aliasBlobStore.uploadMultipartPart(
-                mpu, 1, new ByteSourcePayload(content));
+                mpu, 1, content.openStream(), content.size(), null);
 
         List<MultipartPart> parts = aliasBlobStore.listMultipartUpload(mpu);
         assertThat(parts).hasSize(1);

@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -75,7 +74,7 @@ public final class TierBlobStoreTest {
     }
 
     @Test
-    public void testPutNewMpu() {
+    public void testPutNewMpu() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
         var blob = Blob.builder(blobName).payload(content).build();
@@ -83,8 +82,8 @@ public final class TierBlobStoreTest {
         var mpu = tierBlobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
 
-        var payload = new ByteSourcePayload(content);
-        tierBlobStore.uploadMultipartPart(mpu, 1, payload);
+        tierBlobStore.uploadMultipartPart(mpu, 1, content.openStream(),
+                content.size(), null);
 
         var parts = tierBlobStore.listMultipartUpload(mpu);
         tierBlobStore.completeMultipartUpload(mpu, parts);
@@ -94,7 +93,7 @@ public final class TierBlobStoreTest {
     }
 
     @Test
-    public void testGetExistingMpu() {
+    public void testGetExistingMpu() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
         var blob = Blob.builder(blobName).payload(content).build();
@@ -102,8 +101,8 @@ public final class TierBlobStoreTest {
         var mpu = blobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
 
-        var payload = new ByteSourcePayload(content);
-        blobStore.uploadMultipartPart(mpu, 1, payload);
+        blobStore.uploadMultipartPart(mpu, 1, content.openStream(),
+                content.size(), null);
 
         var parts = blobStore.listMultipartUpload(mpu);
         blobStore.completeMultipartUpload(mpu, parts);

@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -37,15 +38,13 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.InputStreamPayload;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -164,30 +163,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     Constants.PADDING_BLOCK_SIZE;
 
             return cipheredBlob(blob, is, contentLength, true);
-        } catch (IOException | GeneralSecurityException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private Payload encryptPayload(Payload payload, int partNumber) {
-
-        try {
-            // open the streams and pass them through the encryption
-            InputStream isRaw = payload.openStream();
-            Encryption encryption =
-                new Encryption(secretKey, isRaw, partNumber);
-            InputStream is = encryption.openStream();
-
-            // adjust the encrypted content length by adding the padding block
-            // size; also clear the MD5 (encryption changes the bytes).
-            long contentLength =
-                payload.getContentMetadata().contentLength() +
-                    Constants.PADDING_BLOCK_SIZE;
-            var cipheredMetadata = payload.getContentMetadata().toBuilder()
-                    .contentMD5(null)
-                    .contentLength(contentLength)
-                    .build();
-            return new InputStreamPayload(is, cipheredMetadata);
         } catch (IOException | GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
@@ -608,9 +583,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
             if (getBlobStoreType().equals("azureblob")) {
                 // use part 0 as a placeholder
+                byte[] dummy = "dummy".getBytes(StandardCharsets.UTF_8);
                 delegate().uploadMultipartPart(mpu, 0,
-                    new ByteSourcePayload(ByteSource.wrap(
-                        "dummy".getBytes(StandardCharsets.UTF_8))));
+                    new ByteArrayInputStream(dummy), dummy.length, null);
 
                 // since azure does not have a uploadId
                 // we use the sha256 of the path
@@ -729,11 +704,21 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-        int partNumber, Payload payload) {
+        int partNumber, InputStream is, long contentLength,
+        @Nullable HashCode contentMD5) {
 
         mpu = filterMultipartUpload(mpu);
-        return delegate().uploadMultipartPart(mpu, partNumber,
-            encryptPayload(payload, partNumber));
+        InputStream encrypted;
+        try {
+            // pass the stream through the encryption
+            encrypted = new Encryption(secretKey, is, partNumber).openStream();
+        } catch (IOException | GeneralSecurityException e) {
+            throw new RuntimeException(e);
+        }
+        // adjust the encrypted content length by adding the padding block
+        // size; also drop the MD5 since encryption changes the bytes
+        return delegate().uploadMultipartPart(mpu, partNumber, encrypted,
+            contentLength + Constants.PADDING_BLOCK_SIZE, null);
     }
 
     private MultipartUpload filterMultipartUpload(MultipartUpload mpu) {

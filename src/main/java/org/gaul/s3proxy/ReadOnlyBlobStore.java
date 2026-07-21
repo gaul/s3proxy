@@ -16,11 +16,13 @@
 
 package org.gaul.s3proxy;
 
+import java.io.InputStream;
 import java.util.List;
+
+import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -31,6 +33,7 @@ import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
 /** This class is a BlobStore wrapper which prevents mutating operations. */
 final class ReadOnlyBlobStore extends ForwardingBlobStore {
@@ -133,7 +136,8 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, Payload payload) {
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 }

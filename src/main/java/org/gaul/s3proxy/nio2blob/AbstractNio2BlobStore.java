@@ -57,7 +57,6 @@ import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.HttpResponse;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -74,6 +73,7 @@ import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1015,10 +1015,12 @@ public abstract class AbstractNio2BlobStore extends BaseBlobStore {
     }
 
     @Override
-    public final MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
+    public final MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
         var partName = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + partNumber;
         var blob = Blob.builder(partName)
-                .payload(payload)
+                .payload(is)
+                .contentLength(contentLength)
+                .contentMD5(contentMD5)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob);
         var metadata = blobMetadata(mpu.containerName(), partName);  // TODO: racy, how to get this from payload?

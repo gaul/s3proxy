@@ -18,6 +18,7 @@ package org.gaul.s3proxy.openstackswift;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -38,6 +39,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
@@ -48,7 +50,6 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.HttpResponse;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -964,15 +965,15 @@ public final class OpenStackSwiftBlobStore extends BaseBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, Payload payload) {
-        Long contentLength = payload.getContentMetadata().contentLength();
-        long length = contentLength == null ? -1 : contentLength;
-        // The payload already carries its content length, which putBlob reads.
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
         var segment = Blob.builder(mpuSegmentKey(mpu.id(), partNumber))
-                .payload(payload)
+                .payload(is)
+                .contentLength(contentLength)
+                .contentMD5(contentMD5)
                 .build();
         String eTag = putBlob(mpu.containerName(), segment);
-        return new MultipartPart(partNumber, length, eTag,
+        return new MultipartPart(partNumber, contentLength, eTag,
                 /*lastModified=*/ null);
     }
 

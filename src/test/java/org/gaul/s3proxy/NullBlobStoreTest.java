@@ -29,9 +29,7 @@ import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
@@ -151,12 +149,10 @@ public final class NullBlobStoreTest {
                 0, nullBlobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
                 nullBlobStore.getMinimumMultipartPartSize(), 1);
-        Payload payload1 = new ByteSourcePayload(byteSource1);
-        Payload payload2 = new ByteSourcePayload(byteSource2);
         MultipartPart part1 = nullBlobStore.uploadMultipartPart(mpu, 1,
-                payload1);
+                byteSource1.openStream(), byteSource1.size(), null);
         MultipartPart part2 = nullBlobStore.uploadMultipartPart(mpu, 2,
-                payload2);
+                byteSource2.openStream(), byteSource2.size(), null);
 
         List<MultipartPart> parts = nullBlobStore.listMultipartUpload(mpu);
         assertThat(parts.get(0).partNumber()).isEqualTo(1);
@@ -200,12 +196,14 @@ public final class NullBlobStoreTest {
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, nullBlobStore.getMinimumMultipartPartSize() + 1);
-        Payload payload1 = new ByteSourcePayload(byteSource.slice(
-                0, nullBlobStore.getMinimumMultipartPartSize()));
-        Payload payload2 = new ByteSourcePayload(byteSource.slice(
-                nullBlobStore.getMinimumMultipartPartSize(), 1));
-        nullBlobStore.uploadMultipartPart(initiated, 1, payload1);
-        nullBlobStore.uploadMultipartPart(initiated, 2, payload2);
+        ByteSource byteSource1 = byteSource.slice(
+                0, nullBlobStore.getMinimumMultipartPartSize());
+        ByteSource byteSource2 = byteSource.slice(
+                nullBlobStore.getMinimumMultipartPartSize(), 1);
+        nullBlobStore.uploadMultipartPart(initiated, 1,
+                byteSource1.openStream(), byteSource1.size(), null);
+        nullBlobStore.uploadMultipartPart(initiated, 2,
+                byteSource2.openStream(), byteSource2.size(), null);
         List<MultipartPart> parts = nullBlobStore.listMultipartUpload(
                 initiated);
 

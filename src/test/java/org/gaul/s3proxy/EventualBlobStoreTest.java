@@ -143,7 +143,8 @@ public final class EventualBlobStoreTest {
         MultipartUpload mpu = eventualBlobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
         MultipartPart part = eventualBlobStore.uploadMultipartPart(mpu,
-                /*partNumber=*/ 1, blob.getPayload());
+                /*partNumber=*/ 1, BYTE_SOURCE.openStream(),
+                BYTE_SOURCE.size(), null);
         eventualBlobStore.completeMultipartUpload(mpu, List.of(part));
         assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();

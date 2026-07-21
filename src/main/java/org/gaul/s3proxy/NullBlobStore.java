@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -24,13 +25,13 @@ import java.util.List;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
 import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ByteSourcePayload;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.Payload;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
@@ -177,7 +178,6 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array = Longs.toByteArray(length);
-        var payload = new ByteSourcePayload(ByteSource.wrap(array));
 
         super.abortMultipartUpload(mpu);
 
@@ -192,7 +192,8 @@ final class NullBlobStore extends ForwardingBlobStore {
         MultipartUpload mpu2 = super.initiateMultipartUpload(
                 mpu.containerName(), metadata, mpu.putOptions());
 
-        MultipartPart part = super.uploadMultipartPart(mpu2, 1, payload);
+        MultipartPart part = super.uploadMultipartPart(mpu2, 1,
+                new ByteArrayInputStream(array), array.length, null);
 
         return super.completeMultipartUpload(mpu2, List.of(part));
     }
@@ -209,31 +210,26 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     public MultipartPart uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, Payload payload) {
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5) {
         long length;
-        try (InputStream is = payload.openStream()) {
+        try (is) {
             length = is.transferTo(OutputStream.nullOutputStream());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
 
         byte[] array = Longs.toByteArray(length);
-        var newContentMetadata = payload.getContentMetadata().toBuilder()
-                .contentLength((long) array.length)
-                .contentMD5(null)
-                .build();
-        var newPayload = new ByteSourcePayload(
-                ByteSource.wrap(array), newContentMetadata);
 
         // create a single-part object which contains the logical length which
         // list and complete will read later
         Blob blob = Blob.builder(mpu.id() + "-" + partNumber)
-                .payload(newPayload)
+                .payload(ByteSource.wrap(array))
                 .build();
         super.putBlob(mpu.containerName(), blob);
 
         MultipartPart part = super.uploadMultipartPart(mpu, partNumber,
-                newPayload);
+                new ByteArrayInputStream(array), array.length, null);
         return new MultipartPart(part.partNumber(), length, part.partETag(),
                 part.lastModified());
     }
