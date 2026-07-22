@@ -146,19 +146,39 @@ final class TestUtils {
         }
     }
 
-    static S3ProxyLaunchInfo startS3Proxy(String configFile) throws Exception {
-        var info = new S3ProxyLaunchInfo();
-
+    /** Returns the provider which the s3proxy.test.conf system property
+     * configures. */
+    static String testBlobStoreProvider() throws IOException {
+        var properties = new Properties();
+        String configFile = System.getProperty("s3proxy.test.conf",
+                "s3proxy.conf");
         try (InputStream is = Resources.asByteSource(Resources.getResource(
                 configFile)).openStream()) {
-            info.getProperties().load(is);
+            properties.load(is);
         }
+        return properties.getProperty(Constants.PROPERTY_PROVIDER);
+    }
 
-        String provider = info.getProperties().getProperty(
-                Constants.PROPERTY_PROVIDER);
-        String identity = info.getProperties().getProperty(
-                Constants.PROPERTY_IDENTITY);
-        String credential = info.getProperties().getProperty(
+    /**
+     * Creates the backend blobstore which the s3proxy.test.conf system
+     * property configures, defaulting to transient-nio2.
+     */
+    static BlobStore createTestBlobStore() throws IOException {
+        var properties = new Properties();
+        String configFile = System.getProperty("s3proxy.test.conf",
+                "s3proxy.conf");
+        try (InputStream is = Resources.asByteSource(Resources.getResource(
+                configFile)).openStream()) {
+            properties.load(is);
+        }
+        return createBlobStore(properties);
+    }
+
+    private static BlobStore createBlobStore(Properties properties)
+            throws IOException {
+        String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
+        String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
+        String credential = properties.getProperty(
                 Constants.PROPERTY_CREDENTIAL);
         if (provider.equals("google-cloud-storage-sdk")) {
             if (credential != null && !credential.isEmpty()) {
@@ -170,14 +190,25 @@ final class TestUtils {
             }
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
-            info.getProperties().remove(Constants.PROPERTY_CREDENTIAL);
+            properties.remove(Constants.PROPERTY_CREDENTIAL);
         }
-        info.getProperties().setProperty(Constants.PROPERTY_IDENTITY,
+        properties.setProperty(Constants.PROPERTY_IDENTITY,
                 Strings.nullToEmpty(identity));
-        info.getProperties().setProperty(Constants.PROPERTY_CREDENTIAL,
+        properties.setProperty(Constants.PROPERTY_CREDENTIAL,
                 Strings.nullToEmpty(credential));
 
-        info.blobStore = BlobStores.create(provider, info.getProperties());
+        return BlobStores.create(provider, properties);
+    }
+
+    static S3ProxyLaunchInfo startS3Proxy(String configFile) throws Exception {
+        var info = new S3ProxyLaunchInfo();
+
+        try (InputStream is = Resources.asByteSource(Resources.getResource(
+                configFile)).openStream()) {
+            info.getProperties().load(is);
+        }
+
+        info.blobStore = createBlobStore(info.getProperties());
 
         String encrypted = info.getProperties().getProperty(
                 S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE);
