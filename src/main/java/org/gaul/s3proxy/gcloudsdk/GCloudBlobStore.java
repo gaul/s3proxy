@@ -303,7 +303,7 @@ public final class GCloudBlobStore implements BlobStore {
             if (storage.get(container) == null) {
                 throw new ContainerNotFoundException(container, "");
             }
-            throw new KeyNotFoundException(container, key, "");
+            return null;
         }
 
         // Enforce conditional-GET preconditions before streaming.  jclouds

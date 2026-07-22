@@ -325,6 +325,9 @@ public final class AzureBlobStore implements BlobStore {
                 throw new HttpResponseException(
                         "illegal range: " + azureRange, new HttpResponse(416));
             }
+            if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                return null;
+            }
             throw translate(bse, container, key);
         }
         var properties = blobStream.getProperties();
