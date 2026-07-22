@@ -70,13 +70,9 @@ final class NullBlobStore extends ForwardingBlobStore {
         if (originalRanges.isEmpty()) {
             blob = super.getBlob(container, name, options);
         } else {
-            originalRanges = List.copyOf(originalRanges);
-            options.ranges().clear();
-            try {
-                blob = super.getBlob(container, name, options);
-            } finally {
-                options.ranges().addAll(originalRanges);
-            }
+            blob = super.getBlob(container, name, new GetOptions(List.of(),
+                    options.ifModifiedSince(), options.ifUnmodifiedSince(),
+                    options.ifMatch(), options.ifNoneMatch()));
         }
         if (blob == null) {
             return null;

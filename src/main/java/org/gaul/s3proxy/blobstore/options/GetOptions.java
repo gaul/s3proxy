@@ -35,6 +35,10 @@ public record GetOptions(
 
     public static final GetOptions NONE = builder().build();
 
+    public GetOptions {
+        ranges = List.copyOf(ranges);
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -86,7 +90,7 @@ public record GetOptions(
         }
 
         public GetOptions build() {
-            return new GetOptions(new ArrayList<>(ranges), ifModifiedSince,
+            return new GetOptions(ranges, ifModifiedSince,
                     ifUnmodifiedSince, ifMatch, ifNoneMatch);
         }
     }

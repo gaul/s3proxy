@@ -21,6 +21,8 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.google.common.collect.ImmutableMap;
+
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.jspecify.annotations.Nullable;
 
@@ -38,6 +40,10 @@ public record BlobMetadata(
         StorageClass storageClass,
         @Nullable String container,
         ContentMetadata contentMetadata) implements StorageMetadata {
+
+    public BlobMetadata {
+        userMetadata = ImmutableMap.copyOf(userMetadata);
+    }
 
     @Override
     public @Nullable Long size() {

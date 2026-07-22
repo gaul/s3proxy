@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -406,6 +407,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 Decryption decryption =
                     new Decryption(secretKey, delegate(), meta, offset, length);
 
+                GetOptions delegateOptions = getOptions;
                 if (decryption.isEncrypted() &&
                     getOptions.ranges().size() > 0) {
                     long startAt = decryption.getStartAt();
@@ -420,13 +422,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     }
 
                     // replace existing ranges with our single computed range
-                    getOptions.ranges().clear();
-                    getOptions.ranges().add(
-                            "%d-%d".formatted(startAt, endAt));
+                    delegateOptions = new GetOptions(
+                        List.of("%d-%d".formatted(startAt, endAt)),
+                        getOptions.ifModifiedSince(),
+                        getOptions.ifUnmodifiedSince(),
+                        getOptions.ifMatch(), getOptions.ifNoneMatch());
                 }
 
-                Blob blob =
-                    delegate().getBlob(containerName, blobName, getOptions);
+                Blob blob = delegate().getBlob(containerName, blobName,
+                    delegateOptions);
                 Blob decryptedBlob = decryptBlob(decryption, blob);
                 if (!getOptions.ranges().isEmpty()) {
                     long decryptedSize = decryption.getUnencryptedSize();
@@ -561,8 +565,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // handle non-s3 backends
         // by setting a metadata key for multipart stubs
         if (multipartRequiresStub()) {
-            mbm.userMetadata()
-                .put(Constants.METADATA_IS_ENCRYPTED_MULTIPART, "true");
+            var markedMetadata =
+                new LinkedHashMap<>(mbm.userMetadata());
+            markedMetadata.put(
+                Constants.METADATA_IS_ENCRYPTED_MULTIPART, "true");
+            mbm = mbm.toBuilder().userMetadata(markedMetadata).build();
+            mpu = new MultipartUpload(mpu.containerName(), mpu.blobName(),
+                mpu.id(), mbm, mpu.putOptions());
 
             if (getBlobStoreType().equals("azureblob")) {
                 // use part 0 as a placeholder
@@ -767,11 +776,18 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
             }
 
-            mpuWithSuffix.blobMetadata().userMetadata()
-                .put(Constants.METADATA_ENCRYPTION_PARTS,
-                    String.valueOf(partCount));
-            mpuWithSuffix.blobMetadata().userMetadata()
-                .remove(Constants.METADATA_IS_ENCRYPTED_MULTIPART);
+            var completedMetadata = new LinkedHashMap<>(
+                mpuWithSuffix.blobMetadata().userMetadata());
+            completedMetadata.put(Constants.METADATA_ENCRYPTION_PARTS,
+                String.valueOf(partCount));
+            completedMetadata.remove(
+                Constants.METADATA_IS_ENCRYPTED_MULTIPART);
+            mpuWithSuffix = new MultipartUpload(
+                mpuWithSuffix.containerName(), mpuWithSuffix.blobName(),
+                mpuWithSuffix.id(),
+                mpuWithSuffix.blobMetadata().toBuilder()
+                    .userMetadata(completedMetadata).build(),
+                mpuWithSuffix.putOptions());
         }
 
         String eTag = delegate().completeMultipartUpload(mpuWithSuffix, parts);
