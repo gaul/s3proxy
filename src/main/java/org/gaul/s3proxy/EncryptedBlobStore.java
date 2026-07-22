@@ -18,15 +18,12 @@ package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -40,8 +37,6 @@ import javax.crypto.spec.SecretKeySpec;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
-import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
@@ -320,11 +315,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return mbm;
     }
 
-    private boolean multipartRequiresStub() {
-        String blobStoreType = getBlobStoreType();
-        return Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType);
-    }
-
     private String blobNameWithSuffix(String container, String name) {
         String nameWithSuffix = blobNameWithSuffix(name);
         if (delegate().blobExists(container, nameWithSuffix)) {
@@ -335,34 +325,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     private String blobNameWithSuffix(String name) {
         return name + Constants.S3_ENC_SUFFIX;
-    }
-
-    private String getBlobStoreType() {
-        BlobStore inner = delegate();
-        while (inner instanceof org.gaul.s3proxy.blobstore.ForwardingBlobStore fbs) {
-            inner = fbs.delegate();
-        }
-        String name = inner.getClass().getName();
-        if (name.contains(".azureblob.")) {
-            return "azureblob";
-        }
-        if (name.contains(".gcloudsdk.")) {
-            return "google-cloud-storage";
-        }
-        if (name.contains(".awssdk.")) {
-            return "aws-s3";
-        }
-        if (name.contains(".nio2blob.")) {
-            return "filesystem";
-        }
-        return "";
-    }
-
-    private String generateUploadId(String container, String blobName) {
-        String path = container + "/" + blobName;
-        @SuppressWarnings("deprecation")
-        var hash = Hashing.md5();
-        return hash.hashBytes(path.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     @Override
@@ -557,110 +519,21 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(String container,
         BlobMetadata blobMetadata, PutOptions options) {
-        BlobMetadata mbm = setEncryptedSuffix(blobMetadata.toBuilder().build());
-
-        MultipartUpload mpu =
-            delegate().initiateMultipartUpload(container, mbm, options);
-
-        // handle non-s3 backends
-        // by setting a metadata key for multipart stubs
-        if (multipartRequiresStub()) {
-            var markedMetadata =
-                new LinkedHashMap<>(mbm.userMetadata());
-            markedMetadata.put(
-                Constants.METADATA_IS_ENCRYPTED_MULTIPART, "true");
-            mbm = mbm.toBuilder().userMetadata(markedMetadata).build();
-            mpu = new MultipartUpload(mpu.containerName(), mpu.blobName(),
-                mpu.id(), mbm, mpu.putOptions());
-
-            if (getBlobStoreType().equals("azureblob")) {
-                // use part 0 as a placeholder
-                byte[] dummy = "dummy".getBytes(StandardCharsets.UTF_8);
-                delegate().uploadMultipartPart(mpu, 0,
-                    new ByteArrayInputStream(dummy), dummy.length, null);
-
-                // since azure does not have a uploadId
-                // we use the sha256 of the path
-                String uploadId = generateUploadId(container, mbm.name());
-
-                mpu = new MultipartUpload(mpu.containerName(),
-                    mpu.blobName(), uploadId, mpu.blobMetadata(), options);
-            } else if (getBlobStoreType().equals("google-cloud-storage")) {
-                mbm.userMetadata()
-                    .put(Constants.METADATA_MULTIPART_KEY, mbm.name());
-
-                // since gcp does not have a uploadId
-                // we use the sha256 of the path
-                String uploadId = generateUploadId(container, mbm.name());
-
-                // to emulate later the list of multipart uploads
-                // we create a placeholder
-                Blob.Builder builder = Blob.builder(Constants.MPU_FOLDER + uploadId)
-                    .payload(ByteSource.empty())
-                    .userMetadata(mbm.userMetadata());
-                delegate().putBlob(container, builder.build(), options);
-
-                // final mpu on gcp
-                mpu = new MultipartUpload(mpu.containerName(),
-                    mpu.blobName(), uploadId, mpu.blobMetadata(), options);
-            }
-        }
-
-        return mpu;
+        return delegate().initiateMultipartUpload(container,
+            setEncryptedSuffix(blobMetadata), options);
     }
 
     @Override
     public List<MultipartUpload> listMultipartUploads(String container) {
-        List<MultipartUpload> mpus = new ArrayList<>();
-
-        // emulate list of multipart uploads on gcp
-        if (getBlobStoreType().equals("google-cloud-storage")) {
-            var options = ListContainerOptions.builder()
-                    .prefix(Constants.MPU_FOLDER)
-                    .build();
-            PageSet<? extends StorageMetadata> mpuList =
-                delegate().list(container, options);
-
-            // find all blobs in .mpu folder and build the list
-            for (StorageMetadata blob : mpuList) {
-                Map<String, String> meta = blob.userMetadata();
-                if (meta.containsKey(Constants.METADATA_MULTIPART_KEY)) {
-                    String blobName =
-                        meta.get(Constants.METADATA_MULTIPART_KEY);
-                    String uploadId =
-                        blob.name()
-                            .substring(blob.name().lastIndexOf("/") + 1);
-                    MultipartUpload mpu =
-                        new MultipartUpload(container,
-                            blobName, uploadId, null, null);
-                    mpus.add(mpu);
-                }
-            }
-        } else {
-            mpus = delegate().listMultipartUploads(container);
-        }
-
         List<MultipartUpload> filtered = new ArrayList<>();
         // filter the list uploads by removing the .s3enc suffix
-        for (MultipartUpload mpu : mpus) {
+        for (MultipartUpload mpu :
+                delegate().listMultipartUploads(container)) {
             String blobName = mpu.blobName();
             if (isEncrypted(blobName)) {
-                blobName = removeEncryptedSuffix(mpu.blobName());
-
-                String uploadId = mpu.id();
-
-                // since azure not have a uploadId
-                // we use the sha256 of the path
-                if (getBlobStoreType().equals("azureblob")) {
-                    uploadId = generateUploadId(container, mpu.blobName());
-                }
-
-                MultipartUpload mpuWithoutSuffix =
-                    new MultipartUpload(mpu.containerName(),
-                        blobName, uploadId, mpu.blobMetadata(),
-                        mpu.putOptions());
-
-                filtered.add(mpuWithoutSuffix);
+                filtered.add(new MultipartUpload(mpu.containerName(),
+                    removeEncryptedSuffix(blobName), mpu.id(),
+                    mpu.blobMetadata(), mpu.putOptions()));
             } else {
                 filtered.add(mpu);
             }
@@ -676,13 +549,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // fix wrong multipart size due to the part padding
         for (MultipartPart part : parts) {
-
-            // we use part 0 as a placeholder and hide it on azure
-            if (getBlobStoreType().equals("azureblob") &&
-                part.partNumber() == 0) {
-                continue;
-            }
-
             MultipartPart newPart = new MultipartPart(
                 part.partNumber(),
                 part.partSize() - Constants.PADDING_BLOCK_SIZE,
@@ -732,73 +598,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public String completeMultipartUpload(MultipartUpload mpu,
         List<MultipartPart> parts) {
 
-        BlobMetadata mbm = mpu.blobMetadata().toBuilder().build();
-        String blobName = mpu.blobName();
-
-        // always set .s3enc suffix except on gcp
-        // and blob name starts with multipart upload id
-        if (getBlobStoreType().equals("google-cloud-storage") &&
-            mpu.blobName().startsWith(mpu.id())) {
-            logger.debug("skip suffix on gcp");
-        } else {
-            mbm = setEncryptedSuffix(mbm);
-            if (!isEncrypted(mpu.blobName())) {
-                blobName = blobNameWithSuffix(blobName);
-            }
-        }
-
-        MultipartUpload mpuWithSuffix =
-            new MultipartUpload(mpu.containerName(),
-                blobName, mpu.id(), mbm, mpu.putOptions());
-
-        // this will only work for non s3 backends like azure and gcp
-        if (multipartRequiresStub()) {
-            long partCount = parts.size();
-
-            // special handling for GCP to sum up all parts
-            if (getBlobStoreType().equals("google-cloud-storage")) {
-                partCount = 0;
-                for (MultipartPart part : parts) {
-                    blobName =
-                        "%s_%08d".formatted(
-                            mpu.id(),
-                            part.partNumber());
-                    BlobMetadata metadata =
-                        delegate().blobMetadata(mpu.containerName(), blobName);
-                    if (metadata != null && metadata.userMetadata()
-                        .containsKey(Constants.METADATA_ENCRYPTION_PARTS)) {
-                        String partMetaCount = metadata.userMetadata()
-                            .get(Constants.METADATA_ENCRYPTION_PARTS);
-                        partCount = partCount + Long.parseLong(partMetaCount);
-                    } else {
-                        partCount++;
-                    }
-                }
-            }
-
-            var completedMetadata = new LinkedHashMap<>(
-                mpuWithSuffix.blobMetadata().userMetadata());
-            completedMetadata.put(Constants.METADATA_ENCRYPTION_PARTS,
-                String.valueOf(partCount));
-            completedMetadata.remove(
-                Constants.METADATA_IS_ENCRYPTED_MULTIPART);
-            mpuWithSuffix = new MultipartUpload(
-                mpuWithSuffix.containerName(), mpuWithSuffix.blobName(),
-                mpuWithSuffix.id(),
-                mpuWithSuffix.blobMetadata().toBuilder()
-                    .userMetadata(completedMetadata).build(),
-                mpuWithSuffix.putOptions());
-        }
-
-        String eTag = delegate().completeMultipartUpload(mpuWithSuffix, parts);
-
-        // cleanup mpu placeholder on gcp
-        if (getBlobStoreType().equals("google-cloud-storage")) {
-            delegate().removeBlob(mpu.containerName(),
-                Constants.MPU_FOLDER + mpu.id());
-        }
-
-        return eTag;
+        return delegate().completeMultipartUpload(filterMultipartUpload(mpu),
+            parts);
     }
 
     @Override
@@ -809,12 +610,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // than the plaintext key -- otherwise the real upload is left dangling
         // on backends that key uploads by object name.
         delegate().abortMultipartUpload(filterMultipartUpload(mpu));
-
-        // cleanup mpu placeholder on gcp, mirroring completeMultipartUpload
-        if (getBlobStoreType().equals("google-cloud-storage")) {
-            delegate().removeBlob(mpu.containerName(),
-                Constants.MPU_FOLDER + mpu.id());
-        }
     }
 
     @Override
