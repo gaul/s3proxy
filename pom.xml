@@ -519,7 +519,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
     <dependency>
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
-      <version>1.5.37</version>
+      <version>1.5.38</version>
       <scope>runtime</scope>
     </dependency>
     <dependency>
