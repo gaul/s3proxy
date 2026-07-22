@@ -79,7 +79,7 @@ public interface BlobStore extends AutoCloseable {
     default void deleteContainer(String container) {
         try {
             clearContainer(container,
-                    ListContainerOptions.builder().recursive().build());
+                    ListContainerOptions.NONE);
         } catch (ContainerNotFoundException e) {
             return;
         }

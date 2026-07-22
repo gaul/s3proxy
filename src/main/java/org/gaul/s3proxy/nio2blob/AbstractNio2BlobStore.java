@@ -182,7 +182,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             BasicFileAttributes.class);
                     set.add(new BlobMetadata(StorageType.BLOB,
                             prefix, Map.of(),
-                            readETagXattr(markerXattrs), /*creationDate=*/ null,
+                            readETagXattr(markerXattrs),
                             new Date(attr.lastModifiedTime().toMillis()),
                             StorageClass.STANDARD, /*container=*/ null,
                             ContentMetadata.builder()
@@ -279,7 +279,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         builder.add(new BlobMetadata(
                                 StorageType.RELATIVE_PATH,
                                 name + "/", Map.of(), eTag,
-                                /*creationDate=*/ null,
                                 lastModified,
                                 StorageClass.STANDARD, /*container=*/ null,
                                 ContentMetadata.builder()
@@ -305,7 +304,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
                     builder.add(new BlobMetadata(StorageType.BLOB,
                             name, Map.of(),
-                            eTag, creationTime, lastModifiedTime,
+                            eTag, lastModifiedTime,
                             storageClass,
                             /*container=*/ null,
                             ContentMetadata.builder()
@@ -563,7 +562,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .expires(expires)
                     .storageClass(storageClass)
                     .container(container)
-                    .creationDate(creationTime)
                     .lastModified(lastModifiedTime);
             if (contentRange != null) {
                 builder.contentRange(contentRange);
@@ -619,7 +617,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
 
-        var metadata = blob.getMetadata().getContentMetadata();
+        var metadata = blob.getMetadata().contentMetadata();
         try {
             HashCode actualHashCode;
             // Close the streams before doing xattr writes, setBlobAccess,
@@ -721,7 +719,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
-            var metadata = blob.getMetadata().getContentMetadata();
+            var metadata = blob.getMetadata().contentMetadata();
             var builder = Blob.builder(toName).payload(is);
             Long contentLength = metadata.contentLength();
             if (contentLength != null) {
@@ -935,7 +933,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // a part that was never uploaded.
                 throw returnResponseException(400);
             }
-            contentLength += meta.getContentMetadata().contentLength();
+            contentLength += meta.contentMetadata().contentLength();
             metas.add(meta);
             if (meta.eTag() != null) {
                 var eTag = meta.eTag();
@@ -954,7 +952,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var mpuBlobMetadata = mpu.blobMetadata();
         if (mpuBlobMetadata != null) {
             blobBuilder.userMetadata(mpuBlobMetadata.userMetadata());
-            var contentMetadata = mpuBlobMetadata.getContentMetadata();
+            var contentMetadata = mpuBlobMetadata.contentMetadata();
             var cacheControl = contentMetadata.cacheControl();
             if (cacheControl != null) {
                 blobBuilder.cacheControl(cacheControl);
@@ -1021,7 +1019,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var parts = ImmutableList.<MultipartPart>builder();
         var partPrefix = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-";
         var options = ListContainerOptions.builder()
-                .prefix(partPrefix).recursive().build();
+                .prefix(partPrefix).build();
         while (true) {
             var pageSet = list(mpu.containerName(), options);
             for (var sm : pageSet) {
@@ -1051,7 +1049,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final List<MultipartUpload> listMultipartUploads(String container) {
         var mpus = ImmutableList.<MultipartUpload>builder();
         var options = ListContainerOptions.builder()
-                .prefix(MULTIPART_PREFIX).recursive().build();
+                .prefix(MULTIPART_PREFIX).build();
         while (true) {
             var pageSet = list(container, options);
             for (StorageMetadata sm : pageSet) {
@@ -1197,11 +1195,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
 
         private InputStream openPartStream(BlobMetadata meta) throws IOException {
-            Blob blob = blobStore.getBlob(meta.getContainer(), meta.name(),
+            Blob blob = blobStore.getBlob(meta.container(), meta.name(),
                     GetOptions.NONE);
             if (blob == null) {
                 throw new IOException("Part disappeared: " +
-                        meta.getContainer() + "/" + meta.name());
+                        meta.container() + "/" + meta.name());
             }
             return blob.getPayload();
         }
@@ -1248,7 +1246,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     // TODO: call in other places
     private static void writeCommonMetadataAttr(UserDefinedFileAttributeView view, Blob blob) throws IOException {
-        var metadata = blob.getMetadata().getContentMetadata();
+        var metadata = blob.getMetadata().contentMetadata();
         writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.cacheControl());
         writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.contentDisposition());
         writeStringAttributeIfPresent(view, XATTR_CONTENT_ENCODING, metadata.contentEncoding());
@@ -1362,7 +1360,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      *  by name. */
     private static StorageMetadata markerStub(String name) {
         return new BlobMetadata(StorageType.BLOB, name, Map.of(),
-                /*eTag=*/ null, /*creationDate=*/ null, /*lastModified=*/ null,
+                /*eTag=*/ null, /*lastModified=*/ null,
                 StorageClass.STANDARD,
                 /*container=*/ null,
                 ContentMetadata.builder().build());

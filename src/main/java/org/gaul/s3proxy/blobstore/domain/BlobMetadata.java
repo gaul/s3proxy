@@ -34,7 +34,6 @@ public record BlobMetadata(
         String name,
         Map<String, String> userMetadata,
         @Nullable String eTag,
-        @Nullable Date creationDate,
         @Nullable Date lastModified,
         StorageClass storageClass,
         @Nullable String container,
@@ -45,12 +44,9 @@ public record BlobMetadata(
         return contentMetadata.contentLength();
     }
 
-    public @Nullable String getContainer() {
-        return container;
-    }
-
-    public ContentMetadata getContentMetadata() {
-        return contentMetadata;
+    @Override
+    public @Nullable Date creationDate() {
+        return null;
     }
 
     public static Builder builder() {
@@ -63,7 +59,6 @@ public record BlobMetadata(
                 .name(name)
                 .userMetadata(userMetadata)
                 .eTag(eTag)
-                .creationDate(creationDate)
                 .lastModified(lastModified)
                 .storageClass(storageClass)
                 .container(container)
@@ -75,7 +70,6 @@ public record BlobMetadata(
         private String name;
         private Map<String, String> userMetadata = new LinkedHashMap<>();
         private @Nullable String eTag;
-        private @Nullable Date creationDate;
         private @Nullable Date lastModified;
         private StorageClass storageClass = StorageClass.STANDARD;
         private @Nullable String container;
@@ -104,11 +98,6 @@ public record BlobMetadata(
 
         public Builder eTag(@Nullable String eTag) {
             this.eTag = eTag;
-            return this;
-        }
-
-        public Builder creationDate(@Nullable Date creationDate) {
-            this.creationDate = creationDate;
             return this;
         }
 
@@ -141,8 +130,7 @@ public record BlobMetadata(
 
         public BlobMetadata build() {
             return new BlobMetadata(type, name, userMetadata, eTag,
-                    creationDate, lastModified, storageClass, container,
-                    contentMetadata);
+                    lastModified, storageClass, container, contentMetadata);
         }
     }
 }

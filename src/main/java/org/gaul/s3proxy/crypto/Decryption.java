@@ -68,7 +68,7 @@ public class Decryption {
                 meta.size() - 1)
             .build();
         Blob blob =
-            blobStore.getBlob(meta.getContainer(), meta.name(), options);
+            blobStore.getBlob(meta.container(), meta.name(), options);
 
         // read the padding structure
         PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
@@ -105,7 +105,7 @@ public class Decryption {
                     Constants.PADDING_BLOCK_SIZE;
                 long endAt = meta.size() - encryptedSize - 1;
                 options = GetOptions.builder().range(startAt, endAt).build();
-                blob = blobStore.getBlob(meta.getContainer(), meta.name(),
+                blob = blobStore.getBlob(meta.container(), meta.name(),
                     options);
 
                 part++;

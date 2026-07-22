@@ -39,16 +39,6 @@ public record GetOptions(
         return new Builder();
     }
 
-    public Builder toBuilder() {
-        var b = builder()
-                .ifModifiedSince(ifModifiedSince)
-                .ifUnmodifiedSince(ifUnmodifiedSince)
-                .ifETagMatches(ifMatch)
-                .ifETagDoesntMatch(ifNoneMatch);
-        b.ranges.addAll(ranges);
-        return b;
-    }
-
     public static final class Builder {
         private final List<String> ranges = new ArrayList<>();
         private @Nullable Date ifModifiedSince;

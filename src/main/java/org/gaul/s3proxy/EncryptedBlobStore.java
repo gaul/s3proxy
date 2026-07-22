@@ -113,7 +113,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // make a copy of the blob with the new payload stream
         BlobMetadata blobMeta = blob.getMetadata();
-        ContentMetadata contentMeta = blob.getMetadata().getContentMetadata();
+        ContentMetadata contentMeta = blob.getMetadata().contentMetadata();
         Map<String, String> userMetadata = blobMeta.userMetadata();
         String contentType = contentMeta.contentType();
 
@@ -143,7 +143,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             .contentType(contentType)
             .eTag(blobMeta.eTag())
             .lastModified(blobMeta.lastModified())
-            .container(blobMeta.getContainer())
+            .container(blobMeta.container())
             .build();
     }
 
@@ -159,7 +159,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             // adjust the encrypted content length by
             // adding the padding block size
             long contentLength =
-                blob.getMetadata().getContentMetadata().contentLength() +
+                blob.getMetadata().contentMetadata().contentLength() +
                     Constants.PADDING_BLOCK_SIZE;
 
             return cipheredBlob(blob, is, contentLength, true);
@@ -181,7 +181,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
             // adjust the content length if the blob is encrypted
             long contentLength =
-                blob.getMetadata().getContentMetadata().contentLength();
+                blob.getMetadata().contentMetadata().contentLength();
             if (decryption.isEncrypted()) {
                 contentLength = decryption.getContentLength();
             }
@@ -199,7 +199,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         var builder = ImmutableSet.<StorageMetadata>builder();
         for (StorageMetadata sm : pageSet) {
             if (sm instanceof BlobMetadata bm) {
-                BlobMetadata mbm = bm.getContainer() == null &&
+                BlobMetadata mbm = bm.container() == null &&
                         container != null ?
                         bm.toBuilder().container(container).build() : bm;
 
@@ -301,7 +301,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                             blobMeta.size() - 1)
                     .build();
                 var name = blobNameWithSuffix(blobMeta.name());
-                var blob = delegate().getBlob(blobMeta.getContainer(), name, options);
+                var blob = delegate().getBlob(blobMeta.container(), name, options);
                 try {
                     PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
                     int parts = lastPartPadding.getPart();

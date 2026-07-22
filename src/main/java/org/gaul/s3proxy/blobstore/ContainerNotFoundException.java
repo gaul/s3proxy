@@ -20,14 +20,7 @@ package org.gaul.s3proxy.blobstore;
 /** Thrown when a container cannot be located. */
 public final class ContainerNotFoundException extends RuntimeException {
 
-    private final String container;
-
     public ContainerNotFoundException(String container, String message) {
         super("%s not found: %s".formatted(container, message));
-        this.container = container;
-    }
-
-    public String getContainer() {
-        return container;
     }
 }

@@ -202,14 +202,13 @@ public final class GCloudBlobStore implements BlobStore {
             if (blob.isDirectory()) {
                 set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
                         blob.getName(), Map.of(), /*eTag=*/ null,
-                        /*creationDate=*/ null, /*lastModified=*/ null,
+                        /*lastModified=*/ null,
                         StorageClass.STANDARD,
                         /*container=*/ null,
                         ContentMetadata.builder().build()));
             } else {
                 set.add(new BlobMetadata(StorageType.BLOB,
                         blob.getName(), Map.of(), blob.getEtag(),
-                        toDate(blob.getCreateTimeOffsetDateTime()),
                         toDate(blob.getUpdateTimeOffsetDateTime()),
                         fromGcsStorageClass(blob.getStorageClass()),
                         /*container=*/ null,
@@ -371,7 +370,6 @@ public final class GCloudBlobStore implements BlobStore {
                 .contentType(gcsBlob.getContentType())
                 .eTag(gcsBlob.getEtag())
                 .storageClass(fromGcsStorageClass(gcsBlob.getStorageClass()))
-                .creationDate(toDate(gcsBlob.getCreateTimeOffsetDateTime()))
                 .lastModified(toDate(gcsBlob.getUpdateTimeOffsetDateTime()));
         if (rangeOffset != null) {
             long end = rangeEnd != null ? rangeEnd :
@@ -445,7 +443,7 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public String putBlob(String container,
             org.gaul.s3proxy.blobstore.domain.Blob blob, PutOptions options) {
-        var contentMetadata = blob.getMetadata().getContentMetadata();
+        var contentMetadata = blob.getMetadata().contentMetadata();
         var blobInfo = BlobInfo.newBuilder(
                 BlobId.of(container, blob.getMetadata().name()));
         blobInfo.setContentType(contentMetadata.contentType());
@@ -662,7 +660,6 @@ public final class GCloudBlobStore implements BlobStore {
                 gcsBlob.getMetadata() != null ?
                         gcsBlob.getMetadata() : Map.of(),
                 gcsBlob.getEtag(),
-                toDate(gcsBlob.getCreateTimeOffsetDateTime()),
                 toDate(gcsBlob.getUpdateTimeOffsetDateTime()),
                 fromGcsStorageClass(gcsBlob.getStorageClass()),
                 container,
@@ -781,7 +778,7 @@ public final class GCloudBlobStore implements BlobStore {
         var stubMetadata = new HashMap<String, String>();
         stubMetadata.put(TARGET_BLOB_NAME_KEY, targetBlobName);
 
-        var contentMetadata = blobMetadata.getContentMetadata();
+        var contentMetadata = blobMetadata.contentMetadata();
         if (contentMetadata != null) {
             if (contentMetadata.contentType() != null) {
                 stubMetadata.put("s3proxy_content_type",

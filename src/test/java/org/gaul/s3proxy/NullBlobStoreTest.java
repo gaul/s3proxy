@@ -264,7 +264,7 @@ public final class NullBlobStoreTest {
             throws IOException {
         assertThat(metadata).isNotNull();
 
-        ContentMetadata contentMetadata = metadata.getContentMetadata();
+        ContentMetadata contentMetadata = metadata.contentMetadata();
         assertThat(contentMetadata.contentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
         assertThat(contentMetadata.contentEncoding())

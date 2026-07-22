@@ -61,7 +61,7 @@ public final class PrefixBlobStoreTest {
     public void tearDown() {
         if (blobStore != null) {
             blobStore.clearContainer(containerName,
-                    ListContainerOptions.builder().recursive().build());
+                    ListContainerOptions.NONE);
             blobStore.deleteContainer(containerName);
         }
     }
@@ -117,7 +117,7 @@ public final class PrefixBlobStoreTest {
                 "outside.txt").payload(content).build(), PutOptions.NONE);
 
         prefixBlobStore.clearContainer(containerName,
-                ListContainerOptions.builder().recursive().build());
+                ListContainerOptions.NONE);
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "inside.txt")).isFalse();

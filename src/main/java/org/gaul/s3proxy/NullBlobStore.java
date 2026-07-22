@@ -226,7 +226,7 @@ final class NullBlobStore extends ForwardingBlobStore {
             // get real blob size from stub blob
             Blob blob = getBlob(mpu.containerName(),
                     mpu.id() + "-" + part.partNumber(), GetOptions.NONE);
-            long length = blob.getMetadata().getContentMetadata()
+            long length = blob.getMetadata().contentMetadata()
                     .contentLength();
             builder.add(new MultipartPart(part.partNumber(), length,
                     part.partETag(), part.lastModified()));

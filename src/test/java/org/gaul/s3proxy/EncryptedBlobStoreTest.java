@@ -286,7 +286,7 @@ public final class EncryptedBlobStoreTest {
         try (InputStream is = got.getPayload()) {
             assertThat(is.readAllBytes()).isEmpty();
         }
-        assertThat(got.getMetadata().getContentMetadata().contentLength())
+        assertThat(got.getMetadata().contentMetadata().contentLength())
             .isEqualTo(0L);
 
         PageSet<? extends StorageMetadata> blobs =
@@ -562,7 +562,7 @@ public final class EncryptedBlobStoreTest {
                 encryptedBlobStore.blobMetadata(containerName,
                     blobName + Constants.S3_ENC_SUFFIX);
             assertThat(contentType).isEqualTo(
-                metadata.getContentMetadata().contentType());
+                metadata.contentMetadata().contentType());
 
             encryptedBlobStore.copyBlob(containerName, blobName,
                 containerName, blobName + "-copy", CopyOptions.NONE);
@@ -791,7 +791,7 @@ public final class EncryptedBlobStoreTest {
                 assertThat(plaintext).isEqualTo(content.substring(offset));
             }
 
-            assertThat(blob.getMetadata().getContentMetadata()
+            assertThat(blob.getMetadata().contentMetadata()
                 .contentLength()).isEqualTo((long) length - offset);
             assertThat(blob.getContentRange())
                 .isEqualTo("bytes " + offset + "-" + (length - 1) +
@@ -825,7 +825,7 @@ public final class EncryptedBlobStoreTest {
             assertThat(plaintext).isEqualTo(content);
         }
 
-        assertThat(blob.getMetadata().getContentMetadata().contentLength())
+        assertThat(blob.getMetadata().contentMetadata().contentLength())
             .isEqualTo((long) length);
         assertThat(blob.getContentRange())
             .isEqualTo("bytes 0-" + (length - 1) + "/" + length);

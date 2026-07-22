@@ -1613,8 +1613,6 @@ public class S3ProxyHandler {
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null) {
             optionsBuilder.delimiter(delimiter);
-        } else {
-            optionsBuilder.recursive();
         }
         String prefix = request.getParameter("prefix");
         if (prefix != null && !prefix.isEmpty()) {
@@ -3459,7 +3457,7 @@ public class S3ProxyHandler {
         }
 
         long contentLength =
-                blobMetadata.getContentMetadata().contentLength();
+                blobMetadata.contentMetadata().contentLength();
 
         try (InputStream is = blob.getPayload()) {
             MultipartPart part = blobStore.uploadMultipartPart(mpu,
@@ -3608,7 +3606,7 @@ public class S3ProxyHandler {
             HttpServletResponse response,
             BlobMetadata metadata) {
         ContentMetadata contentMetadata =
-                metadata.getContentMetadata();
+                metadata.contentMetadata();
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CACHE_CONTROL, "response-cache-control",
                 contentMetadata.cacheControl());

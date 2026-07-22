@@ -20,21 +20,8 @@ package org.gaul.s3proxy.blobstore;
 /** Thrown when a blob cannot be located in the container. */
 public final class KeyNotFoundException extends RuntimeException {
 
-    private final String container;
-    private final String key;
-
     public KeyNotFoundException(String container, String key, String message) {
         super("%s not found in container %s: %s".formatted(key, container,
                 message));
-        this.container = container;
-        this.key = key;
-    }
-
-    public String getContainer() {
-        return container;
-    }
-
-    public String getKey() {
-        return key;
     }
 }

@@ -226,7 +226,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             for (S3Object obj : response.contents()) {
                 set.add(new BlobMetadata(StorageType.BLOB, obj.key(),
                         Map.of(), obj.eTag(), toDate(obj.lastModified()),
-                        toDate(obj.lastModified()),
                         fromAwsObjectStorageClass(obj.storageClass()),
                         /*container=*/ null,
                         ContentMetadata.builder()
@@ -237,7 +236,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             for (CommonPrefix prefix : response.commonPrefixes()) {
                 set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
                         prefix.prefix(), Map.of(), /*eTag=*/ null,
-                        /*creationDate=*/ null, /*lastModified=*/ null,
+                        /*lastModified=*/ null,
                         StorageClass.STANDARD, /*container=*/ null,
                         ContentMetadata.builder().build()));
             }
@@ -321,7 +320,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     public void deleteContainer(String container) {
         try {
             clearContainer(container,
-                    ListContainerOptions.builder().recursive().build());
+                    ListContainerOptions.NONE);
             s3Client.deleteBucket(DeleteBucketRequest.builder()
                     .bucket(container)
                     .build());
@@ -449,7 +448,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public String putBlob(String container, Blob blob, PutOptions options) {
-        var contentMetadata = blob.getMetadata().getContentMetadata();
+        var contentMetadata = blob.getMetadata().contentMetadata();
         var requestBuilder = PutObjectRequest.builder()
                 .bucket(container)
                 .key(blob.getMetadata().name());
@@ -628,7 +627,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             return new BlobMetadata(StorageType.BLOB, key,
                     response.metadata(), response.eTag(),
                     toDate(response.lastModified()),
-                    toDate(response.lastModified()),
                     fromAwsStorageClass(response.storageClass()),
                     container,
                     toContentMetadata(response));
@@ -764,7 +762,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 .bucket(container)
                 .key(blobMetadata.name());
 
-        var contentMetadata = blobMetadata.getContentMetadata();
+        var contentMetadata = blobMetadata.contentMetadata();
         if (contentMetadata != null) {
             if (contentMetadata.cacheControl() != null) {
                 requestBuilder.cacheControl(contentMetadata.cacheControl());

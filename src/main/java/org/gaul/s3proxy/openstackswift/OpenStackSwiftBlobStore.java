@@ -306,12 +306,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 if (isDirectory) {
                     visible.add(new BlobMetadata(StorageType.RELATIVE_PATH,
                             name, Map.of(), /*eTag=*/ null,
-                            /*creationDate=*/ null, /*lastModified=*/ null,
+                            /*lastModified=*/ null,
                             StorageClass.STANDARD, /*container=*/ null,
                             ContentMetadata.builder().build()));
                 } else {
                     visible.add(new BlobMetadata(StorageType.BLOB, name,
-                            Map.of(), object.getETag(), /*creationDate=*/ null,
+                            Map.of(), object.getETag(),
                             object.getLastModified(), StorageClass.STANDARD,
                             /*container=*/ null, ContentMetadata.builder()
                                     .contentLength(object.getSizeInBytes())
@@ -372,7 +372,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     public void deleteContainer(String container) {
         try {
             clearContainer(container,
-                    ListContainerOptions.builder().recursive().build());
+                    ListContainerOptions.NONE);
         } catch (ContainerNotFoundException cnfe) {
             // The container is already gone; deleteContainer is idempotent.
             return;
@@ -630,7 +630,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     public String putBlob(String container, Blob blob, PutOptions options) {
         var swift = objectStorage();
         var metadata = blob.getMetadata();
-        var contentMetadata = metadata.getContentMetadata();
+        var contentMetadata = metadata.contentMetadata();
         var swiftOptions = ObjectPutOptions.create();
         var contentType = contentMetadata.contentType();
         if (contentType != null) {
@@ -857,7 +857,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var userMetadata = object.getMetadata();
         return new BlobMetadata(StorageType.BLOB, key,
                 userMetadata != null ? userMetadata : Map.of(),
-                object.getETag(), /*creationDate=*/ null,
+                object.getETag(),
                 object.getLastModified(), StorageClass.STANDARD, container,
                 contentMetadata);
     }
@@ -926,7 +926,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             BlobMetadata blobMetadata, PutOptions options) {
         String uploadId = UUID.randomUUID().toString();
 
-        var contentMetadata = blobMetadata.getContentMetadata();
+        var contentMetadata = blobMetadata.contentMetadata();
         var userMetadata = new HashMap<String, String>();
         if (blobMetadata.userMetadata() != null) {
             userMetadata.putAll(blobMetadata.userMetadata());
@@ -1010,7 +1010,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var swiftOptions = ObjectPutOptions.create();
         var marker = getBlob(container, mpuMetaKey(uploadId), GetOptions.NONE);
         if (marker != null) {
-            var contentMetadata = marker.getMetadata().getContentMetadata();
+            var contentMetadata = marker.getMetadata().contentMetadata();
             if (contentMetadata.contentType() != null) {
                 swiftOptions.contentType(contentMetadata.contentType());
             }

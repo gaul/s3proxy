@@ -98,7 +98,7 @@ public final class Blob {
         private Builder(Blob blob) {
             this.metadataBuilder = blob.getMetadata().toBuilder();
             this.contentMetadataBuilder = blob.getMetadata()
-                    .getContentMetadata().toBuilder();
+                    .contentMetadata().toBuilder();
             this.payload = blob.getPayload();
             this.contentRange = blob.getContentRange();
         }
@@ -133,11 +133,6 @@ public final class Blob {
 
         public Builder lastModified(@Nullable Date lastModified) {
             metadataBuilder.lastModified(lastModified);
-            return this;
-        }
-
-        public Builder creationDate(@Nullable Date creationDate) {
-            metadataBuilder.creationDate(creationDate);
             return this;
         }
 

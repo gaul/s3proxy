@@ -178,14 +178,13 @@ public final class AzureBlobStore implements BlobStore {
             if (blob.isPrefix()) {
                 set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
                         blob.getName(), Map.of(), /*eTag=*/ null,
-                        /*creationDate=*/ null, /*lastModified=*/ null,
+                        /*lastModified=*/ null,
                         StorageClass.STANDARD,
                         /*container=*/ null,
                         ContentMetadata.builder().build()));
             } else {
                 set.add(new BlobMetadata(StorageType.BLOB, blob.getName(),
                         Map.of(), properties.getETag(),
-                        toDate(properties.getCreationTime()),
                         toDate(properties.getLastModified()),
                         fromAccessTier(properties.getAccessTier()),
                         /*container=*/ null,
@@ -358,7 +357,6 @@ public final class AzureBlobStore implements BlobStore {
                 .contentType(properties.getContentType())
                 .expires(expires != null ? toDate(expires) : null)
                 .eTag(properties.getETag())
-                .creationDate(toDate(properties.getCreationTime()))
                 .lastModified(toDate(properties.getLastModified()));
         if (azureRange != null) {
             builder.contentRange(
@@ -386,7 +384,7 @@ public final class AzureBlobStore implements BlobStore {
         try (var is = blob.getPayload()) {
             // TODO: Expires?
             var blobHttpHeaders = new BlobHttpHeaders();
-            var contentMetadata = blob.getMetadata().getContentMetadata();
+            var contentMetadata = blob.getMetadata().contentMetadata();
             blobHttpHeaders.setCacheControl(contentMetadata.cacheControl());
             blobHttpHeaders.setContentDisposition(
                     contentMetadata.contentDisposition());
@@ -660,7 +658,6 @@ public final class AzureBlobStore implements BlobStore {
         }
         return new BlobMetadata(StorageType.BLOB, key,
                 properties.getMetadata(), properties.getETag(),
-                toDate(properties.getCreationTime()),
                 toDate(properties.getLastModified()),
                 fromAccessTier(properties.getAccessTier()),
                 container,
@@ -725,7 +722,7 @@ public final class AzureBlobStore implements BlobStore {
         String targetBlobName = blobMetadata.name();
         var stubBlobClient = containerClient.getBlobClient(uploadKey).getBlockBlobClient();
 
-        var contentMetadata = blobMetadata.getContentMetadata();
+        var contentMetadata = blobMetadata.contentMetadata();
         BlobHttpHeaders headers = new BlobHttpHeaders();
         if (contentMetadata != null) {
             headers.setContentType(contentMetadata.contentType());

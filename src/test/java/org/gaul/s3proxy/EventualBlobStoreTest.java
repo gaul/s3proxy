@@ -220,7 +220,7 @@ public final class EventualBlobStoreTest {
                 ListContainerOptions.NONE)).isNotEmpty();
 
         eventualBlobStore.clearContainer(containerName,
-                ListContainerOptions.builder().recursive().build());
+                ListContainerOptions.NONE);
 
         // clearContainer must clear both stores, not only the read store.
         assertThat(nearBlobStore.list(containerName,
@@ -253,7 +253,7 @@ public final class EventualBlobStoreTest {
         assertThat(blob).isNotNull();
 
         ContentMetadata contentMetadata =
-                blob.getMetadata().getContentMetadata();
+                blob.getMetadata().contentMetadata();
         assertThat(contentMetadata.contentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
         assertThat(contentMetadata.contentEncoding())
