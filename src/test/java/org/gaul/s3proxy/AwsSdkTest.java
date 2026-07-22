@@ -2231,12 +2231,13 @@ public final class AwsSdkTest {
         final BlobStore blobStore2 = TestUtils.createTransientBlobStore();
         s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
             @Override
-            public Map.@Nullable Entry<String, BlobStore> locateBlobStore(
+            public @Nullable AccessGrant locateBlobStore(
                     String identity, String container, String blob) {
                 if (identity.equals(awsCreds.accessKeyId())) {
-                    return Map.entry(awsCreds.secretAccessKey(), blobStore1);
+                    return new AccessGrant(awsCreds.secretAccessKey(),
+                            blobStore1);
                 } else if (identity.equals("other-identity")) {
-                    return Map.entry("credential", blobStore2);
+                    return new AccessGrant("credential", blobStore2);
                 } else {
                     return null;
                 }

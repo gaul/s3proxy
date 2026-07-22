@@ -65,7 +65,6 @@ import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
@@ -288,23 +287,23 @@ public class S3ProxyHandler {
             anonymousIdentity = false;
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
-                public Map.@Nullable Entry<String, BlobStore> locateBlobStore(
+                public @Nullable AccessGrant locateBlobStore(
                         String identityArg, String container, String blob) {
                     if (!identity.equals(identityArg)) {
                         return null;
                     }
-                    return Map.entry(credential, blobStore);
+                    return new AccessGrant(credential, blobStore);
                 }
             };
         } else {
             anonymousIdentity = true;
-            final Map.Entry<String, BlobStore> anonymousBlobStore =
-                    Maps.immutableEntry(null, blobStore);
+            final AccessGrant anonymousGrant =
+                    AccessGrant.anonymous(blobStore);
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
-                public Map.Entry<String, BlobStore> locateBlobStore(
-                        String identityArg, String container, String blob) {
-                    return anonymousBlobStore;
+                public AccessGrant locateBlobStore(String identityArg,
+                        String container, String blob) {
+                    return anonymousGrant;
                 }
             };
         }
@@ -607,12 +606,11 @@ public class S3ProxyHandler {
             }
         }
 
-        Map.Entry<String, BlobStore> provider =
-                blobStoreLocator.locateBlobStore(
-                        requestIdentity, path.length > 1 ? path[1] : null,
-                        path.length > 2 ? path[2] : null);
+        AccessGrant grant = blobStoreLocator.locateBlobStore(
+                requestIdentity, path.length > 1 ? path[1] : null,
+                path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
-            blobStore = provider.getValue();
+            blobStore = grant.blobStore();
             String contentSha256 = request.getHeader(
                     AwsHttpHeaders.CONTENT_SHA256);
             if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
@@ -630,12 +628,13 @@ public class S3ProxyHandler {
         } else if (requestIdentity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         } else {
-            if (provider == null) {
+            if (grant == null) {
                 throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
 
-            String credential = provider.getKey();
-            blobStore = provider.getValue();
+            String credential = grant.credential().orElseThrow(
+                    () -> new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID));
+            blobStore = grant.blobStore();
 
             String expiresString = request.getParameter("Expires");
             if (expiresString != null) { // v2 query
@@ -2675,14 +2674,18 @@ public class S3ProxyHandler {
                 authHeader.getAuthenticationType());
         }
 
-        Map.Entry<String, BlobStore> provider =
-                blobStoreLocator.locateBlobStore(authHeader.getIdentity(), null,
-                        null);
-        if (provider == null) {
+        AccessGrant grant = blobStoreLocator.locateBlobStore(
+                authHeader.getIdentity(), null, null);
+        if (grant == null) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
-        String credential = provider.getKey();
+        Optional<String> credentialOptional = grant.credential();
+        if (credentialOptional.isEmpty()) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
+        String credential = credentialOptional.orElseThrow();
 
         if (signatureVersion4) {
             byte[] kSecret = ("AWS4" + credential).getBytes(

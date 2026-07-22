@@ -16,11 +16,9 @@
 
 package org.gaul.s3proxy;
 
-import java.util.Map;
-
-import org.gaul.s3proxy.blobstore.BlobStore;
+import org.jspecify.annotations.Nullable;
 
 public interface BlobStoreLocator {
-    Map.Entry<String, BlobStore> locateBlobStore(String identity,
-            String container, String blob);
+    @Nullable AccessGrant locateBlobStore(@Nullable String identity,
+            @Nullable String container, @Nullable String blob);
 }

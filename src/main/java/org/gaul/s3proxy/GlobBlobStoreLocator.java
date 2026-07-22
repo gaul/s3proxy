@@ -19,58 +19,65 @@ package org.gaul.s3proxy;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.util.Map;
-
-import com.google.common.collect.Maps;
+import java.util.Objects;
+import java.util.Optional;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.jspecify.annotations.Nullable;
 
 public final class GlobBlobStoreLocator implements BlobStoreLocator {
-    private final Map<String, Map.Entry<String, BlobStore>> locator;
-    private final Map<PathMatcher, Map.Entry<String, BlobStore>> globLocator;
+    /**
+     * A blob store which serves a bucket glob and the identity which owns
+     * it, absent for anonymous access.
+     */
+    public record GlobTarget(Optional<String> identity, BlobStore blobStore) {
+        public GlobTarget {
+            Objects.requireNonNull(identity);
+            Objects.requireNonNull(blobStore);
+        }
+    }
 
-    public GlobBlobStoreLocator(
-            Map<String, Map.Entry<String, BlobStore>> locator,
-            Map<PathMatcher, Map.Entry<String, BlobStore>> globLocator) {
+    private final Map<String, AccessGrant> locator;
+    private final Map<PathMatcher, GlobTarget> globLocator;
+
+    public GlobBlobStoreLocator(Map<String, AccessGrant> locator,
+            Map<PathMatcher, GlobTarget> globLocator) {
         this.locator = locator;
         this.globLocator = globLocator;
     }
 
     @Override
-    public Map.Entry<String, BlobStore> locateBlobStore(
-            @Nullable String identity, String container, String blob) {
-        Map.Entry<String, BlobStore> locatorEntry =
-                locator.get(identity);
-        Map.Entry<String, BlobStore> globEntry = null;
+    public @Nullable AccessGrant locateBlobStore(@Nullable String identity,
+            @Nullable String container, @Nullable String blob) {
+        AccessGrant grant = locator.get(identity);
+        GlobTarget globTarget = null;
         if (container != null) {
             for (var entry : globLocator.entrySet()) {
                 if (entry.getKey().matches(FileSystems.getDefault()
                         .getPath(container))) {
-                    globEntry = entry.getValue();
+                    globTarget = entry.getValue();
                 }
             }
         }
-        if (globEntry == null) {
+        if (globTarget == null) {
             if (identity == null) {
                 if (!locator.isEmpty()) {
-                    return locator.entrySet().iterator().next()
-                            .getValue();
+                    return locator.values().iterator().next();
                 }
-                return Maps.immutableEntry(null,
-                        globLocator.entrySet().iterator().next().getValue()
-                                .getValue());
+                return AccessGrant.anonymous(
+                        globLocator.values().iterator().next().blobStore());
             }
-            return locatorEntry;
+            return grant;
         }
         if (identity == null) {
-            return Maps.immutableEntry(null, globEntry.getValue());
+            return AccessGrant.anonymous(globTarget.blobStore());
         }
-        if (!globEntry.getKey().equals(identity)) {
+        if (!globTarget.identity().equals(Optional.of(identity))) {
             return null;
         }
-        if (locatorEntry == null) {
+        if (grant == null) {
             return null;
         }
-        return Map.entry(locatorEntry.getKey(), globEntry.getValue());
+        return new AccessGrant(grant.credential(), globTarget.blobStore());
     }
 }

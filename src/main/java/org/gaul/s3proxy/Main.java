@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Executors;
@@ -37,7 +38,6 @@ import java.util.regex.Pattern;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.io.MoreFiles;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -87,10 +87,9 @@ public final class Main {
         }
 
         S3Proxy.Builder s3ProxyBuilder = null;
-        var locators = ImmutableMap
-                .<String, Map.Entry<String, BlobStore>>builder();
+        var locators = ImmutableMap.<String, AccessGrant>builder();
         var globLocators = ImmutableMap
-                .<PathMatcher, Map.Entry<String, BlobStore>>builder();
+                .<PathMatcher, GlobBlobStoreLocator.GlobTarget>builder();
         Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
         for (var path : options.properties) {
@@ -123,7 +122,7 @@ public final class Main {
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
                 if (parsedIdentities.add(localIdentity)) {
                     locators.put(localIdentity,
-                            Map.entry(localCredential, blobStore));
+                            new AccessGrant(localCredential, blobStore));
                 }
             }
             for (String key : properties.stringPropertyNames()) {
@@ -133,7 +132,9 @@ public final class Main {
                         globLocators.put(
                                 FileSystems.getDefault().getPathMatcher(
                                         "glob:" + bucketLocator),
-                                Maps.immutableEntry(localIdentity, blobStore));
+                                new GlobBlobStoreLocator.GlobTarget(
+                                        Optional.ofNullable(localIdentity),
+                                        blobStore));
                     } else {
                         System.err.println("Multiple definitions of the " +
                                 "bucket locator: " + bucketLocator);

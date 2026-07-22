@@ -19,13 +19,13 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.FileSystems;
-import java.nio.file.PathMatcher;
 import java.util.Map;
+import java.util.Optional;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Maps;
 
+import org.gaul.s3proxy.GlobBlobStoreLocator.GlobTarget;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,39 +43,38 @@ public final class GlobBlobStoreLocatorTest {
     @Test
     public void testLocateIdentity() {
         var credsMap = ImmutableSortedMap.of(
-                "id1", Map.entry("one", blobStoreOne),
-                "id2", Map.entry("two", blobStoreTwo));
+                "id1", new AccessGrant("one", blobStoreOne),
+                "id2", new AccessGrant("two", blobStoreTwo));
         var locator = new GlobBlobStoreLocator(
                 credsMap, Map.of());
-        assertThat(locator.locateBlobStore("id2", null, null).getKey())
-                .isEqualTo("two");
-        assertThat(locator.locateBlobStore(null, null, null).getKey())
-                .isEqualTo("one");
+        assertThat(locator.locateBlobStore("id2", null, null).credential())
+                .contains("two");
+        assertThat(locator.locateBlobStore(null, null, null).credential())
+                .contains("one");
         assertThat(locator.locateBlobStore("foo", null, null)).isNull();
     }
 
     @Test
     public void testLocateContainer() {
-        // Must support null keys
         var credsMap = ImmutableMap.of(
-                "id1", Map.entry("one", blobStoreOne),
-                "id2", Map.entry("two", blobStoreTwo));
+                "id1", new AccessGrant("one", blobStoreOne),
+                "id2", new AccessGrant("two", blobStoreTwo));
         var globMap = Map.of(
                 FileSystems.getDefault().getPathMatcher("glob:container1"),
-                Map.entry("id1", blobStoreOne),
+                new GlobTarget(Optional.of("id1"), blobStoreOne),
                 FileSystems.getDefault().getPathMatcher("glob:container2"),
-                Map.entry("id2", blobStoreTwo));
+                new GlobTarget(Optional.of("id2"), blobStoreTwo));
         var locator = new GlobBlobStoreLocator(credsMap,
                 globMap);
 
         assertThat(locator.locateBlobStore(null, "container1", null)
-                .getValue()).isSameAs(blobStoreOne);
+                .blobStore()).isSameAs(blobStoreOne);
         assertThat(locator.locateBlobStore(null, "container2", null)
-                .getValue()).isSameAs(blobStoreTwo);
+                .blobStore()).isSameAs(blobStoreTwo);
         assertThat(locator.locateBlobStore("id1", "foo", null)
-                .getValue()).isSameAs(blobStoreOne);
+                .blobStore()).isSameAs(blobStoreOne);
         assertThat(locator.locateBlobStore("id2", "foo", null)
-                .getValue()).isSameAs(blobStoreTwo);
+                .blobStore()).isSameAs(blobStoreTwo);
         assertThat(locator.locateBlobStore("foo", "container1", null))
                 .isNull();
         assertThat(locator.locateBlobStore("foo", "container2", null))
@@ -84,46 +83,44 @@ public final class GlobBlobStoreLocatorTest {
 
     @Test
     public void testLocateGlob() {
-        var credsMap =
-                ImmutableSortedMap.<String, Map.Entry<String, BlobStore>>of(
-                    "id0", Maps.immutableEntry("zero", null),
-                    "id1", Map.entry("one", blobStoreOne),
-                    "id2", Map.entry("two", blobStoreTwo));
-        var globMap =
-                Map.<PathMatcher, Map.Entry<String, BlobStore>>of(
-                        FileSystems.getDefault().getPathMatcher(
-                                "glob:{one,two}"),
-                        Map.entry("id1", blobStoreOne),
-                        FileSystems.getDefault().getPathMatcher("glob:cont?X*"),
-                        Map.entry("id2", blobStoreTwo));
+        var credsMap = ImmutableSortedMap.of(
+                "id0", new AccessGrant("zero", blobStoreOne),
+                "id1", new AccessGrant("one", blobStoreOne),
+                "id2", new AccessGrant("two", blobStoreTwo));
+        var globMap = Map.of(
+                FileSystems.getDefault().getPathMatcher("glob:{one,two}"),
+                new GlobTarget(Optional.of("id1"), blobStoreOne),
+                FileSystems.getDefault().getPathMatcher("glob:cont?X*"),
+                new GlobTarget(Optional.of("id2"), blobStoreTwo));
         var locator = new GlobBlobStoreLocator(credsMap,
                 globMap);
 
         assertThat(locator.locateBlobStore(null, "one", null)
-                .getValue()).isSameAs(blobStoreOne);
+                .blobStore()).isSameAs(blobStoreOne);
         assertThat(locator.locateBlobStore("id1", "two", null)
-                .getValue()).isSameAs(blobStoreOne);
+                .blobStore()).isSameAs(blobStoreOne);
         assertThat(locator.locateBlobStore("id2", "cont5X.extra", null)
-                .getValue()).isSameAs(blobStoreTwo);
+                .blobStore()).isSameAs(blobStoreTwo);
     }
 
     @Test
     public void testGlobLocatorAnonymous() {
-        // Must support null keys
-        var globMap =
-                ImmutableMap.<PathMatcher, Map.Entry<String, BlobStore>>of(
-                        FileSystems.getDefault().getPathMatcher("glob:one"),
-                        Maps.immutableEntry(null, blobStoreOne),
-                        FileSystems.getDefault().getPathMatcher("glob:two"),
-                        Maps.immutableEntry(null, blobStoreTwo));
+        // Anonymous access stores an absent identity in the glob map
+        var globMap = ImmutableMap.of(
+                FileSystems.getDefault().getPathMatcher("glob:one"),
+                new GlobTarget(Optional.empty(), blobStoreOne),
+                FileSystems.getDefault().getPathMatcher("glob:two"),
+                new GlobTarget(Optional.empty(), blobStoreTwo));
         var locator = new GlobBlobStoreLocator(
                 ImmutableMap.of(), globMap);
 
         assertThat(locator.locateBlobStore(null, null, null)
-                .getValue()).isSameAs(blobStoreOne);
+                .blobStore()).isSameAs(blobStoreOne);
         assertThat(locator.locateBlobStore(null, "one", null)
-                .getValue()).isSameAs(blobStoreOne);
+                .blobStore()).isSameAs(blobStoreOne);
         assertThat(locator.locateBlobStore(null, "two", null)
-                .getValue()).isSameAs(blobStoreTwo);
+                .blobStore()).isSameAs(blobStoreTwo);
+        // A presented identity must not match an anonymous glob entry
+        assertThat(locator.locateBlobStore("foo", "one", null)).isNull();
     }
 }
