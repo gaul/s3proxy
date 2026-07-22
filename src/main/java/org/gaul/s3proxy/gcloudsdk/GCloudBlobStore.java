@@ -33,6 +33,7 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
+import com.google.cloud.http.HttpTransportOptions;
 import com.google.cloud.storage.Acl;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -99,6 +100,11 @@ public final class GCloudBlobStore implements BlobStore {
             String endpointUrl) {
         var cred = creds.get();
         var storageBuilder = StorageOptions.newBuilder();
+        // Fail and retry rather than hanging forever on a stale connection.
+        storageBuilder.setTransportOptions(HttpTransportOptions.newBuilder()
+                .setConnectTimeout(60 * 1000)
+                .setReadTimeout(60 * 1000)
+                .build());
         if (cred.identity() != null && !cred.identity().isEmpty()) {
             storageBuilder.setProjectId(cred.identity());
         }
