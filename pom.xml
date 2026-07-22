@@ -173,7 +173,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
           <dependency>
             <groupId>com.puppycrawl.tools</groupId>
             <artifactId>checkstyle</artifactId>
-            <version>13.7.0</version>
+            <version>13.8.0</version>
           </dependency>
         </dependencies>
       </plugin>
