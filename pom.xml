@@ -458,7 +458,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
       <dependency>
         <groupId>tools.jackson</groupId>
         <artifactId>jackson-bom</artifactId>
-        <version>3.2.0</version>
+        <version>3.2.1</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
