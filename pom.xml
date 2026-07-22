@@ -442,7 +442,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
     <java.version>17</java.version>
     <aws-sdkv2.version>2.46.20</aws-sdkv2.version>
     <openstack4j.version>3.12</openstack4j.version>
-    <jetty.version>12.1.10</jetty.version>
+    <jetty.version>12.1.11</jetty.version>
     <modernizer.version>3.4.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.63.0</opentelemetry.version>
