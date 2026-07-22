@@ -449,7 +449,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
     <opentelemetry-semconv.version>1.42.0</opentelemetry-semconv.version>
     <slf4j.version>2.0.18</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
-    <sshd.version>2.18.0</sshd.version>
+    <sshd.version>2.19.0</sshd.version>
     <surefire.version>3.5.6</surefire.version>
   </properties>
 
