@@ -100,12 +100,12 @@ public final class PrefixBlobStoreTest {
 
         PageSet<? extends StorageMetadata> listing =
                 prefixBlobStore.list(containerName, ListContainerOptions.NONE);
-        List<String> names = List.copyOf(listing).stream()
+        List<String> names = listing.entries().stream()
                 .map(StorageMetadata::name)
                 .toList();
         assertThat(names).containsExactlyInAnyOrder(
                 "file-one.txt", "file-two.txt");
-        assertThat(listing.getNextMarker()).isNull();
+        assertThat(listing.nextMarker()).isNull();
     }
 
     @Test

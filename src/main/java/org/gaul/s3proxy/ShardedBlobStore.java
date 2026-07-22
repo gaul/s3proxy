@@ -303,7 +303,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                         sm.creationDate()));
             }
         }
-        return new PageSet<>(results.build(), upstream.getNextMarker());
+        return new PageSet<>(results.build(), upstream.nextMarker());
     }
 
     @Override
@@ -391,7 +391,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             futuresBuilder.add(executor.submit(() -> {
                 try {
                     return blobStore.list(shard,
-                            ListContainerOptions.NONE).isEmpty();
+                            ListContainerOptions.NONE).entries().isEmpty();
                 } catch (ContainerNotFoundException cnfe) {
                     return true;
                 }

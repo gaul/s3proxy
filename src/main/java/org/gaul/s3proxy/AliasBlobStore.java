@@ -146,7 +146,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
                 results.add(sm);
             }
         }
-        return new PageSet<>(results.build(), upstream.getNextMarker());
+        return new PageSet<>(results.build(), upstream.nextMarker());
     }
 
     @Override

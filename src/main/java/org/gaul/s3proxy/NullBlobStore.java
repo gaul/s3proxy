@@ -125,7 +125,7 @@ final class NullBlobStore extends ForwardingBlobStore {
                 builder.add(sm);
             }
         }
-        return new PageSet<>(builder.build(), pageSet.getNextMarker());
+        return new PageSet<>(builder.build(), pageSet.nextMarker());
     }
 
     @Override

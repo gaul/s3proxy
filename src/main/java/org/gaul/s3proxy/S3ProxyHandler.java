@@ -1675,7 +1675,7 @@ public class S3ProxyHandler {
 
         boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
                 blobStoreType);
-        int filteredCount = set.size();
+        int filteredCount = set.entries().size();
         if (filterStub) {
             filteredCount = 0;
             for (StorageMetadata sm : set) {
@@ -1742,7 +1742,7 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "EncodingType", encodingType);
             }
 
-            String nextMarker = set.getNextMarker();
+            String nextMarker = set.nextMarker();
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml,
@@ -1750,7 +1750,7 @@ public class S3ProxyHandler {
                         encodeBlob(encodingType, nextMarker));
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                     StorageMetadata sm = Streams.findLast(
-                            set.stream()).orElse(null);
+                            set.entries().stream()).orElse(null);
                     if (sm != null) {
                         lastKeyToMarker.put(Map.entry(
                                 containerName,

@@ -200,7 +200,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                         cm.creationDate()));
             }
         }
-        String nextMarker = listing.getNextMarker();
+        String nextMarker = listing.nextMarker();
         if (nextMarker != null) {
             nextMarker = trimPrefix(container, nextMarker);
         }

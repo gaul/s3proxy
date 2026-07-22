@@ -68,7 +68,7 @@ public interface BlobStore extends AutoCloseable {
                     removeBlob(container, name);
                 }
             }
-            String marker = page.getNextMarker();
+            String marker = page.nextMarker();
             if (marker == null) {
                 return;
             }

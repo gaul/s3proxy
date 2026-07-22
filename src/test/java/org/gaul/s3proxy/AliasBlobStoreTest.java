@@ -89,7 +89,7 @@ public final class AliasBlobStoreTest {
         String regularContainer = TestUtils.createRandomContainerName();
         createContainer(regularContainer);
         PageSet<? extends StorageMetadata> listing = aliasBlobStore.list();
-        assertThat(listing.size()).isEqualTo(1);
+        assertThat(listing).hasSize(1);
         assertThat(listing.iterator().next().name()).isEqualTo(
                 regularContainer);
     }
@@ -98,11 +98,11 @@ public final class AliasBlobStoreTest {
     public void testListAliasContainer() {
         createContainer(aliasContainerName);
         PageSet<? extends StorageMetadata> listing = aliasBlobStore.list();
-        assertThat(listing.size()).isEqualTo(1);
+        assertThat(listing).hasSize(1);
         assertThat(listing.iterator().next().name()).isEqualTo(
                 aliasContainerName);
         listing = blobStore.list();
-        assertThat(listing.size()).isEqualTo(1);
+        assertThat(listing).hasSize(1);
         assertThat(listing.iterator().next().name()).isEqualTo(
                 containerName);
     }

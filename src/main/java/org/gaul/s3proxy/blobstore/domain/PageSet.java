@@ -17,49 +17,32 @@
 
 package org.gaul.s3proxy.blobstore.domain;
 
-import java.util.LinkedHashSet;
-import java.util.Objects;
+import java.util.Iterator;
+import java.util.List;
 
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableList;
 
 import org.jspecify.annotations.Nullable;
 
-public final class PageSet<T> extends LinkedHashSet<T> {
+/**
+ * One page of a listing.  If {@code nextMarker} is non-null, the listing is
+ * incomplete and the marker should be passed to a subsequent list call to
+ * retrieve the next page.
+ */
+public record PageSet<T>(List<T> entries, @Nullable String nextMarker)
+        implements Iterable<T> {
 
-    private final String marker;
+    public PageSet {
+        entries = List.copyOf(entries);
+    }
 
-    public PageSet(Iterable<? extends T> contents,
+    public PageSet(Iterable<? extends T> entries,
             @Nullable String nextMarker) {
-        Iterables.addAll(this, contents);
-        this.marker = nextMarker;
-    }
-
-    /**
-     * If non-null, the listing is incomplete and the marker should be passed
-     * to a subsequent list call to retrieve the next page.
-     */
-    public String getNextMarker() {
-        return marker;
+        this(ImmutableList.copyOf(entries), nextMarker);
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), marker);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if (!(obj instanceof PageSet<?> other) || !super.equals(obj)) {
-            return false;
-        }
-        return Objects.equals(marker, other.marker);
-    }
-
-    @Override
-    public String toString() {
-        return "marker: " + marker + " elements: " + super.toString();
+    public Iterator<T> iterator() {
+        return entries.iterator();
     }
 }

@@ -235,7 +235,7 @@ public final class NullBlobStoreTest {
                             OutputStream.nullOutputStream()));
         }
         assertThat(nullBlobStore.list(containerName,
-                ListContainerOptions.NONE).stream()
+                ListContainerOptions.NONE).entries().stream()
                 .map(StorageMetadata::name))
                 .containsExactly(blobName);
     }

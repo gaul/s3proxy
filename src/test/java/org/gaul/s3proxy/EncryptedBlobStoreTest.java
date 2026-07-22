@@ -229,7 +229,7 @@ public final class EncryptedBlobStoreTest {
 
         blobs =
             encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        assertThat(blobs.size()).isEqualTo(0);
+        assertThat(blobs).isEmpty();
     }
 
     @Test
@@ -259,7 +259,7 @@ public final class EncryptedBlobStoreTest {
                 assertThat(seen).doesNotContainKey(sm.name());
                 seen.put(sm.name(), sm.size());
             }
-            marker = page.getNextMarker();
+            marker = page.nextMarker();
             if (marker == null) {
                 break;
             }
@@ -350,7 +350,7 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.removeBlobs(containerName, singleList);
         blobs = encryptedBlobStore.list(containerName,
                 ListContainerOptions.NONE);
-        assertThat(blobs.size()).isEqualTo(0);
+        assertThat(blobs).isEmpty();
     }
 
     @Test

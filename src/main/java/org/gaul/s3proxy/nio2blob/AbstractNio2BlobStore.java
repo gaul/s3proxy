@@ -1036,11 +1036,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 long partSize = sm.size();
                 parts.add(new MultipartPart(partNumber, partSize, sm.eTag(), sm.lastModified()));
             }
-            if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
+            if (pageSet.entries().isEmpty() || pageSet.nextMarker() == null) {
                 break;
             }
             options = options.toBuilder()
-                    .afterMarker(pageSet.getNextMarker()).build();
+                    .afterMarker(pageSet.nextMarker()).build();
         }
         return parts.build();
     }
@@ -1063,11 +1063,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
                 mpus.add(new MultipartUpload(container, blobName, uploadId, null, null));
             }
-            if (pageSet.isEmpty() || pageSet.getNextMarker() == null) {
+            if (pageSet.entries().isEmpty() || pageSet.nextMarker() == null) {
                 break;
             }
             options = options.toBuilder()
-                    .afterMarker(pageSet.getNextMarker()).build();
+                    .afterMarker(pageSet.nextMarker()).build();
         }
 
         return mpus.build();

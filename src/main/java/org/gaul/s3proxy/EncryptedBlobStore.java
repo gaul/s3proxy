@@ -232,7 +232,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
 
         // make sure the marker do not show blob with .s3enc suffix
-        String marker = pageSet.getNextMarker();
+        String marker = pageSet.nextMarker();
         if (marker != null && isEncrypted(marker)) {
             marker = removeEncryptedSuffix(marker);
         }
