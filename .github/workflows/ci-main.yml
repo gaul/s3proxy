@@ -136,7 +136,7 @@ jobs:
       - name: Maven Test with Azurite
         run: |
           # TODO: run other test classes
-          mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest
+          mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest,EncryptedBlobStoreTest
 
       - name: Install s3-tests
         run: |
@@ -229,7 +229,7 @@ jobs:
       - name: Maven Test with fake-gcs-server
         run: |
           # TODO: run other test classes
-          STORAGE_EMULATOR_HOST=http://localhost:4443 mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs-server.conf -Dtest=AwsSdkTest
+          STORAGE_EMULATOR_HOST=http://localhost:4443 mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs-server.conf -Dtest=AwsSdkTest,EncryptedBlobStoreTest
 
       - name: Install s3-tests
         run: |
