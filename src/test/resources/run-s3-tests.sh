@@ -54,7 +54,6 @@ done
 tags='not fails_on_s3proxy'\
 ' and not appendobject'\
 ' and not bucket_policy'\
-' and not checksum'\
 ' and not copy'\
 ' and not cors'\
 ' and not encryption'\

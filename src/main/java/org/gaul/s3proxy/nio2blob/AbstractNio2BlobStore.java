@@ -905,6 +905,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         setBlobAccessHelper(path, access);
     }
 
+    /**
+     * Name of the hidden blob storing one uploaded part's content.  Exposed
+     * so S3ProxyHandler can read part content back, e.g. to compute the
+     * composite checksum during CompleteMultipartUpload.
+     */
+    public static String multipartPartName(String uploadId, String blobName,
+            int partNumber) {
+        return MULTIPART_PREFIX + uploadId + "-" + blobName + "-" +
+                partNumber;
+    }
+
     @Override
     public final MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
@@ -920,7 +931,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final void abortMultipartUpload(MultipartUpload mpu) {
         var parts = listMultipartUpload(mpu);
         for (var part : parts) {
-            removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+            removeBlob(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
         }
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
     }
@@ -932,7 +943,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var md5Hasher = md5.newHasher();
 
         for (var part : parts) {
-            var meta = blobMetadata(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+            var meta = blobMetadata(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
             if (meta == null) {
                 // S3 returns InvalidPart (400) when the manifest references
                 // a part that was never uploaded.
@@ -995,7 +1006,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // Remove every uploaded part, not just the ones referenced by the
         // manifest, so parts excluded from the final object do not leak.
         for (var part : listMultipartUpload(mpu)) {
-            removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + part.partNumber());
+            removeBlob(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
         }
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
 
@@ -1009,7 +1020,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
-        var partName = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-" + partNumber;
+        var partName = multipartPartName(mpu.id(), mpu.blobName(), partNumber);
         var blob = Blob.builder(partName)
                 .payload(is)
                 .contentLength(contentLength)

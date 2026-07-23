@@ -48,6 +48,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
@@ -79,6 +80,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
+import software.amazon.awssdk.services.s3.model.ChecksumMode;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -388,6 +390,96 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {
             assertThat(e.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    public void testPutObjectChecksumEchoAndHeadObject() throws Exception {
+        var key = "testPutObjectChecksumEcho";
+        var content = TestUtils.randomByteSource().slice(0, 1024).read();
+        var checksum = Base64.getEncoder().encodeToString(
+                Hashing.sha256().hashBytes(content).asBytes());
+
+        PutObjectResponse putResponse = client.putObject(
+                b -> b.bucket(containerName).key(key).checksumSHA256(checksum),
+                RequestBody.fromBytes(content));
+        assertThat(putResponse.checksumSHA256()).isEqualTo(checksum);
+
+        // without x-amz-checksum-mode: ENABLED the checksum stays hidden
+        HeadObjectResponse headResponse = client.headObject(
+                b -> b.bucket(containerName).key(key));
+        assertThat(headResponse.checksumSHA256()).isNull();
+
+        headResponse = client.headObject(b -> b.bucket(containerName).key(key)
+                .checksumMode(ChecksumMode.ENABLED));
+        assertThat(headResponse.checksumSHA256()).isEqualTo(checksum);
+        // the reserved persistence key must not leak as user metadata
+        assertThat(headResponse.metadata()).isEmpty();
+    }
+
+    @Test
+    public void testPutObjectMalformedChecksumHeader() throws Exception {
+        var key = "testPutObjectMalformedChecksum";
+        var content = TestUtils.randomByteSource().slice(0, 1024).read();
+        try {
+            client.putObject(b -> b.bucket(containerName).key(key)
+                            .checksumSHA256("bad"),
+                    RequestBody.fromBytes(content));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "InvalidRequest");
+        }
+    }
+
+    @Test
+    public void testMultipartUploadChecksum() throws Exception {
+        var key = "testMultipartUploadChecksum";
+        var content = TestUtils.randomByteSource().slice(0, 1024).read();
+        var partChecksum = Base64.getEncoder().encodeToString(
+                Hashing.sha256().hashBytes(content).asBytes());
+        var compositeChecksum = Base64.getEncoder().encodeToString(
+                Hashing.sha256().hashBytes(
+                        Base64.getDecoder().decode(partChecksum)).asBytes()) +
+                "-1";
+
+        CreateMultipartUploadResponse createResponse =
+                client.createMultipartUpload(b -> b.bucket(containerName)
+                        .key(key)
+                        .checksumAlgorithm(ChecksumAlgorithm.SHA256));
+        assertThat(createResponse.checksumAlgorithm()).isEqualTo(
+                ChecksumAlgorithm.SHA256);
+        String uploadId = createResponse.uploadId();
+
+        UploadPartResponse partResponse = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1)
+                        .checksumSHA256(partChecksum),
+                RequestBody.fromBytes(content));
+        assertThat(partResponse.checksumSHA256()).isEqualTo(partChecksum);
+
+        CompleteMultipartUploadResponse completeResponse =
+                client.completeMultipartUpload(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(CompletedPart.builder()
+                                        .partNumber(1)
+                                        .eTag(partResponse.eTag())
+                                        .checksumSHA256(partChecksum)
+                                        .build())
+                                .build()));
+        assertThat(completeResponse.checksumSHA256()).isEqualTo(
+                compositeChecksum);
+
+        // only MULTIPART_REQUIRES_STUB backends persist the composite for
+        // later HeadObject requests
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
+            HeadObjectResponse headResponse = client.headObject(
+                    b -> b.bucket(containerName).key(key)
+                            .checksumMode(ChecksumMode.ENABLED));
+            assertThat(headResponse.checksumSHA256()).isEqualTo(
+                    compositeChecksum);
         }
     }
 

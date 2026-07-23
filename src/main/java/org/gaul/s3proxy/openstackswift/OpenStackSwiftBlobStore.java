@@ -856,9 +856,26 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .contentLength(object.getSizeInBytes())
                 .contentType(object.getMimeType())
                 .build();
-        var userMetadata = object.getMetadata();
+        // getMetadata returns raw response headers; keep only the
+        // X-Object-Meta- user metadata, stripped and lowercased like getBlob,
+        // so headers such as X-Timestamp do not leak as x-amz-meta-.
+        var userMetadata = ImmutableMap.<String, String>builder();
+        var objectMetadata = object.getMetadata();
+        if (objectMetadata != null) {
+            for (var entry : objectMetadata.entrySet()) {
+                String name = entry.getKey();
+                if (name.regionMatches(true, 0,
+                        SwiftHeaders.OBJECT_METADATA_PREFIX, 0,
+                        SwiftHeaders.OBJECT_METADATA_PREFIX.length())) {
+                    userMetadata.put(name.substring(
+                            SwiftHeaders.OBJECT_METADATA_PREFIX.length())
+                            .toLowerCase(Locale.ROOT),
+                            entry.getValue());
+                }
+            }
+        }
         return new BlobMetadata(StorageType.BLOB, key,
-                userMetadata != null ? userMetadata : Map.of(),
+                userMetadata.build(),
                 object.getETag(),
                 object.getLastModified(), StorageClass.STANDARD, container,
                 contentMetadata);
