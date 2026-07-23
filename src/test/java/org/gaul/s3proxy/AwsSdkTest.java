@@ -1945,7 +1945,9 @@ public final class AwsSdkTest {
     @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
         if (blobStoreType.equals("azureblob-sdk")) {
-            // Azurite does not support copying blobs
+            // Azurite's Copy Blob fetches the source over HTTP and tries to
+            // decompress it when the source blob declares Content-Encoding:
+            // gzip; the random test payload is not gzip so the copy 500s.
             assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
         }
 
@@ -2009,7 +2011,9 @@ public final class AwsSdkTest {
     @Test
     public void testCopyObjectReplaceMetadata() throws Exception {
         if (blobStoreType.equals("azureblob-sdk")) {
-            // Azurite does not support copying blobs
+            // Azurite's Copy Blob fetches the source over HTTP and tries to
+            // decompress it when the source blob declares Content-Encoding:
+            // gzip; the random test payload is not gzip so the copy 500s.
             assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
         }
 

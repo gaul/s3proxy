@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
@@ -39,6 +40,7 @@ import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.AccessTier;
+import com.azure.storage.blob.models.BlobBeginCopySourceRequestConditions;
 import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.models.BlobItem;
@@ -51,6 +53,7 @@ import com.azure.storage.blob.models.BlockList;
 import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
+import com.azure.storage.blob.options.BlobBeginCopyOptions;
 import com.azure.storage.blob.options.BlobContainerCreateOptions;
 import com.azure.storage.blob.options.BlobUploadFromUrlOptions;
 import com.azure.storage.blob.options.BlockBlobCommitBlockListOptions;
@@ -633,7 +636,51 @@ public final class AzureBlobStore implements BlobStore {
 
             return response.getValue().getETag();
         } catch (BlobStorageException bse) {
-            throw translate(bse, fromContainer, fromName);
+            if (bse.getStatusCode() != 501) {
+                throw translate(bse, fromContainer, fromName);
+            }
+            // Azurite does not implement Put Blob From URL (501
+            // APINotImplemented); fall back to the classic asynchronous
+            // Copy Blob API, which it does implement.  Request metadata
+            // replaces the source metadata as with S3's REPLACE directive,
+            // but content headers can only be set after the copy.
+            try {
+                var copyOptions = new BlobBeginCopyOptions(url + "?" + token)
+                        .setPollInterval(Duration.ofMillis(10));
+                var userMetadata = options.userMetadata();
+                if (userMetadata != null) {
+                    copyOptions.setMetadata(userMetadata);
+                }
+                if (haveSourceConditions) {
+                    var copySourceConditions =
+                            new BlobBeginCopySourceRequestConditions();
+                    if (ifMatch != null) {
+                        copySourceConditions.setIfMatch(ifMatch);
+                    }
+                    if (ifNoneMatch != null) {
+                        copySourceConditions.setIfNoneMatch(ifNoneMatch);
+                    }
+                    if (ifModifiedSince != null) {
+                        copySourceConditions.setIfModifiedSince(
+                                ifModifiedSince.toInstant()
+                                        .atOffset(ZoneOffset.UTC));
+                    }
+                    if (ifUnmodifiedSince != null) {
+                        copySourceConditions.setIfUnmodifiedSince(
+                                ifUnmodifiedSince.toInstant()
+                                        .atOffset(ZoneOffset.UTC));
+                    }
+                    copyOptions.setSourceRequestConditions(
+                            copySourceConditions);
+                }
+                client.beginCopy(copyOptions).waitForCompletion();
+                if (contentMetadata != null) {
+                    client.setHttpHeaders(headers);
+                }
+                return client.getProperties().getETag();
+            } catch (BlobStorageException bse2) {
+                throw translate(bse2, fromContainer, fromName);
+            }
         }
     }
 
@@ -1174,6 +1221,10 @@ public final class AzureBlobStore implements BlobStore {
     private RuntimeException translate(BlobStorageException bse,
             String container, @Nullable String key) {
         var code = bse.getErrorCode();
+        if (code == null) {
+            // e.g. errors without an x-ms-error-code response header
+            return bse;
+        }
         if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
             var exception = new KeyNotFoundException(container, key, "");
             exception.initCause(bse);
