@@ -310,6 +310,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
                    <exclude>META-INF/LICENSE</exclude>
                    <exclude>META-INF/NOTICE.txt</exclude>
                    <exclude>about.html</exclude>
+                   <exclude>module-info.class</exclude>
                  </excludes>
                </filter>
                <filter>
@@ -319,6 +320,7 @@ checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</
                    <exclude>META-INF/LICENSE</exclude>
                    <exclude>META-INF/NOTICE.txt</exclude>
                    <exclude>about.html</exclude>
+                   <exclude>module-info.class</exclude>
                  </excludes>
                </filter>
              </filters>
