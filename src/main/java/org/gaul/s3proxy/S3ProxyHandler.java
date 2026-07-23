@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -119,10 +121,10 @@ public class S3ProxyHandler {
             S3ProxyHandler.class);
 
     public static final class RequestContext {
-        private S3Operation operation;
-        private String bucket;
+        @Nullable private S3Operation operation;
+        @Nullable private String bucket;
 
-        public S3Operation getOperation() {
+        @Nullable public S3Operation getOperation() {
             return operation;
         }
 
@@ -130,7 +132,7 @@ public class S3ProxyHandler {
             this.operation = operation;
         }
 
-        public String getBucket() {
+        @Nullable public String getBucket() {
             return bucket;
         }
 
@@ -271,13 +273,14 @@ public class S3ProxyHandler {
             .build();
 
     public S3ProxyHandler(final BlobStore blobStore,
-            AuthenticationType authenticationType, final String identity,
-            final String credential, @Nullable String virtualHost,
+            AuthenticationType authenticationType,
+            @Nullable final String identity,
+            @Nullable final String credential, @Nullable String virtualHost,
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
             int v4MaxChunkSize,
             boolean ignoreUnknownHeaders,
             @Nullable CrossOriginResourceSharing corsRules,
-            final String servicePath, int maximumTimeSkew) {
+            @Nullable final String servicePath, int maximumTimeSkew) {
         if (corsRules != null) {
             this.corsRules = corsRules;
         } else {
@@ -285,14 +288,17 @@ public class S3ProxyHandler {
         }
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
+            final String localIdentity = requireNonNull(identity);
+            final String localCredential = requireNonNull(credential);
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
                 public @Nullable AccessGrant locateBlobStore(
-                        String identityArg, String container, String blob) {
-                    if (!identity.equals(identityArg)) {
+                        @Nullable String identityArg,
+                        @Nullable String container, @Nullable String blob) {
+                    if (!localIdentity.equals(identityArg)) {
                         return null;
                     }
-                    return new AccessGrant(credential, blobStore);
+                    return new AccessGrant(localCredential, blobStore);
                 }
             };
         } else {
@@ -301,8 +307,9 @@ public class S3ProxyHandler {
                     AccessGrant.anonymous(blobStore);
             blobStoreLocator = new BlobStoreLocator() {
                 @Override
-                public AccessGrant locateBlobStore(String identityArg,
-                        String container, String blob) {
+                public AccessGrant locateBlobStore(
+                        @Nullable String identityArg,
+                        @Nullable String container, @Nullable String blob) {
                     return anonymousGrant;
                 }
             };
@@ -525,7 +532,8 @@ public class S3ProxyHandler {
         //1510322602&Signature=UTyfHY1b1Wgr5BFEn9dpPlWdtFE%3D)
         //have no date
 
-        if (!anonymousIdentity) {
+        // non-anonymous requests always parse an Authorization header above
+        if (authHeader != null) {
             boolean haveDate = true;
 
             AuthenticationType finalAuthType = null;
@@ -634,6 +642,8 @@ public class S3ProxyHandler {
             if (grant == null) {
                 throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
+            // non-anonymous requests always parse an Authorization header
+            requireNonNull(authHeader);
 
             String credential = grant.credential().orElseThrow(
                     () -> new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID));
@@ -2199,7 +2209,7 @@ public class S3ProxyHandler {
             response.addHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
         }
 
-        try (InputStream is = blob.getPayload();
+        try (InputStream is = requireNonNull(blob.getPayload());
              OutputStream os = response.getOutputStream()) {
             is.transferTo(os);
             os.flush();
@@ -2319,7 +2329,8 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            var lastModified = blobMetadata.lastModified();
+            var lastModified = blobMetadata == null ? null :
+                    blobMetadata.lastModified();
             if (lastModified != null) {
                 writeSimpleElement(xml, "LastModified",
                         formatDate(lastModified));
@@ -2691,16 +2702,20 @@ public class S3ProxyHandler {
         String credential = credentialOptional.orElseThrow();
 
         if (signatureVersion4) {
+            // V4 headers always carry these fields
             byte[] kSecret = ("AWS4" + credential).getBytes(
                     StandardCharsets.UTF_8);
             byte[] kDate = hmac("HmacSHA256",
-                    authHeader.getDate().getBytes(StandardCharsets.UTF_8),
+                    requireNonNull(authHeader.getDate()).getBytes(
+                            StandardCharsets.UTF_8),
                     kSecret);
             byte[] kRegion = hmac("HmacSHA256",
-                    authHeader.getRegion().getBytes(StandardCharsets.UTF_8),
+                    requireNonNull(authHeader.getRegion()).getBytes(
+                            StandardCharsets.UTF_8),
                     kDate);
             byte[] kService = hmac("HmacSHA256",
-                    authHeader.getService().getBytes(StandardCharsets.UTF_8),
+                    requireNonNull(authHeader.getService()).getBytes(
+                            StandardCharsets.UTF_8),
                     kRegion);
             byte[] kSigning = hmac("HmacSHA256",
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
@@ -3061,6 +3076,7 @@ public class S3ProxyHandler {
      * "-<partCount>" suffix), or null when the request carries no per-part
      * checksums to enforce.
      */
+    @Nullable
     private static MpuChecksum computeMpuChecksum(HttpServletRequest request,
             CompleteMultipartUploadRequest cmu) throws S3Exception {
         if (cmu.parts() == null || cmu.parts().isEmpty()) {
@@ -3418,7 +3434,8 @@ public class S3ProxyHandler {
         Date lastModified = blobMetadata.lastModified();
         try {
             // HTTP GET allow overlong ranges but S3 CopyPart does not
-            if (expectedSize != -1 && blobMetadata.size() < expectedSize) {
+            Long size = blobMetadata.size();
+            if (expectedSize != -1 && size != null && size < expectedSize) {
                 throw new S3Exception(S3ErrorCode.INVALID_RANGE);
             }
 
@@ -3455,17 +3472,20 @@ public class S3ProxyHandler {
             // payload's open backend stream; the happy-path try-with-resources
             // below closes it only once reached.
             try {
-                blob.getPayload().close();
+                InputStream payload = blob.getPayload();
+                if (payload != null) {
+                    payload.close();
+                }
             } catch (IOException ioe) {
                 // The stream is being abandoned; ignore close failures.
             }
             throw se;
         }
 
-        long contentLength =
-                blobMetadata.contentMetadata().contentLength();
+        long contentLength = requireNonNull(
+                blobMetadata.contentMetadata().contentLength());
 
-        try (InputStream is = blob.getPayload()) {
+        try (InputStream is = requireNonNull(blob.getPayload())) {
             MultipartPart part = blobStore.uploadMultipartPart(mpu,
                     partNumber, is, contentLength, null);
             eTag = part.partETag();
@@ -3597,10 +3617,10 @@ public class S3ProxyHandler {
 
     private static void addResponseHeaderWithOverride(
             HttpServletRequest request, HttpServletResponse response,
-            String headerName, String overrideHeaderName, String value) {
+            String headerName, String overrideHeaderName,
+            @Nullable String value) {
         String override = request.getParameter(overrideHeaderName);
 
-        // NPE in if value is null
         override = (override != null) ? override : value;
 
         if (override != null) {

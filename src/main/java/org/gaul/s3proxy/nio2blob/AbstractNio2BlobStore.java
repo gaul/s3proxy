@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.nio2blob;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -221,7 +223,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
             Path containerPath, Path parent, String pathPrefixString,
-            String delimiter, boolean filterMultipart)
+            @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, pathPrefixString);
         if (!Files.isDirectory(parent)) {  // TODO: TOCTOU
@@ -345,10 +347,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public final Blob getBlob(String container, String key, GetOptions options) {
         return getBlobInternal(container, key, options, /*openStream=*/ true);
     }
 
+    @Nullable
     private Blob getBlobInternal(String container, String key,
             GetOptions options, boolean openStream) {
         var containerPath = requireContainerPath(container);
@@ -398,7 +402,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     // a directory-marker key.
                     return null;
                 }
-            } else if (attributes.contains(XATTR_CONTENT_MD5)) {
+            } else if (view != null &&
+                    attributes.contains(XATTR_CONTENT_MD5)) {
                 var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
                 view.read(XATTR_CONTENT_MD5, buf);
                 var etagBytes = buf.array();
@@ -411,7 +416,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     eTag = new String(etagBytes, StandardCharsets.US_ASCII);
                 }
             }
-            if (attributes.contains(XATTR_EXPIRES)) {
+            if (view != null && attributes.contains(XATTR_EXPIRES)) {
                 int xattrSize = view.size(XATTR_EXPIRES);
                 if (xattrSize == Longs.BYTES) {
                     ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES);
@@ -431,7 +436,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (!attribute.startsWith(XATTR_USER_METADATA_PREFIX)) {
                         continue;
                     }
-                    var value = readStringAttributeIfPresent(view, attributes, attribute);
+                    var value = requireNonNull(readStringAttributeIfPresent(view, attributes, attribute));
                     userMetadata.put(attribute.substring(XATTR_USER_METADATA_PREFIX.length()), value);
                 }
             }
@@ -623,7 +628,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // Close the streams before doing xattr writes, setBlobAccess,
             // and Files.move: Windows refuses to atomically move a file
             // that still has an open OutputStream.
-            try (var is = new HashingInputStream(md5, blob.getPayload());
+            try (var is = new HashingInputStream(md5,
+                    requireNonNull(blob.getPayload()));
                  var os = Files.newOutputStream(tmpPath)) {
                 is.transferTo(os);
                 actualHashCode = is.hash();
@@ -697,7 +703,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // Evaluate preconditions inside the try-with-resources so that a
         // failing check still closes the file InputStream returned by
         // getBlob.
-        try (var is = blob.getPayload()) {
+        try (var is = requireNonNull(blob.getPayload())) {
             var eTag = blob.getMetadata().eTag();
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
@@ -805,6 +811,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public final BlobMetadata blobMetadata(String container, String key) {
         Blob blob = getBlobInternal(container, key, GetOptions.NONE,
                 /*openStream=*/ false);
@@ -933,7 +940,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // a part that was never uploaded.
                 throw returnResponseException(400);
             }
-            contentLength += meta.contentMetadata().contentLength();
+            contentLength += requireNonNull(
+                    meta.contentMetadata().contentLength());
             metas.add(meta);
             if (meta.eTag() != null) {
                 var eTag = meta.eTag();
@@ -1010,7 +1018,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentMD5(contentMD5)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob, PutOptions.NONE);
-        var metadata = blobMetadata(mpu.containerName(), partName);
+        var metadata = requireNonNull(
+                blobMetadata(mpu.containerName(), partName));
         return new MultipartPart(partNumber, contentLength, partETag, metadata.lastModified());
     }
 
@@ -1033,7 +1042,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     logger.warn("ignoring multipart entry with non-numeric suffix: {}", sm.name());
                     continue;
                 }
-                long partSize = sm.size();
+                long partSize = requireNonNull(sm.size());
                 parts.add(new MultipartPart(partNumber, partSize, sm.eTag(), sm.lastModified()));
             }
             if (pageSet.entries().isEmpty() || pageSet.nextMarker() == null) {
@@ -1082,6 +1091,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     * Read the String representation of a filesystem attribute, or return null
     * if not present.
     */
+    @Nullable
     private static String readStringAttributeIfPresent(
             UserDefinedFileAttributeView view, Set<String> attr, String name)
             throws IOException {
@@ -1099,6 +1109,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * A 16-byte value is the MD5 of a single-part object; anything else is a
      * multipart ETag stored verbatim.
      */
+    @Nullable
     private static String readETagXattr(XattrState xattrs) throws IOException {
         var view = xattrs.view();
         if (view == null || !xattrs.attributes().contains(XATTR_CONTENT_MD5)) {
@@ -1134,7 +1145,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     /** Write the String representation of a filesystem attribute. */
     private static void writeStringAttributeIfPresent(
-            UserDefinedFileAttributeView view, String name, String value)
+            UserDefinedFileAttributeView view, String name,
+            @Nullable String value)
             throws IOException {
         if (value != null) {
             view.write(name, ByteBuffer.wrap(value.getBytes(StandardCharsets.UTF_8)));
@@ -1144,7 +1156,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final class MultiBlobInputStream extends InputStream {
         private final BlobStore blobStore;
         private final Iterator<BlobMetadata> metas;
-        private InputStream current;
+        @Nullable private InputStream current;
 
         MultiBlobInputStream(BlobStore blobStore, List<BlobMetadata> metas) {
             this.blobStore = blobStore;
@@ -1195,13 +1207,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
 
         private InputStream openPartStream(BlobMetadata meta) throws IOException {
-            Blob blob = blobStore.getBlob(meta.container(), meta.name(),
-                    GetOptions.NONE);
+            Blob blob = blobStore.getBlob(requireNonNull(meta.container()),
+                    meta.name(), GetOptions.NONE);
             if (blob == null) {
                 throw new IOException("Part disappeared: " +
                         meta.container() + "/" + meta.name());
             }
-            return blob.getPayload();
+            return requireNonNull(blob.getPayload());
         }
 
         @Override
@@ -1228,7 +1240,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * AbstractNio2BlobStore implicitly creates directories when creating a key /a/b/c.
      * When removing /a/b/c, it must clean up /a and /a/b, unless a client explicitly created a subdirectory which has file attributes.
      */
-    private static void removeEmptyParentDirectories(Path containerPath, Path path) throws IOException {
+    private static void removeEmptyParentDirectories(Path containerPath, @Nullable Path path) throws IOException {
         logger.debug("removing empty parents: {}", path);
         while (path != null && !path.equals(containerPath)) {
             if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
@@ -1264,7 +1276,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
-    private record XattrState(UserDefinedFileAttributeView view, Set<String> attributes) {
+    private record XattrState(@Nullable UserDefinedFileAttributeView view,
+            Set<String> attributes) {
         static final XattrState EMPTY = new XattrState(null, NO_ATTRIBUTES);
     }
 
@@ -1292,6 +1305,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return sep.equals("/") ? name : name.replace(sep, "/");
     }
 
+    @Nullable
     private static UserDefinedFileAttributeView getXattrView(Path path) {
         try {
             return Files.getFileAttributeView(path,

@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.Console;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -158,7 +160,7 @@ public final class Main {
 
         S3Proxy s3Proxy;
         try {
-            s3Proxy = s3ProxyBuilder.build();
+            s3Proxy = requireNonNull(s3ProxyBuilder).build();
         } catch (IllegalArgumentException | IllegalStateException e) {
             System.err.println(e.getMessage());
             System.exit(1);

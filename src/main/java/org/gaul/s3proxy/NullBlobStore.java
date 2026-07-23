@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -79,7 +81,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array;
-        try (InputStream is = blob.getPayload()) {
+        try (InputStream is = requireNonNull(blob.getPayload())) {
             array = is.readAllBytes();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -132,7 +134,7 @@ final class NullBlobStore extends ForwardingBlobStore {
     public String putBlob(String containerName, Blob blob,
             PutOptions options) {
         long length;
-        try (InputStream is = blob.getPayload()) {
+        try (InputStream is = requireNonNull(blob.getPayload())) {
             length = is.transferTo(OutputStream.nullOutputStream());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -170,8 +172,10 @@ final class NullBlobStore extends ForwardingBlobStore {
         var metadataBuilder = mpu.blobMetadata() == null ?
                 BlobMetadata.builder() : mpu.blobMetadata().toBuilder();
         var metadata = metadataBuilder.name(mpu.blobName()).build();
+        var putOptions = mpu.putOptions();
         MultipartUpload mpu2 = super.initiateMultipartUpload(
-                mpu.containerName(), metadata, mpu.putOptions());
+                mpu.containerName(), metadata,
+                putOptions != null ? putOptions : PutOptions.NONE);
 
         MultipartPart part = super.uploadMultipartPart(mpu2, 1,
                 new ByteArrayInputStream(array), array.length, null);
@@ -220,10 +224,10 @@ final class NullBlobStore extends ForwardingBlobStore {
         var builder = ImmutableList.<MultipartPart>builder();
         for (MultipartPart part : super.listMultipartUpload(mpu)) {
             // get real blob size from stub blob
-            Blob blob = getBlob(mpu.containerName(),
-                    mpu.id() + "-" + part.partNumber(), GetOptions.NONE);
-            long length = blob.getMetadata().contentMetadata()
-                    .contentLength();
+            Blob blob = requireNonNull(getBlob(mpu.containerName(),
+                    mpu.id() + "-" + part.partNumber(), GetOptions.NONE));
+            long length = requireNonNull(blob.getMetadata().contentMetadata()
+                    .contentLength());
             builder.add(new MultipartPart(part.partNumber(), length,
                     part.partETag(), part.lastModified()));
         }

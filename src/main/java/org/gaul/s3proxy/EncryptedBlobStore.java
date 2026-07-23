@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -147,15 +148,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         try {
             // open the streams and pass them through the encryption
-            InputStream isRaw = blob.getPayload();
+            InputStream isRaw = requireNonNull(blob.getPayload());
             Encryption encryption =
                 new Encryption(secretKey, isRaw, 1);
             InputStream is = encryption.openStream();
 
             // adjust the encrypted content length by
             // adding the padding block size
-            long contentLength =
-                blob.getMetadata().contentMetadata().contentLength() +
+            long contentLength = requireNonNull(
+                blob.getMetadata().contentMetadata().contentLength()) +
                     Constants.PADDING_BLOCK_SIZE;
 
             return cipheredBlob(blob, is, contentLength, true);
@@ -164,7 +165,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
     }
 
-    private Blob decryptBlob(Decryption decryption, Blob blob) {
+    @Nullable
+    private Blob decryptBlob(Decryption decryption, @Nullable Blob blob) {
         try {
             // handle blob does not exist
             if (blob == null) {
@@ -172,12 +174,12 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             }
 
             // open the streams and pass them through the decryption
-            InputStream isRaw = blob.getPayload();
+            InputStream isRaw = requireNonNull(blob.getPayload());
             InputStream is = decryption.openStream(isRaw);
 
             // adjust the content length if the blob is encrypted
-            long contentLength =
-                blob.getMetadata().contentMetadata().contentLength();
+            long contentLength = requireNonNull(
+                blob.getMetadata().contentMetadata().contentLength());
             if (decryption.isEncrypted()) {
                 contentLength = decryption.getContentLength();
             }
@@ -267,6 +269,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     private BlobMetadata calculateBlobSize(BlobMetadata blobMeta) {
         BlobMetadata mbm = removeEncryptedSuffix(blobMeta);
+        long blobSize = requireNonNull(blobMeta.size());
 
         // we are using on non-s3 backends like azure or gcp a metadata key to
         // calculate the part padding sizes that needs to be removed
@@ -275,7 +278,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             int parts = Integer.parseInt(
                 mbm.userMetadata().get(Constants.METADATA_ENCRYPTION_PARTS));
             int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-            long size = blobMeta.size() - partPaddingSizes;
+            long size = blobSize - partPaddingSizes;
             mbm = mbm.toBuilder()
                     .contentLength(size)
                     .build();
@@ -286,18 +289,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             if (matcher.find()) {
                 int parts = Integer.parseInt(matcher.group(1));
                 int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-                long size = blobMeta.size() - partPaddingSizes;
+                long size = blobSize - partPaddingSizes;
                 mbm = mbm.toBuilder()
                         .contentLength(size)
                         .build();
             } else {
                 // if there is also no eTag suffix then get the number of parts from last padding
                 var options = GetOptions.builder()
-                    .range(blobMeta.size() - Constants.PADDING_BLOCK_SIZE,
-                            blobMeta.size() - 1)
+                    .range(blobSize - Constants.PADDING_BLOCK_SIZE,
+                            blobSize - 1)
                     .build();
                 var name = blobNameWithSuffix(blobMeta.name());
-                var blob = delegate().getBlob(blobMeta.container(), name, options);
+                var blob = requireNonNull(delegate().getBlob(
+                        requireNonNull(blobMeta.container()), name, options));
                 try {
                     PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
                     int parts = lastPartPadding.getPart();
@@ -328,6 +332,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName,
         GetOptions getOptions) {
 
@@ -394,6 +399,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 Blob blob = delegate().getBlob(containerName, blobName,
                     delegateOptions);
                 Blob decryptedBlob = decryptBlob(decryption, blob);
+                if (decryptedBlob == null) {
+                    return null;
+                }
                 if (!getOptions.ranges().isEmpty()) {
                     long decryptedSize = decryption.getUnencryptedSize();
                     long startRange;
@@ -613,6 +621,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
 
         name = blobNameWithSuffix(container, name);

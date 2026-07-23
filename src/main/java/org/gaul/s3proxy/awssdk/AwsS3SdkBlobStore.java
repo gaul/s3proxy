@@ -616,6 +616,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String key) {
         try {
             HeadObjectResponse response = s3Client.headObject(
@@ -986,6 +987,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         return sortedParts;
     }
 
+    @Nullable
     private static Date toDate(@Nullable Instant instant) {
         if (instant == null) {
             return null;

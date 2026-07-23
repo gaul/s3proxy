@@ -20,6 +20,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.jspecify.annotations.Nullable;
 
 /**
  * BlobStore which drops ETag or date-based cache options from object requests.
@@ -36,6 +37,7 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String name, GetOptions getOptions) {
         return super.getBlob(containerName, name, resetCacheHeaders(getOptions));
     }

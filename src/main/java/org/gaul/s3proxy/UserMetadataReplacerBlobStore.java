@@ -28,6 +28,7 @@ import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+import org.jspecify.annotations.Nullable;
 
 /**
  * BlobStore which maps user metadata keys and values using character
@@ -66,6 +67,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         var blobMetadata = super.blobMetadata(container, name);
         if (blobMetadata == null) {
@@ -82,6 +84,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String name,
             GetOptions getOptions) {
         var blob = super.getBlob(containerName, name, getOptions);

@@ -84,6 +84,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         return this.prefixes.containsKey(container);
     }
 
+    @Nullable
     private String getPrefix(String container) {
         return this.prefixes.get(container);
     }
@@ -92,7 +93,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (!hasPrefix(container) || Strings.isNullOrEmpty(name)) {
             return name;
         }
-        String prefix = getPrefix(container);
+        String prefix = requireNonNull(getPrefix(container));
         if (name.startsWith(prefix)) {
             return name;
         }
@@ -106,15 +107,16 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (!hasPrefix(container) || Strings.isNullOrEmpty(name)) {
             return name;
         }
-        String prefix = getPrefix(container);
+        String prefix = requireNonNull(getPrefix(container));
         if (name.startsWith(prefix)) {
             return name.substring(prefix.length());
         }
         return name;
     }
 
+    @Nullable
     private BlobMetadata trimBlobMetadata(String container,
-            BlobMetadata metadata) {
+            @Nullable BlobMetadata metadata) {
         if (metadata == null || !hasPrefix(container)) {
             return metadata;
         }
@@ -123,7 +125,8 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                 .build();
     }
 
-    private Blob trimBlob(String container, Blob blob) {
+    @Nullable
+    private Blob trimBlob(String container, @Nullable Blob blob) {
         if (blob == null || !hasPrefix(container)) {
             return blob;
         }
@@ -213,12 +216,14 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         return trimBlobMetadata(container,
                 super.blobMetadata(container, addPrefix(container, name)));
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName,
                         GetOptions getOptions) {
         return trimBlob(containerName,

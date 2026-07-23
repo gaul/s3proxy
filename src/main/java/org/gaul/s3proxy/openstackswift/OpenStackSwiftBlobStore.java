@@ -152,7 +152,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     // Cached Keystone token; a fresh thread-bound client is derived from it
     // per request via OSFactory.clientFromToken().
-    private volatile Token token;
+    @Nullable private volatile Token token;
 
     public OpenStackSwiftBlobStore(Supplier<Credentials> creds, String endpoint,
             String projectName, String projectDomainName,
@@ -510,6 +510,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String container, String key, GetOptions options) {
         if (hasPathTraversal(key)) {
             // okhttp normalizes ".." segments in the request URL, which would
@@ -836,6 +837,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String key) {
         var swift = objectStorage();
         SwiftObject object;
@@ -1130,7 +1132,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 blobName = marker.getMetadata().userMetadata()
                         .get(MPU_KEY_METADATA);
             }
-            uploads.add(new MultipartUpload(container, blobName, uploadId,
+            // A marker missing its key metadata yields an empty Key rather
+            // than propagating null through MultipartUpload.blobName.
+            uploads.add(new MultipartUpload(container,
+                    blobName != null ? blobName : "", uploadId,
                     /*blobMetadata=*/ null, /*putOptions=*/ null));
         }
         return uploads;

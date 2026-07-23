@@ -140,7 +140,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         for (StorageMetadata sm : upstream) {
             if (aliases.containsValue(sm.name())) {
                 results.add(new ContainerMetadata(
-                        aliases.inverse().get(sm.name()),
+                        requireNonNull(aliases.inverse().get(sm.name())),
                         sm.creationDate()));
             } else {
                 results.add(sm);
@@ -176,6 +176,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         return delegate().blobMetadata(getContainer(container), name);
     }
@@ -192,6 +193,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName,
                         GetOptions getOptions) {
         return delegate().getBlob(getContainer(containerName), blobName,

@@ -34,6 +34,7 @@ import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.sftp.client.fs.SftpFileSystemProvider;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
+import org.jspecify.annotations.Nullable;
 
 public final class SftpBlobStore extends AbstractNio2BlobStore {
     public static final String PROPERTY_BASEDIR = "s3proxy.sftp.basedir";
@@ -144,7 +145,8 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         }
     }
 
-    private static void closeQuietly(Closeable closeable, Throwable throwable) {
+    private static void closeQuietly(@Nullable Closeable closeable,
+            Throwable throwable) {
         if (closeable == null) {
             return;
         }

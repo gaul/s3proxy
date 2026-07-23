@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -134,7 +135,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         this.buckets = bucketsBuilder.build();
 
         this.prefixMap = buckets.keySet().stream().collect(Collectors.toMap(
-                virtualBucket -> buckets.get(virtualBucket).prefix,
+                virtualBucket -> requireNonNull(
+                        buckets.get(virtualBucket)).prefix,
                 virtualBucket -> virtualBucket));
     }
 
@@ -467,12 +469,14 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         return this.delegate().blobMetadata(this.getShard(container, name),
                 name);
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName,
                         GetOptions getOptions) {
         return this.delegate()

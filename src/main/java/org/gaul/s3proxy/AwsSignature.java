@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -192,17 +194,21 @@ final class AwsSignature {
     static byte[] deriveSigningKeyV4(S3AuthorizationHeader authHeader,
             String credential)
             throws InvalidKeyException, NoSuchAlgorithmException {
-        String algorithm = authHeader.getHmacAlgorithm();
+        // V4 headers always carry these fields
+        String algorithm = requireNonNull(authHeader.getHmacAlgorithm());
         byte[] dateKey = signMessage(
-                authHeader.getDate().getBytes(StandardCharsets.UTF_8),
+                requireNonNull(authHeader.getDate()).getBytes(
+                        StandardCharsets.UTF_8),
                 ("AWS4" + credential).getBytes(StandardCharsets.UTF_8),
                 algorithm);
         byte[] dateRegionKey = signMessage(
-                authHeader.getRegion().getBytes(StandardCharsets.UTF_8),
+                requireNonNull(authHeader.getRegion()).getBytes(
+                        StandardCharsets.UTF_8),
                 dateKey,
                 algorithm);
         byte[] dateRegionServiceKey = signMessage(
-                authHeader.getService().getBytes(StandardCharsets.UTF_8),
+                requireNonNull(authHeader.getService()).getBytes(
+                        StandardCharsets.UTF_8),
                 dateRegionKey, algorithm);
         return signMessage(
                 "aws4_request".getBytes(StandardCharsets.UTF_8),
@@ -368,9 +374,10 @@ final class AwsSignature {
             byte[] payload, String uri, String credential)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
             S3Exception {
+        // V4 headers always carry these fields
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
-                authHeader.getHashAlgorithm());
-        String algorithm = authHeader.getHmacAlgorithm();
+                requireNonNull(authHeader.getHashAlgorithm()));
+        String algorithm = requireNonNull(authHeader.getHmacAlgorithm());
         byte[] signingKey = deriveSigningKeyV4(authHeader, credential);
         String date = request.getHeader(AwsHttpHeaders.DATE);
         if (date == null) {

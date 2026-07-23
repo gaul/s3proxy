@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
+
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
@@ -79,7 +81,7 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
         var builder = Blob.builder(blobMeta.name())
                 .storageClass(storageClass)
                 .userMetadata(blobMeta.userMetadata())
-                .payload(blob.getPayload())
+                .payload(requireNonNull(blob.getPayload()))
                 .cacheControl(contentMeta.cacheControl())
                 .contentDisposition(contentMeta.contentDisposition())
                 .contentEncoding(contentMeta.contentEncoding())

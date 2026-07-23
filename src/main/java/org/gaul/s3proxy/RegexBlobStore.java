@@ -143,11 +143,13 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         return super.blobMetadata(container, replaceBlobName(name));
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String name,
             GetOptions getOptions) {
         return super.getBlob(containerName, replaceBlobName(name), getOptions);

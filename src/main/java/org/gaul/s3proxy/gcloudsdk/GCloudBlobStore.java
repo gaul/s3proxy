@@ -25,6 +25,7 @@ import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -290,7 +291,8 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public org.gaul.s3proxy.blobstore.domain.Blob getBlob(String container,
+    public org.gaul.s3proxy.blobstore.domain.@Nullable Blob getBlob(
+            String container,
             String key, GetOptions options) {
         var gcsOptions = new java.util.ArrayList<BlobGetOption>();
 
@@ -369,9 +371,8 @@ public final class GCloudBlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
 
-        var metadata = gcsBlob.getMetadata();
         var builder = org.gaul.s3proxy.blobstore.domain.Blob.builder(key)
-                .userMetadata(metadata != null ? metadata : Map.of())
+                .userMetadata(sanitizeUserMetadata(gcsBlob.getMetadata()))
                 .payload(is)
                 .cacheControl(gcsBlob.getCacheControl())
                 .contentDisposition(gcsBlob.getContentDisposition())
@@ -654,6 +655,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String key) {
         Blob gcsBlob;
         try {
@@ -668,8 +670,7 @@ public final class GCloudBlobStore implements BlobStore {
             return null;
         }
         return new BlobMetadata(StorageType.BLOB, key,
-                gcsBlob.getMetadata() != null ?
-                        gcsBlob.getMetadata() : Map.of(),
+                sanitizeUserMetadata(gcsBlob.getMetadata()),
                 gcsBlob.getEtag(),
                 toDate(gcsBlob.getUpdateTimeOffsetDateTime()),
                 fromGcsStorageClass(gcsBlob.getStorageClass()),
@@ -876,6 +877,10 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         var stubMetadata = stubBlob.getMetadata();
+        if (stubMetadata == null) {
+            throw new IllegalArgumentException(
+                    "Stub blob missing target name: uploadId=" + uploadKey);
+        }
         String targetBlobName = stubMetadata.get(TARGET_BLOB_NAME_KEY);
         if (targetBlobName == null) {
             throw new IllegalArgumentException(
@@ -1151,6 +1156,23 @@ public final class GCloudBlobStore implements BlobStore {
         return blob.getGeneration();
     }
 
+    // GCS permits null values in user metadata; filter them out since the
+    // S3 model does not.
+    private static Map<String, String> sanitizeUserMetadata(
+            @Nullable Map<String, @Nullable String> metadata) {
+        if (metadata == null) {
+            return Map.of();
+        }
+        var result = new LinkedHashMap<String, String>();
+        metadata.forEach((key, value) -> {
+            if (value != null) {
+                result.put(key, value);
+            }
+        });
+        return result;
+    }
+
+    @Nullable
     private static Date toDate(
             java.time.@Nullable OffsetDateTime offsetDateTime) {
         if (offsetDateTime == null) {
@@ -1235,8 +1257,9 @@ public final class GCloudBlobStore implements BlobStore {
     // Build a jclouds HttpResponseException carrying a status code so that
     // S3ProxyHandler translates it to the matching S3 error code (e.g.
     // 400 -> BadDigest, 412 -> PreconditionFailed, 416 -> InvalidRange).
-    private static HttpResponseException httpResponseException(int statusCode,
-            Throwable cause) {
+    private static HttpResponseException httpResponseException(
+            int statusCode,
+            @Nullable Throwable cause) {
         return new HttpResponseException(new HttpResponse(statusCode), cause);
     }
 

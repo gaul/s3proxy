@@ -183,7 +183,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     @Override
     public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
         simulateLatency(OP_PUT_BLOB);
-        Blob newBlob = replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_PUT_BLOB)));
+        Blob newBlob = replaceStream(blob, new ThrottledInputStream(requireNonNull(blob.getPayload()), getSpeed(OP_PUT_BLOB)));
         return super.putBlob(containerName, newBlob, PutOptions.NONE);
     }
 
@@ -194,19 +194,21 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         simulateLatency(OP_BLOB_METADATA);
         return super.blobMetadata(container, name);
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
         simulateLatency(OP_GET_BLOB);
         Blob blob = super.getBlob(containerName, blobName, getOptions);
         if (blob == null) {
             return null;
         }
-        return replaceStream(blob, new ThrottledInputStream(blob.getPayload(), getSpeed(OP_GET_BLOB)));
+        return replaceStream(blob, new ThrottledInputStream(requireNonNull(blob.getPayload()), getSpeed(OP_GET_BLOB)));
     }
 
     @Override
@@ -279,6 +281,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         return latencies.getOrDefault(op, latencies.getOrDefault(OP_ALL, 0L));
     }
 
+    @Nullable
     private Long getSpeed(String op) {
         return speeds.getOrDefault(op, speeds.getOrDefault(OP_ALL, null));
     }
@@ -299,7 +302,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         ContentMetadata contentMeta = blobMeta.contentMetadata();
         Map<String, String> userMetadata = blobMeta.userMetadata();
 
-        return Blob.builder(blobMeta.name())
+        Blob.Builder builder = Blob.builder(blobMeta.name())
                 .type(blobMeta.type())
                 .storageClass(blobMeta.storageClass())
                 .userMetadata(userMetadata)
@@ -308,7 +311,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
                 .contentDisposition(contentMeta.contentDisposition())
                 .contentEncoding(contentMeta.contentEncoding())
                 .contentLanguage(contentMeta.contentLanguage())
-                .contentLength(contentMeta.contentLength())
                 .contentMD5(contentMeta.contentMD5())
                 .contentType(contentMeta.contentType())
                 .expires(contentMeta.expires())
@@ -317,7 +319,11 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
                 .container(blobMeta.container())
                 // Preserve the Content-Range response header, which the
                 // handler reads for ranged GET responses.
-                .contentRange(blob.getContentRange())
-                .build();
+                .contentRange(blob.getContentRange());
+        Long contentLength = contentMeta.contentLength();
+        if (contentLength != null) {
+            builder.contentLength(contentLength);
+        }
+        return builder.build();
     }
 }

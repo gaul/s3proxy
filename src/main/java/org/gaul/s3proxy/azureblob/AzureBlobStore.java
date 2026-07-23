@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.azureblob;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -264,6 +266,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String container, String key, GetOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
@@ -384,7 +387,7 @@ public final class AzureBlobStore implements BlobStore {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(blob.getMetadata().name())
                 .getBlockBlobClient();
-        try (var is = blob.getPayload()) {
+        try (var is = requireNonNull(blob.getPayload())) {
             // TODO: Expires?
             var blobHttpHeaders = new BlobHttpHeaders();
             var contentMetadata = blob.getMetadata().contentMetadata();
@@ -647,6 +650,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String key) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
@@ -1093,6 +1097,7 @@ public final class AzureBlobStore implements BlobStore {
         return 1;
     }
 
+    @Nullable
     private static OffsetDateTime toOffsetDateTime(@Nullable Date date) {
         if (date == null) {
             return null;
