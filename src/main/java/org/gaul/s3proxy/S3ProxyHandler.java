@@ -2851,7 +2851,7 @@ public class S3ProxyHandler {
                     stubName);
             options = PutOptions.builder().blobAccess(access).build();
         } else {
-            metadata = BlobMetadata.builder().build();
+            metadata = BlobMetadata.builder().name(blobName).build();
             options = PutOptions.NONE;
         }
         final MultipartUpload mpu = new MultipartUpload(containerName,
