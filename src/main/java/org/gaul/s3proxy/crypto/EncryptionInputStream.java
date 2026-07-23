@@ -23,13 +23,15 @@ import java.nio.ByteBuffer;
 
 import javax.crypto.spec.IvParameterSpec;
 
+import org.jspecify.annotations.Nullable;
+
 public class EncryptionInputStream extends InputStream {
 
     private final int part;
     private final IvParameterSpec iv;
     private boolean hasPadding;
     private long size;
-    private InputStream in;
+    @Nullable private InputStream in;
 
     public EncryptionInputStream(InputStream in, int part,
         IvParameterSpec iv) {

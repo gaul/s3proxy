@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.crypto;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -46,7 +48,7 @@ public class DecryptionInputStream extends FilterInputStream {
 
     /* the buffer holding data that have been processed by the cipher
        engine, but have not been read out */
-    private byte[] obuffer;
+    private byte[] obuffer = new byte[0];
     // the offset pointing to the next "new" byte
     private int ostart;
     // the offset pointing to the last "new" byte
@@ -80,7 +82,8 @@ public class DecryptionInputStream extends FilterInputStream {
         this.parts = parts;
         this.key = key;
 
-        PartPadding partPadding = parts.get(parts.size() - skipParts);
+        PartPadding partPadding = requireNonNull(
+                parts.get(parts.size() - skipParts));
 
         try {
             // init the cipher
@@ -94,7 +97,8 @@ public class DecryptionInputStream extends FilterInputStream {
         part = parts.size() - skipParts;
 
         // adjust part size due to offset
-        partBytesRemain = parts.get(part).getSize() - skipPartBytes;
+        partBytesRemain = requireNonNull(parts.get(part)).getSize() -
+                skipPartBytes;
     }
 
     /**
@@ -106,7 +110,7 @@ public class DecryptionInputStream extends FilterInputStream {
      */
     private void ensureCapacity(int inLen) {
         int minLen = cipher.getOutputSize(inLen);
-        if (obuffer == null || obuffer.length < minLen) {
+        if (obuffer.length < minLen) {
             obuffer = new byte[minLen];
         }
         ostart = 0;
@@ -359,7 +363,7 @@ public class DecryptionInputStream extends FilterInputStream {
                 // Catch exceptions as the rest of the stream is unused.
             }
         }
-        obuffer = null;
+        obuffer = new byte[0];
     }
 
     /**

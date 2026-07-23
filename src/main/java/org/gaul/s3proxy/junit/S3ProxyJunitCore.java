@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.junit;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -31,6 +33,7 @@ import org.gaul.s3proxy.S3Proxy;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,21 +44,21 @@ public class S3ProxyJunitCore {
 
     private static final String LOCALHOST = "127.0.0.1";
 
-    private final String accessKey;
-    private final String secretKey;
+    @Nullable private final String accessKey;
+    @Nullable private final String secretKey;
     private final String endpointFormat;
     private final S3Proxy s3Proxy;
 
     private final BlobStore blobStore;
-    private URI endpointUri;
+    @Nullable private URI endpointUri;
     private final File blobStoreLocation;
 
     public static final class Builder {
         private AuthenticationType authType = AuthenticationType.NONE;
-        private String accessKey;
-        private String secretKey;
-        private String secretStorePath;
-        private String secretStorePassword;
+        @Nullable private String accessKey;
+        @Nullable private String secretKey;
+        @Nullable private String secretStorePath;
+        @Nullable private String secretStorePassword;
         private int port = -1;
         private boolean ignoreUnknownHeaders;
         private String blobStoreProvider = "filesystem-nio2";
@@ -129,8 +132,8 @@ public class S3ProxyJunitCore {
 
         if (builder.secretStorePath != null ||
                 builder.secretStorePassword != null) {
-            s3ProxyBuilder.keyStore(builder.secretStorePath,
-                    builder.secretStorePassword);
+            s3ProxyBuilder.keyStore(requireNonNull(builder.secretStorePath),
+                    requireNonNull(builder.secretStorePassword));
         }
 
         int port = Math.max(builder.port, 0);
@@ -171,15 +174,15 @@ public class S3ProxyJunitCore {
         logger.debug("S3 proxy has stopped");
     }
 
-    public final URI getUri() {
+    @Nullable public final URI getUri() {
         return endpointUri;
     }
 
-    public final String getAccessKey() {
+    @Nullable public final String getAccessKey() {
         return accessKey;
     }
 
-    public final String getSecretKey() {
+    @Nullable public final String getSecretKey() {
         return secretKey;
     }
 }

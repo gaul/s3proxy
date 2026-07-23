@@ -19,6 +19,7 @@ package org.gaul.s3proxy.junit;
 import java.net.URI;
 
 import org.gaul.s3proxy.AuthenticationType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -94,15 +95,15 @@ public final class S3ProxyExtension
         core.afterEach();
     }
 
-    public URI getUri() {
+    @Nullable public URI getUri() {
         return core.getUri();
     }
 
-    public String getAccessKey() {
+    @Nullable public String getAccessKey() {
         return core.getAccessKey();
     }
 
-    public String getSecretKey() {
+    @Nullable public String getSecretKey() {
         return core.getSecretKey();
     }
 }

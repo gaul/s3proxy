@@ -43,6 +43,7 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.jspecify.annotations.Nullable;
 
 /**
  * S3Proxy translates S3 HTTP operations into jclouds provider-agnostic
@@ -54,9 +55,9 @@ public final class S3Proxy {
     private final Server server;
     // Non-null only when metrics are served on a dedicated port instead of
     // the S3 endpoint.
-    private final Server metricsServer;
+    @Nullable private final Server metricsServer;
     private final S3ProxyHandlerJetty handler;
-    private final S3ProxyMetrics metrics;
+    @Nullable private final S3ProxyMetrics metrics;
     private final boolean listenHTTP;
     private final boolean listenHTTPS;
 
@@ -83,6 +84,8 @@ public final class S3Proxy {
         checkArgument(Strings.isNullOrEmpty(builder.identity) ^
                 !Strings.isNullOrEmpty(builder.credential),
                 "Must provide both identity and credential");
+        BlobStore blobStore = requireNonNull(builder.blobStore,
+                "Must provide blobStore");
 
         var pool = new QueuedThreadPool(builder.jettyMaxThreads);
         pool.setName("S3Proxy-Jetty");
@@ -133,7 +136,7 @@ public final class S3Proxy {
             this.metrics = null;
         }
 
-        handler = new S3ProxyHandlerJetty(builder.blobStore,
+        handler = new S3ProxyHandlerJetty(blobStore,
                 builder.authenticationType, builder.identity,
                 builder.credential, builder.virtualHost,
                 builder.maxSinglePartObjectSize,
@@ -158,9 +161,10 @@ public final class S3Proxy {
                     new HttpConnectionFactory());
             String metricsHost = builder.metricsHost;
             if (metricsHost == null) {
+                // checkArgument above guarantees endpoint or secureEndpoint
                 metricsHost = builder.endpoint != null ?
                         builder.endpoint.getHost() :
-                        builder.secureEndpoint.getHost();
+                        requireNonNull(builder.secureEndpoint).getHost();
             }
             metricsConnector.setHost(metricsHost);
             metricsConnector.setPort(builder.metricsPort);
@@ -181,28 +185,28 @@ public final class S3Proxy {
     }
 
     public static final class Builder {
-        private BlobStore blobStore;
-        private URI endpoint;
-        private URI secureEndpoint;
-        private String servicePath;
+        @Nullable private BlobStore blobStore;
+        @Nullable private URI endpoint;
+        @Nullable private URI secureEndpoint;
+        @Nullable private String servicePath;
         private AuthenticationType authenticationType =
                 AuthenticationType.NONE;
-        private String identity;
-        private String credential;
-        private SSLContext sslContext;
-        private String keyStorePath;
-        private String keyStorePassword;
-        private String virtualHost;
+        @Nullable private String identity;
+        @Nullable private String credential;
+        @Nullable private SSLContext sslContext;
+        @Nullable private String keyStorePath;
+        @Nullable private String keyStorePassword;
+        @Nullable private String virtualHost;
         private long maxSinglePartObjectSize = 5L * 1024 * 1024 * 1024;
         private long v4MaxNonChunkedRequestSize = 128 * 1024 * 1024;
         private int v4MaxChunkSize = 16 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
-        private CrossOriginResourceSharing corsRules;
+        @Nullable private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
         private boolean metricsEnabled;
         private int metricsPort = -1;
-        private String metricsHost;
+        @Nullable private String metricsHost;
 
         Builder() {
         }
@@ -281,6 +285,11 @@ public final class S3Proxy {
             String keyStorePassword = properties.getProperty(
                     S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
             if (keyStorePath != null || keyStorePassword != null) {
+                if (keyStorePath == null || keyStorePassword == null) {
+                    throw new IllegalArgumentException("Must specify both " +
+                            S3ProxyConstants.PROPERTY_KEYSTORE_PATH + " and " +
+                            S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
+                }
                 builder.keyStore(keyStorePath, keyStorePassword);
             }
 
@@ -406,7 +415,7 @@ public final class S3Proxy {
         }
 
         public Builder awsAuthentication(AuthenticationType authenticationType,
-                String identity, String credential) {
+                @Nullable String identity, @Nullable String credential) {
             this.authenticationType = authenticationType;
             if (!AuthenticationType.NONE.equals(authenticationType)) {
                 this.identity = requireNonNull(identity);
@@ -514,23 +523,23 @@ public final class S3Proxy {
             return this;
         }
 
-        public URI getEndpoint() {
+        @Nullable public URI getEndpoint() {
             return endpoint;
         }
 
-        public URI getSecureEndpoint() {
+        @Nullable public URI getSecureEndpoint() {
             return secureEndpoint;
         }
 
-        public String getServicePath() {
+        @Nullable public String getServicePath() {
             return servicePath;
         }
 
-        public String getIdentity() {
+        @Nullable public String getIdentity() {
             return identity;
         }
 
-        public String getCredential() {
+        @Nullable public String getCredential() {
             return credential;
         }
 
@@ -557,7 +566,7 @@ public final class S3Proxy {
                             that.v4MaxNonChunkedRequestSize &&
                     this.v4MaxChunkSize == that.v4MaxChunkSize &&
                     this.ignoreUnknownHeaders == that.ignoreUnknownHeaders &&
-                    this.corsRules.equals(that.corsRules);
+                    Objects.equals(this.corsRules, that.corsRules);
         }
 
         @Override

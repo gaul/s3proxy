@@ -44,12 +44,12 @@ final class ChunkedInputStream extends FilterInputStream {
     private static final int MAX_LINE_LENGTH = 4096;
     private static final String EMPTY_SHA256 =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    private byte[] chunk;
+    private byte[] chunk = new byte[0];
     private int currentIndex;
     private int currentLength;
-    private String currentSignature;
+    @Nullable private String currentSignature;
     private final int maxChunkSize;
-    private final Hasher hasher;
+    @Nullable private final Hasher hasher;
     private final byte @Nullable [] signingKey;
     @Nullable private final String hmacAlgorithm;
     @Nullable private final String timestamp;
@@ -192,7 +192,7 @@ final class ChunkedInputStream extends FilterInputStream {
                         if (trailerLine.isEmpty()) {
                             break;
                         }
-                        validateTrailerHash(trailerLine);
+                        validateTrailerHash(hasher, trailerLine);
                     }
                 }
                 return -1;
@@ -270,7 +270,8 @@ final class ChunkedInputStream extends FilterInputStream {
      * x-amz-trailer-signature) are ignored.
      */
     @SuppressWarnings("deprecation")
-    private void validateTrailerHash(String line) throws IOException {
+    private static void validateTrailerHash(Hasher hasher, String line)
+            throws IOException {
         String[] parts = line.split(":", 2);
         if (parts.length != 2 || !parts[0].startsWith("x-amz-checksum-")) {
             return;

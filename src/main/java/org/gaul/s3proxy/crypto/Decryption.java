@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.crypto;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -31,10 +33,11 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.jspecify.annotations.Nullable;
 
 public class Decryption {
     private final SecretKey encryptionKey;
-    private TreeMap<Integer, PartPadding> partList;
+    private TreeMap<Integer, PartPadding> partList = new TreeMap<>();
     private long outputOffset;
     private long outputLength;
     private boolean skipFirstBlock;
@@ -46,7 +49,7 @@ public class Decryption {
     private boolean isEncrypted;
 
     public Decryption(SecretKeySpec key, BlobStore blobStore,
-        BlobMetadata meta,
+        @Nullable BlobMetadata meta,
         long offset, long length) throws IOException {
         encryptionKey = key;
         outputLength = length;
@@ -57,18 +60,21 @@ public class Decryption {
         // to exactly one 64-byte padding block, so a 64-byte blob is still a
         // (zero-length) encrypted object; the delimiter check below rejects a
         // genuinely unencrypted 64-byte blob.
-        if (meta == null || meta.size() < Constants.PADDING_BLOCK_SIZE) {
+        Long metaSize = meta == null ? null : meta.size();
+        if (meta == null || metaSize == null ||
+            metaSize < Constants.PADDING_BLOCK_SIZE) {
             blobIsNotEncrypted(offset);
             return;
         }
+        String container = requireNonNull(meta.container());
 
         // get the 64 byte of part padding from the end of the blob
         var options = GetOptions.builder()
-            .range(meta.size() - Constants.PADDING_BLOCK_SIZE,
-                meta.size() - 1)
+            .range(metaSize - Constants.PADDING_BLOCK_SIZE,
+                metaSize - 1)
             .build();
-        Blob blob =
-            blobStore.getBlob(meta.container(), meta.name(), options);
+        Blob blob = requireNonNull(
+            blobStore.getBlob(container, meta.name(), options));
 
         // read the padding structure
         PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
@@ -79,11 +85,9 @@ public class Decryption {
             return;
         }
 
-        partList = new TreeMap<>();
-
         // detect multipart
         if (lastPartPadding.getPart() > 1 &&
-            meta.size() >
+            metaSize >
                 (lastPartPadding.getSize() + Constants.PADDING_BLOCK_SIZE)) {
             unencryptedSize = lastPartPadding.getSize();
             encryptedSize =
@@ -97,16 +101,16 @@ public class Decryption {
 
             // loop part by part from end to the beginning
             // to build a list of all blocks
-            while (encryptedSize < meta.size()) {
+            while (encryptedSize < metaSize) {
                 // get the next block
                 // rewind by the current encrypted block size
                 // minus the encryption padding
-                long startAt = (meta.size() - encryptedSize) -
+                long startAt = (metaSize - encryptedSize) -
                     Constants.PADDING_BLOCK_SIZE;
-                long endAt = meta.size() - encryptedSize - 1;
+                long endAt = metaSize - encryptedSize - 1;
                 options = GetOptions.builder().range(startAt, endAt).build();
-                blob = blobStore.getBlob(meta.container(), meta.name(),
-                    options);
+                blob = requireNonNull(blobStore.getBlob(container, meta.name(),
+                    options));
 
                 part++;
 
@@ -128,10 +132,10 @@ public class Decryption {
             partList.put(1, lastPartPadding);
 
             // update the unencrypted size
-            unencryptedSize = meta.size() - Constants.PADDING_BLOCK_SIZE;
+            unencryptedSize = metaSize - Constants.PADDING_BLOCK_SIZE;
 
             // update the encrypted size
-            encryptedSize = meta.size();
+            encryptedSize = metaSize;
         }
 
         // calculate the offset

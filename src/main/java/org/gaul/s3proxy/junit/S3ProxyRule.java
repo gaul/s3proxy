@@ -21,6 +21,7 @@ import java.net.URI;
 import com.google.common.annotations.Beta;
 
 import org.gaul.s3proxy.AuthenticationType;
+import org.jspecify.annotations.Nullable;
 import org.junit.rules.ExternalResource;
 
 /**
@@ -94,15 +95,15 @@ public final class S3ProxyRule extends ExternalResource {
         core.afterEach();
     }
 
-    public URI getUri() {
+    @Nullable public URI getUri() {
         return core.getUri();
     }
 
-    public String getAccessKey() {
+    @Nullable public String getAccessKey() {
         return core.getAccessKey();
     }
 
-    public String getSecretKey() {
+    @Nullable public String getSecretKey() {
         return core.getSecretKey();
     }
 }
