@@ -20,6 +20,8 @@ import static java.util.Objects.requireNonNull;
 
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 @SuppressWarnings("serial")
 public final class S3Exception extends Exception {
     private final S3ErrorCode error;
@@ -33,15 +35,15 @@ public final class S3Exception extends Exception {
         this(error, message, (Throwable) null, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, Throwable cause) {
+    S3Exception(S3ErrorCode error, @Nullable Throwable cause) {
         this(error, error.getMessage(), cause, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, String message, Throwable cause) {
+    S3Exception(S3ErrorCode error, String message, @Nullable Throwable cause) {
         this(error, message, cause, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, String message, Throwable cause,
+    S3Exception(S3ErrorCode error, String message, @Nullable Throwable cause,
                 Map<String, String> elements) {
         super(requireNonNull(message), cause);
         this.error = requireNonNull(error);

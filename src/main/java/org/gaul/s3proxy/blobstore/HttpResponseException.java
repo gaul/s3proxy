@@ -31,7 +31,8 @@ public final class HttpResponseException extends RuntimeException {
         this(message, response, null);
     }
 
-    public HttpResponseException(HttpResponse response, Throwable cause) {
+    public HttpResponseException(HttpResponse response,
+            @Nullable Throwable cause) {
         this(formatMessage(response), response, cause);
     }
 

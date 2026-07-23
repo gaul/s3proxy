@@ -17,6 +17,8 @@
 
 package org.gaul.s3proxy.blobstore.domain;
 
+import static java.util.Objects.requireNonNull;
+
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -73,7 +75,7 @@ public record BlobMetadata(
 
     public static final class Builder {
         private StorageType type = StorageType.BLOB;
-        private String name;
+        private @Nullable String name;
         private Map<String, String> userMetadata = new LinkedHashMap<>();
         private @Nullable String eTag;
         private @Nullable Date lastModified;
@@ -135,7 +137,8 @@ public record BlobMetadata(
         }
 
         public BlobMetadata build() {
-            return new BlobMetadata(type, name, userMetadata, eTag,
+            return new BlobMetadata(type, requireNonNull(name, "name"),
+                    userMetadata, eTag,
                     lastModified, storageClass, container, contentMetadata);
         }
     }

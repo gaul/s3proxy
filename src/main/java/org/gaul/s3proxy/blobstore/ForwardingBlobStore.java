@@ -124,11 +124,13 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
+    @Nullable
     public BlobMetadata blobMetadata(String container, String name) {
         return delegate().blobMetadata(container, name);
     }
 
     @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName,
             GetOptions getOptions) {
         return delegate().getBlob(containerName, blobName, getOptions);

@@ -133,23 +133,23 @@ final class S3AuthorizationHeader {
         return authenticationType;
     }
 
-    public String getHmacAlgorithm() {
+    @Nullable public String getHmacAlgorithm() {
         return hmacAlgorithm;
     }
 
-    public String getHashAlgorithm() {
+    @Nullable public String getHashAlgorithm() {
         return hashAlgorithm;
     }
 
-    public String getRegion() {
+    @Nullable public String getRegion() {
         return region;
     }
 
-    public String getDate() {
+    @Nullable public String getDate() {
         return date;
     }
 
-    public String getService() {
+    @Nullable public String getService() {
         return service;
     }
 

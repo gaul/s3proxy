@@ -17,10 +17,13 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import org.jspecify.annotations.Nullable;
+
 /** Thrown when a container cannot be located. */
 public final class ContainerNotFoundException extends RuntimeException {
 
-    public ContainerNotFoundException(String container, String message) {
+    public ContainerNotFoundException(String container,
+            @Nullable String message) {
         super("%s not found: %s".formatted(container, message));
     }
 }

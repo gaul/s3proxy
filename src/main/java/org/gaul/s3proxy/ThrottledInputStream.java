@@ -20,10 +20,12 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-final class ThrottledInputStream extends FilterInputStream {
-    private final Long speed;
+import org.jspecify.annotations.Nullable;
 
-    ThrottledInputStream(InputStream is, Long speed) {
+final class ThrottledInputStream extends FilterInputStream {
+    @Nullable private final Long speed;
+
+    ThrottledInputStream(InputStream is, @Nullable Long speed) {
         super(is);
         this.speed = speed;
     }

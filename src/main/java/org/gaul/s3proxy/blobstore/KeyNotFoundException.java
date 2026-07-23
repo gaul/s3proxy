@@ -17,10 +17,13 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import org.jspecify.annotations.Nullable;
+
 /** Thrown when a blob cannot be located in the container. */
 public final class KeyNotFoundException extends RuntimeException {
 
-    public KeyNotFoundException(String container, String key, String message) {
+    public KeyNotFoundException(String container, @Nullable String key,
+            @Nullable String message) {
         super("%s not found in container %s: %s".formatted(key, container,
                 message));
     }

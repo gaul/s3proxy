@@ -164,7 +164,7 @@ public final class Blob {
             return this;
         }
 
-        public Builder cacheControl(String cacheControl) {
+        public Builder cacheControl(@Nullable String cacheControl) {
             contentMetadataBuilder.cacheControl(cacheControl);
             return this;
         }
@@ -177,32 +177,33 @@ public final class Blob {
             return this;
         }
 
-        public Builder contentMD5(HashCode md5) {
+        public Builder contentMD5(@Nullable HashCode md5) {
             contentMetadataBuilder.contentMD5(md5);
             return this;
         }
 
-        public Builder contentType(String contentType) {
+        public Builder contentType(@Nullable String contentType) {
             contentMetadataBuilder.contentType(contentType);
             return this;
         }
 
-        public Builder contentDisposition(String contentDisposition) {
+        public Builder contentDisposition(
+                @Nullable String contentDisposition) {
             contentMetadataBuilder.contentDisposition(contentDisposition);
             return this;
         }
 
-        public Builder contentLanguage(String contentLanguage) {
+        public Builder contentLanguage(@Nullable String contentLanguage) {
             contentMetadataBuilder.contentLanguage(contentLanguage);
             return this;
         }
 
-        public Builder contentEncoding(String contentEncoding) {
+        public Builder contentEncoding(@Nullable String contentEncoding) {
             contentMetadataBuilder.contentEncoding(contentEncoding);
             return this;
         }
 
-        public Builder expires(Date expires) {
+        public Builder expires(@Nullable Date expires) {
             contentMetadataBuilder.expires(expires);
             return this;
         }
