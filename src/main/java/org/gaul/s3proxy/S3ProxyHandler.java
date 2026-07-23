@@ -610,6 +610,9 @@ public class S3ProxyHandler {
                 requestIdentity, path.length > 1 ? path[1] : null,
                 path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
+            if (grant == null) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
             blobStore = grant.blobStore();
             String contentSha256 = request.getHeader(
                     AwsHttpHeaders.CONTENT_SHA256);
@@ -2623,7 +2626,7 @@ public class S3ProxyHandler {
             parts.close();
         }
 
-        if (blobName == null || policy == null) {
+        if (blobName == null || policy == null || payload == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }

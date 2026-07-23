@@ -43,6 +43,8 @@ import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class is a BlobStore wrapper which emulates eventual consistency
@@ -51,6 +53,9 @@ import org.jspecify.annotations.Nullable;
  * that container operations are not eventually consistent.
  */
 final class EventualBlobStore extends ForwardingBlobStore {
+    private static final Logger logger =
+            LoggerFactory.getLogger(EventualBlobStore.class);
+
     private final BlobStore writeStore;  // read from delegate
     private final ScheduledExecutorService executorService;
     private final Deque<Callable<?>> deque = new ConcurrentLinkedDeque<>();
@@ -121,11 +126,18 @@ final class EventualBlobStore extends ForwardingBlobStore {
             final PutOptions options) {
         final String nearName = blob.getMetadata().name();
         String nearETag = writeStore.putBlob(containerName, blob, options);
-        schedule(new Callable<String>() {
+        schedule(new Callable<@Nullable String>() {
                 @Override
-                public String call() {
+                public @Nullable String call() {
                     Blob nearBlob = writeStore.getBlob(containerName, nearName,
                             GetOptions.NONE);
+                    if (nearBlob == null) {
+                        // a racing removeBlob already deleted the near blob;
+                        // the far copy will converge via its scheduled removal
+                        logger.warn("near blob {}/{} removed before" +
+                                " replication", containerName, nearName);
+                        return null;
+                    }
                     String farETag = delegate().putBlob(containerName,
                             nearBlob, options);
                     return farETag;

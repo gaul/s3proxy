@@ -317,6 +317,9 @@ final class AwsSignature {
         List<String> signedHeaders;
         if (authorizationHeader != null) {
             signedHeaders = extractSignedHeaders(authorizationHeader);
+            if (signedHeaders == null) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
         } else {
             String signedHeadersParam = request.getParameter(
                     "X-Amz-SignedHeaders");

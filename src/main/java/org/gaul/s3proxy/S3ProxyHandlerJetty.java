@@ -137,7 +137,8 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             return;
         } catch (IllegalStateException ise) {
             // google-cloud-storage uses a different exception
-            if (ise.getMessage().startsWith("PreconditionFailed")) {
+            String message = ise.getMessage();
+            if (message != null && message.startsWith("PreconditionFailed")) {
                 sendS3Exception(request, response,
                         new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
                 return;

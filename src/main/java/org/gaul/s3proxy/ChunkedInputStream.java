@@ -145,6 +145,9 @@ final class ChunkedInputStream extends FilterInputStream {
             }
             String[] parts = line.split(";", 2);
             if (parts[0].startsWith("x-amz-checksum-")) {
+                if (hasher == null) {
+                    throw new IOException("unexpected trailer: " + parts[0]);
+                }
                 String[] checksumParts = parts[0].split(":", 2);
                 var expectedHash = checksumParts[1];
                 var actualHash = switch (checksumParts[0]) {
