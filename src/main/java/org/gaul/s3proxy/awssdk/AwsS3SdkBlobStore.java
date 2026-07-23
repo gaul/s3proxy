@@ -155,7 +155,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     AwsBasicCredentials.create(cred.identity(),
                             cred.credential())));
         } else {
-            builder.credentialsProvider(DefaultCredentialsProvider.create());
+            builder.credentialsProvider(
+                    DefaultCredentialsProvider.builder().build());
         }
 
         if (endpoint != null && !endpoint.isEmpty()) {
@@ -405,6 +406,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             var responseStream = s3Client.getObject(requestBuilder.build());
             var response = responseStream.response();
 
+            // The SDK deprecated expires() in favor of expiresString() but
+            // the blobstore API models Expires as a Date, so use the SDK's
+            // parsed value.
+            @SuppressWarnings("deprecation")
+            var expires = response.expires() == null ?
+                    null : Date.from(response.expires());
             var builder = Blob.builder(key)
                     .userMetadata(response.metadata())
                     .payload(responseStream)
@@ -414,8 +421,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .contentLanguage(response.contentLanguage())
                     .contentLength(response.contentLength())
                     .contentType(response.contentType())
-                    .expires(response.expires() != null ?
-                            Date.from(response.expires()) : null);
+                    .expires(expires);
 
             if (response.contentRange() != null) {
                 builder.contentRange(response.contentRange());
@@ -1029,6 +1035,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     private static org.gaul.s3proxy.blobstore.ContentMetadata toContentMetadata(
             HeadObjectResponse response) {
+        // The SDK deprecated expires() in favor of expiresString() but the
+        // blobstore API models Expires as a Date, so use the SDK's parsed
+        // value.
+        @SuppressWarnings("deprecation")
+        var expires = response.expires() == null ?
+                null : Date.from(response.expires());
         return org.gaul.s3proxy.blobstore.ContentMetadata.builder()
                 .cacheControl(response.cacheControl())
                 .contentDisposition(response.contentDisposition())
@@ -1036,8 +1048,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 .contentLanguage(response.contentLanguage())
                 .contentLength(response.contentLength())
                 .contentType(response.contentType())
-                .expires(response.expires() != null ?
-                        Date.from(response.expires()) : null)
+                .expires(expires)
                 .build();
     }
 

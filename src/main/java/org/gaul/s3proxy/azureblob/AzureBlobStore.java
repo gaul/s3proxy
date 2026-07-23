@@ -103,6 +103,8 @@ public final class AzureBlobStore implements BlobStore {
     private static final long MAXIMUM_MULTIPART_PART_SIZE =
             4000L * 1024 * 1024;
     private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
+    // S3 requires MD5 for ETag and Content-MD5 interoperability.
+    @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
     // Disable retries since client should retry on errors.
     private static final RequestRetryOptions NO_RETRY_OPTIONS = new RequestRetryOptions(

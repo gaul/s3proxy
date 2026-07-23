@@ -91,7 +91,14 @@ public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";
+    // S3 requires MD5 for ETag and Content-MD5 interoperability.
+    @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
+    // GCS deprecated md5Match in favor of crc32cMatch but the client
+    // supplies a Content-MD5 to validate, not a CRC32C.
+    @SuppressWarnings("deprecation")
+    private static final BlobWriteOption MD5_MATCH =
+            BlobWriteOption.md5Match();
     // GCS compose supports up to 32 source objects
     private static final int MAX_COMPOSE_PARTS = 32;
 
@@ -483,7 +490,7 @@ public final class GCloudBlobStore implements BlobStore {
             // metadata unless md5Match is requested, so without this GCS
             // never validates the client-supplied Content-MD5.  md5Match
             // re-sends the md5 and requests server-side validation.
-            writeOptions.add(BlobWriteOption.md5Match());
+            writeOptions.add(MD5_MATCH);
         }
         if (options != null) {
             String name = blob.getMetadata().name();

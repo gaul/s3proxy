@@ -32,6 +32,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -48,6 +49,7 @@ import java.util.SortedMap;
 import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -84,7 +86,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.MultiPartFormData;
+import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.content.InputStreamContentSource;
+import org.eclipse.jetty.util.Promise;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
@@ -269,7 +273,7 @@ public class S3ProxyHandler {
     private final Cache<Map.Entry<String, String>, String> lastKeyToMarker =
             CacheBuilder.newBuilder()
             .maximumSize(10000)
-            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .expireAfterWrite(Duration.ofMinutes(10))
             .build();
 
     public S3ProxyHandler(final BlobStore blobStore,
@@ -2598,8 +2602,11 @@ public class S3ProxyHandler {
         var parser = new MultiPartFormData.Parser(boundary);
         parser.setFilesDirectory(java.nio.file.Path.of(
                 System.getProperty("java.io.tmpdir")));
-        MultiPartFormData.Parts parts = parser.parse(
-                new InputStreamContentSource(is)).join();
+        var futureParts = new CompletableFuture<MultiPartFormData.Parts>();
+        parser.parse(new InputStreamContentSource(is,
+                ByteBufferPool.SIZED_NON_POOLING),
+                Promise.Invocable.toPromise(futureParts));
+        MultiPartFormData.Parts parts = futureParts.join();
         try {
             for (var part : parts) {
                 var header = part.getName();
