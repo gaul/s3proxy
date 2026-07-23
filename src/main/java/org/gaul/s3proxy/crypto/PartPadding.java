@@ -37,15 +37,13 @@ public final class PartPadding {
     private final IvParameterSpec iv;
     private final int part;
     private final long size;
-    private final short version;
 
     private PartPadding(String delimiter, IvParameterSpec iv, int part,
-            long size, short version) {
+            long size) {
         this.delimiter = delimiter;
         this.iv = iv;
         this.part = part;
         this.size = size;
-        this.version = version;
     }
 
     public static PartPadding readPartPaddingFromBlob(Blob blob)
@@ -74,7 +72,7 @@ public final class PartPadding {
             logger.debug("size {}", size);
             logger.debug("version {}", version);
 
-            return new PartPadding(delimiter, iv, part, size, version);
+            return new PartPadding(delimiter, iv, part, size);
         }
     }
 

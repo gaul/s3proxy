@@ -93,6 +93,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -1040,7 +1041,8 @@ public final class AwsSdkTest {
         putBlob(containerName, blobName, BYTE_SOURCE);
 
         var result = client.deleteObjects(b -> b.bucket(containerName)
-                .delete(d -> d.objects(o -> o.key(blobName))));
+                .delete(d -> d.objects(
+                        ObjectIdentifier.builder().key(blobName).build())));
         assertThat(result.deleted()).hasSize(1);
         assertThat(result.deleted().iterator().next().key()).isEqualTo(blobName);
 
@@ -1048,7 +1050,9 @@ public final class AwsSdkTest {
         putBlob(containerName, blobName, BYTE_SOURCE);
 
         result = client.deleteObjects(b -> b.bucket(containerName)
-                .delete(d -> d.objects(o -> o.key(blobName)).quiet(true)));
+                .delete(d -> d.objects(
+                        ObjectIdentifier.builder().key(blobName).build())
+                        .quiet(true)));
         assertThat(result.deleted()).isEmpty();
     }
 

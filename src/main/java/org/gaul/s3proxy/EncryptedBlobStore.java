@@ -59,13 +59,9 @@ import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class EncryptedBlobStore extends ForwardingBlobStore {
-    private final Logger logger =
-        LoggerFactory.getLogger(EncryptedBlobStore.class);
     private SecretKeySpec secretKey;
 
     private EncryptedBlobStore(BlobStore blobStore, Properties properties)

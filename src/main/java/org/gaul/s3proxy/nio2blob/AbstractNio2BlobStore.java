@@ -290,7 +290,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     var name = relativeName(containerPath, path);
                     logger.debug("adding: {}", name);
                     var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
-                    var creationTime = new Date(attr.creationTime().toMillis());
 
                     var xattrs = safeGetXattrs(path);
                     String eTag = readETagXattr(xattrs);
@@ -376,7 +375,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             var storageClass = StorageClass.STANDARD;
             var userMetadata = ImmutableMap.<String, String>builder();
             var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
-            var creationTime = new Date(attr.creationTime().toMillis());
 
             if (view != null) {
                 cacheControl = readStringAttributeIfPresent(view, attributes, XATTR_CACHE_CONTROL);

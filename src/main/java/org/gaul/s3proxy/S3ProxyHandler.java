@@ -53,7 +53,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
@@ -3170,17 +3169,13 @@ public class S3ProxyHandler {
     @SuppressWarnings("deprecation")
     private enum FlexChecksum {
         CRC32("crc32", "ChecksumCRC32", AwsHttpHeaders.CHECKSUM_CRC32, 4, true,
-                Hashing.crc32(),
-                CompleteMultipartUploadRequest.Part::checksumCRC32),
+                Hashing.crc32()),
         CRC32C("crc32c", "ChecksumCRC32C", AwsHttpHeaders.CHECKSUM_CRC32C, 4,
-                true, Hashing.crc32c(),
-                CompleteMultipartUploadRequest.Part::checksumCRC32C),
+                true, Hashing.crc32c()),
         SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20, false,
-                Hashing.sha1(),
-                CompleteMultipartUploadRequest.Part::checksumSHA1),
+                Hashing.sha1()),
         SHA256("sha256", "ChecksumSHA256", AwsHttpHeaders.CHECKSUM_SHA256, 32,
-                false, Hashing.sha256(),
-                CompleteMultipartUploadRequest.Part::checksumSHA256);
+                false, Hashing.sha256());
 
         private final String lower;
         private final String element;
@@ -3188,19 +3183,15 @@ public class S3ProxyHandler {
         private final int length;
         private final boolean bigEndianInt;
         private final HashFunction hashFunction;
-        private final Function<CompleteMultipartUploadRequest.Part, String>
-                accessor;
 
         FlexChecksum(String lower, String element, String header, int length,
-                boolean bigEndianInt, HashFunction hashFunction,
-                Function<CompleteMultipartUploadRequest.Part, String> accessor) {
+                boolean bigEndianInt, HashFunction hashFunction) {
             this.lower = lower;
             this.element = element;
             this.header = header;
             this.length = length;
             this.bigEndianInt = bigEndianInt;
             this.hashFunction = hashFunction;
-            this.accessor = accessor;
         }
 
         String lower() {
@@ -3228,7 +3219,12 @@ public class S3ProxyHandler {
         }
 
         String value(CompleteMultipartUploadRequest.Part part) {
-            return accessor.apply(part);
+            return switch (this) {
+            case CRC32 -> part.checksumCRC32();
+            case CRC32C -> part.checksumCRC32C();
+            case SHA1 -> part.checksumSHA1();
+            case SHA256 -> part.checksumSHA256();
+            };
         }
     }
 
