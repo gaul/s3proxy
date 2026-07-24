@@ -208,6 +208,29 @@ final class TestUtils {
             info.getProperties().load(is);
         }
 
+        // When s3proxy.test.conf selects a backend and a test supplies its
+        // own frontend configuration (anonymous, virtual-host, CORS, ...),
+        // combine the two: the backend (jclouds.*) settings come from the
+        // backend configuration while the complete s3proxy.* namespace comes
+        // from the test's configuration.  This lets the specialized tests
+        // run against every backend lane instead of their hardcoded
+        // transient-nio2 provider.
+        String backendConfigFile = System.getProperty("s3proxy.test.conf");
+        if (backendConfigFile != null &&
+                !backendConfigFile.equals(configFile)) {
+            var backendProperties = new Properties();
+            try (InputStream is = Resources.asByteSource(Resources.getResource(
+                    backendConfigFile)).openStream()) {
+                backendProperties.load(is);
+            }
+            for (String key : backendProperties.stringPropertyNames()) {
+                if (!key.startsWith("s3proxy.")) {
+                    info.getProperties().setProperty(key,
+                            backendProperties.getProperty(key));
+                }
+            }
+        }
+
         info.blobStore = createBlobStore(info.getProperties());
 
         String encrypted = info.getProperties().getProperty(
