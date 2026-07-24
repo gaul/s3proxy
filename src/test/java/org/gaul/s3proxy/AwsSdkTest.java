@@ -485,9 +485,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartCopy() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-
         String sourceBlobName = "testMultipartCopy-source";
         String targetBlobName = "testMultipartCopy-target";
 

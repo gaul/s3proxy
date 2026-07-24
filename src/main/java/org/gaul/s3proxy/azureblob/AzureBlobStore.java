@@ -100,6 +100,7 @@ import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 public final class AzureBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
@@ -478,11 +479,18 @@ public final class AzureBlobStore implements BlobStore {
      * bounded-size {@link ByteBuffer}s so that the Azure SDK streams the
      * payload to the service instead of buffering it entirely in memory.
      * The stream is closed by the caller via try-with-resources.
+     *
+     * Chunks after the first are demanded from the SDK's netty event loop,
+     * where Reactor forbids blocking.  Reading {@code is} is always
+     * blocking, and when the source is another Azure blob (UploadPartCopy)
+     * its read() even calls block() internally, so emit from a scheduler
+     * that permits blocking; subscribeOn also forwards downstream requests
+     * onto that scheduler.
      */
     private static Flux<ByteBuffer> chunkedByteBufferFlux(InputStream is,
             long contentLength) {
         final int maxChunkSize = 4 * 1024 * 1024;
-        return Flux.generate(
+        return Flux.<ByteBuffer, Long>generate(
             () -> 0L,
             (position, sink) -> {
                 try {
@@ -531,7 +539,7 @@ public final class AzureBlobStore implements BlobStore {
             position -> {
                 // Stream is closed by try-with-resources
             }
-        );
+        ).subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
