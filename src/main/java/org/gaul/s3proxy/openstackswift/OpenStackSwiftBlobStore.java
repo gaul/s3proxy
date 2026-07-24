@@ -1052,15 +1052,37 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var sorted = new ArrayList<>(parts);
         sorted.sort(Comparator.comparingInt(MultipartPart::partNumber));
 
+        // The caller's MultipartPart values may not match the stored
+        // segments: EncryptedBlobStore reports plaintext part sizes while
+        // the segments hold padded ciphertext.  Swift validates every
+        // manifest entry's etag and size against its segment, so resolve
+        // each referenced part number against the stored segments, and
+        // reject parts that were never uploaded (or whose upload was
+        // aborted) like S3's InvalidPart.
+        var segmentsByPartNumber = new HashMap<Integer, MultipartPart>();
+        for (var segment : listMultipartUpload(mpu)) {
+            segmentsByPartNumber.put(segment.partNumber(), segment);
+        }
+        var resolved = new ArrayList<MultipartPart>(sorted.size());
+        for (var part : sorted) {
+            MultipartPart segment = segmentsByPartNumber.get(
+                    part.partNumber());
+            if (segment == null) {
+                throw new HttpResponseException(
+                        "no such part: " + part.partNumber(),
+                        new HttpResponse(400));
+            }
+            resolved.add(segment);
+        }
+
         // Build the Swift Static Large Object manifest -- a JSON array naming
         // each segment by its "<container>/<object>" path, MD5 etag, and exact
         // size -- and write it with the ?multipart-manifest=put query
         // parameter.  This issues the same request openstack4j's
         // createStaticLargeObject extension would, but through the stock put()
-        // API so the provider builds against an unmodified openstack4j.  Swift
-        // validates every segment's etag and size before creating the object.
-        var manifest = new ArrayList<Map<String, Object>>(sorted.size());
-        for (var part : sorted) {
+        // API so the provider builds against an unmodified openstack4j.
+        var manifest = new ArrayList<Map<String, Object>>(resolved.size());
+        for (var part : resolved) {
             var entry = new LinkedHashMap<String, Object>();
             entry.put("path",
                     container + "/" + mpuSegmentKey(uploadId,
@@ -1091,7 +1113,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // the metadata marker is no longer needed.
         removeBlob(container, mpuMetaKey(uploadId));
 
-        String mpuETag = multipartETag(sorted);
+        String mpuETag = multipartETag(resolved);
         return mpuETag != null ? mpuETag : sloETag;
     }
 

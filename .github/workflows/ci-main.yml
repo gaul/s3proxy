@@ -275,9 +275,7 @@ jobs:
         run: $HOME/go/bin/swift server --binding 127.0.0.1 --port 5000 &
       - name: Maven Test with openstackswift
         run: |
-          # EncryptedBlobStoreTest is excluded: openstack-swift-sdk does not
-          # yet support its direct BlobStore multipart read patterns.
-          mvn test -Ds3proxy.test.conf=s3proxy-swift.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
+          mvn test -Ds3proxy.test.conf=s3proxy-swift.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
 
       - name: Install s3-tests
         run: |
