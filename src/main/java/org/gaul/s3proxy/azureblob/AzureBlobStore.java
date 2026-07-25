@@ -34,7 +34,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
+import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.rest.PagedResponse;
+import com.azure.core.util.Context;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClient;
@@ -59,6 +61,7 @@ import com.azure.storage.blob.options.BlobUploadFromUrlOptions;
 import com.azure.storage.blob.options.BlockBlobCommitBlockListOptions;
 import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
 import com.azure.storage.blob.options.BlockBlobSimpleUploadOptions;
+import com.azure.storage.blob.options.BlockBlobStageBlockFromUrlOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlobInputStream;
@@ -1033,6 +1036,123 @@ public final class AzureBlobStore implements BlobStore {
                 .lowerCase().encode(md5Hash);
         Date lastModified = null;
         return new MultipartPart(partNumber, contentLength, eTag, lastModified);
+    }
+
+    // Azurite responds 501 to Put Block From URL; discovered on first use
+    // so the caller can fall back to streamed emulation.
+    private volatile boolean nativePartCopyUnsupported;
+
+    @Override
+    public boolean supportsCopyMultipartPart() {
+        return !nativePartCopyUnsupported;
+    }
+
+    @Override
+    public MultipartPart copyMultipartPart(MultipartUpload mpu,
+            int partNumber, String sourceContainer, String sourceName,
+            @Nullable String copySourceRange, @Nullable String ifMatch,
+            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
+            @Nullable Date ifUnmodifiedSince) {
+        if (partNumber < 1 || partNumber > 10_000) {
+            throw new IllegalArgumentException(
+                    "Part number must be between 1 and 10,000, got: " +
+                    partNumber);
+        }
+
+        String uploadKey = mpu.id();
+        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String blockId = makeBlockId(nonce, partNumber);
+
+        // The service fetches the source itself, authorized by a read SAS
+        // as in copyBlob.
+        var expiryTime = OffsetDateTime.now().plusDays(1);
+        var permission = new BlobSasPermission().setReadPermission(true);
+        var values = new BlobServiceSasSignatureValues(expiryTime, permission)
+                .setStartTime(OffsetDateTime.now());
+        var fromClient = blobServiceClient
+                .getBlobContainerClient(sourceContainer)
+                .getBlobClient(sourceName);
+        String token;
+        var cred = creds.get();
+        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
+            token = fromClient.generateSas(values);
+        } else {
+            var userDelegationKey = blobServiceClient.getUserDelegationKey(
+                    OffsetDateTime.now().minusMinutes(5), expiryTime);
+            token = fromClient.generateUserDelegationSas(values,
+                    userDelegationKey);
+        }
+
+        var options = new BlockBlobStageBlockFromUrlOptions(blockId,
+                fromClient.getBlobUrl() + "?" + token)
+                .setSourceRange(parseCopySourceRange(copySourceRange));
+        if (ifMatch != null || ifNoneMatch != null ||
+                ifModifiedSince != null || ifUnmodifiedSince != null) {
+            var conditions = new BlobRequestConditions()
+                    .setIfMatch(ifMatch)
+                    .setIfNoneMatch(ifNoneMatch);
+            if (ifModifiedSince != null) {
+                conditions.setIfModifiedSince(OffsetDateTime.ofInstant(
+                        ifModifiedSince.toInstant(), ZoneOffset.UTC));
+            }
+            if (ifUnmodifiedSince != null) {
+                conditions.setIfUnmodifiedSince(OffsetDateTime.ofInstant(
+                        ifUnmodifiedSince.toInstant(), ZoneOffset.UTC));
+            }
+            options.setSourceRequestConditions(conditions);
+        }
+
+        var client = blobServiceClient
+                .getBlobContainerClient(mpu.containerName())
+                .getBlobClient(mpu.blobName())
+                .getBlockBlobClient();
+        String eTag;
+        try {
+            var response = client.stageBlockFromUrlWithResponse(options,
+                    /*timeout=*/ null, Context.NONE);
+            // Put Block From URL echoes the MD5 of the copied range; match
+            // uploadMultipartPart's hex part ETag when present and fall
+            // back to the block id, which completeMultipartUpload does not
+            // check against part ETags.
+            String md5 = response.getHeaders().getValue(
+                    HttpHeaderName.CONTENT_MD5);
+            eTag = md5 == null ? blockId : BaseEncoding.base16().lowerCase()
+                    .encode(Base64.getDecoder().decode(md5));
+        } catch (BlobStorageException bse) {
+            if (bse.getStatusCode() == 501) {
+                nativePartCopyUnsupported = true;
+                throw new UnsupportedOperationException(
+                        "backend does not implement Put Block From URL", bse);
+            }
+            throw translate(bse, sourceContainer, sourceName);
+        }
+        return new MultipartPart(partNumber, /*partSize=*/ -1, eTag, null);
+    }
+
+    /** Parses the strict bytes=first-last form S3 CopyPart requires. */
+    @Nullable
+    private static BlobRange parseCopySourceRange(@Nullable String range) {
+        if (range == null) {
+            return null;
+        }
+        if (range.startsWith("bytes=") && range.indexOf(',') == -1) {
+            String[] parts = range.substring("bytes=".length()).split("-", 2);
+            if (parts.length == 2 && !parts[0].isEmpty() &&
+                    !parts[1].isEmpty()) {
+                try {
+                    long first = Long.parseLong(parts[0]);
+                    long last = Long.parseLong(parts[1]);
+                    if (last >= first) {
+                        return new BlobRange(first, last - first + 1);
+                    }
+                } catch (NumberFormatException nfe) {
+                    // fall through to the error below
+                }
+            }
+        }
+        throw new IllegalArgumentException(
+                "The x-amz-copy-source-range value must be of the form " +
+                "bytes=first-last");
     }
 
     /**

@@ -3672,42 +3672,28 @@ public class S3ProxyHandler {
                     AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
             long nativeIfUnmodifiedSince = request.getDateHeader(
                     AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
-            MultipartPart part = blobStore.copyMultipartPart(mpu, partNumber,
-                    sourceContainerName, sourceBlobName, rawCopySourceRange,
-                    request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH),
-                    request.getHeader(
-                            AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH),
-                    nativeIfModifiedSince == -1 ?
-                            null : new Date(nativeIfModifiedSince),
-                    nativeIfUnmodifiedSince == -1 ?
-                            null : new Date(nativeIfUnmodifiedSince));
-
-            response.setCharacterEncoding(UTF_8);
-            addCorsResponseHeader(request, response);
-            try (Writer writer = response.getWriter()) {
-                response.setContentType(XML_CONTENT_TYPE);
-                XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
-                        writer);
-                xml.writeStartDocument();
-                xml.writeStartElement("CopyObjectResult");
-                xml.writeDefaultNamespace(AWS_XMLNS);
-
-                Date partLastModified = part.lastModified();
-                if (partLastModified != null) {
-                    writeSimpleElement(xml, "LastModified",
-                            formatDate(partLastModified));
-                }
-                String partETag = part.partETag();
-                if (partETag != null) {
-                    writeSimpleElement(xml, "ETag", maybeQuoteETag(partETag));
-                }
-
-                xml.writeEndElement();
-                xml.flush();
-            } catch (XMLStreamException xse) {
-                throw new IOException(xse);
+            MultipartPart part;
+            try {
+                part = blobStore.copyMultipartPart(mpu, partNumber,
+                        sourceContainerName, sourceBlobName,
+                        rawCopySourceRange,
+                        request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH),
+                        request.getHeader(
+                                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH),
+                        nativeIfModifiedSince == -1 ?
+                                null : new Date(nativeIfModifiedSince),
+                        nativeIfUnmodifiedSince == -1 ?
+                                null : new Date(nativeIfUnmodifiedSince));
+            } catch (UnsupportedOperationException uoe) {
+                // The backend discovered at runtime that it cannot copy
+                // server-side, e.g. Azurite lacks Put Block From URL; use
+                // the streamed emulation below.
+                part = null;
             }
-            return;
+            if (part != null) {
+                writeCopyPartResponse(request, response, part);
+                return;
+            }
         }
 
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
@@ -3778,6 +3764,14 @@ public class S3ProxyHandler {
             eTag = part.partETag();
         }
 
+        writeCopyPartResponse(request, response,
+                new MultipartPart(partNumber, contentLength, eTag,
+                        lastModified));
+    }
+
+    private void writeCopyPartResponse(HttpServletRequest request,
+            HttpServletResponse response, MultipartPart part)
+            throws IOException {
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
@@ -3788,10 +3782,12 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
+            Date lastModified = part.lastModified();
             if (lastModified != null) {
                 writeSimpleElement(xml, "LastModified",
                         formatDate(lastModified));
             }
+            String eTag = part.partETag();
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
