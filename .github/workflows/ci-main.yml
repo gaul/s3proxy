@@ -75,32 +75,7 @@ jobs:
           mvn versions:set -DnewVersion=${{ needs.meta.outputs.container_version }}
       - name: Maven Package
         run: |
-          mvn verify -DskipTests
-
-      - name: Build custom JRE with jlink
-        run: |
-          APP_MODULES=$(cat target/jdeps-modules.txt)
-          # Extra modules needed for Maven/Surefire to function on top of the app modules:
-          #   jdk.compiler  – compiles test sources
-          #   jdk.zipfs     – reads JAR/ZIP files
-          #   java.instrument – JVM instrumentation (used by Surefire agents)
-          #   jdk.attach    – JVM Attach API (used by Maven Surefire plugin)
-          EXTRA_MODULES="jdk.compiler,jdk.zipfs,java.instrument,jdk.attach"
-          ALL_MODULES="${APP_MODULES},${EXTRA_MODULES}"
-          jlink \
-            --add-modules "${ALL_MODULES}" \
-            --bind-services \
-            --strip-debug \
-            --no-man-pages \
-            --no-header-files \
-            --compress=2 \
-            --output /opt/custom-jre
-          # Carry over CA certificates so TLS connections to remote blobstores work
-          cp "${JAVA_HOME}/lib/security/cacerts" /opt/custom-jre/lib/security/cacerts
-          # Override JAVA_HOME and PATH for all subsequent steps in this job
-          echo "JAVA_HOME=/opt/custom-jre" >> $GITHUB_ENV
-          echo "/opt/custom-jre/bin" >> $GITHUB_PATH
-
+          mvn verify -DskipTests -Pjdeps
       - name: Maven Test
         run: |
           mvn test
@@ -126,10 +101,6 @@ jobs:
         with:
           name: s3proxy
           path: target/s3proxy
-      - uses: actions/upload-artifact@v7
-        with:
-          name: s3proxy-jar
-          path: target/s3proxy-*-jar-with-dependencies.jar
       - uses: actions/upload-artifact@v7
         with:
           name: jdeps-modules
@@ -333,13 +304,9 @@ jobs:
           path: target
       - uses: actions/download-artifact@v8
         with:
-          name: s3proxy-jar
-          path: target
-      - uses: actions/download-artifact@v7
-        with:
           name: jdeps-modules
           path: target
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: pom
           path: .
@@ -347,6 +314,74 @@ jobs:
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: s3proxy-smoke
+          cache-from: type=gha
+
+      # The jlink-built JRE only contains the modules jdeps discovers
+      # statically, so boot the image that actually ships and exercise the
+      # paths that would break if a reflectively-loaded module were missing.
+      - name: Smoke test image
+        run: |
+          # SunEC loads via the java.security config, invisible to jdeps;
+          # prove EC key generation and ECDSA signing work.
+          docker run --rm --entrypoint keytool s3proxy-smoke \
+            -genkeypair -keyalg EC -groupname secp256r1 -alias smoke \
+            -dname CN=smoke -storepass password -keystore /tmp/smoke.p12
+
+          # End-to-end request handling against the default filesystem
+          # backend.
+          docker run --detach --name smoke-fs --publish 127.0.0.1:8080:80 \
+            --env S3PROXY_AUTHORIZATION=none s3proxy-smoke
+          for i in $(seq 30); do
+            if curl --silent --output /dev/null http://127.0.0.1:8080/; then
+              break
+            fi
+            sleep 1
+          done
+          echo smoke-payload > payload.txt
+          curl --fail --silent --show-error --request PUT \
+            http://127.0.0.1:8080/smoke-bucket
+          curl --fail --silent --show-error --upload-file payload.txt \
+            http://127.0.0.1:8080/smoke-bucket/payload
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/smoke-bucket/payload | grep smoke-payload
+          docker rm --force smoke-fs
+
+          # One HTTPS request to a real backend: a 403 AccessDenied proves
+          # that the TLS handshake and CA trust validation succeeded and
+          # that AWS rejected the bogus credentials; a missing crypto
+          # module or trust store surfaces as a 500 instead.
+          docker run --detach --name smoke-tls --publish 127.0.0.1:8081:80 \
+            --env S3PROXY_AUTHORIZATION=none \
+            --env JCLOUDS_PROVIDER=aws-s3 \
+            --env JCLOUDS_IDENTITY=AKIAIOSFODNN7EXAMPLE \
+            --env JCLOUDS_CREDENTIAL=bogus-credential \
+            s3proxy-smoke
+          for i in $(seq 30); do
+            if curl --silent --output /dev/null http://127.0.0.1:8081/; then
+              break
+            fi
+            sleep 1
+          done
+          status=$(curl --silent --output /dev/null \
+            --write-out '%{http_code}' http://127.0.0.1:8081/)
+          if [ "$status" != "403" ]; then
+            echo "outbound TLS smoke test failed with status $status"
+            exit 1
+          fi
+          docker rm --force smoke-tls
+
+      - name: Dump smoke test logs on failure
+        if: failure()
+        run: |
+          docker logs smoke-fs || true
+          docker logs smoke-tls || true
 
       - name: Login to DockerHub
         uses: docker/login-action@v4

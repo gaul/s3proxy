@@ -1,5 +1,6 @@
 s3proxy.iml
 .idea/
+.vscode/
 
 # Eclipse project configuration files
 .classpath
