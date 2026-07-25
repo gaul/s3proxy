@@ -61,7 +61,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: "25"
           cache: "maven"
       - uses: actions/setup-python@v6
         with:
@@ -120,7 +120,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: "25"
           cache: "maven"
       - uses: actions/setup-python@v6
         with:
@@ -159,7 +159,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: "25"
           cache: "maven"
       - uses: actions/setup-python@v6
         with:
@@ -211,7 +211,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: "25"
           cache: "maven"
       - uses: actions/setup-python@v6
         with:
@@ -252,7 +252,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: "25"
           cache: "maven"
       - uses: actions/setup-python@v6
         with:

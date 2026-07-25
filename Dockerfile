@@ -1,22 +1,28 @@
 # Stage 1: create a trimmed JRE with only the modules S3Proxy needs.
 # target/jdeps-modules.txt comes from `mvn package -Pjdeps`.
-# Pin the build stage to the same Ubuntu release as the final image so the
-# copied JRE runs against the same glibc.
-FROM docker.io/library/eclipse-temurin:21-jdk-resolute AS jre-build
+# Ubuntu's OpenJDK build keeps jmods, which the eclipse-temurin 25 images
+# dropped, and sharing the base of the final image keeps the JRE and the
+# runtime glibc identical.
+FROM docker.io/library/ubuntu:26.04 AS jre-build
+
+# binutils provides objcopy for jlink --strip-debug
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-25-jdk-headless binutils && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY target/jdeps-modules.txt /tmp/jdeps-modules.txt
 
 # jdeps only sees statically-referenced modules.  Providers that the JDK
 # loads reflectively via the java.security config must be listed by hand:
-#   jdk.crypto.ec       - SunEC: ECDHE key agreement and ECDSA certificates
-#                         for TLS connections to blobstore backends
 #   jdk.crypto.cryptoki - SunPKCS11: PKCS#11 keystores, e.g. FIPS deployments
-# --bind-services also links in every service provider reachable from the
-# module graph (locale data, extended charsets, security providers), adding
-# ~32 MB over an explicit list but guarding against providers that jdeps
-# cannot see.  The CI smoke test exercises the result.
+# (SunEC lives in java.base since JDK 22.)  --bind-services also links in
+# every service provider reachable from the module graph (locale data,
+# extended charsets, security providers), adding ~32 MB over an explicit
+# list but guarding against providers that jdeps cannot see.  The CI smoke
+# test exercises the result.
 RUN jlink \
-    --add-modules "$(cat /tmp/jdeps-modules.txt),jdk.crypto.ec,jdk.crypto.cryptoki" \
+    --add-modules "$(cat /tmp/jdeps-modules.txt),jdk.crypto.cryptoki" \
     --bind-services \
     --strip-debug \
     --no-man-pages \

@@ -92,7 +92,7 @@
                     <!-- the JDK version of the Docker image, not
                          java.version -->
                     <argument>--multi-release</argument>
-                    <argument>21</argument>
+                    <argument>25</argument>
                     <argument>${project.build.directory}/${project.build.finalName}-jar-with-dependencies.jar</argument>
                   </arguments>
                   <outputFile>${project.build.directory}/jdeps-modules.txt</outputFile>
