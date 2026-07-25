@@ -26,6 +26,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -2084,6 +2085,31 @@ public final class AwsSdkTest {
             }
             assertThat(meta.contentType()).isEqualTo(contentType);
             assertThat(meta.metadata()).isEqualTo(userMetadata);
+        }
+    }
+
+    @Test
+    public void testPutIfNoneMatchWildcard() throws Exception {
+        String blobName = "put-if-none-match";
+
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                        .ifNoneMatch("*"),
+                RequestBody.fromString("first"));
+
+        // The object now exists so an atomic create must fail.
+        try {
+            client.putObject(b -> b.bucket(containerName).key(blobName)
+                            .ifNoneMatch("*"),
+                    RequestBody.fromString("second"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(blobName))) {
+            assertThat(new String(object.readAllBytes(),
+                    StandardCharsets.UTF_8)).isEqualTo("first");
         }
     }
 

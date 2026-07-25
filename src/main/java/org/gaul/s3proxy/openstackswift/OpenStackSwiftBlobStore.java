@@ -657,6 +657,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             swiftOptions.getOptions().put(HttpHeaders.EXPIRES,
                     toHttpDate(expires));
         }
+        // Swift supports conditional PUT only via If-None-Match: *, replying
+        // 412 Precondition Failed when the object already exists.
+        boolean ifNoneMatchStar = options != null &&
+                "*".equals(options.ifNoneMatch());
+        if (ifNoneMatchStar) {
+            swiftOptions.getOptions().put(HttpHeaders.IF_NONE_MATCH, "*");
+        }
         // Forward the client's Content-MD5 as the Swift ETag so the backend
         // verifies the object's integrity, replying 422 on a mismatch.
         var contentMD5 = contentMetadata.contentMD5();
@@ -681,10 +688,17 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (etag == null) {
             // openstack4j's put() ignores the response status, so a failed PUT
             // silently returns a null ETag instead of throwing.  Disambiguate:
-            // a missing container is NoSuchBucket, and a rejected Content-MD5
-            // (Swift replies 422) is BadDigest.
+            // a missing container is NoSuchBucket, an If-None-Match rejection
+            // against an existing object (Swift replies 412) is
+            // PreconditionFailed, and a rejected Content-MD5 (Swift replies
+            // 422) is BadDigest.
             if (!containerExists(container)) {
                 throw new ContainerNotFoundException(container, "");
+            }
+            if (ifNoneMatchStar &&
+                    blobMetadata(container, metadata.name()) != null) {
+                throw new HttpResponseException("Precondition failed",
+                        new HttpResponse(STATUS_PRECONDITION_FAILED));
             }
             if (contentMD5 != null) {
                 throw new HttpResponseException("Content-MD5 mismatch",

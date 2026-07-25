@@ -2430,7 +2430,10 @@ public class S3ProxyHandler {
         boolean supportsNativeConditionalWrites =
                 blobStoreType.equals("azureblob-sdk") ||
                 blobStoreType.equals("aws-s3-sdk") ||
-                blobStoreType.equals("google-cloud-storage-sdk");
+                blobStoreType.equals("google-cloud-storage-sdk") ||
+                // Swift only supports If-None-Match: * natively
+                (blobStoreType.equals("openstack-swift-sdk") &&
+                        ifMatch == null && "*".equals(ifNoneMatch));
 
         // Emulate conditional put for backends without native support.
         // Note: this is a non-atomic operation (HEAD then PUT).
