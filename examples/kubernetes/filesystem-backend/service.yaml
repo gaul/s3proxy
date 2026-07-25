@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3proxy
+  labels:
+    app.kubernetes.io/name: s3proxy
+spec:
+  selector:
+    app.kubernetes.io/name: s3proxy
+  ports:
+    - name: s3
+      port: 80
+      targetPort: s3

@@ -19,6 +19,13 @@ and *proxies* requests, enabling several use cases:
 [Docker Hub](https://hub.docker.com/r/andrewgaul/s3proxy/) hosts a Docker image
 and has instructions on how to run it.
 
+## Usage with Kubernetes
+
+[Reference manifests](examples/kubernetes/) show how to wire the Docker image
+into Kubernetes, including health probes, graceful shutdown, and Secret-based
+credentials.  Helm users may prefer the third-party
+[s3proxy-chart](https://github.com/comet-ml/s3proxy-chart).
+
 ## Usage without Docker
 
 Users can [download releases](https://github.com/gaul/s3proxy/releases)

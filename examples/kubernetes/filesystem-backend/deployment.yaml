@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3proxy
+  labels:
+    app.kubernetes.io/name: s3proxy
+spec:
+  # The filesystem backend owns its volume: run exactly one replica and
+  # replace it in place, since ReadWriteOnce volumes cannot attach to the
+  # old and new pod at once during a rolling update.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: s3proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: s3proxy
+    spec:
+      # preStop (5s) plus the proxy's 30-second request drain, with margin.
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: s3proxy
+          # Pin to a release tag in production.
+          image: docker.io/andrewgaul/s3proxy:latest
+          ports:
+            - name: s3
+              containerPort: 80
+          env:
+            - name: JCLOUDS_PROVIDER
+              value: filesystem-nio2
+            # *_FILE variants read mounted Secret files so credentials stay
+            # out of the environment and the pod spec.
+            - name: S3PROXY_IDENTITY_FILE
+              value: /run/secrets/s3proxy/s3proxy-identity
+            - name: S3PROXY_CREDENTIAL_FILE
+              value: /run/secrets/s3proxy/s3proxy-credential
+          # /healthz answers without authentication.  During shutdown the
+          # proxy answers 503, so readiness removes terminating pods from
+          # the Service endpoints while in-flight requests drain.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: s3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: s3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            # Endpoint removal propagates asynchronously; keep serving
+            # briefly so late-routed connections do not hit a proxy that
+            # already began draining.
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              # The JVM sizes its heap from this limit
+              # (-XX:MaxRAMPercentage=75), so always set one.
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+              # The image binds port 80 as root; see
+              # https://github.com/gaul/s3proxy/issues/1121 for non-root.
+              add: ["NET_BIND_SERVICE"]
+          volumeMounts:
+            - name: credentials
+              mountPath: /run/secrets/s3proxy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: credentials
+          secret:
+            secretName: s3proxy-credentials
+            defaultMode: 0400
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: s3proxy-data

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: s3proxy-data
+  labels:
+    app.kubernetes.io/name: s3proxy
+spec:
+  # Uses the cluster default StorageClass; set storageClassName to choose.
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

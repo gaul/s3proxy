@@ -290,6 +290,20 @@ jobs:
           ./src/test/resources/run-s3-tests.sh s3proxy-swift.conf
           kill $(pidof swift)
 
+  kubernetesExamples:
+    runs-on: ubuntu-26.04-arm
+    needs: [meta]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Validate Kubernetes example manifests
+        run: |
+          docker run --rm --volume "$PWD/examples/kubernetes:/examples:ro" \
+            ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict -summary /examples
+
   Containerize:
     runs-on: ubuntu-26.04-arm
     needs: [runTests, azuriteTests, localstackTests, fakeGcsServerTests, swiftTests, meta]
