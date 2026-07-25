@@ -18,12 +18,14 @@ COPY target/jdeps-modules.txt /tmp/jdeps-modules.txt
 #   jdk.crypto.cryptoki - SunPKCS11: PKCS#11 keystores, e.g. FIPS deployments
 # (SunEC lives in java.base since JDK 22.)  --bind-services also links in
 # every service provider reachable from the module graph (locale data,
-# extended charsets, security providers), adding ~32 MB over an explicit
-# list but guarding against providers that jdeps cannot see.  The CI smoke
-# test exercises the result.
+# extended charsets, security providers), guarding against providers that
+# jdeps cannot see; --include-locales keeps only the English subset of
+# jdk.localedata since the proxy formats HTTP dates with Locale.US.  The
+# CI smoke test exercises the result.
 RUN jlink \
     --add-modules "$(cat /tmp/jdeps-modules.txt),jdk.crypto.cryptoki" \
     --bind-services \
+    --include-locales=en \
     --strip-debug \
     --no-man-pages \
     --no-header-files \
