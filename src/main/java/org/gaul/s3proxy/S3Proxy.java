@@ -40,6 +40,7 @@ import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.handler.GracefulHandler;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -52,6 +53,10 @@ import org.jspecify.annotations.Nullable;
  * OpenStack Swift.
  */
 public final class S3Proxy {
+    // How long stop() waits for in-flight requests; SIGKILL usually arrives
+    // sooner (docker stop defaults to 10 seconds, Kubernetes to 30).
+    private static final long STOP_TIMEOUT_MS = 30_000;
+
     private final Server server;
     // Non-null only when metrics are served on a dedicated port instead of
     // the S3 endpoint.
@@ -181,7 +186,10 @@ public final class S3Proxy {
             }
         }
         context.addServlet(new ServletHolder(handler), "/*");
-        server.setHandler(context);
+        // Reject new requests during stop and let server.stop() wait for
+        // in-flight ones, so SIGTERM drains rather than dropping transfers.
+        server.setHandler(new GracefulHandler(context));
+        server.setStopTimeout(STOP_TIMEOUT_MS);
     }
 
     public static final class Builder {

@@ -180,6 +180,18 @@ public final class Main {
             System.err.println(e.getMessage());
             System.exit(1);
         }
+
+        // Drain in-flight requests on SIGTERM, e.g., docker stop or
+        // Kubernetes pod eviction.
+        S3Proxy finalS3Proxy = s3Proxy;
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                finalS3Proxy.stop();
+            } catch (Exception e) {
+                System.err.println("Error during shutdown: " +
+                        e.getMessage());
+            }
+        }, "s3proxy-shutdown"));
     }
 
     private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
