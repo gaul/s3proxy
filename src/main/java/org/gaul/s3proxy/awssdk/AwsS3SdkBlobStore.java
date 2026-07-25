@@ -106,6 +106,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.Type;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 public final class AwsS3SdkBlobStore implements BlobStore {
@@ -887,6 +888,49 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             throw new RuntimeException("Failed to upload part", e);
         } catch (S3Exception e) {
             throw translate(e, mpu.containerName(), mpu.blobName());
+        }
+    }
+
+    @Override
+    public boolean supportsCopyMultipartPart() {
+        return true;
+    }
+
+    @Override
+    public MultipartPart copyMultipartPart(MultipartUpload mpu,
+            int partNumber, String sourceContainer, String sourceName,
+            @Nullable String copySourceRange, @Nullable String ifMatch,
+            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
+            @Nullable Date ifUnmodifiedSince) {
+        var builder = UploadPartCopyRequest.builder()
+                .sourceBucket(sourceContainer)
+                .sourceKey(sourceName)
+                .destinationBucket(mpu.containerName())
+                .destinationKey(mpu.blobName())
+                .uploadId(mpu.id())
+                .partNumber(partNumber);
+        if (copySourceRange != null) {
+            builder.copySourceRange(copySourceRange);
+        }
+        if (ifMatch != null) {
+            builder.copySourceIfMatch(ifMatch);
+        }
+        if (ifNoneMatch != null) {
+            builder.copySourceIfNoneMatch(ifNoneMatch);
+        }
+        if (ifModifiedSince != null) {
+            builder.copySourceIfModifiedSince(ifModifiedSince.toInstant());
+        }
+        if (ifUnmodifiedSince != null) {
+            builder.copySourceIfUnmodifiedSince(ifUnmodifiedSince.toInstant());
+        }
+        try {
+            var result = s3Client.uploadPartCopy(builder.build())
+                    .copyPartResult();
+            return new MultipartPart(partNumber, /*partSize=*/ -1,
+                    result.eTag(), Date.from(result.lastModified()));
+        } catch (S3Exception e) {
+            throw translate(e, sourceContainer, sourceName);
         }
     }
 

@@ -3599,6 +3599,7 @@ public class S3ProxyHandler {
 
         var optionsBuilder = GetOptions.builder();
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
+        String rawCopySourceRange = range;
         long expectedSize = -1;
         if (range != null) {
             if (!range.startsWith("bytes=") || range.indexOf(',') != -1 ||
@@ -3665,6 +3666,49 @@ public class S3ProxyHandler {
         MultipartUpload mpu = new MultipartUpload(containerName,
                 blobName, uploadId, createFakeBlobMetadata(),
                 PutOptions.NONE);
+
+        if (blobStore.supportsCopyMultipartPart()) {
+            long nativeIfModifiedSince = request.getDateHeader(
+                    AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
+            long nativeIfUnmodifiedSince = request.getDateHeader(
+                    AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
+            MultipartPart part = blobStore.copyMultipartPart(mpu, partNumber,
+                    sourceContainerName, sourceBlobName, rawCopySourceRange,
+                    request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH),
+                    request.getHeader(
+                            AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH),
+                    nativeIfModifiedSince == -1 ?
+                            null : new Date(nativeIfModifiedSince),
+                    nativeIfUnmodifiedSince == -1 ?
+                            null : new Date(nativeIfUnmodifiedSince));
+
+            response.setCharacterEncoding(UTF_8);
+            addCorsResponseHeader(request, response);
+            try (Writer writer = response.getWriter()) {
+                response.setContentType(XML_CONTENT_TYPE);
+                XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                        writer);
+                xml.writeStartDocument();
+                xml.writeStartElement("CopyObjectResult");
+                xml.writeDefaultNamespace(AWS_XMLNS);
+
+                Date partLastModified = part.lastModified();
+                if (partLastModified != null) {
+                    writeSimpleElement(xml, "LastModified",
+                            formatDate(partLastModified));
+                }
+                String partETag = part.partETag();
+                if (partETag != null) {
+                    writeSimpleElement(xml, "ETag", maybeQuoteETag(partETag));
+                }
+
+                xml.writeEndElement();
+                xml.flush();
+            } catch (XMLStreamException xse) {
+                throw new IOException(xse);
+            }
+            return;
+        }
 
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 optionsBuilder.build());

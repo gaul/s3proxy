@@ -18,6 +18,7 @@
 package org.gaul.s3proxy.blobstore;
 
 import java.io.InputStream;
+import java.util.Date;
 import java.util.List;
 
 import com.google.common.hash.HashCode;
@@ -130,6 +131,33 @@ public interface BlobStore extends AutoCloseable {
      */
     MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber,
             InputStream is, long contentLength, @Nullable HashCode contentMD5);
+
+    /**
+     * Whether {@link #copyMultipartPart} copies server-side on the backend.
+     * Wrappers that transform payloads, e.g. encryption, must not report
+     * true since a backend copy would bypass the transformation.
+     */
+    default boolean supportsCopyMultipartPart() {
+        return false;
+    }
+
+    /**
+     * Copies a source object range into a part of a multipart upload
+     * server-side, without streaming the payload through the caller.
+     *
+     * @param copySourceRange raw x-amz-copy-source-range value, e.g.
+     *        bytes=first-last, or null to copy the entire object; the
+     *        backend enforces its own validation and the copy-source
+     *        conditions
+     */
+    default MultipartPart copyMultipartPart(MultipartUpload mpu,
+            int partNumber, String sourceContainer, String sourceName,
+            @Nullable String copySourceRange, @Nullable String ifMatch,
+            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
+            @Nullable Date ifUnmodifiedSince) {
+        throw new UnsupportedOperationException(
+                "backend does not support server-side part copies");
+    }
 
     List<MultipartPart> listMultipartUpload(MultipartUpload mpu);
 
