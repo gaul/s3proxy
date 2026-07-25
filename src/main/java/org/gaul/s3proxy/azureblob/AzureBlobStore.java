@@ -124,6 +124,9 @@ public final class AzureBlobStore implements BlobStore {
     private final BlobServiceAsyncClient blobServiceAsyncClient;
     private final String endpoint;
     private final Supplier<Credentials> creds;
+    // Azurite responds 501 to Put Block From URL; discovered on first use
+    // so the caller can fall back to streamed emulation.
+    private volatile boolean nativePartCopyUnsupported;
 
     public AzureBlobStore(
             Supplier<Credentials> creds,
@@ -1037,10 +1040,6 @@ public final class AzureBlobStore implements BlobStore {
         Date lastModified = null;
         return new MultipartPart(partNumber, contentLength, eTag, lastModified);
     }
-
-    // Azurite responds 501 to Put Block From URL; discovered on first use
-    // so the caller can fall back to streamed emulation.
-    private volatile boolean nativePartCopyUnsupported;
 
     @Override
     public boolean supportsCopyMultipartPart() {

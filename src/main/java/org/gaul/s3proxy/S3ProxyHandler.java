@@ -3668,6 +3668,20 @@ public class S3ProxyHandler {
                 PutOptions.NONE);
 
         if (blobStore.supportsCopyMultipartPart()) {
+            // Backends report overlong ranges inconsistently; enforce the
+            // same InvalidRange semantics as the emulated path below, which
+            // checks the size from getBlob's metadata.
+            if (expectedSize != -1) {
+                BlobMetadata sourceMetadata = blobStore.blobMetadata(
+                        sourceContainerName, sourceBlobName);
+                if (sourceMetadata == null) {
+                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                }
+                Long sourceSize = sourceMetadata.size();
+                if (sourceSize != null && sourceSize < expectedSize) {
+                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                }
+            }
             long nativeIfModifiedSince = request.getDateHeader(
                     AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
             long nativeIfUnmodifiedSince = request.getDateHeader(
