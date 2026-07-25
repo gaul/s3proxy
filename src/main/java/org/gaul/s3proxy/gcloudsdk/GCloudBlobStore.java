@@ -591,50 +591,15 @@ public final class GCloudBlobStore implements BlobStore {
             targetBuilder.setMetadata(userMetadata);
         }
 
-        // GCS has no native ETag/time copy-source preconditions, so emulate the
-        // x-amz-copy-source-if-* conditions against the source object's current
-        // metadata.  For If-Match, additionally pin the copy to the verified
-        // generation so a concurrent change to the source fails the copy rather
-        // than silently copying a different version.
-        var sourceOptions = new java.util.ArrayList<BlobSourceOption>();
         String ifMatch = options.ifMatch();
         String ifNoneMatch = options.ifNoneMatch();
         Date ifModifiedSince = options.ifModifiedSince();
         Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        List<BlobSourceOption> sourceOptions = List.of();
         if (ifMatch != null || ifNoneMatch != null ||
                 ifModifiedSince != null || ifUnmodifiedSince != null) {
-            Blob sourceBlob = storage.get(source);
-            if (sourceBlob != null) {
-                String sourceETag = sourceBlob.getEtag();
-                if (sourceETag != null) {
-                    String quoted = maybeQuoteETag(sourceETag);
-                    if (ifMatch != null &&
-                            !maybeQuoteETag(ifMatch).equals(quoted)) {
-                        throw preconditionFailed(sourceETag);
-                    }
-                    if (ifNoneMatch != null &&
-                            maybeQuoteETag(ifNoneMatch).equals(quoted)) {
-                        throw preconditionFailed(sourceETag);
-                    }
-                }
-                Date lastModified = toDate(
-                        sourceBlob.getUpdateTimeOffsetDateTime());
-                if (lastModified != null) {
-                    Date modified = truncateToSecond(lastModified);
-                    if (ifModifiedSince != null &&
-                            modified.compareTo(ifModifiedSince) <= 0) {
-                        throw preconditionFailed(sourceETag);
-                    }
-                    if (ifUnmodifiedSince != null &&
-                            modified.compareTo(ifUnmodifiedSince) > 0) {
-                        throw preconditionFailed(sourceETag);
-                    }
-                }
-                if (ifMatch != null) {
-                    sourceOptions.add(BlobSourceOption.generationMatch(
-                            sourceBlob.getGeneration()));
-                }
-            }
+            sourceOptions = checkCopySourceConditions(storage.get(source),
+                    ifMatch, ifNoneMatch, ifModifiedSince, ifUnmodifiedSince);
         }
 
         try {
@@ -648,6 +613,53 @@ public final class GCloudBlobStore implements BlobStore {
         } catch (StorageException se) {
             throw translate(se, fromContainer, fromName);
         }
+    }
+
+    /**
+     * Emulates the x-amz-copy-source-if-* conditions against the source
+     * object's current metadata since GCS has no native ETag or time
+     * copy-source preconditions.  For If-Match the returned options pin the
+     * copy to the verified generation so a concurrent change to the source
+     * fails the copy rather than silently copying a different version.
+     */
+    private static List<BlobSourceOption> checkCopySourceConditions(
+            @Nullable Blob sourceBlob, @Nullable String ifMatch,
+            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
+            @Nullable Date ifUnmodifiedSince) {
+        var sourceOptions = new java.util.ArrayList<BlobSourceOption>();
+        if (sourceBlob == null) {
+            return sourceOptions;
+        }
+        String sourceETag = sourceBlob.getEtag();
+        if (sourceETag != null) {
+            String quoted = maybeQuoteETag(sourceETag);
+            if (ifMatch != null &&
+                    !maybeQuoteETag(ifMatch).equals(quoted)) {
+                throw preconditionFailed(sourceETag);
+            }
+            if (ifNoneMatch != null &&
+                    maybeQuoteETag(ifNoneMatch).equals(quoted)) {
+                throw preconditionFailed(sourceETag);
+            }
+        }
+        Date lastModified = toDate(
+                sourceBlob.getUpdateTimeOffsetDateTime());
+        if (lastModified != null) {
+            Date modified = truncateToSecond(lastModified);
+            if (ifModifiedSince != null &&
+                    modified.compareTo(ifModifiedSince) <= 0) {
+                throw preconditionFailed(sourceETag);
+            }
+            if (ifUnmodifiedSince != null &&
+                    modified.compareTo(ifUnmodifiedSince) > 0) {
+                throw preconditionFailed(sourceETag);
+            }
+        }
+        if (ifMatch != null) {
+            sourceOptions.add(BlobSourceOption.generationMatch(
+                    sourceBlob.getGeneration()));
+        }
+        return sourceOptions;
     }
 
     @Override
@@ -1081,6 +1093,84 @@ public final class GCloudBlobStore implements BlobStore {
 
         String eTag = BaseEncoding.base16().lowerCase().encode(md5Hash);
         return new MultipartPart(partNumber, contentLength, eTag, null);
+    }
+
+    @Override
+    public boolean supportsCopyMultipartPart() {
+        return true;
+    }
+
+    @Override
+    public MultipartPart copyMultipartPart(MultipartUpload mpu,
+            int partNumber, String sourceContainer, String sourceName,
+            @Nullable String copySourceRange, @Nullable String ifMatch,
+            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
+            @Nullable Date ifUnmodifiedSince) {
+        if (partNumber < 1 || partNumber > 10_000) {
+            throw new IllegalArgumentException(
+                    "Part number must be between 1 and 10,000, got: " +
+                    partNumber);
+        }
+
+        var source = BlobId.of(sourceContainer, sourceName);
+        Blob sourceBlob;
+        try {
+            sourceBlob = storage.get(source);
+        } catch (StorageException se) {
+            throw translate(se, sourceContainer, sourceName);
+        }
+        if (sourceBlob == null) {
+            throw new KeyNotFoundException(sourceContainer, sourceName, "");
+        }
+
+        // GCS cannot copy a byte range server-side; a range covering the
+        // whole object is equivalent to no range, anything else falls back
+        // to streamed emulation in the caller.
+        if (copySourceRange != null && !isEntireObject(copySourceRange,
+                sourceBlob.getSize())) {
+            throw new UnsupportedOperationException(
+                    "GCS does not support ranged server-side copies");
+        }
+
+        var sourceOptions = checkCopySourceConditions(sourceBlob, ifMatch,
+                ifNoneMatch, ifModifiedSince, ifUnmodifiedSince);
+
+        String uploadKey = mpu.id();
+        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String partBlobName = makePartBlobName(nonce, partNumber);
+
+        try {
+            var copyRequest = CopyRequest.newBuilder()
+                    .setSource(source)
+                    .setSourceOptions(sourceOptions)
+                    .setTarget(BlobInfo.newBuilder(BlobId.of(
+                            mpu.containerName(), partBlobName)).build())
+                    .build();
+            var result = storage.copy(copyRequest).getResult();
+            // Match uploadMultipartPart's hex MD5 part ETag;
+            // listMultipartUpload reads the same value back from GCS.
+            return new MultipartPart(partNumber, result.getSize(),
+                    result.getMd5ToHexString(), null);
+        } catch (StorageException se) {
+            throw translate(se, sourceContainer, sourceName);
+        }
+    }
+
+    /** Whether a strict bytes=first-last range spans the whole object. */
+    private static boolean isEntireObject(String range, long size) {
+        if (!range.startsWith("bytes=") || range.indexOf(',') != -1) {
+            return false;
+        }
+        String[] parts = range.substring("bytes=".length()).split("-", 2);
+        if (parts.length != 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
+            return false;
+        }
+        try {
+            return Long.parseLong(parts[0]) == 0 &&
+                    Long.parseLong(parts[1]) == size - 1;
+        } catch (NumberFormatException nfe) {
+            return false;
+        }
     }
 
     @Override
