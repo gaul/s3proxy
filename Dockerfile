@@ -85,6 +85,14 @@ ENV \
 
 EXPOSE 80 443
 
+# /healthz answers without authentication.  bash's /dev/tcp avoids needing
+# curl in the image; the port comes from S3PROXY_ENDPOINT so overrides keep
+# working.  Kubernetes ignores HEALTHCHECK; point probes at /healthz.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+    CMD bash -c 'exec 3<>"/dev/tcp/127.0.0.1/${S3PROXY_ENDPOINT##*:}" && \
+        printf "GET /healthz HTTP/1.0\r\n\r\n" >&3 && \
+        head -n 1 <&3 | grep -q " 200 "'
+
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 CMD ["/opt/s3proxy/run-docker-container.sh"]
