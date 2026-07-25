@@ -19,7 +19,7 @@ env:
 jobs:
 
   meta:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     outputs:
       container_tags: ${{ steps.docker_action_meta.outputs.tags }}
       container_labels: ${{ steps.docker_action_meta.outputs.labels }}
@@ -51,7 +51,7 @@ jobs:
           labels: |
             org.opencontainers.image.licenses=Apache-2.0
   runTests:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -111,7 +111,7 @@ jobs:
           path: pom.xml
 
   azuriteTests:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -150,7 +150,7 @@ jobs:
           kill $(pidof node)
 
   localstackTests:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -202,7 +202,7 @@ jobs:
           docker stop localstack
 
   fakeGcsServerTests:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -243,7 +243,7 @@ jobs:
           kill $(pidof fake-gcs-server)
 
   swiftTests:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -291,7 +291,7 @@ jobs:
           kill $(pidof swift)
 
   Containerize:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     needs: [runTests, azuriteTests, localstackTests, fakeGcsServerTests, swiftTests, meta]
     permissions:
       contents: read
