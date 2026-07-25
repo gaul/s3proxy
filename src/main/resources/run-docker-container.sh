@@ -2,7 +2,11 @@
 
 mkdir "${JCLOUDS_FILESYSTEM_BASEDIR}"
 
+# Defaults precede S3PROXY_JAVA_OPTS so callers can override them: the last
+# occurrence of an -XX flag wins and an explicit -Xmx beats MaxRAMPercentage.
 exec java \
+    -XX:MaxRAMPercentage=75 \
+    -XX:+UseCompactObjectHeaders \
     $S3PROXY_JAVA_OPTS \
     -DLOG_LEVEL="${LOG_LEVEL}" \
     -Ds3proxy.endpoint="${S3PROXY_ENDPOINT}" \
