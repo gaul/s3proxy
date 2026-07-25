@@ -2,7 +2,7 @@
 # target/jdeps-modules.txt comes from `mvn package -Pjdeps`.
 # Pin the build stage to the same Ubuntu release as the final image so the
 # copied JRE runs against the same glibc.
-FROM docker.io/library/eclipse-temurin:21-jdk-noble AS jre-build
+FROM docker.io/library/eclipse-temurin:21-jdk-resolute AS jre-build
 
 COPY target/jdeps-modules.txt /tmp/jdeps-modules.txt
 
@@ -25,7 +25,7 @@ RUN jlink \
     --output /javaruntime
 
 # Stage 2: create the final runtime image
-FROM docker.io/library/ubuntu:24.04
+FROM docker.io/library/ubuntu:26.04
 LABEL maintainer="Andrew Gaul <andrew@gaul.org>"
 
 RUN apt-get update && \
