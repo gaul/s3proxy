@@ -2437,7 +2437,7 @@ public class S3ProxyHandler {
                 blobStoreType.equals("azureblob-sdk")) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (metadata == null) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
             }
             ifMatch = null;
         }
@@ -2457,14 +2457,12 @@ public class S3ProxyHandler {
                 !supportsNativeConditionalWrites) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (ifMatch != null) {
-                if (ifMatch.equals("*")) {
-                    if (metadata == null) {
-                        throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-                    }
-                } else {
-                    if (metadata == null) {
-                        throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
-                    }
+                // any If-Match against a key that does not exist is a 404,
+                // including If-Match: *
+                if (metadata == null) {
+                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                }
+                if (!ifMatch.equals("*")) {
                     String eTag = metadata.eTag();
                     if (eTag != null) {
                         eTag = maybeQuoteETag(eTag);
@@ -2858,7 +2856,7 @@ public class S3ProxyHandler {
                 blobStoreType.equals("azureblob-sdk")) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (metadata == null) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
             }
             ifMatch = null;
         }

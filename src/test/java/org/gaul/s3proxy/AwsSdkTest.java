@@ -2210,6 +2210,38 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testPutIfMatchMissingKey() throws Exception {
+        String blobName = "put-if-match-missing";
+
+        // If-Match against a key that does not exist is 404 for every form
+        // of the condition, not the 412 that a mismatched ETag yields
+        for (var condition : List.of("*", "\"badetag\"")) {
+            try {
+                client.putObject(b -> b.bucket(containerName).key(blobName)
+                                .ifMatch(condition),
+                        RequestBody.fromString("body"));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).as(condition).isEqualTo(404);
+                assertThat(e.awsErrorDetails().errorCode()).as(condition)
+                        .isEqualTo("NoSuchKey");
+            }
+        }
+
+        // a mismatched ETag against a key that does exist stays 412
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromString("body"));
+        try {
+            client.putObject(b -> b.bucket(containerName).key(blobName)
+                            .ifMatch("\"badetag\""),
+                    RequestBody.fromString("other"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+    }
+
+    @Test
     public void testPutIfNoneMatchWildcard() throws Exception {
         String blobName = "put-if-none-match";
 
