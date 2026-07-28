@@ -208,7 +208,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.CHECKSUM_ALGORITHM,
             AwsHttpHeaders.CHECKSUM_CRC32,
             AwsHttpHeaders.CHECKSUM_CRC32C,
-            AwsHttpHeaders.CHECKSUM_CRC64NVME,  // TODO: ignoring header
+            AwsHttpHeaders.CHECKSUM_CRC64NVME,
             AwsHttpHeaders.CHECKSUM_MODE,
             AwsHttpHeaders.CHECKSUM_SHA1,
             AwsHttpHeaders.CHECKSUM_SHA256,
@@ -1946,9 +1946,8 @@ public class S3ProxyHandler {
      * The single flexible checksum carried as a regular x-amz-checksum-*
      * request header, or null.  Modern AWS SDKs send these on non-streaming
      * PutObject and UploadPart requests; the aws-chunked trailer variant is
-     * validated by ChunkedInputStream instead.  CRC64NVME is unsupported by
-     * Guava and therefore ignored.  S3 rejects requests asserting more than
-     * one algorithm.
+     * validated by ChunkedInputStream instead.  S3 rejects requests
+     * asserting more than one algorithm.
      */
     @Nullable
     private static FlexChecksum requestChecksumHeader(
@@ -2820,11 +2819,7 @@ public class S3ProxyHandler {
         if (checksumAlgorithm != null) {
             mpuAlgorithm = FlexChecksum.fromAlgorithmName(checksumAlgorithm);
             if (mpuAlgorithm == null) {
-                // CRC64NVME is a real S3 algorithm which Guava cannot hash
-                throw new S3Exception(
-                        checksumAlgorithm.equalsIgnoreCase("crc64nvme") ?
-                                S3ErrorCode.NOT_IMPLEMENTED :
-                                S3ErrorCode.INVALID_REQUEST,
+                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
                         "Checksum algorithm provided is unsupported.");
             }
         }
@@ -3363,6 +3358,11 @@ public class S3ProxyHandler {
                 Hashing.crc32()),
         CRC32C("crc32c", "ChecksumCRC32C", AwsHttpHeaders.CHECKSUM_CRC32C, 4,
                 true, Hashing.crc32c()),
+        // Crc64Nvme already hashes to the big-endian wire form, unlike
+        // Guava's 32-bit CRCs, so it needs no further byte swapping.
+        CRC64NVME("crc64nvme", "ChecksumCRC64NVME",
+                AwsHttpHeaders.CHECKSUM_CRC64NVME, 8, false,
+                Crc64Nvme.INSTANCE),
         SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20, false,
                 Hashing.sha1()),
         SHA256("sha256", "ChecksumSHA256", AwsHttpHeaders.CHECKSUM_SHA256, 32,
@@ -3413,6 +3413,7 @@ public class S3ProxyHandler {
             return switch (this) {
             case CRC32 -> part.checksumCRC32();
             case CRC32C -> part.checksumCRC32C();
+            case CRC64NVME -> part.checksumCRC64NVME();
             case SHA1 -> part.checksumSHA1();
             case SHA256 -> part.checksumSHA256();
             };

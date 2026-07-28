@@ -325,6 +325,9 @@ public final class AwsSdkTest {
         }
     }
 
+    // CRC64_NVME is absent because the SDK cannot compute it without the
+    // optional aws-crt module; testPutObjectChecksumCrc64Nvme covers the
+    // precomputed-header path instead.
     @ParameterizedTest
     @EnumSource(value = ChecksumAlgorithm.class,
             names = {"CRC32", "CRC32_C", "SHA1", "SHA256"})
@@ -449,6 +452,39 @@ public final class AwsSdkTest {
                     Arrays.copyOfRange(content, 4, 8));
             assertThat(object.response().checksumSHA256()).isNull();
             assertThat(object.response().checksumType()).isNull();
+        }
+    }
+
+    @Test
+    public void testPutObjectChecksumCrc64Nvme() throws Exception {
+        var key = "testPutObjectChecksumCrc64Nvme";
+        var content = new byte[1024];
+        Arrays.fill(content, (byte) 'A');
+        // CRC-64/NVME of 1024 'A' bytes, big-endian and base64 encoded
+        var checksum = "Qeh8oXvGiSo=";
+
+        PutObjectResponse putResponse = client.putObject(
+                b -> b.bucket(containerName).key(key)
+                        .checksumCRC64NVME(checksum),
+                RequestBody.fromBytes(content));
+        assertThat(putResponse.checksumCRC64NVME()).isEqualTo(checksum);
+
+        HeadObjectResponse headResponse = client.headObject(
+                b -> b.bucket(containerName).key(key));
+        assertThat(headResponse.checksumCRC64NVME()).isNull();
+
+        headResponse = client.headObject(b -> b.bucket(containerName).key(key)
+                .checksumMode(ChecksumMode.ENABLED));
+        assertThat(headResponse.checksumCRC64NVME()).isEqualTo(checksum);
+
+        // a digest that does not describe the body is rejected
+        try {
+            client.putObject(b -> b.bucket(containerName).key(key)
+                            .checksumCRC64NVME("AAAAAAAAAAA="),
+                    RequestBody.fromBytes(content));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo("BadDigest");
         }
     }
 

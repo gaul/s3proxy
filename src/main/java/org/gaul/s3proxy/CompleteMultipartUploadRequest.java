@@ -34,6 +34,8 @@ record CompleteMultipartUploadRequest(
             @JacksonXmlProperty(localName = "ChecksumCRC32") String checksumCRC32,
             @JacksonXmlProperty(localName = "ChecksumCRC32C")
             String checksumCRC32C,
+            @JacksonXmlProperty(localName = "ChecksumCRC64NVME")
+            String checksumCRC64NVME,
             @JacksonXmlProperty(localName = "ChecksumSHA1") String checksumSHA1,
             @JacksonXmlProperty(localName = "ChecksumSHA256")
             String checksumSHA256) {

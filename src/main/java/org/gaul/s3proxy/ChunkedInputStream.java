@@ -79,8 +79,9 @@ final class ChunkedInputStream extends FilterInputStream {
             hasher = Hashing.sha1().newHasher();
         } else if ("x-amz-checksum-sha256".equals(trailer)) {
             hasher = Hashing.sha256().newHasher();
+        } else if ("x-amz-checksum-crc64nvme".equals(trailer)) {
+            hasher = Crc64Nvme.INSTANCE.newHasher();
         } else {
-            // TODO: Guava does not support x-amz-checksum-crc64nvme
             hasher = null;
         }
         signingKey = null;
@@ -125,8 +126,9 @@ final class ChunkedInputStream extends FilterInputStream {
             hasher = Hashing.sha1().newHasher();
         } else if ("x-amz-checksum-sha256".equals(trailer)) {
             hasher = Hashing.sha256().newHasher();
+        } else if ("x-amz-checksum-crc64nvme".equals(trailer)) {
+            hasher = Crc64Nvme.INSTANCE.newHasher();
         } else {
-            // TODO: Guava does not support x-amz-checksum-crc64nvme
             hasher = null;
         }
         this.signingKey = signingKey.clone();
@@ -152,7 +154,8 @@ final class ChunkedInputStream extends FilterInputStream {
                 var expectedHash = checksumParts[1];
                 var actualHash = switch (checksumParts[0]) {
                 case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer.allocate(4).putInt(hasher.hash().asInt()).array(); // Use big-endian to match AWS
-                case "x-amz-checksum-sha1", "x-amz-checksum-sha256" -> hasher.hash().asBytes();
+                case "x-amz-checksum-sha1", "x-amz-checksum-sha256",
+                        "x-amz-checksum-crc64nvme" -> hasher.hash().asBytes();
                 default -> throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
                 };
                 if (!expectedHash.equals(Base64.getEncoder().encodeToString(actualHash))) {
@@ -280,8 +283,8 @@ final class ChunkedInputStream extends FilterInputStream {
         var actualHash = switch (parts[0]) {
         case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer
                 .allocate(4).putInt(hasher.hash().asInt()).array();
-        case "x-amz-checksum-sha1", "x-amz-checksum-sha256" ->
-            hasher.hash().asBytes();
+        case "x-amz-checksum-sha1", "x-amz-checksum-sha256",
+                "x-amz-checksum-crc64nvme" -> hasher.hash().asBytes();
         default -> throw new IOException("unknown trailer: " + parts[0]);
         };
         if (!expectedHash.equals(
