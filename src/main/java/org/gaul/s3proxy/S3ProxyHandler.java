@@ -2928,12 +2928,23 @@ public class S3ProxyHandler {
         // meaning, even when the completion would fail for other reasons.
         validateChecksumHeaderValues(request);
 
+        CompleteMultipartUploadRequest cmu;
+        try {
+            cmu = mapper.readValue(is, CompleteMultipartUploadRequest.class);
+        } catch (StreamReadException jpe) {
+            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
+        }
+
         BlobMetadata metadata;
         PutOptions options;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             String stubName = multipartStubName(uploadId);
             metadata = blobStore.blobMetadata(containerName, stubName);
+            if (metadata == null && respondAlreadyCompleted(request,
+                    response, blobStore, containerName, blobName, cmu)) {
+                return;
+            }
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     stubName);
             options = PutOptions.builder().blobAccess(access).build();
@@ -2945,7 +2956,6 @@ public class S3ProxyHandler {
                 blobName, uploadId, metadata, options);
 
         final List<MultipartPart> parts = new ArrayList<>();
-        CompleteMultipartUploadRequest cmu = null;
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob-sdk") ||
                 blobStoreType.equals("google-cloud-storage-sdk")) {
@@ -2954,13 +2964,10 @@ public class S3ProxyHandler {
                         Collectors.toMap(
                                 part -> part.partNumber(),
                                 part -> part));
-            try {
-                cmu = mapper.readValue(
-                        is, CompleteMultipartUploadRequest.class);
-            } catch (StreamReadException jpe) {
-                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
+            if (partsByListing.isEmpty() && respondAlreadyCompleted(request,
+                    response, blobStore, containerName, blobName, cmu)) {
+                return;
             }
-
             if (cmu.parts() != null) {
                 // Sort by part number and deduplicate (last occurrence wins)
                 // before validating, so a resent part is checked against the
@@ -2999,13 +3006,10 @@ public class S3ProxyHandler {
                         Collectors.toMap(
                                 part -> part.partNumber(),
                                 part -> part));
-            try {
-                cmu = mapper.readValue(
-                        is, CompleteMultipartUploadRequest.class);
-            } catch (StreamReadException jpe) {
-                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
+            if (partsByListing.isEmpty() && respondAlreadyCompleted(request,
+                    response, blobStore, containerName, blobName, cmu)) {
+                return;
             }
-
             // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, String> requestParts = new TreeMap<>();
             if (cmu.parts() != null) {
@@ -3219,6 +3223,123 @@ public class S3ProxyHandler {
             }
             checksum.decodeValue(base64Part);
         }
+    }
+
+    /**
+     * The ETag completing {@code cmu} produces: the hex MD5 of the
+     * concatenated part MD5s suffixed with the part count.  Null when a part
+     * omits its ETag or carries one that is not a hex MD5, e.g. because the
+     * backend does not compose ETags the way S3 does.
+     */
+    @Nullable
+    private static String compositeETag(CompleteMultipartUploadRequest cmu) {
+        if (cmu.parts() == null || cmu.parts().isEmpty()) {
+            return null;
+        }
+        var digests = new TreeMap<Integer, byte[]>();
+        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+            String eTag = part.eTag();
+            if (eTag == null) {
+                return null;
+            }
+            eTag = eTag.replace("\"", "").toLowerCase();
+            try {
+                byte[] digest = BaseEncoding.base16().lowerCase().decode(eTag);
+                if (digest.length != MD5.bits() / Byte.SIZE) {
+                    return null;
+                }
+                digests.put(part.partNumber(), digest);
+            } catch (IllegalArgumentException iae) {
+                return null;
+            }
+        }
+        Hasher hasher = MD5.newHasher();
+        for (byte[] digest : digests.values()) {
+            hasher.putBytes(digest);
+        }
+        return hasher.hash() + "-" + digests.size();
+    }
+
+    /**
+     * Repeat the result of a multipart upload that already completed, which
+     * S3 allows so a client whose response was lost can retry.  s3proxy
+     * keeps no record of a finished upload, so recognize the retry by the
+     * object the completion left behind carrying exactly the ETag these
+     * parts compose to.  Returns false when nothing matches, leaving the
+     * caller to reject the unknown upload as before.
+     */
+    private boolean respondAlreadyCompleted(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName,
+            CompleteMultipartUploadRequest cmu) throws IOException {
+        String expected = compositeETag(cmu);
+        if (expected == null) {
+            return false;
+        }
+        BlobMetadata metadata = blobStore.blobMetadata(containerName,
+                blobName);
+        if (metadata == null || metadata.eTag() == null ||
+                !equalsIgnoringSurroundingQuotes(expected, metadata.eTag())) {
+            return false;
+        }
+
+        // Prefer the composite persisted at completion; backends that
+        // cannot store it keep no record, so fall back to echoing the
+        // request's own value the way the first completion did.
+        FlexChecksum checksum = null;
+        String checksumValue = null;
+        for (var entry : metadata.userMetadata().entrySet()) {
+            if (startsWithIgnoreCase(entry.getKey(),
+                    CHECKSUM_METADATA_PREFIX)) {
+                FlexChecksum candidate = FlexChecksum.fromMetadataKey(
+                        entry.getKey());
+                if (candidate != null) {
+                    checksum = candidate;
+                    checksumValue = entry.getValue();
+                }
+            }
+        }
+        if (checksum == null) {
+            for (FlexChecksum candidate : FlexChecksum.values()) {
+                String value = request.getHeader(candidate.header());
+                if (value != null) {
+                    checksum = candidate;
+                    checksumValue = value;
+                    break;
+                }
+            }
+        }
+
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setCharacterEncoding(UTF_8);
+        response.setContentType(XML_CONTENT_TYPE);
+        if (checksum != null && checksumValue != null) {
+            response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE, "COMPOSITE");
+            response.addHeader(checksum.header(), checksumValue);
+        }
+        try (PrintWriter writer = response.getWriter()) {
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("CompleteMultipartUploadResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+            // TODO: bogus value
+            writeSimpleElement(xml, "Location",
+                    "http://Example-Bucket.s3.amazonaws.com/" + blobName);
+            writeSimpleElement(xml, "Bucket", containerName);
+            writeSimpleElement(xml, "Key", blobName);
+            writeSimpleElement(xml, "ETag",
+                    maybeQuoteETag(metadata.eTag()));
+            if (checksum != null && checksumValue != null) {
+                writeSimpleElement(xml, "ChecksumType", "COMPOSITE");
+                writeSimpleElement(xml, checksum.element(), checksumValue);
+            }
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+        return true;
     }
 
     /**

@@ -555,6 +555,57 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testCompleteMultipartUploadRetry() throws Exception {
+        // s3proxy keeps no record of a finished upload and recognizes the
+        // retry by the object carrying the ETag the parts compose to, which
+        // needs a backend whose ETags are the S3 composite.  Azure and GCS
+        // mint their own, so a retry there is indistinguishable from an
+        // unknown upload.
+        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+
+        var key = "testCompleteMultipartUploadRetry";
+        var content = new byte[5 * 1024 * 1024];
+        Arrays.fill(content, (byte) 'A');
+
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1),
+                RequestBody.fromBytes(content));
+        var parts = CompletedMultipartUpload.builder()
+                .parts(CompletedPart.builder().partNumber(1)
+                        .eTag(part.eTag()).build())
+                .build();
+
+        CompleteMultipartUploadResponse first = client.completeMultipartUpload(
+                b -> b.bucket(containerName).key(key).uploadId(uploadId)
+                        .multipartUpload(parts));
+
+        // completing again must repeat the result rather than fail, so a
+        // client that lost the first response can retry
+        CompleteMultipartUploadResponse retry = client.completeMultipartUpload(
+                b -> b.bucket(containerName).key(key).uploadId(uploadId)
+                        .multipartUpload(parts));
+        assertThat(retry.eTag()).isEqualTo(first.eTag());
+
+        // an upload that never existed is still rejected
+        try {
+            client.completeMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId("does-not-exist")
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(CompletedPart.builder().partNumber(1)
+                                    .eTag("\"d41d8cd98f00b204e9800998ecf8427e\"")
+                                    .build())
+                            .build()));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isBetween(400, 499);
+        }
+    }
+
+    @Test
     public void testMultipartCopy() throws Exception {
         String sourceBlobName = "testMultipartCopy-source";
         String targetBlobName = "testMultipartCopy-target";
