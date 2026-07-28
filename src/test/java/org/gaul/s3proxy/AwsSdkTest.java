@@ -96,6 +96,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectAttributes;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.Permission;
@@ -2390,6 +2391,23 @@ public final class AwsSdkTest {
             }
             assertThat(client.listBuckets().buckets().stream()
                     .anyMatch(b -> b.name().equals(containerName))).isTrue();
+        }
+    }
+
+    @Test
+    public void testGetObjectAttributesNotImplemented() throws Exception {
+        client.putObject(b -> b.bucket(containerName).key("attributes"),
+                RequestBody.fromBytes(BYTE_SOURCE.read()));
+        // rejected on ?attributes rather than incidentally on the required
+        // x-amz-object-attributes header, which a client may omit
+        try {
+            client.getObjectAttributes(b -> b.bucket(containerName)
+                    .key("attributes")
+                    .objectAttributes(ObjectAttributes.E_TAG));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("NotImplemented");
         }
     }
 

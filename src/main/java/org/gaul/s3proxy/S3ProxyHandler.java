@@ -174,6 +174,7 @@ public class S3ProxyHandler {
     private static final Set<String> UNSUPPORTED_PARAMETERS = Set.of(
             "accelerate",
             "analytics",
+            "attributes",
             "cors",
             "encryption",
             "inventory",
