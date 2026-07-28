@@ -175,11 +175,14 @@ public class S3ProxyHandler {
             "accelerate",
             "analytics",
             "cors",
+            "encryption",
             "inventory",
             "lifecycle",
             "logging",
             "metrics",
             "notification",
+            "ownershipControls",
+            "publicAccessBlock",
             "replication",
             "requestPayment",
             "restore",
@@ -188,6 +191,14 @@ public class S3ProxyHandler {
             "versioning",
             "versions",
             "website"
+    );
+    /**
+     * Subresources that are readable but not writable.  PUT and DELETE on a
+     * bucket ignore the subresource and dispatch to CreateBucket and
+     * DeleteBucket, so these must be rejected before that happens.
+     */
+    private static final Set<String> UNSUPPORTED_WRITE_PARAMETERS = Set.of(
+            "policy"
     );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = Set.of(
@@ -599,9 +610,12 @@ public class S3ProxyHandler {
             path[i] = URLDecoder.decode(path[i], StandardCharsets.UTF_8);
         }
 
+        boolean writeMethod = method.equals("PUT") || method.equals("DELETE");
         for (String parameter : Collections.list(
                 request.getParameterNames())) {
-            if (UNSUPPORTED_PARAMETERS.contains(parameter)) {
+            if (UNSUPPORTED_PARAMETERS.contains(parameter) ||
+                    (writeMethod &&
+                            UNSUPPORTED_WRITE_PARAMETERS.contains(parameter))) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);

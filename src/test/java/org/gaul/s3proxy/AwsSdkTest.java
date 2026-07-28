@@ -2367,6 +2367,45 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testBucketSubresourceDeleteDoesNotDeleteBucket()
+            throws Exception {
+        // DELETE on a bucket dispatches to DeleteBucket without inspecting
+        // the subresource, so an unhandled one must be rejected earlier.
+        // ?policy is rejected only here; GetBucketPolicy still answers.
+        for (var operation : List.<Runnable>of(
+                () -> client.deleteBucketPolicy(
+                        b -> b.bucket(containerName)),
+                () -> client.deleteBucketEncryption(
+                        b -> b.bucket(containerName)),
+                () -> client.deleteBucketOwnershipControls(
+                        b -> b.bucket(containerName)),
+                () -> client.deletePublicAccessBlock(
+                        b -> b.bucket(containerName)))) {
+            try {
+                operation.run();
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("NotImplemented");
+            }
+            assertThat(client.listBuckets().buckets().stream()
+                    .anyMatch(b -> b.name().equals(containerName))).isTrue();
+        }
+    }
+
+    @Test
+    public void testPutBucketPolicyNotImplemented() throws Exception {
+        try {
+            client.putBucketPolicy(b -> b.bucket(containerName)
+                    .policy("{\"Version\":\"2012-10-17\",\"Statement\":[]}"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("NotImplemented");
+        }
+    }
+
+    @Test
     public void testUnknownParameter() throws Exception {
         try {
             client.putBucketLogging(b -> b.bucket(containerName)
