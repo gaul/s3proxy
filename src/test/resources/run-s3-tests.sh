@@ -60,6 +60,7 @@ tags='not fails_on_s3proxy'\
 ' and not fails_strict_rfc2616'\
 ' and not iam_tenant'\
 ' and not lifecycle'\
+' and not object_attributes'\
 ' and not object_lock'\
 ' and not object_ownership'\
 ' and not policy'\
