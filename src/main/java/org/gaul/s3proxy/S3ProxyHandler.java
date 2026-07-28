@@ -3188,11 +3188,15 @@ public class S3ProxyHandler {
     }
 
     /**
-     * Reject malformed x-amz-checksum-* request header values the way S3
-     * does, before considering their meaning: 400 InvalidRequest.  A valid
-     * value is either a bare base64 digest of the algorithm's length or a
-     * composite "&lt;base64&gt;-&lt;partCount&gt;".  Base64 never contains
-     * '-', so its presence always marks the composite suffix.
+     * Reject malformed x-amz-checksum-* request header values before
+     * considering their meaning.  A valid value is either a bare base64
+     * digest of the algorithm's length or a composite
+     * "&lt;base64&gt;-&lt;partCount&gt;".  Base64 never contains '-', so its
+     * presence always marks the composite suffix.  A digest that is not
+     * valid base64 of the right length is 400 BadDigest, the same answer a
+     * well formed digest that does not match the body gets; a malformed
+     * part count describes the request rather than the digest and stays
+     * 400 InvalidRequest.
      */
     private static void validateChecksumHeaderValues(
             HttpServletRequest request) throws S3Exception {
@@ -3566,12 +3570,12 @@ public class S3ProxyHandler {
             try {
                 decoded = Base64.getDecoder().decode(value);
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                throw new S3Exception(S3ErrorCode.BAD_DIGEST,
                         "Value for " + header + " header is invalid.", iae,
                         Map.of());
             }
             if (decoded.length != length) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                throw new S3Exception(S3ErrorCode.BAD_DIGEST,
                         "Value for " + header + " header is invalid.");
             }
             return decoded;

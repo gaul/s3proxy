@@ -492,15 +492,20 @@ public final class AwsSdkTest {
     public void testPutObjectMalformedChecksumHeader() throws Exception {
         var key = "testPutObjectMalformedChecksum";
         var content = TestUtils.randomByteSource().slice(0, 1024).read();
-        try {
-            client.putObject(b -> b.bucket(containerName).key(key)
-                            .checksumSHA256("bad"),
-                    RequestBody.fromBytes(content));
-            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
-        } catch (S3Exception e) {
-            assertThat(e.statusCode()).isEqualTo(400);
-            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
-                    "InvalidRequest");
+        // a digest that cannot be decoded is BadDigest, like one that
+        // decodes but does not match the body
+        for (var value : List.of("bad", Base64.getEncoder().encodeToString(
+                new byte[] {1, 2, 3}))) {
+            try {
+                client.putObject(b -> b.bucket(containerName).key(key)
+                                .checksumSHA256(value),
+                        RequestBody.fromBytes(content));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).as(value).isEqualTo(400);
+                assertThat(e.awsErrorDetails().errorCode()).as(value)
+                        .isEqualTo("BadDigest");
+            }
         }
     }
 
