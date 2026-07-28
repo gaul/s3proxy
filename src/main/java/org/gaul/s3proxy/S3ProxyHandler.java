@@ -1872,6 +1872,14 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
+        // Only directory buckets delete conditionally.  Reject the condition
+        // rather than honor the delete and discard it, which would report
+        // success for a delete the caller asked not to happen.  The
+        // x-amz-if-match-size and x-amz-if-match-last-modified-time forms
+        // are already refused as unknown x-amz- headers.
+        if (request.getHeader(HttpHeaders.IF_MATCH) != null) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        }
         blobStore.removeBlob(containerName, blobName);
         addCorsResponseHeader(request, response);
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -2005,6 +2013,9 @@ public class S3ProxyHandler {
                 dmor.objects()) {
             if (Strings.isNullOrEmpty(s3Object.key())) {
                 throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+            }
+            if (s3Object.hasCondition()) {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
             blobNames.add(s3Object.key());
         }

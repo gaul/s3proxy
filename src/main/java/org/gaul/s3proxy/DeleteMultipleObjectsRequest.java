@@ -29,6 +29,17 @@ record DeleteMultipleObjectsRequest(
 
     record S3Object(
             @JacksonXmlProperty(localName = "Key") String key,
-            @JacksonXmlProperty(localName = "VersionID") String versionId) {
+            @JacksonXmlProperty(localName = "VersionID") String versionId,
+            // Delete conditions that only directory buckets honor.  Parsed
+            // so handleMultiBlobRemove can reject them instead of deleting
+            // unconditionally; the values themselves are never used.
+            @JacksonXmlProperty(localName = "ETag") String eTag,
+            @JacksonXmlProperty(localName = "LastModifiedTime")
+            String lastModifiedTime,
+            @JacksonXmlProperty(localName = "Size") String size) {
+
+        boolean hasCondition() {
+            return eTag != null || lastModifiedTime != null || size != null;
+        }
     }
 }

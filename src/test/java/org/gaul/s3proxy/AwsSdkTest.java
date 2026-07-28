@@ -560,6 +560,37 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testConditionalDeleteNotImplemented() throws Exception {
+        var key = "testConditionalDelete";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+
+        // a condition s3proxy cannot honor must not delete the object
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatch("\"badetag\""));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+
+        try {
+            client.deleteObjects(b -> b.bucket(containerName)
+                    .delete(d -> d.objects(ObjectIdentifier.builder().key(key)
+                            .eTag("\"badetag\"").build())));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+
+        // the object survived both, and an unconditional delete still works
+        client.headObject(b -> b.bucket(containerName).key(key));
+        client.deleteObject(b -> b.bucket(containerName).key(key));
+    }
+
+    @Test
     public void testCompleteMultipartUploadRetry() throws Exception {
         // s3proxy keeps no record of a finished upload and recognizes the
         // retry by the object carrying the ETag the parts compose to, which
