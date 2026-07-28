@@ -34,6 +34,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -416,6 +417,38 @@ public final class AwsSdkTest {
         assertThat(headResponse.checksumSHA256()).isEqualTo(checksum);
         // the reserved persistence key must not leak as user metadata
         assertThat(headResponse.metadata()).isEmpty();
+    }
+
+    @Test
+    public void testGetObjectRangeOmitsChecksum() throws Exception {
+        var key = "testGetObjectRangeChecksum";
+        var content = TestUtils.randomByteSource().slice(0, 1024).read();
+        var checksum = Base64.getEncoder().encodeToString(
+                Hashing.sha256().hashBytes(content).asBytes());
+
+        client.putObject(
+                b -> b.bucket(containerName).key(key).checksumSHA256(checksum),
+                RequestBody.fromBytes(content));
+
+        // a whole-object GET describes every byte returned
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(key)
+                        .checksumMode(ChecksumMode.ENABLED))) {
+            object.transferTo(OutputStream.nullOutputStream());
+            assertThat(object.response().checksumSHA256()).isEqualTo(checksum);
+        }
+
+        // a ranged GET does not, so S3 omits the checksum entirely rather
+        // than return one the partial body cannot satisfy
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(key)
+                        .range("bytes=4-7")
+                        .checksumMode(ChecksumMode.ENABLED))) {
+            assertThat(object.readAllBytes()).isEqualTo(
+                    Arrays.copyOfRange(content, 4, 8));
+            assertThat(object.response().checksumSHA256()).isNull();
+            assertThat(object.response().checksumType()).isNull();
+        }
     }
 
     @Test

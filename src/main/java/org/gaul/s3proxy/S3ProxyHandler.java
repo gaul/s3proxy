@@ -2069,7 +2069,8 @@ public class S3ProxyHandler {
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
-        addMetadataToResponse(request, response, metadata);
+        addMetadataToResponse(request, response, metadata,
+                /*partialContent=*/ false);
         addCorsResponseHeader(request, response);
     }
 
@@ -2201,7 +2202,8 @@ public class S3ProxyHandler {
 
         addCorsResponseHeader(request, response);
 
-        addMetadataToResponse(request, response, blob.getMetadata());
+        addMetadataToResponse(request, response, blob.getMetadata(),
+                status == HttpServletResponse.SC_PARTIAL_CONTENT);
 
         // TODO: handles only a single range due to jclouds limitations
         String contentRange = blob.getContentRange();
@@ -3939,7 +3941,8 @@ public class S3ProxyHandler {
 
     private static void addMetadataToResponse(HttpServletRequest request,
             HttpServletResponse response,
-            BlobMetadata metadata) {
+            BlobMetadata metadata,
+            boolean partialContent) {
         ContentMetadata contentMetadata =
                 metadata.contentMetadata();
         addResponseHeaderWithOverride(request, response,
@@ -4001,7 +4004,10 @@ public class S3ProxyHandler {
             }
             response.addHeader(USER_METADATA_PREFIX + key, entry.getValue());
         }
+        // S3 omits the whole-object checksum from a ranged response since it
+        // does not describe the bytes actually returned.
         if (storedChecksum != null && storedChecksumValue != null &&
+                !partialContent &&
                 "ENABLED".equalsIgnoreCase(
                         request.getHeader(AwsHttpHeaders.CHECKSUM_MODE))) {
             response.addHeader(storedChecksum.header(), storedChecksumValue);
