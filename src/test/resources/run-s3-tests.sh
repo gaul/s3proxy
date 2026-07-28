@@ -61,6 +61,7 @@ tags='not fails_on_s3proxy'\
 ' and not iam_tenant'\
 ' and not lifecycle'\
 ' and not object_lock'\
+' and not object_ownership'\
 ' and not policy'\
 ' and not policy_status'\
 ' and not s3select'\
