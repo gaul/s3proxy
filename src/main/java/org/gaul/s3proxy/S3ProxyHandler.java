@@ -4421,13 +4421,18 @@ public class S3ProxyHandler {
      */
     private static String stripAwsChunked(String contentEncoding) {
         var parts = new ArrayList<String>();
+        boolean removed = false;
         for (String part : Splitter.on(',').split(contentEncoding)) {
             String trimmed = part.trim();
-            if (!trimmed.equalsIgnoreCase("aws-chunked") && !trimmed.isEmpty()) {
+            if (trimmed.equalsIgnoreCase("aws-chunked") || trimmed.isEmpty()) {
+                removed = true;
+            } else {
                 parts.add(trimmed);
             }
         }
-        return String.join(",", parts);
+        // S3 echoes Content-Encoding verbatim, so only rewrite the value when
+        // there was something to remove.
+        return removed ? String.join(", ", parts) : contentEncoding;
     }
 
     private static byte[] hmac(String algorithm, byte[] data, byte[] key) {

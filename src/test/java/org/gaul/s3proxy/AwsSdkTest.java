@@ -1940,6 +1940,35 @@ public final class AwsSdkTest {
         }
     }
 
+    @Test
+    public void testContentEncodingMultipleTokens() throws Exception {
+        assumeTrue(!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType));
+        // Swift keeps a Content-Encoding naming one encoding but drops one
+        // naming several, so it cannot observe what this checks.
+        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
+
+        String blobName = "content-encoding-tokens";
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                        .contentEncoding("deflate, gzip"),
+                RequestBody.fromString("body"));
+        assertThat(client.headObject(b -> b.bucket(containerName).key(blobName))
+                .contentEncoding()).isEqualTo("deflate, gzip");
+
+        // aws-chunked describes the transfer, not the stored object, so it
+        // never becomes metadata.
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                        .contentEncoding("gzip, aws-chunked"),
+                RequestBody.fromString("body"));
+        assertThat(client.headObject(b -> b.bucket(containerName).key(blobName))
+                .contentEncoding()).isEqualTo("gzip");
+
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                        .contentEncoding("aws-chunked"),
+                RequestBody.fromString("body"));
+        assertThat(client.headObject(b -> b.bucket(containerName).key(blobName))
+                .contentEncoding()).isNull();
+    }
+
     // TODO: fails for GCS (jclouds not implemented)
     @Test
     public void testMultipartUpload() throws Exception {
