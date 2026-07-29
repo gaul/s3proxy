@@ -1178,6 +1178,11 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         String uploadKey = mpu.id();
+        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
+            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+                    "Multipart upload not found: " + uploadKey);
+        }
+
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 
         var containerClient = blobServiceClient.getBlobContainerClient(mpu.containerName());
@@ -1189,8 +1194,8 @@ public final class AzureBlobStore implements BlobStore {
             targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-                throw new IllegalArgumentException(
-                        "Upload not found: uploadId=" + uploadKey);
+                throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+                        "Multipart upload not found: " + uploadKey);
             }
             throw bse;
         }

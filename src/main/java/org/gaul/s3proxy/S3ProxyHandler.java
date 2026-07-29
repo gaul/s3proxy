@@ -2950,9 +2950,13 @@ public class S3ProxyHandler {
                 blobStore))) {
             String stubName = multipartStubName(uploadId);
             metadata = blobStore.blobMetadata(containerName, stubName);
-            if (metadata == null && respondAlreadyCompleted(request,
-                    response, blobStore, containerName, blobName, cmu)) {
-                return;
+            if (metadata == null) {
+                if (respondAlreadyCompleted(request, response, blobStore,
+                        containerName, blobName, cmu)) {
+                    return;
+                }
+                // the stub is the only record that the upload exists
+                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     stubName);
@@ -2968,14 +2972,27 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob-sdk") ||
                 blobStoreType.equals("google-cloud-storage-sdk")) {
-            var partsByListing =
-                blobStore.listMultipartUpload(mpu).stream().collect(
-                        Collectors.toMap(
-                                part -> part.partNumber(),
-                                part -> part));
-            if (partsByListing.isEmpty() && respondAlreadyCompleted(request,
-                    response, blobStore, containerName, blobName, cmu)) {
-                return;
+            Map<Integer, MultipartPart> partsByListing;
+            try {
+                partsByListing =
+                    blobStore.listMultipartUpload(mpu).stream().collect(
+                            Collectors.toMap(
+                                    part -> part.partNumber(),
+                                    part -> part));
+            } catch (KeyNotFoundException knfe) {
+                // these backends recognize an upload id they never minted
+                if (respondAlreadyCompleted(request, response, blobStore,
+                        containerName, blobName, cmu)) {
+                    return;
+                }
+                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, knfe);
+            }
+            if (partsByListing.isEmpty()) {
+                if (respondAlreadyCompleted(request, response, blobStore,
+                        containerName, blobName, cmu)) {
+                    return;
+                }
+                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             if (cmu.parts() != null) {
                 // Sort by part number and deduplicate (last occurrence wins)
@@ -3015,9 +3032,12 @@ public class S3ProxyHandler {
                         Collectors.toMap(
                                 part -> part.partNumber(),
                                 part -> part));
-            if (partsByListing.isEmpty() && respondAlreadyCompleted(request,
-                    response, blobStore, containerName, blobName, cmu)) {
-                return;
+            if (partsByListing.isEmpty()) {
+                if (respondAlreadyCompleted(request, response, blobStore,
+                        containerName, blobName, cmu)) {
+                    return;
+                }
+                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, String> requestParts = new TreeMap<>();

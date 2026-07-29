@@ -1176,6 +1176,11 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         String uploadKey = mpu.id();
+        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
+            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+                    "Multipart upload not found: " + uploadKey);
+        }
+
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
         String prefix = STUB_BLOB_PREFIX + nonce + "/part_";
 

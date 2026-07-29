@@ -662,7 +662,28 @@ public final class AwsSdkTest {
                             .build()));
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {
-            assertThat(e.statusCode()).isBetween(400, 499);
+            assertThat(e.statusCode()).isEqualTo(404);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchUpload");
+        }
+    }
+
+    @Test
+    public void testCompleteMultipartUploadWithoutCreate() throws Exception {
+        String key = "testCompleteMultipartUploadWithoutCreate";
+        var parts = CompletedMultipartUpload.builder()
+                .parts(CompletedPart.builder().partNumber(1)
+                        .eTag("\"d41d8cd98f00b204e9800998ecf8427e\"").build())
+                .build();
+
+        try {
+            client.completeMultipartUpload(b -> b.bucket(containerName).key(key)
+                    .uploadId("does-not-exist").multipartUpload(parts));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchUpload");
         }
     }
 
