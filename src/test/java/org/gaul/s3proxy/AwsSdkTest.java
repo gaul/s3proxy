@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.zip.CRC32;
 
 import javax.net.ssl.HostnameVerifier;
@@ -717,6 +718,91 @@ public final class AwsSdkTest {
         // the object survived both, and an unconditional delete still works
         client.headObject(b -> b.bucket(containerName).key(key));
         client.deleteObject(b -> b.bucket(containerName).key(key));
+    }
+
+    @Test
+    public void testCompleteMultipartUploadConditional() throws Exception {
+        var key = "testCompleteMultipartUploadConditional";
+        var content = new byte[5 * 1024 * 1024];
+        Arrays.fill(content, (byte) 'A');
+
+        // creating the object: the condition holds while the key is absent
+        completeConditionally(key, content, b -> b.ifNoneMatch("*"));
+
+        // and fails once it is there
+        try {
+            completeConditionally(key, content, b -> b.ifNoneMatch("*"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "PreconditionFailed");
+        }
+
+        // If-None-Match naming the ETag the object currently carries.  Read
+        // it back rather than reusing an earlier completion's: only a
+        // composite ETag is a function of the parts, and Azure and Swift mint
+        // one of their own on every write.
+        String current = currentETag(key);
+        try {
+            completeConditionally(key, content, b -> b.ifNoneMatch(current));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+
+        // a different ETag does not match, so the write proceeds
+        completeConditionally(key, content, b -> b.ifNoneMatch("\"badetag\""));
+
+        // overwriting: If-Match against the current ETag
+        String beforeOverwrite = currentETag(key);
+        completeConditionally(key, content, b -> b.ifMatch(beforeOverwrite));
+        try {
+            completeConditionally(key, content, b -> b.ifMatch("\"badetag\""));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+
+        client.deleteObject(b -> b.bucket(containerName).key(key));
+
+        // an If-Match against a missing key is a 404, not a 412 -- there is
+        // nothing for it to have matched, even for If-Match: *
+        for (String ifMatch : new String[] {"*", "\"badetag\""}) {
+            try {
+                completeConditionally(key, content, b -> b.ifMatch(ifMatch));
+                Fail.failBecauseExceptionWasNotThrown(
+                        NoSuchKeyException.class);
+            } catch (NoSuchKeyException nske) {
+                assertThat(nske.statusCode()).isEqualTo(404);
+            }
+        }
+    }
+
+    private String currentETag(String key) {
+        return client.headObject(
+                b -> b.bucket(containerName).key(key)).eTag();
+    }
+
+    /** Upload one part and complete it, applying the caller's condition. */
+    private String completeConditionally(String key, byte[] content,
+            Consumer<software.amazon.awssdk.services.s3.model
+                    .CompleteMultipartUploadRequest.Builder> condition) {
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1),
+                RequestBody.fromBytes(content));
+        var parts = CompletedMultipartUpload.builder()
+                .parts(CompletedPart.builder().partNumber(1)
+                        .eTag(part.eTag()).build())
+                .build();
+        return client.completeMultipartUpload(b -> {
+            b.bucket(containerName).key(key).uploadId(uploadId)
+                    .multipartUpload(parts);
+            condition.accept(b);
+        }).eTag();
     }
 
     @Test

@@ -2604,41 +2604,8 @@ public class S3ProxyHandler {
         // Note: this is a non-atomic operation (HEAD then PUT).
         if ((ifMatch != null || ifNoneMatch != null) &&
                 !supportsNativeConditionalWrites) {
-            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
-            if (ifMatch != null) {
-                // any If-Match against a key that does not exist is a 404,
-                // including If-Match: *
-                if (metadata == null) {
-                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
-                }
-                if (!ifMatch.equals("*")) {
-                    String eTag = metadata.eTag();
-                    if (eTag != null) {
-                        eTag = maybeQuoteETag(eTag);
-                        if (!equalsIgnoringSurroundingQuotes(ifMatch, eTag)) {
-                            throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-                        }
-                    } else {
-                        throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-                    }
-                }
-            }
-
-            if (ifNoneMatch != null) {
-                if (ifNoneMatch.equals("*")) {
-                    if (metadata != null) {
-                        throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-                    }
-                } else if (metadata != null) {
-                    String eTag = metadata.eTag();
-                    if (eTag != null) {
-                        eTag = maybeQuoteETag(eTag);
-                        if (equalsIgnoringSurroundingQuotes(ifNoneMatch, eTag)) {
-                            throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
-                        }
-                    }
-                }
-            }
+            checkConditionalWrite(blobStore.blobMetadata(containerName,
+                    blobName), ifMatch, ifNoneMatch);
         }
 
         BlobAccess access;
@@ -3231,6 +3198,16 @@ public class S3ProxyHandler {
         if (parts.isEmpty()) {
             // Amazon requires at least one part
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+        }
+
+        // No backend exposes a conditional completion, so evaluate the
+        // precondition here, once the upload is known good but before
+        // anything is written.  Note: not atomic (HEAD then complete).
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        if (ifMatch != null || ifNoneMatch != null) {
+            checkConditionalWrite(blobStore.blobMetadata(containerName,
+                    blobName), ifMatch, ifNoneMatch);
         }
 
         boolean requiresStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
@@ -4739,6 +4716,42 @@ public class S3ProxyHandler {
 
     private static String unquoteETag(String eTag) {
         return CharMatcher.is('"').trimFrom(eTag);
+    }
+
+    /**
+     * Evaluate If-Match and If-None-Match against the object a write is about
+     * to replace.  Note the asymmetry S3 has here: an If-Match naming a key
+     * that does not exist is a 404 rather than a 412, including If-Match: *,
+     * since there is nothing to have matched.
+     *
+     * @param metadata the destination object, or null if it does not exist
+     */
+    private static void checkConditionalWrite(@Nullable BlobMetadata metadata,
+            @Nullable String ifMatch, @Nullable String ifNoneMatch)
+            throws S3Exception {
+        if (ifMatch != null) {
+            if (metadata == null) {
+                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+            }
+            if (!ifMatch.equals("*")) {
+                String eTag = metadata.eTag();
+                if (eTag == null || !equalsIgnoringSurroundingQuotes(ifMatch,
+                        maybeQuoteETag(eTag))) {
+                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                }
+            }
+        }
+
+        if (ifNoneMatch != null && metadata != null) {
+            if (ifNoneMatch.equals("*")) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+            String eTag = metadata.eTag();
+            if (eTag != null && equalsIgnoringSurroundingQuotes(ifNoneMatch,
+                    maybeQuoteETag(eTag))) {
+                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+            }
+        }
     }
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
