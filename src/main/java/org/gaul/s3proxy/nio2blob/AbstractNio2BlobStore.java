@@ -31,6 +31,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -835,6 +836,32 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
         return true;
+    }
+
+    /**
+     * Delete the container and everything under it, s3proxy's own bookkeeping
+     * included.  The default implementation clears what list() reports and
+     * then removes the directory, but list() hides the multipart parts and
+     * stubs and the "/" key sentinel, so a container left holding only those
+     * -- an upload that was never completed or aborted -- was never emptied,
+     * and the directory silently survived because the caller cannot see the
+     * deleteContainerIfEmpty that failed.
+     */
+    @Override
+    public final void deleteContainer(String container) {
+        var path = resolveContainer(container);
+        if (!Files.isDirectory(path)) {
+            return;
+        }
+        try (var paths = Files.walk(path)) {
+            // deepest first, so a directory is emptied before it is removed
+            for (Path child : paths.sorted(Comparator.reverseOrder())
+                    .toList()) {
+                Files.deleteIfExists(child);
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
     }
 
     @Override
