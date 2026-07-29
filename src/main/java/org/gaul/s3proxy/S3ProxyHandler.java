@@ -2652,18 +2652,6 @@ public class S3ProxyHandler {
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         String blobStoreType = getBlobStoreType(blobStore);
 
-        // Azure only supports If-None-Match: *, not If-Match: *
-        // Handle If-Match: * manually for the azureblob-sdk provider.
-        // Note: this is a non-atomic operation (HEAD then PUT).
-        if (ifMatch != null && ifMatch.equals("*") &&
-                blobStoreType.equals("azureblob-sdk")) {
-            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
-            if (metadata == null) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
-            }
-            ifMatch = null;
-        }
-
         // Providers that support native conditional writes
         boolean supportsNativeConditionalWrites =
                 blobStoreType.equals("azureblob-sdk") ||
@@ -2672,6 +2660,24 @@ public class S3ProxyHandler {
                 // Swift only supports If-None-Match: * natively
                 (blobStoreType.equals("openstack-swift-sdk") &&
                         ifMatch == null && "*".equals(ifNoneMatch));
+
+        // S3 answers any If-Match naming a key that does not exist with 404,
+        // since there is nothing to have matched.  The native backends do not
+        // agree -- Azure and GCS report 412, LocalStack 501 -- so settle
+        // existence here rather than let their answer through.  Once it is
+        // established, If-Match: * asks nothing further, so drop it: Azure
+        // and LocalStack reject that form outright.  A specific ETag stays
+        // with the backend, which compares it atomically.
+        //
+        // Note: this makes the existence check non-atomic (HEAD then PUT).
+        if (ifMatch != null && supportsNativeConditionalWrites) {
+            if (!blobStore.blobExists(containerName, blobName)) {
+                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+            }
+            if (ifMatch.equals("*")) {
+                ifMatch = null;
+            }
+        }
 
         // Emulate conditional put for backends without native support.
         // Note: this is a non-atomic operation (HEAD then PUT).

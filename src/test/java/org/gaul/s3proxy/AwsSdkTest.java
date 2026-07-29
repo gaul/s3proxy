@@ -2603,6 +2603,21 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testPutIfMatchWildcard() throws Exception {
+        String blobName = "put-if-match-wildcard";
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromString("first"));
+
+        // the key exists, so the condition holds whatever its ETag; Azure and
+        // LocalStack reject this form outright, so s3proxy settles it itself
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                        .ifMatch("*"),
+                RequestBody.fromString("second"));
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName)).asUtf8String()).isEqualTo("second");
+    }
+
+    @Test
     public void testPutIfNoneMatchWildcard() throws Exception {
         String blobName = "put-if-none-match";
 
