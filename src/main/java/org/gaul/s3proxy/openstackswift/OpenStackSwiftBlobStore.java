@@ -138,6 +138,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     private static final String MPU_META_SUFFIX = "/.meta";
     // User-metadata key on the marker object recording the target object name.
     private static final String MPU_KEY_METADATA = "s3proxy-mpu-key";
+    // A completed multipart object's S3 composite ETag.  Swift cannot compute
+    // it: an SLO manifest gets an ETag of Swift's own making, so the value
+    // CompleteMultipartUpload returned would not survive to the next HEAD --
+    // breaking clients that cache it and send it back as If-Match.  Recorded
+    // here at completion and reported in its place, never as x-amz-meta-.
+    private static final String MPU_ETAG_METADATA = "s3proxy-mpu-etag";
     // Serializes the Swift SLO manifest written by completeMultipartUpload.
     private static final ObjectMapper MANIFEST_MAPPER = new ObjectMapper();
     // Uppercase hex digits for percent-encoding object names.
@@ -587,20 +593,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                             etag == null ? null : maybeQuoteETag(etag)));
         }
 
-        var userMetadata = ImmutableMap.<String, String>builder();
-        for (var entry : response.headers().entrySet()) {
-            String name = entry.getKey();
-            if (name.regionMatches(true, 0,
-                    SwiftHeaders.OBJECT_METADATA_PREFIX, 0,
-                    SwiftHeaders.OBJECT_METADATA_PREFIX.length())) {
-                // S3 metadata keys are case-insensitive and returned lowercase;
-                // Swift's HTTP layer canonicalizes them (key1 -> Key1).
-                userMetadata.put(name.substring(
-                        SwiftHeaders.OBJECT_METADATA_PREFIX.length())
-                        .toLowerCase(Locale.ROOT),
-                        entry.getValue());
-            }
-        }
+        var objectMetadata = ObjectMetadata.from(response.headers());
 
         long contentLength = resolveContentLength(swift, container, key,
                 response.header(HttpHeaders.CONTENT_LENGTH),
@@ -614,8 +607,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .contentEncoding(response.header(HttpHeaders.CONTENT_ENCODING))
                 .cacheControl(response.header(HttpHeaders.CACHE_CONTROL))
                 .expires(parseHttpDate(response.header(HttpHeaders.EXPIRES)))
-                .userMetadata(userMetadata.build())
-                .eTag(response.header(SwiftHeaders.ETAG))
+                .userMetadata(objectMetadata.userMetadata())
+                .eTag(objectMetadata.eTagOr(
+                        response.header(SwiftHeaders.ETAG)))
                 .lastModified(
                         parseHttpDate(response.header(SwiftHeaders.LAST_MODIFIED)));
         if (ranged) {
@@ -870,29 +864,53 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .contentLength(object.getSizeInBytes())
                 .contentType(object.getMimeType())
                 .build();
-        // getMetadata returns raw response headers; keep only the
-        // X-Object-Meta- user metadata, stripped and lowercased like getBlob,
-        // so headers such as X-Timestamp do not leak as x-amz-meta-.
-        var userMetadata = ImmutableMap.<String, String>builder();
-        var objectMetadata = object.getMetadata();
-        if (objectMetadata != null) {
-            for (var entry : objectMetadata.entrySet()) {
-                String name = entry.getKey();
-                if (name.regionMatches(true, 0,
-                        SwiftHeaders.OBJECT_METADATA_PREFIX, 0,
-                        SwiftHeaders.OBJECT_METADATA_PREFIX.length())) {
-                    userMetadata.put(name.substring(
-                            SwiftHeaders.OBJECT_METADATA_PREFIX.length())
-                            .toLowerCase(Locale.ROOT),
-                            entry.getValue());
-                }
-            }
-        }
+        var headers = object.getMetadata();
+        var objectMetadata = ObjectMetadata.from(
+                headers == null ? Map.of() : headers);
         return new BlobMetadata(StorageType.BLOB, key,
-                userMetadata.build(),
-                object.getETag(),
+                objectMetadata.userMetadata(),
+                objectMetadata.eTagOr(object.getETag()),
                 object.getLastModified(), StorageClass.STANDARD, container,
                 contentMetadata);
+    }
+
+    /**
+     * The X-Object-Meta- headers split into the user metadata S3 clients see
+     * and the composite ETag s3proxy hides among them for multipart objects.
+     * Swift returns raw response headers, so anything else -- X-Timestamp and
+     * friends -- must not leak out as x-amz-meta-.
+     */
+    private record ObjectMetadata(Map<String, String> userMetadata,
+            @Nullable String mpuETag) {
+        static ObjectMetadata from(Map<String, String> headers) {
+            var userMetadata = ImmutableMap.<String, String>builder();
+            String mpuETag = null;
+            for (var entry : headers.entrySet()) {
+                String name = entry.getKey();
+                if (!name.regionMatches(true, 0,
+                        SwiftHeaders.OBJECT_METADATA_PREFIX, 0,
+                        SwiftHeaders.OBJECT_METADATA_PREFIX.length())) {
+                    continue;
+                }
+                // S3 metadata keys are case-insensitive and returned
+                // lowercase; Swift's HTTP layer canonicalizes them
+                // (key1 -> Key1).
+                String key = name.substring(
+                        SwiftHeaders.OBJECT_METADATA_PREFIX.length())
+                        .toLowerCase(Locale.ROOT);
+                if (key.equals(MPU_ETAG_METADATA)) {
+                    mpuETag = entry.getValue();
+                } else {
+                    userMetadata.put(key, entry.getValue());
+                }
+            }
+            return new ObjectMetadata(userMetadata.build(), mpuETag);
+        }
+
+        /** The recorded composite ETag, or Swift's own when there is none. */
+        @Nullable String eTagOr(@Nullable String swiftETag) {
+            return mpuETag != null ? mpuETag : swiftETag;
+        }
     }
 
     @Override
@@ -1041,6 +1059,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
         // Restore the target metadata saved by initiateMultipartUpload.
         var swiftOptions = ObjectPutOptions.create();
+        var manifestMetadata = new HashMap<String, String>();
         var marker = getBlob(container, mpuMetaKey(uploadId), GetOptions.NONE);
         if (marker != null) {
             var contentMetadata = marker.getMetadata().contentMetadata();
@@ -1055,12 +1074,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
                         contentMetadata.contentEncoding());
             }
-            var userMetadata = new HashMap<>(
-                    marker.getMetadata().userMetadata());
-            userMetadata.remove(MPU_KEY_METADATA);
-            if (!userMetadata.isEmpty()) {
-                swiftOptions.metadata(userMetadata);
-            }
+            manifestMetadata.putAll(marker.getMetadata().userMetadata());
+            manifestMetadata.remove(MPU_KEY_METADATA);
         }
 
         var sorted = new ArrayList<>(parts);
@@ -1113,6 +1128,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         swiftOptions.queryParam("multipart-manifest", "put");
 
+        String mpuETag = multipartETag(resolved);
+        if (mpuETag != null) {
+            manifestMetadata.put(MPU_ETAG_METADATA, mpuETag);
+        }
+        if (!manifestMetadata.isEmpty()) {
+            swiftOptions.metadata(manifestMetadata);
+        }
+
         String sloETag;
         try {
             sloETag = swift.objects().put(container,
@@ -1127,7 +1150,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // the metadata marker is no longer needed.
         removeBlob(container, mpuMetaKey(uploadId));
 
-        String mpuETag = multipartETag(resolved);
         return mpuETag != null ? mpuETag : sloETag;
     }
 
