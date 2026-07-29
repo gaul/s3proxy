@@ -560,6 +560,31 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testNotFoundIsNotADeleteMarker() throws Exception {
+        var key = "testNotADeleteMarker";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+        client.deleteObject(b -> b.bucket(containerName).key(key));
+
+        // the 404 says the key is absent rather than shadowed by a delete
+        // marker, which s3proxy never creates
+        for (var operation : List.<Runnable>of(
+                () -> client.headObject(b -> b.bucket(containerName).key(key)),
+                () -> client.getObject(b -> b.bucket(containerName)
+                        .key(key)))) {
+            try {
+                operation.run();
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(404);
+                assertThat(e.awsErrorDetails().sdkHttpResponse()
+                        .firstMatchingHeader("x-amz-delete-marker"))
+                        .contains("false");
+            }
+        }
+    }
+
+    @Test
     public void testConditionalDeleteNotImplemented() throws Exception {
         var key = "testConditionalDelete";
         client.putObject(b -> b.bucket(containerName).key(key),

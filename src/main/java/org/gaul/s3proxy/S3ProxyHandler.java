@@ -4237,6 +4237,16 @@ public class S3ProxyHandler {
             response.setHeader(HttpHeaders.CONNECTION, "close");
         }
 
+        // A read that found nothing missed an absent object rather than a
+        // delete marker; s3proxy does not implement versioning, so no key
+        // resolves to one.  Set this centrally because some backends raise
+        // NoSuchKey from the blobstore instead of reporting absence.
+        if (code == S3ErrorCode.NO_SUCH_KEY &&
+                (request.getMethod().equals("GET") ||
+                        request.getMethod().equals("HEAD"))) {
+            response.addHeader(AwsHttpHeaders.DELETE_MARKER, "false");
+        }
+
         response.setStatus(code.getHttpStatusCode());
 
         if (request.getMethod().equals("HEAD")) {
