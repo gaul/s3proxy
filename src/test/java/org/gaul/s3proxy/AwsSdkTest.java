@@ -83,6 +83,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.ChecksumMode;
+import software.amazon.awssdk.services.s3.model.ChecksumType;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -559,6 +560,93 @@ public final class AwsSdkTest {
                             .checksumMode(ChecksumMode.ENABLED));
             assertThat(headResponse.checksumSHA256()).isEqualTo(
                     compositeChecksum);
+        }
+    }
+
+    @Test
+    public void testMultipartUploadFullObjectChecksum() throws Exception {
+        // A full-object checksum describes the assembled object, so it is
+        // the CRC the same bytes would have hashed to in one PutObject --
+        // and unlike a composite it carries no "-<partCount>" suffix.
+        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
+
+        var key = "testMultipartUploadFullObjectChecksum";
+        var part1 = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024)
+                .read();
+        var part2 = TestUtils.randomByteSource()
+                .slice(5 * 1024 * 1024, 1024).read();
+        var whole = new byte[part1.length + part2.length];
+        System.arraycopy(part1, 0, whole, 0, part1.length);
+        System.arraycopy(part2, 0, whole, part1.length, part2.length);
+
+        // Guava holds a CRC little-endian; AWS encodes it big-endian
+        var part1Checksum = crc32cWireForm(part1);
+        var part2Checksum = crc32cWireForm(part2);
+        var wholeChecksum = crc32cWireForm(whole);
+
+        CreateMultipartUploadResponse createResponse =
+                client.createMultipartUpload(b -> b.bucket(containerName)
+                        .key(key)
+                        .checksumAlgorithm(ChecksumAlgorithm.CRC32_C)
+                        .checksumType(ChecksumType.FULL_OBJECT));
+        assertThat(createResponse.checksumType()).isEqualTo(
+                ChecksumType.FULL_OBJECT);
+        String uploadId = createResponse.uploadId();
+
+        UploadPartResponse partResponse1 = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1).checksumCRC32C(part1Checksum),
+                RequestBody.fromBytes(part1));
+        UploadPartResponse partResponse2 = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(2).checksumCRC32C(part2Checksum),
+                RequestBody.fromBytes(part2));
+
+        CompleteMultipartUploadResponse completeResponse =
+                client.completeMultipartUpload(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(
+                                        CompletedPart.builder().partNumber(1)
+                                                .eTag(partResponse1.eTag())
+                                                .checksumCRC32C(part1Checksum)
+                                                .build(),
+                                        CompletedPart.builder().partNumber(2)
+                                                .eTag(partResponse2.eTag())
+                                                .checksumCRC32C(part2Checksum)
+                                                .build())
+                                .build()));
+        assertThat(completeResponse.checksumType()).isEqualTo(
+                ChecksumType.FULL_OBJECT);
+        assertThat(completeResponse.checksumCRC32C()).isEqualTo(wholeChecksum);
+
+        HeadObjectResponse headResponse = client.headObject(
+                b -> b.bucket(containerName).key(key)
+                        .checksumMode(ChecksumMode.ENABLED));
+        assertThat(headResponse.checksumType()).isEqualTo(
+                ChecksumType.FULL_OBJECT);
+        assertThat(headResponse.checksumCRC32C()).isEqualTo(wholeChecksum);
+    }
+
+    private static String crc32cWireForm(byte[] content) {
+        return Base64.getEncoder().encodeToString(ByteBuffer.allocate(
+                Integer.BYTES).putInt(
+                        Hashing.crc32c().hashBytes(content).asInt()).array());
+    }
+
+    @Test
+    public void testMultipartUploadFullObjectRejectsSha() throws Exception {
+        // no combination exists for a cryptographic hash, so S3 allows a
+        // full-object checksum only for the CRCs
+        try {
+            client.createMultipartUpload(b -> b.bucket(containerName)
+                    .key("testMultipartUploadFullObjectRejectsSha")
+                    .checksumAlgorithm(ChecksumAlgorithm.SHA256)
+                    .checksumType(ChecksumType.FULL_OBJECT));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "InvalidRequest");
         }
     }
 
