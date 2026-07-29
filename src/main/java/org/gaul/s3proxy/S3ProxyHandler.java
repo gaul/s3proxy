@@ -1141,40 +1141,13 @@ public class S3ProxyHandler {
 
             xml.writeStartElement("AccessControlList");
 
-            xml.writeStartElement("Grant");
-
-            xml.writeStartElement("Grantee");
-            xml.writeNamespace("xsi",
-                    "http://www.w3.org/2001/XMLSchema-instance");
-            xml.writeAttribute("xsi:type", "CanonicalUser");
-
-            writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
-            writeSimpleElement(xml, "DisplayName",
-                    FAKE_OWNER_DISPLAY_NAME);
-
-            xml.writeEndElement();
-
-            writeSimpleElement(xml, "Permission", "FULL_CONTROL");
-
-            xml.writeEndElement();
-
+            // S3 lists the group grant ahead of the owner's, which clients
+            // rely on to tell the two apart without inspecting every grantee.
             if (access == ContainerAccess.PUBLIC_READ) {
-                xml.writeStartElement("Grant");
-
-                xml.writeStartElement("Grantee");
-                xml.writeNamespace("xsi",
-                        "http://www.w3.org/2001/XMLSchema-instance");
-                xml.writeAttribute("xsi:type", "Group");
-
-                writeSimpleElement(xml, "URI",
-                        "http://acs.amazonaws.com/groups/global/AllUsers");
-
-                xml.writeEndElement();
-
-                writeSimpleElement(xml, "Permission", "READ");
-
-                xml.writeEndElement();
+                writeAllUsersReadGrant(xml);
             }
+
+            writeOwnerFullControlGrant(xml);
 
             xml.writeEndElement();
 
@@ -1241,40 +1214,11 @@ public class S3ProxyHandler {
 
             xml.writeStartElement("AccessControlList");
 
-            xml.writeStartElement("Grant");
-
-            xml.writeStartElement("Grantee");
-            xml.writeNamespace("xsi",
-                    "http://www.w3.org/2001/XMLSchema-instance");
-            xml.writeAttribute("xsi:type", "CanonicalUser");
-
-            writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
-            writeSimpleElement(xml, "DisplayName",
-                    FAKE_OWNER_DISPLAY_NAME);
-
-            xml.writeEndElement();
-
-            writeSimpleElement(xml, "Permission", "FULL_CONTROL");
-
-            xml.writeEndElement();
-
             if (access == BlobAccess.PUBLIC_READ) {
-                xml.writeStartElement("Grant");
-
-                xml.writeStartElement("Grantee");
-                xml.writeNamespace("xsi",
-                        "http://www.w3.org/2001/XMLSchema-instance");
-                xml.writeAttribute("xsi:type", "Group");
-
-                writeSimpleElement(xml, "URI",
-                        "http://acs.amazonaws.com/groups/global/AllUsers");
-
-                xml.writeEndElement();
-
-                writeSimpleElement(xml, "Permission", "READ");
-
-                xml.writeEndElement();
+                writeAllUsersReadGrant(xml);
             }
+
+            writeOwnerFullControlGrant(xml);
 
             xml.writeEndElement();
 
@@ -4669,6 +4613,42 @@ public class S3ProxyHandler {
 
         writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
         writeSimpleElement(xml, "DisplayName", FAKE_OWNER_DISPLAY_NAME);
+
+        xml.writeEndElement();
+    }
+
+    private static void writeOwnerFullControlGrant(XMLStreamWriter xml)
+            throws XMLStreamException {
+        xml.writeStartElement("Grant");
+
+        xml.writeStartElement("Grantee");
+        xml.writeNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
+        xml.writeAttribute("xsi:type", "CanonicalUser");
+
+        writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
+        writeSimpleElement(xml, "DisplayName", FAKE_OWNER_DISPLAY_NAME);
+
+        xml.writeEndElement();
+
+        writeSimpleElement(xml, "Permission", "FULL_CONTROL");
+
+        xml.writeEndElement();
+    }
+
+    private static void writeAllUsersReadGrant(XMLStreamWriter xml)
+            throws XMLStreamException {
+        xml.writeStartElement("Grant");
+
+        xml.writeStartElement("Grantee");
+        xml.writeNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
+        xml.writeAttribute("xsi:type", "Group");
+
+        writeSimpleElement(xml, "URI",
+                "http://acs.amazonaws.com/groups/global/AllUsers");
+
+        xml.writeEndElement();
+
+        writeSimpleElement(xml, "Permission", "READ");
 
         xml.writeEndElement();
     }
