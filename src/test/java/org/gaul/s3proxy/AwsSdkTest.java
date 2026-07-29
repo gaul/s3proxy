@@ -99,6 +99,9 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectAttributes;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.ObjectLockEnabled;
+import software.amazon.awssdk.services.s3.model.ObjectLockLegalHoldStatus;
+import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -2621,6 +2624,67 @@ public final class AwsSdkTest {
             }
             assertThat(client.listBuckets().buckets().stream()
                     .anyMatch(b -> b.name().equals(containerName))).isTrue();
+        }
+    }
+
+    @Test
+    public void testObjectLockDoesNotOverwriteObject() throws Exception {
+        // PUT on an object dispatches to PutObject without inspecting the
+        // subresource, so ?legal-hold and ?retention would otherwise store
+        // their request body as the object.
+        String blobName = "object-lock-subresource";
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromBytes(BYTE_SOURCE.read()));
+
+        for (var operation : List.<Runnable>of(
+                () -> client.putObjectLegalHold(b -> b.bucket(containerName)
+                        .key(blobName).legalHold(h -> h.status(
+                                ObjectLockLegalHoldStatus.ON))),
+                () -> client.putObjectRetention(b -> b.bucket(containerName)
+                        .key(blobName).retention(r -> r
+                                .mode(ObjectLockRetentionMode.GOVERNANCE)
+                                .retainUntilDate(Instant.parse(
+                                        "2038-01-01T00:00:00Z")))),
+                () -> client.getObjectLegalHold(b -> b.bucket(containerName)
+                        .key(blobName)),
+                () -> client.getObjectRetention(b -> b.bucket(containerName)
+                        .key(blobName)))) {
+            try {
+                operation.run();
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("NotImplemented");
+            }
+        }
+
+        try (ResponseInputStream<GetObjectResponse> object = client.getObject(
+                b -> b.bucket(containerName).key(blobName))) {
+            try (InputStream expected = BYTE_SOURCE.openStream()) {
+                assertThat((InputStream) object).hasSameContentAs(expected);
+            }
+        }
+    }
+
+    @Test
+    public void testBucketObjectLockNotImplemented() throws Exception {
+        // PUT on a bucket dispatches to CreateBucket, and GET to a listing
+        // that a client parses as an empty ObjectLockConfiguration -- which
+        // reads as "locking is configured" when nothing of the sort is.
+        for (var operation : List.<Runnable>of(
+                () -> client.putObjectLockConfiguration(
+                        b -> b.bucket(containerName).objectLockConfiguration(
+                                c -> c.objectLockEnabled(
+                                        ObjectLockEnabled.ENABLED))),
+                () -> client.getObjectLockConfiguration(
+                        b -> b.bucket(containerName)))) {
+            try {
+                operation.run();
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("NotImplemented");
+            }
         }
     }
 
