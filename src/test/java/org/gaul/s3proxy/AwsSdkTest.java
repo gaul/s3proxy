@@ -81,6 +81,7 @@ import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.ChecksumMode;
 import software.amazon.awssdk.services.s3.model.ChecksumType;
@@ -94,6 +95,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.Grantee;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -1498,6 +1500,62 @@ public final class AwsSdkTest {
         } catch (S3Exception e) {
             // some backends return a generic 404 instead of NoSuchBucket
             assertThat(e.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    public void testListBucketsPaginated() throws Exception {
+        // a shared prefix isolates this from containerName and from whatever
+        // else the backend already holds
+        String prefix = createRandomContainerName();
+        String bucket1 = prefix + "-1";
+        String bucket2 = prefix + "-2";
+        client.createBucket(b -> b.bucket(bucket1));
+        try {
+            client.createBucket(b -> b.bucket(bucket2));
+            try {
+                ListBucketsResponse first = client.listBuckets(
+                        b -> b.prefix(prefix).maxBuckets(1));
+                assertThat(first.buckets()).hasSize(1);
+                assertThat(first.buckets().get(0).name()).isEqualTo(bucket1);
+                assertThat(first.prefix()).isEqualTo(prefix);
+                // more remain, so the caller is told where to resume
+                assertThat(first.continuationToken()).isNotNull();
+
+                ListBucketsResponse second = client.listBuckets(
+                        b -> b.prefix(prefix).maxBuckets(1)
+                                .continuationToken(first.continuationToken()));
+                assertThat(second.buckets()).hasSize(1);
+                assertThat(second.buckets().get(0).name()).isEqualTo(bucket2);
+                // the last page carries no token, which is how clients stop
+                assertThat(second.continuationToken()).isNull();
+
+                ListBucketsResponse both = client.listBuckets(
+                        b -> b.prefix(prefix));
+                assertThat(both.buckets()).hasSize(2);
+                assertThat(both.continuationToken()).isNull();
+
+                // the prefix excludes containerName, which sorts elsewhere
+                assertThat(both.buckets().stream().map(Bucket::name))
+                        .containsExactly(bucket1, bucket2);
+            } finally {
+                client.deleteBucket(b -> b.bucket(bucket2));
+            }
+        } finally {
+            client.deleteBucket(b -> b.bucket(bucket1));
+        }
+    }
+
+    @Test
+    public void testListBucketsMaxBucketsInvalid() throws Exception {
+        for (int maxBuckets : new int[] {0, -1, 10_001}) {
+            try {
+                client.listBuckets(b -> b.maxBuckets(maxBuckets));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("InvalidArgument");
+            }
         }
     }
 

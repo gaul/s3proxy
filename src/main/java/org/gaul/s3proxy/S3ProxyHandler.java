@@ -172,6 +172,8 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('-'));
     private static final long MAX_MULTIPART_COPY_SIZE =
             5L * 1024L * 1024L * 1024L;
+    /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
+    private static final int MAX_BUCKETS = 10_000;
     private static final Set<String> UNSUPPORTED_PARAMETERS = Set.of(
             "accelerate",
             "analytics",
@@ -1306,8 +1308,49 @@ public class S3ProxyHandler {
 
     private void handleContainerList(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore)
-            throws IOException {
-        PageSet<? extends StorageMetadata> buckets = blobStore.list();
+            throws IOException, S3Exception {
+        // S3 lists buckets ordered by name; the backends promise no order of
+        // their own, and paginating an unstable one would drop or repeat
+        // buckets between pages.
+        var buckets = new ArrayList<StorageMetadata>();
+        for (StorageMetadata metadata : blobStore.list()) {
+            buckets.add(metadata);
+        }
+        buckets.sort(Comparator.comparing(StorageMetadata::name));
+
+        int maxBuckets = MAX_BUCKETS;
+        String maxBucketsString = request.getParameter("max-buckets");
+        if (maxBucketsString != null) {
+            try {
+                maxBuckets = Integer.parseInt(maxBucketsString);
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            }
+            if (maxBuckets < 1 || maxBuckets > MAX_BUCKETS) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            }
+        }
+        // the token names the last bucket the previous page returned
+        String continuationToken = request.getParameter("continuation-token");
+        String prefix = request.getParameter("prefix");
+
+        var page = new ArrayList<StorageMetadata>();
+        String nextContinuationToken = null;
+        for (StorageMetadata metadata : buckets) {
+            String name = metadata.name();
+            if (prefix != null && !name.startsWith(prefix)) {
+                continue;
+            }
+            if (continuationToken != null &&
+                    name.compareTo(continuationToken) <= 0) {
+                continue;
+            }
+            if (page.size() == maxBuckets) {
+                nextContinuationToken = page.get(page.size() - 1).name();
+                break;
+            }
+            page.add(metadata);
+        }
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -1322,7 +1365,7 @@ public class S3ProxyHandler {
             writeOwnerStanza(xml);
 
             xml.writeStartElement("Buckets");
-            for (StorageMetadata metadata : buckets) {
+            for (StorageMetadata metadata : page) {
                 xml.writeStartElement("Bucket");
 
                 writeSimpleElement(xml, "Name", metadata.name());
@@ -1340,6 +1383,16 @@ public class S3ProxyHandler {
                 xml.writeEndElement();
             }
             xml.writeEndElement();
+
+            // present only while more buckets remain, which is how clients
+            // know to stop
+            if (nextContinuationToken != null) {
+                writeSimpleElement(xml, "ContinuationToken",
+                        nextContinuationToken);
+            }
+            if (prefix != null) {
+                writeSimpleElement(xml, "Prefix", prefix);
+            }
 
             xml.writeEndElement();
             xml.flush();
