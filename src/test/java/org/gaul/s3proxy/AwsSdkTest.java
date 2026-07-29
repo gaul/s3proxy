@@ -790,19 +790,27 @@ public final class AwsSdkTest {
                     .CompleteMultipartUploadRequest.Builder> condition) {
         String uploadId = client.createMultipartUpload(
                 b -> b.bucket(containerName).key(key)).uploadId();
-        UploadPartResponse part = client.uploadPart(b -> b
-                        .bucket(containerName).key(key).uploadId(uploadId)
-                        .partNumber(1),
-                RequestBody.fromBytes(content));
-        var parts = CompletedMultipartUpload.builder()
-                .parts(CompletedPart.builder().partNumber(1)
-                        .eTag(part.eTag()).build())
-                .build();
-        return client.completeMultipartUpload(b -> {
-            b.bucket(containerName).key(key).uploadId(uploadId)
-                    .multipartUpload(parts);
-            condition.accept(b);
-        }).eTag();
+        try {
+            UploadPartResponse part = client.uploadPart(b -> b
+                            .bucket(containerName).key(key).uploadId(uploadId)
+                            .partNumber(1),
+                    RequestBody.fromBytes(content));
+            var parts = CompletedMultipartUpload.builder()
+                    .parts(CompletedPart.builder().partNumber(1)
+                            .eTag(part.eTag()).build())
+                    .build();
+            return client.completeMultipartUpload(b -> {
+                b.bucket(containerName).key(key).uploadId(uploadId)
+                        .multipartUpload(parts);
+                condition.accept(b);
+            }).eTag();
+        } catch (RuntimeException re) {
+            // A refused completion leaves the upload open, and its parts keep
+            // the container from being deleted at teardown.
+            client.abortMultipartUpload(b -> b.bucket(containerName).key(key)
+                    .uploadId(uploadId));
+            throw re;
+        }
     }
 
     @Test
