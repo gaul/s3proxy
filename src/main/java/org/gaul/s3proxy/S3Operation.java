@@ -21,6 +21,7 @@ public enum S3Operation {
     LIST_BUCKETS("ListBuckets"),
     LIST_OBJECTS_V2("ListObjectsV2"),
     GET_OBJECT("GetObject"),
+    GET_OBJECT_ATTRIBUTES("GetObjectAttributes"),
     PUT_OBJECT("PutObject"),
     DELETE_OBJECT("DeleteObject"),
     DELETE_OBJECTS("DeleteObjects"),

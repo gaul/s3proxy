@@ -42,6 +42,7 @@ final class AwsHttpHeaders {
             "x-amz-decoded-content-length";
     static final String DELETE_MARKER = "x-amz-delete-marker";
     static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
+    static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
     static final String REQUEST_ID = "x-amz-request-id";
     static final String SDK_CHECKSUM_ALGORITHM = "x-amz-sdk-checksum-algorithm";
     static final String STORAGE_CLASS = "x-amz-storage-class";

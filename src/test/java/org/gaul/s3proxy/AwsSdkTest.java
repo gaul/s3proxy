@@ -89,6 +89,7 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAttributesResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.Grantee;
@@ -626,6 +627,16 @@ public final class AwsSdkTest {
         assertThat(headResponse.checksumType()).isEqualTo(
                 ChecksumType.FULL_OBJECT);
         assertThat(headResponse.checksumCRC32C()).isEqualTo(wholeChecksum);
+
+        // GetObjectAttributes reports it without asking for checksum mode
+        GetObjectAttributesResponse attributesResponse =
+                client.getObjectAttributes(b -> b.bucket(containerName)
+                        .key(key)
+                        .objectAttributes(ObjectAttributes.CHECKSUM));
+        assertThat(attributesResponse.checksum().checksumType()).isEqualTo(
+                ChecksumType.FULL_OBJECT);
+        assertThat(attributesResponse.checksum().checksumCRC32C()).isEqualTo(
+                wholeChecksum);
     }
 
     private static String crc32cWireForm(byte[] content) {
@@ -2777,19 +2788,76 @@ public final class AwsSdkTest {
     }
 
     @Test
-    public void testGetObjectAttributesNotImplemented() throws Exception {
-        client.putObject(b -> b.bucket(containerName).key("attributes"),
+    public void testGetObjectAttributes() throws Exception {
+        var key = "testGetObjectAttributes";
+        var content = BYTE_SOURCE.read();
+        var checksum = crc32cWireForm(content);
+        PutObjectResponse putResponse = client.putObject(
+                b -> b.bucket(containerName).key(key)
+                        .checksumCRC32C(checksum),
+                RequestBody.fromBytes(content));
+
+        GetObjectAttributesResponse response = client.getObjectAttributes(
+                b -> b.bucket(containerName).key(key).objectAttributes(
+                        ObjectAttributes.E_TAG, ObjectAttributes.CHECKSUM,
+                        ObjectAttributes.OBJECT_PARTS,
+                        ObjectAttributes.STORAGE_CLASS,
+                        ObjectAttributes.OBJECT_SIZE));
+
+        // the ETag comes back unquoted, unlike everywhere else in S3
+        assertThat(response.eTag()).isEqualTo(
+                putResponse.eTag().replace("\"", ""));
+        assertThat(response.objectSize()).isEqualTo(content.length);
+        assertThat(response.storageClass()).isEqualTo(StorageClass.STANDARD);
+        // a single PutObject checksum describes the whole object
+        assertThat(response.checksum().checksumCRC32C()).isEqualTo(checksum);
+        assertThat(response.checksum().checksumType()).isEqualTo(
+                ChecksumType.FULL_OBJECT);
+        // s3proxy cannot reconstruct the parts, and S3 likewise omits them
+        // for an object not uploaded in parts
+        assertThat(response.objectParts()).isNull();
+    }
+
+    @Test
+    public void testGetObjectAttributesSubset() throws Exception {
+        var key = "testGetObjectAttributesSubset";
+        var content = BYTE_SOURCE.read();
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromBytes(content));
+
+        GetObjectAttributesResponse response = client.getObjectAttributes(
+                b -> b.bucket(containerName).key(key).objectAttributes(
+                        ObjectAttributes.OBJECT_SIZE));
+
+        assertThat(response.objectSize()).isEqualTo(content.length);
+        assertThat(response.eTag()).isNull();
+        assertThat(response.storageClass()).isNull();
+    }
+
+    @Test
+    public void testGetObjectAttributesWithoutChecksum() throws Exception {
+        var key = "testGetObjectAttributesWithoutChecksum";
+        client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromBytes(BYTE_SOURCE.read()));
-        // rejected on ?attributes rather than incidentally on the required
-        // x-amz-object-attributes header, which a client may omit
+
+        GetObjectAttributesResponse response = client.getObjectAttributes(
+                b -> b.bucket(containerName).key(key).objectAttributes(
+                        ObjectAttributes.CHECKSUM));
+
+        // an object stored without a checksum reports none at all
+        assertThat(response.checksum()).isNull();
+    }
+
+    @Test
+    public void testGetObjectAttributesMissingKey() throws Exception {
         try {
             client.getObjectAttributes(b -> b.bucket(containerName)
-                    .key("attributes")
+                    .key("testGetObjectAttributesMissingKey")
                     .objectAttributes(ObjectAttributes.E_TAG));
-            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
-        } catch (S3Exception e) {
-            assertThat(e.awsErrorDetails().errorCode())
-                    .isEqualTo("NotImplemented");
+            Fail.failBecauseExceptionWasNotThrown(NoSuchKeyException.class);
+        } catch (NoSuchKeyException nske) {
+            assertThat(nske.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchKey");
         }
     }
 

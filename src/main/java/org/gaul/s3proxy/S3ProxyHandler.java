@@ -41,6 +41,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -174,7 +175,6 @@ public class S3ProxyHandler {
     private static final Set<String> UNSUPPORTED_PARAMETERS = Set.of(
             "accelerate",
             "analytics",
-            "attributes",
             "cors",
             "encryption",
             "inventory",
@@ -226,6 +226,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.DATE,
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
             AwsHttpHeaders.METADATA_DIRECTIVE,
+            AwsHttpHeaders.OBJECT_ATTRIBUTES,
             AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.TRAILER,
@@ -897,6 +898,11 @@ public class S3ProxyHandler {
                     setOperation(ctx, S3Operation.GET_OBJECT_ACL);
                     handleGetBlobAcl(request, response, blobStore, path[1],
                             path[2]);
+                    return;
+                } else if (request.getParameter("attributes") != null) {
+                    setOperation(ctx, S3Operation.GET_OBJECT_ATTRIBUTES);
+                    handleGetObjectAttributes(request, response, blobStore,
+                            path[1], path[2]);
                     return;
                 } else if (uploadId != null) {
                     setOperation(ctx, S3Operation.LIST_PARTS);
@@ -2067,8 +2073,25 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
 
-        // BlobStore.blobMetadata does not support GetOptions so we emulate
-        // conditional requests.
+        if (checkConditionalHeaders(request, response, metadata)) {
+            return;
+        }
+
+        response.setStatus(HttpServletResponse.SC_OK);
+        addMetadataToResponse(request, response, metadata,
+                /*partialContent=*/ false);
+        addCorsResponseHeader(request, response);
+    }
+
+    /**
+     * Evaluate the conditional request headers for an operation that reads
+     * only metadata, which BlobStore.blobMetadata cannot express as
+     * GetOptions.  Returns true when the response is already complete, i.e.
+     * the caller's copy is unchanged.
+     */
+    private static boolean checkConditionalHeaders(HttpServletRequest request,
+            HttpServletResponse response, BlobMetadata metadata)
+            throws S3Exception {
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         long ifModifiedSince = request.getDateHeader(
@@ -2084,7 +2107,7 @@ public class S3ProxyHandler {
             }
             if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
-                return;
+                return true;
             }
         }
 
@@ -2093,18 +2116,128 @@ public class S3ProxyHandler {
             if (ifModifiedSince != -1 && lastModified.compareTo(
                     new Date(ifModifiedSince)) <= 0) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
-                return;
+                return true;
             }
             if (ifUnmodifiedSince != -1 && lastModified.compareTo(
                     new Date(ifUnmodifiedSince)) > 0) {
                 throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
+        return false;
+    }
+
+    private void handleGetObjectAttributes(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName)
+            throws IOException, S3Exception {
+        Set<String> attributes = requestedObjectAttributes(request);
+
+        BlobMetadata metadata = blobStore.blobMetadata(containerName,
+                blobName);
+        if (metadata == null) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+        }
+        if (checkConditionalHeaders(request, response, metadata)) {
+            return;
+        }
+
+        Date lastModified = metadata.lastModified();
+        if (lastModified != null) {
+            response.addDateHeader(HttpHeaders.LAST_MODIFIED,
+                    lastModified.getTime());
+        }
 
         response.setStatus(HttpServletResponse.SC_OK);
-        addMetadataToResponse(request, response, metadata,
-                /*partialContent=*/ false);
+        response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
+        try (Writer writer = response.getWriter()) {
+            response.setContentType(XML_CONTENT_TYPE);
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("GetObjectAttributesOutput");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+
+            String eTag = metadata.eTag();
+            if (attributes.contains("ETag") && eTag != null) {
+                // unquoted here, unlike the ETag header and every other body
+                writeSimpleElement(xml, "ETag", unquoteETag(eTag));
+            }
+
+            if (attributes.contains("Checksum")) {
+                writeChecksumStanza(xml, metadata);
+            }
+
+            // ObjectParts is deliberately absent.  Deriving it needs the part
+            // boundaries, which most backends discard once the upload
+            // completes; S3 likewise omits the element for an object that was
+            // not uploaded in parts.
+
+            if (attributes.contains("StorageClass")) {
+                StorageClass storageClass = metadata.storageClass();
+                writeSimpleElement(xml, "StorageClass", storageClass == null ?
+                        StorageClass.STANDARD.toString() :
+                        storageClass.toString());
+            }
+
+            Long size = metadata.size();
+            if (attributes.contains("ObjectSize") && size != null) {
+                writeSimpleElement(xml, "ObjectSize", String.valueOf(size));
+            }
+
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+    }
+
+    /**
+     * The attributes a GetObjectAttributes request asks for.  The AWS SDKs
+     * send a single comma-separated header but the value may also arrive
+     * split across repeated headers.  Names s3proxy does not recognize are
+     * ignored, leaving their elements out of the response.
+     */
+    private static Set<String> requestedObjectAttributes(
+            HttpServletRequest request) throws S3Exception {
+        var attributes = new HashSet<String>();
+        for (String header : Collections.list(request.getHeaders(
+                AwsHttpHeaders.OBJECT_ATTRIBUTES))) {
+            for (String attribute : Splitter.on(',').split(header)) {
+                String trimmed = attribute.trim();
+                if (!trimmed.isEmpty()) {
+                    attributes.add(trimmed);
+                }
+            }
+        }
+        if (attributes.isEmpty()) {
+            throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                    "The x-amz-object-attributes header must be specified.");
+        }
+        return attributes;
+    }
+
+    /**
+     * Write the object's whole-object checksum, which GetObjectAttributes
+     * returns unconditionally -- unlike GetObject and HeadObject, which
+     * withhold it until x-amz-checksum-mode asks.  Objects stored without a
+     * checksum get no element at all, as on S3.
+     */
+    private static void writeChecksumStanza(XMLStreamWriter xml,
+            BlobMetadata metadata) throws XMLStreamException {
+        for (var entry : metadata.userMetadata().entrySet()) {
+            FlexChecksum checksum = FlexChecksum.fromMetadataKey(
+                    entry.getKey());
+            if (checksum == null) {
+                continue;
+            }
+            String value = entry.getValue();
+            xml.writeStartElement("Checksum");
+            writeSimpleElement(xml, checksum.element(), value);
+            writeSimpleElement(xml, "ChecksumType", checksumType(value));
+            xml.writeEndElement();
+            return;
+        }
     }
 
     private void handleOptionsBlob(HttpServletRequest request,
@@ -4569,6 +4702,10 @@ public class S3ProxyHandler {
             eTag = "\"" + eTag + "\"";
         }
         return eTag;
+    }
+
+    private static String unquoteETag(String eTag) {
+        return CharMatcher.is('"').trimFrom(eTag);
     }
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
