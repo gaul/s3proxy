@@ -1655,11 +1655,15 @@ public final class AwsSdkTest {
         client.createBucket(b -> b.bucket(containerName2));
         try {
             client.createBucket(b -> b.bucket(containerName2));
-            client.deleteBucket(b -> b.bucket(containerName2));
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {
             assertThat(e.awsErrorDetails().errorCode())
                     .isEqualTo("BucketAlreadyOwnedByYou");
+        } finally {
+            // the duplicate create throws, so a delete inside the try never
+            // ran; against a backend that outlives the suite the bucket
+            // leaked, and CI runs s3-tests next against that same instance
+            client.deleteBucket(b -> b.bucket(containerName2));
         }
     }
 
