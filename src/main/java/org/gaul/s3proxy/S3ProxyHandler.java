@@ -56,6 +56,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
@@ -174,6 +175,9 @@ public class S3ProxyHandler {
             5L * 1024L * 1024L * 1024L;
     /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
     private static final int MAX_BUCKETS = 10_000;
+    /** An S3 composite ETag: the parts' MD5s hashed, then the part count. */
+    private static final Pattern COMPOSITE_ETAG = Pattern.compile(
+            "[0-9a-fA-F]{32}-([0-9]+)");
     private static final Set<String> UNSUPPORTED_PARAMETERS = Set.of(
             "accelerate",
             "analytics",
@@ -2069,6 +2073,7 @@ public class S3ProxyHandler {
         if (metadata == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
+        checkPartNumber(request, metadata);
 
         if (checkConditionalHeaders(request, response, metadata)) {
             return;
@@ -2078,6 +2083,67 @@ public class S3ProxyHandler {
         addMetadataToResponse(request, response, metadata,
                 /*partialContent=*/ false);
         addCorsResponseHeader(request, response);
+    }
+
+    /** The part count a composite ETag encodes, or 1 when it is not one. */
+    private static int eTagPartCount(@Nullable String eTag) {
+        if (eTag == null) {
+            return 1;
+        }
+        var matcher = COMPOSITE_ETAG.matcher(unquoteETag(eTag));
+        if (!matcher.matches()) {
+            return 1;
+        }
+        try {
+            return Integer.parseInt(matcher.group(1));
+        } catch (NumberFormatException nfe) {
+            return 1;
+        }
+    }
+
+    /**
+     * Vet a partNumber read.  S3 answers with that part of a multipart
+     * object, or with the whole object when the object has just one part.
+     * s3proxy does not record where the parts ended once the upload
+     * completed, and the boundaries cannot be recovered afterwards -- an
+     * object's size and part count do not determine the part size -- so serve
+     * only the cases needing no boundaries and refuse the rest.  Answering
+     * those with the whole object instead would corrupt a client fetching
+     * parts 1..N to reassemble them: it would concatenate N copies of
+     * everything.  The AWS SDK's async client probes with partNumber=1, so
+     * the single-part case has to keep working.
+     *
+     * <p>A backend that mints its own ETags (Quirks.OPAQUE_ETAG) leaves a
+     * multipart object indistinguishable from a single-part one, so there it
+     * still reads back whole.
+     *
+     * <p>Note this cannot live in UNSUPPORTED_PARAMETERS, which is consulted
+     * for every request -- UploadPart and UploadPartCopy use partNumber.
+     */
+    private static void checkPartNumber(HttpServletRequest request,
+            @Nullable BlobMetadata metadata) throws S3Exception {
+        String value = request.getParameter("partNumber");
+        if (value == null || metadata == null) {
+            return;
+        }
+        int partNumber;
+        try {
+            partNumber = Integer.parseInt(value);
+        } catch (NumberFormatException nfe) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+        }
+        if (partNumber < 1 || partNumber > 10_000) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        if (eTagPartCount(metadata.eTag()) > 1) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Reading one part of a multipart object is not" +
+                    " supported.");
+        }
+        if (partNumber > 1) {
+            // one part, so anything past it does not exist
+            throw new S3Exception(S3ErrorCode.INVALID_PART);
+        }
     }
 
     /**
@@ -2295,6 +2361,13 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
+        if (request.getParameter("partNumber") != null) {
+            // needs the ETag to tell a multipart object apart, and the body
+            // must not be fetched only to be thrown away on the error path
+            checkPartNumber(request,
+                    blobStore.blobMetadata(containerName, blobName));
+        }
+
         int status = HttpServletResponse.SC_OK;
         var optionsBuilder = GetOptions.builder();
 

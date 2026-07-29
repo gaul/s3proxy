@@ -2936,6 +2936,73 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testGetObjectPartNumberSinglePart() throws Exception {
+        var key = "testGetObjectPartNumberSinglePart";
+        var content = BYTE_SOURCE.read();
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromBytes(content));
+
+        // one part, so part 1 is the whole object -- the AWS async client
+        // probes this way, and it needs no part boundaries to answer
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(key).partNumber(1)).asByteArray()).isEqualTo(content);
+        client.headObject(b -> b.bucket(containerName).key(key)
+                .partNumber(1));
+
+        // nothing follows the only part
+        try {
+            client.getObject(b -> b.bucket(containerName).key(key)
+                    .partNumber(2));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "InvalidPart");
+        }
+    }
+
+    @Test
+    public void testGetObjectPartNumberMultipartNotImplemented()
+            throws Exception {
+        // a composite ETag is what marks the object as multipart, so this
+        // needs a backend that composes ETags the way S3 does
+        assumeTrue(!Quirks.OPAQUE_ETAG.contains(blobStoreType));
+
+        var key = "testGetObjectPartNumberMultipart";
+        var part1 = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024)
+                .read();
+        var part2 = TestUtils.randomByteSource()
+                .slice(5 * 1024 * 1024, 1024).read();
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        UploadPartResponse first = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1), RequestBody.fromBytes(part1));
+        UploadPartResponse second = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(2), RequestBody.fromBytes(part2));
+        client.completeMultipartUpload(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder().parts(
+                        CompletedPart.builder().partNumber(1)
+                                .eTag(first.eTag()).build(),
+                        CompletedPart.builder().partNumber(2)
+                                .eTag(second.eTag()).build()).build()));
+
+        // s3proxy no longer knows where the parts ended, and answering with
+        // the whole object would corrupt a client reassembling them
+        try {
+            client.getObject(b -> b.bucket(containerName).key(key)
+                    .partNumber(1));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(501);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+    }
+
+    @Test
     public void testGetObjectAttributes() throws Exception {
         var key = "testGetObjectAttributes";
         var content = BYTE_SOURCE.read();
