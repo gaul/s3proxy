@@ -143,23 +143,51 @@ S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a 
 
 S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
-* ACLs other than private and public-read
+* ACLs other than private and public-read, including the `x-amz-grant-*` headers and any grant naming a specific grantee
 * BitTorrent hosting
+* bucket inventory, analytics, and metrics configuration
+* bucket lifecycle configuration
 * bucket logging
+* bucket notification configuration
 * bucket policies
+* bucket policy status
+* bucket replication
+* conditional delete using If-Match, `x-amz-if-match-size` or `x-amz-if-match-last-modified-time`
 * [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration (see below).
 * hosting static websites
+* object lock, including legal hold and retention
+* object ownership controls
 * object server-side encryption
 * object tagging
 * object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74)
+* paginating ListParts with `part-number-marker`
 * POST upload policies, see [#73](https://github.com/gaul/s3proxy/issues/73)
+* public access block
+* reading a single part of a multipart object with `partNumber`, unless the object has only one part
 * requester pays buckets
+* restoring archived objects
 * [select object content](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectSELECTContent.html)
+* transfer acceleration
+* `x-amz-expected-bucket-owner`
 
 S3Proxy emulates the following operations:
 
 * conditional PUT object when using If-Match or If-None-Match, unless the `azureblob-sdk` provider is used
 * copy multi-part objects, see [#76](https://github.com/gaul/s3proxy/issues/76)
+* multi-part upload on the `filesystem` and `transient` backends, which store a stub object to carry the metadata
+* object and bucket owners, which are always the same synthetic user
+
+Some limitations depend on the storage backend:
+
+| limitation | backends |
+| --- | --- |
+| no per-object ACLs, including public-read | `azureblob-sdk`, `openstack-swift-sdk` |
+| ETag is not the object MD5 | `azureblob-sdk`, `google-cloud-storage-sdk` |
+| `Cache-Control` not preserved | `google-cloud-storage-sdk`, `openstack-swift-sdk` |
+| `Content-Encoding` not preserved | `google-cloud-storage-sdk` |
+| `Content-Language` not preserved | `openstack-swift-sdk` |
+| `Expires` not preserved | `azureblob-sdk` |
+| `max-keys=0` not honored | `azureblob-sdk` |
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
 file (and corresponding ENV variables for Docker):
