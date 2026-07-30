@@ -674,6 +674,46 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             setBlobAccessHelper(tmpPath, options.blobAccess());
 
+            String ifNoneMatch = options.ifNoneMatch();
+            if ("*".equals(ifNoneMatch)) {
+                // Claiming a key: publish by linking rather than renaming, so
+                // that two writers racing cannot both believe they created the
+                // object.  This is why If-None-Match: * exists, so it must not
+                // reduce to a check followed by an unconditional write.
+                //
+                // It has to be a link: ATOMIC_MOVE is rename(2) on a POSIX
+                // filesystem, which replaces the target even without
+                // REPLACE_EXISTING, whereas link(2) fails if it exists.  The
+                // link shares the inode, so the xattrs and permissions
+                // already written to tmpPath carry over.
+                try {
+                    Files.createLink(path, tmpPath);
+                } catch (FileAlreadyExistsException faee) {
+                    throw returnResponseException(412);
+                } catch (UnsupportedOperationException uoe) {
+                    // a filesystem without hard links leaves only a check
+                    // followed by a write, which cannot be made atomic
+                    if (Files.exists(path)) {
+                        throw returnResponseException(412);
+                    }
+                    Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE);
+                    return actualHashCode.toString();
+                }
+                return actualHashCode.toString();
+            }
+            if (ifNoneMatch != null) {
+                // A named ETag cannot be resolved by the move, and the
+                // filesystem offers no compare-and-swap, so this remains a
+                // read followed by a write.
+                var current = blobMetadata(container,
+                        blob.getMetadata().name());
+                if (current != null && current.eTag() != null &&
+                        maybeQuoteETag(ifNoneMatch).equals(
+                                maybeQuoteETag(current.eTag()))) {
+                    throw returnResponseException(412);
+                }
+            }
+
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
             return actualHashCode.toString();

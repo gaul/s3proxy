@@ -66,6 +66,16 @@ final class Quirks {
             "transient-nio2"
     );
 
+    /**
+     * Blobstores that evaluate If-None-Match as they write the blob, so
+     * S3Proxy must not check the condition itself beforehand.  If-Match is not
+     * among them: it needs a compare-and-swap the filesystem cannot offer.
+     */
+    static final Set<String> NATIVE_IF_NONE_MATCH = Set.of(
+            "filesystem-nio2",
+            "transient-nio2"
+    );
+
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob-sdk",
