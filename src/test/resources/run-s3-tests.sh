@@ -51,8 +51,12 @@ do
     sleep 1
 done
 
-tags='not fails_on_s3proxy'\
-' and not appendobject'\
+# The fails_on_s3proxy markers are deliberately absent: s3-tests/conftest.py
+# turns them into strict expected failures instead, so a test that starts
+# passing fails the suite rather than going on being skipped unnoticed.  The
+# tags below deselect whole unimplemented features, which is not worth running
+# to watch fail.
+tags='not appendobject'\
 ' and not bucket_logging'\
 ' and not bucket_policy'\
 ' and not cors'\
@@ -75,24 +79,25 @@ tags='not fails_on_s3proxy'\
 ' and not versioning'\
 ' and not webidentity_test'
 
+backend=""
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
-    tags="${tags} and not fails_on_s3proxy_azureblob"
+    backend="azureblob"
 elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
-    tags="${tags} and not fails_on_s3proxy_gcs"
+    backend="gcs"
 elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
-    tags="${tags} and not fails_on_s3proxy_swift"
+    backend="swift"
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
-    tags="${tags} and not fails_on_s3proxy_localstack and not fails_on_aws"
+    backend="localstack"
+    tags="${tags} and not fails_on_aws"
 elif [[ "${S3PROXY_CONF}" == s3proxy-*-nio2.conf ]] ||
         [[ "${S3PROXY_CONF}" == s3proxy.conf ]]; then
     # s3proxy.conf defaults to the transient-nio2 backend.
-    tags="${tags} and not fails_on_s3proxy_nio2"
+    backend="nio2"
 fi
 
-# execute s3-tests
+# execute s3-tests.  FORCE_COLOR is unset because a value other than 0 or 1 --
+# which some terminals and CI runners set -- makes tox reject its own
+# arguments.
 pushd s3-tests
-if [ ${#TOX_TEST_ARGS[@]} -eq 0 ]; then
-    tox -- -m "${tags}"
-else
-    tox -- -m "${tags}" "${TOX_TEST_ARGS[@]}"
-fi
+env -u FORCE_COLOR tox -- -m "${tags}" --s3proxy-backend="${backend}" \
+        "${TOX_TEST_ARGS[@]}"
