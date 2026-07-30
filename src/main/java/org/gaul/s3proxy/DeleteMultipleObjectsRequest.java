@@ -29,7 +29,12 @@ record DeleteMultipleObjectsRequest(
 
     record S3Object(
             @JacksonXmlProperty(localName = "Key") String key,
-            @JacksonXmlProperty(localName = "VersionID") String versionId,
+            // Parsed so handleMultiBlobRemove can reject a version-scoped
+            // delete instead of removing the current object; the value itself
+            // is never used.  The element is VersionId, not VersionID: the
+            // mapper matches case sensitively, so the latter never bound and
+            // every version named here was silently ignored.
+            @JacksonXmlProperty(localName = "VersionId") String versionId,
             // Delete conditions that only directory buckets honor.  Parsed
             // so handleMultiBlobRemove can reject them instead of deleting
             // unconditionally; the values themselves are never used.
@@ -40,6 +45,11 @@ record DeleteMultipleObjectsRequest(
 
         boolean hasCondition() {
             return eTag != null || lastModifiedTime != null || size != null;
+        }
+
+        /** "null" names the current object in an unversioned bucket. */
+        boolean hasVersion() {
+            return versionId != null && !versionId.equals("null");
         }
     }
 }

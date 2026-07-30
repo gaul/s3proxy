@@ -720,6 +720,64 @@ public final class AwsSdkTest {
         client.deleteObject(b -> b.bucket(containerName).key(key));
     }
 
+    @Test
+    public void testVersionIdNotImplemented() throws Exception {
+        var key = "testVersionId";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+
+        // naming a version s3proxy cannot resolve must not silently fall
+        // through to the current object
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .versionId("someversion"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+
+        try {
+            client.getObject(b -> b.bucket(containerName).key(key)
+                    .versionId("someversion"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+
+        // the version travels in the body here, not the query string
+        try {
+            client.deleteObjects(b -> b.bucket(containerName)
+                    .delete(d -> d.objects(ObjectIdentifier.builder().key(key)
+                            .versionId("someversion").build())));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+
+        // the object survived all three; "null" names it as every object in
+        // an unversioned bucket carries that version
+        client.headObject(b -> b.bucket(containerName).key(key)
+                .versionId("null"));
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .versionId("null"));
+    }
+
+    @Test
+    public void testGetBucketPolicyStatusNotImplemented() throws Exception {
+        // this once fell through to ListObjects and answered 200 with an
+        // object listing
+        try {
+            client.getBucketPolicyStatus(b -> b.bucket(containerName));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+    }
+
     /**
      * Whether the backend resolves a conditional CompleteMultipartUpload.
      * GCS compose can only require that the target be absent and Swift's

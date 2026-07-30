@@ -191,6 +191,7 @@ public class S3ProxyHandler {
             "notification",
             "object-lock",
             "ownershipControls",
+            "policyStatus",
             "publicAccessBlock",
             "replication",
             "requestPayment",
@@ -493,6 +494,8 @@ public class S3ProxyHandler {
         if (hasDateHeader && hasXAmzDateHeader) {
             haveBothDateHeader = true;
         }
+
+        checkVersionId(request);
 
         // when access information is not provided in request header,
         // treat it as anonymous, return all public accessible information
@@ -2075,6 +2078,10 @@ public class S3ProxyHandler {
             if (s3Object.hasCondition()) {
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
+            if (s3Object.hasVersion()) {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                        "Versioning is not supported.");
+            }
             blobNames.add(s3Object.key());
         }
 
@@ -2141,6 +2148,26 @@ public class S3ProxyHandler {
             return Integer.parseInt(matcher.group(1));
         } catch (NumberFormatException nfe) {
             return 1;
+        }
+    }
+
+    /**
+     * Vet a versionId.  S3Proxy does not implement versioning and cannot
+     * resolve a version, but ignoring the parameter silently operates on the
+     * current object instead -- for a DELETE that destroys data the caller
+     * never named.  "null" is the version every object in an unversioned
+     * bucket carries, so it denotes the current object and is allowed.
+     *
+     * <p>Note this cannot live in UNSUPPORTED_PARAMETERS, which rejects a
+     * parameter outright, and which anonymous requests never reach.  It runs
+     * before the anonymous dispatch so that public reads are vetted too.
+     */
+    private static void checkVersionId(HttpServletRequest request)
+            throws S3Exception {
+        String versionId = request.getParameter("versionId");
+        if (versionId != null && !versionId.equals("null")) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Versioning is not supported.");
         }
     }
 
