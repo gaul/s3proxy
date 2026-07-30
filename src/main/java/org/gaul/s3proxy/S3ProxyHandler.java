@@ -592,14 +592,30 @@ public class S3ProxyHandler {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
 
-            if (hasXAmzDateHeader) { //format diff between v2 and v4
-                if (finalAuthType == AuthenticationType.AWS_V2) {
-                    dateSkew = request.getDateHeader(AwsHttpHeaders.DATE);
-                    dateSkew /= 1000;
-                    //case sensitive?
-                } else if (finalAuthType == AuthenticationType.AWS_V4) {
-                    dateSkew = parseIso8601(request.getHeader(
-                            AwsHttpHeaders.DATE));
+            // An x-amz-date that is present but unparseable -- empty or
+            // malformed -- carries no time to compare against.  Answer
+            // AccessDenied the way S3 does, rather than deferring to the
+            // signature comparison below, which fails for an unrelated reason
+            // and reports a misleading SignatureDoesNotMatch.
+            String xAmzDate = request.getHeader(AwsHttpHeaders.DATE);
+            if (xAmzDate != null) { //format diff between v2 and v4
+                if (xAmzDate.isBlank()) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                            "AWS authentication requires a valid Date or" +
+                            " x-amz-date header");
+                }
+                try {
+                    if (finalAuthType == AuthenticationType.AWS_V2) {
+                        dateSkew = request.getDateHeader(AwsHttpHeaders.DATE);
+                        dateSkew /= 1000;
+                        //case sensitive?
+                    } else if (finalAuthType == AuthenticationType.AWS_V4) {
+                        dateSkew = parseIso8601(xAmzDate);
+                    }
+                } catch (IllegalArgumentException iae) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                            "AWS authentication requires a valid Date or" +
+                            " x-amz-date header", iae);
                 }
             } else if (hasDateHeader) {
                 try {
