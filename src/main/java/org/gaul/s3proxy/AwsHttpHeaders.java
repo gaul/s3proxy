@@ -19,6 +19,8 @@ package org.gaul.s3proxy;
 final class AwsHttpHeaders {
     static final String ACL = "x-amz-acl";
     static final String API_VERSION = "x-amz-api-version";
+    static final String BUCKET_OBJECT_LOCK_ENABLED =
+            "x-amz-bucket-object-lock-enabled";
     static final String CHECKSUM_ALGORITHM = "x-amz-checksum-algorithm";
     static final String CHECKSUM_CRC32 = "x-amz-checksum-crc32";
     static final String CHECKSUM_CRC32C = "x-amz-checksum-crc32c";

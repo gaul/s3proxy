@@ -214,6 +214,7 @@ public class S3ProxyHandler {
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = Set.of(
             AwsHttpHeaders.ACL,
             AwsHttpHeaders.API_VERSION,
+            AwsHttpHeaders.BUCKET_OBJECT_LOCK_ENABLED,
             AwsHttpHeaders.CHECKSUM_ALGORITHM,
             AwsHttpHeaders.CHECKSUM_CRC32,
             AwsHttpHeaders.CHECKSUM_CRC32C,
@@ -1615,6 +1616,18 @@ public class S3ProxyHandler {
             String containerName) throws IOException, S3Exception {
         if (containerName.isEmpty()) {
             throw new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED);
+        }
+
+        // Some clients send this header on every bucket they create, rclone
+        // among them, so refusing it outright leaves them unable to create a
+        // bucket at all.  Only a bucket that asks for object lock has to be
+        // refused: it needs versioning, which S3Proxy does not implement, and
+        // creating an ordinary bucket instead would quietly give the caller
+        // less than it asked for.
+        String objectLock = request.getHeader(
+                AwsHttpHeaders.BUCKET_OBJECT_LOCK_ENABLED);
+        if (Boolean.parseBoolean(objectLock)) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
         String contentLengthString = request.getHeader(

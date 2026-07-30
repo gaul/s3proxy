@@ -1691,6 +1691,35 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testContainerCreateObjectLockDisabled() throws Exception {
+        // rclone sends this header on every bucket it creates, always, so
+        // asking for no object lock has to create an ordinary bucket.
+        String containerName2 = createRandomContainerName();
+        client.createBucket(b -> b.bucket(containerName2)
+                .objectLockEnabledForBucket(false));
+        try {
+            client.headBucket(b -> b.bucket(containerName2));
+        } finally {
+            client.deleteBucket(b -> b.bucket(containerName2));
+        }
+    }
+
+    @Test
+    public void testContainerCreateObjectLockEnabled() throws Exception {
+        // Object lock needs versioning, which S3Proxy does not implement.
+        // S3Proxy answers this itself, before the backend sees the request.
+        String containerName2 = createRandomContainerName();
+        try {
+            client.createBucket(b -> b.bucket(containerName2)
+                    .objectLockEnabledForBucket(true));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("NotImplemented");
+        }
+    }
+
+    @Test
     public void testContainerDelete() throws Exception {
         client.headBucket(b -> b.bucket(containerName));
         client.deleteBucket(b -> b.bucket(containerName));
