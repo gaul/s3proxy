@@ -2657,9 +2657,26 @@ public class S3ProxyHandler {
                 blobStoreType.equals("azureblob-sdk") ||
                 blobStoreType.equals("aws-s3-sdk") ||
                 blobStoreType.equals("google-cloud-storage-sdk") ||
+                // the nio2 stores resolve If-None-Match as they write
+                (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType) &&
+                        ifMatch == null && ifNoneMatch != null) ||
                 // Swift only supports If-None-Match: * natively
                 (blobStoreType.equals("openstack-swift-sdk") &&
                         ifMatch == null && "*".equals(ifNoneMatch));
+
+        // Emulating the rest would mean a HEAD followed by an unconditional
+        // write, which answers correctly only while nothing else is writing
+        // the same key -- and a conditional write is asked for precisely
+        // because something might be.  Rather than appear to offer a
+        // guarantee it cannot keep, refuse where the store cannot help:
+        // only the nio2 stores, whose If-Match is bounded by this process,
+        // still emulate.
+        if ((ifMatch != null || ifNoneMatch != null) &&
+                !supportsNativeConditionalWrites &&
+                !Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType)) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Conditional writes are not supported by this backend.");
+        }
 
         // S3 answers any If-Match naming a key that does not exist with 404,
         // since there is nothing to have matched.  The native backends do not

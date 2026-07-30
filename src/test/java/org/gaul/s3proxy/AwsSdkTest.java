@@ -2578,8 +2578,35 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * Whether the backend offers a conditional write carrying If-Match.
+     * Swift and sftp cannot make one safe, so s3proxy answers NotImplemented
+     * rather than emulate a guarantee it would not keep.
+     */
+    private boolean supportsIfMatchWrites() {
+        return !blobStoreType.equals("openstack-swift-sdk") &&
+                !blobStoreType.equals("sftp");
+    }
+
+    @Test
+    public void testPutIfMatchNotImplemented() throws Exception {
+        assumeTrue(!supportsIfMatchWrites());
+
+        try {
+            client.putObject(b -> b.bucket(containerName)
+                            .key("put-if-match-unsupported").ifMatch("*"),
+                    RequestBody.fromString("body"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(501);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+    }
+
     @Test
     public void testPutIfMatchMissingKey() throws Exception {
+        assumeTrue(supportsIfMatchWrites());
         String blobName = "put-if-match-missing";
 
         // If-Match against a key that does not exist is 404 for every form
@@ -2612,6 +2639,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testPutIfMatchWildcard() throws Exception {
+        assumeTrue(supportsIfMatchWrites());
         String blobName = "put-if-match-wildcard";
         client.putObject(b -> b.bucket(containerName).key(blobName),
                 RequestBody.fromString("first"));
