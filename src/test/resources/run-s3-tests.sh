@@ -20,6 +20,11 @@ S3PROXY_BIN="${PWD}/target/s3proxy"
 S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
 TOX_TEST_ARGS=("$@")
+# JUnit XML names the tests that failed, where the console output leaves a
+# count and a scroll of output to search.  It is named after the config since
+# several lanes run one after another, and absolute because pytest runs from
+# the submodule.
+S3PROXY_JUNIT_XML="${PWD}/target/s3-tests-${S3PROXY_CONF%.conf}.xml"
 
 # launch S3Proxy using HTTP and a fixed port
 sed "s,^\(s3proxy.endpoint\)=.*,\1=http://127.0.0.1:${S3PROXY_PORT}," \
@@ -116,4 +121,4 @@ fi
 # arguments.
 pushd s3-tests
 env -u FORCE_COLOR tox -- -m "${tags}" --s3proxy-backend="${backend}" \
-        "${TOX_TEST_ARGS[@]}"
+        --junitxml="${S3PROXY_JUNIT_XML}" "${TOX_TEST_ARGS[@]}"

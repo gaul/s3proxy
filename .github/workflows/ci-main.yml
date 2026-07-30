@@ -96,6 +96,16 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-filesystem-nio2.conf
 
+      #Store the s3-tests results, which name the tests that failed and the
+      #ones that only passed because a fails_on_s3proxy marker expected them
+      #to fail.  Uploaded even when the lane passed, so that two runs can be
+      #compared.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: s3-tests-results-nio2
+          path: target/s3-tests-*.xml
+
       #Store the target
       - uses: actions/upload-artifact@v7
         with:
@@ -153,6 +163,11 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
           kill $(pidof node)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: s3-tests-results-azurite
+          path: target/s3-tests-*.xml
 
   localstackTests:
     runs-on: ubuntu-26.04-arm
@@ -210,6 +225,11 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-localstack-aws-s3-sdk.conf
           docker stop localstack
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: s3-tests-results-localstack
+          path: target/s3-tests-*.xml
 
   fakeGcsServerTests:
     runs-on: ubuntu-26.04-arm
@@ -254,6 +274,11 @@ jobs:
         run: |
           STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
           kill $(pidof fake-gcs-server)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: s3-tests-results-fake-gcs-server
+          path: target/s3-tests-*.xml
 
   swiftTests:
     runs-on: ubuntu-26.04-arm
@@ -304,6 +329,11 @@ jobs:
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-swift.conf
           kill $(pidof swift)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: s3-tests-results-swift
+          path: target/s3-tests-*.xml
 
   kubernetesExamples:
     runs-on: ubuntu-26.04-arm
