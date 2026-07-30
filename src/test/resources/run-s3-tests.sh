@@ -39,14 +39,30 @@ function finish {
 }
 trap finish EXIT
 
-# wait for S3Proxy to start
-for i in $(seq 30);
-do
-    if exec 3<>"/dev/tcp/localhost/${S3PROXY_PORT}";
-    then
-        exec 3<&-  # Close for read
-        exec 3>&-  # Close for write
+# Wait for S3Proxy to become ready.  /healthz answers without authentication
+# and is served by the request handler, so a 200 shows the handler answering
+# rather than only that the port is bound.  The service path, if the config
+# sets one, prefixes it just as it does every other request.
+healthz="http://127.0.0.1:${S3PROXY_PORT}"
+service_path=$(sed -n 's,^s3proxy\.service-path=,,p' target/s3proxy.conf)
+if [ -n "${service_path}" ]; then
+    healthz="${healthz}/${service_path#/}"
+fi
+healthz="${healthz}/healthz"
+
+# Give up rather than run the suite against a proxy that never came up: every
+# test would fail with a connection error that says nothing about the cause.
+for i in $(seq 30); do
+    if curl --silent --fail --output /dev/null "${healthz}"; then
         break
+    fi
+    if ! kill -0 "${S3PROXY_PID}" 2>/dev/null; then
+        echo "s3proxy exited before answering ${healthz}" >&2
+        exit 1
+    fi
+    if [ "${i}" -eq 30 ]; then
+        echo "s3proxy did not answer ${healthz} within ${i} seconds" >&2
+        exit 1
     fi
     sleep 1
 done
