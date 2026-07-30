@@ -79,11 +79,24 @@ jobs:
       - name: Maven Test
         run: |
           mvn test
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-transient-nio2
+          path: target/surefire-reports/
 
       - name: Maven Test with filesystem-nio2
         run: |
           mkdir /tmp/blobstore
+          # Surefire writes a report per test class, so the run above would
+          # otherwise leave reports for the classes this one does not run.
+          rm -rf target/surefire-reports
           mvn test -Ds3proxy.test.conf=s3proxy-filesystem-nio2.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-filesystem-nio2
+          path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
@@ -154,6 +167,11 @@ jobs:
       - name: Maven Test with Azurite
         run: |
           mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-azurite
+          path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
@@ -213,6 +231,11 @@ jobs:
           # EncryptedBlobStoreTest is excluded: its multipart tests use
           # parts below the 5 MB minimum which native S3 backends reject.
           mvn test -Ds3proxy.test.conf=s3proxy-localstack-aws-s3-sdk.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-localstack
+          path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
@@ -265,6 +288,11 @@ jobs:
       - name: Maven Test with fake-gcs-server
         run: |
           STORAGE_EMULATOR_HOST=http://localhost:4443 mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs-server.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-fake-gcs-server
+          path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
@@ -320,6 +348,11 @@ jobs:
       - name: Maven Test with openstackswift
         run: |
           mvn test -Ds3proxy.test.conf=s3proxy-swift.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-swift
+          path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
