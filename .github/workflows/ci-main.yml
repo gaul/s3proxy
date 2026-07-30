@@ -20,6 +20,12 @@ jobs:
 
   meta:
     runs-on: ubuntu-26.04-arm
+    # Every job carries the same timeout, to catch a hang -- an emulator that
+    # stops answering, a test that waits forever -- rather than to budget a
+    # run.  It sits well above what the longest job takes so that a slow
+    # runner does not trip it; without any, GitHub lets a wedged job run for
+    # six hours.
+    timeout-minutes: 20
     outputs:
       container_tags: ${{ steps.docker_action_meta.outputs.tags }}
       container_labels: ${{ steps.docker_action_meta.outputs.labels }}
@@ -52,6 +58,7 @@ jobs:
             org.opencontainers.image.licenses=Apache-2.0
   runTests:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -135,6 +142,7 @@ jobs:
 
   azuriteTests:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -189,6 +197,7 @@ jobs:
 
   localstackTests:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -256,6 +265,7 @@ jobs:
 
   fakeGcsServerTests:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -310,6 +320,7 @@ jobs:
 
   swiftTests:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -370,6 +381,7 @@ jobs:
 
   kubernetesExamples:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [meta]
     steps:
       - uses: actions/checkout@v7
@@ -384,6 +396,7 @@ jobs:
 
   Containerize:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
     needs: [runTests, azuriteTests, localstackTests, fakeGcsServerTests, swiftTests, meta]
     permissions:
       contents: read
