@@ -749,6 +749,20 @@ public class S3ProxyHandler {
                 expectedSignature = AwsSignature.createAuthorizationSignature(
                         request, uriForSigning, credential, presignedUrl,
                         haveBothDateHeader);
+                // The canonicalized resource of a bucket-level request is
+                // "/bucket/": the request URI relative to the bucket is "/",
+                // which a virtual-host-style request line carries literally
+                // while a path-style one carries only "/bucket".  Clients sign
+                // the former in both cases, so accept it alongside the URI as
+                // sent.
+                if (!constantTimeEquals(expectedSignature,
+                        authHeader.getSignature()) &&
+                        isBucketRootUri(uri)) {
+                    expectedSignature =
+                            AwsSignature.createAuthorizationSignature(
+                                    request, uriForSigning + "/", credential,
+                                    presignedUrl, haveBothDateHeader);
+                }
             } else {
                 String contentSha256 = request.getHeader(
                         AwsHttpHeaders.CONTENT_SHA256);
@@ -4587,6 +4601,16 @@ public class S3ProxyHandler {
             response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
                     checksumType(storedChecksumValue));
         }
+    }
+
+    /**
+     * Whether a URI addresses a bucket and no key, without the trailing slash
+     * that clients canonicalize such a request with, e.g. "/bucket" but
+     * neither "/" nor "/bucket/" nor "/bucket/key".
+     */
+    private static boolean isBucketRootUri(String uri) {
+        return uri.length() > 1 && uri.charAt(0) == '/' &&
+                uri.indexOf('/', 1) == -1;
     }
 
     /** Parse ISO 8601 timestamp into seconds since 1970. */
