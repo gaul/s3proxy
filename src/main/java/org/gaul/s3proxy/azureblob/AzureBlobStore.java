@@ -985,6 +985,12 @@ public final class AzureBlobStore implements BlobStore {
                 throw new IllegalArgumentException(
                         "Upload not found: container=" + mpu.containerName() +
                         ", key=" + targetBlobName);
+            } else if (bse.getStatusCode() == 409 &&
+                    options.getRequestConditions() != null) {
+                // Azure reports an unmet If-None-Match: * as 409
+                // BlobAlreadyExists rather than 412, but to the caller who
+                // asked for the condition it is a failed precondition.
+                throw translate(bse, mpu.containerName(), targetBlobName);
             } else if (bse.getStatusCode() == 409) {
                 throw new IllegalArgumentException(
                         "Conflict during commit: " + bse.getMessage(), bse);

@@ -3296,15 +3296,41 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
         }
 
-        // No backend exposes a conditional completion, so evaluate the
-        // precondition here, once the upload is known good but before
-        // anything is written.  Note: not atomic (HEAD then complete).
+        // Hand the condition to the store, which resolves it as it publishes
+        // the object.  Checking it here instead would only hold while nothing
+        // else writes the same key, which is what the caller is guarding
+        // against.  Stores that cannot answer at all say so.
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         if (ifMatch != null || ifNoneMatch != null) {
-            checkConditionalWrite(blobStore.blobMetadata(containerName,
-                    blobName), ifMatch, ifNoneMatch);
+            if (!Quirks.NATIVE_CONDITIONAL_COMPLETE.contains(blobStoreType)) {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                        "Conditional writes are not supported by this" +
+                        " backend.");
+            }
+            // S3 answers an If-Match naming a key that does not exist with
+            // 404, where the stores report 412; settle that here, and once
+            // existence is established If-Match: * asks nothing more.
+            if (ifMatch != null) {
+                if (!blobStore.blobExists(containerName, blobName)) {
+                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                }
+                if (ifMatch.equals("*")) {
+                    ifMatch = null;
+                }
+            }
+            if (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType) &&
+                    ifMatch != null) {
+                // the nio2 stores resolve If-None-Match while writing but
+                // have no compare-and-swap for an ETag, so If-Match stays a
+                // check followed by a write, bounded by this process
+                checkConditionalWrite(blobStore.blobMetadata(containerName,
+                        blobName), ifMatch, /*ifNoneMatch=*/ null);
+                ifMatch = null;
+            }
         }
+        final String completeIfMatch = ifMatch;
+        final String completeIfNoneMatch = ifNoneMatch;
 
         boolean requiresStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
                 blobStoreType);
@@ -3331,10 +3357,21 @@ public class S3ProxyHandler {
                     fullObjectUpload(metadata, request, mpuAlgorithm));
         }
 
+        // The condition rides down with the upload, since completion is the
+        // write that has to honour it.
+        PutOptions completeOptions = options;
+        if (completeIfMatch != null || completeIfNoneMatch != null) {
+            completeOptions = (options == null ? PutOptions.builder() :
+                    options.toBuilder())
+                    .ifMatch(completeIfMatch)
+                    .ifNoneMatch(completeIfNoneMatch)
+                    .build();
+        }
+
         // Persist the composite checksum onto the final object for stub
         // backends, which build the completed blob's metadata from the
         // MultipartUpload passed to completeMultipartUpload.
-        MultipartUpload enrichedMpu = mpu;
+        BlobMetadata completeMetadata = metadata;
         if (mpuChecksum != null && metadata != null && requiresStub) {
             var userMetadata = new LinkedHashMap<>(metadata.userMetadata());
             // the upload's bookkeeping does not belong on the object; the
@@ -3342,12 +3379,26 @@ public class S3ProxyHandler {
             userMetadata.remove(CHECKSUM_TYPE_METADATA_KEY);
             userMetadata.put(mpuChecksum.algorithm().metadataKey(),
                     mpuChecksum.value());
-            enrichedMpu = new MultipartUpload(containerName, blobName,
-                    uploadId,
-                    metadata.toBuilder().userMetadata(userMetadata).build(),
-                    options);
+            completeMetadata = metadata.toBuilder()
+                    .userMetadata(userMetadata).build();
         }
-        final MultipartUpload completeMpu = enrichedMpu;
+        final MultipartUpload completeMpu = new MultipartUpload(containerName,
+                blobName, uploadId, completeMetadata, completeOptions);
+
+        // A conditional completion has to finish before anything is sent: the
+        // store decides the outcome, and once the 200 and the XML prolog are
+        // out the refusal can no longer be a status code.  That costs the
+        // whitespace kept flowing during a slow completion, which matters
+        // less than answering 412 where S3 answers 412.
+        String syncETag = null;
+        if (completeIfMatch != null || completeIfNoneMatch != null) {
+            syncETag = blobStore.completeMultipartUpload(completeMpu, parts);
+            if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
+                blobStore.removeBlob(containerName,
+                        multipartStubName(uploadId));
+            }
+        }
+        final String completedETag = syncETag;
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -3364,7 +3415,8 @@ public class S3ProxyHandler {
 
             // Launch async thread to allow main thread to emit newlines to
             // the client while completeMultipartUpload processes.
-            final AtomicReference<String> eTag = new AtomicReference<>();
+            final var eTag = new AtomicReference<@Nullable String>(
+                    completedETag);
             final AtomicReference<RuntimeException> exception =
                     new AtomicReference<>();
             var thread = new Thread() {
@@ -3378,7 +3430,9 @@ public class S3ProxyHandler {
                     }
                 }
             };
-            thread.start();
+            if (completedETag == null) {
+                thread.start();
+            }
 
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
@@ -3423,8 +3477,9 @@ public class S3ProxyHandler {
                 return;
             }
 
-            if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
-                    blobStore))) {
+            if (completedETag == null &&
+                    Quirks.MULTIPART_REQUIRES_STUB.contains(
+                            getBlobStoreType(blobStore))) {
                 blobStore.removeBlob(containerName,
                         multipartStubName(uploadId));
             }

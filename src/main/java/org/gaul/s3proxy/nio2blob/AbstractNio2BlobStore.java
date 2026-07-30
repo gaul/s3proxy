@@ -1068,7 +1068,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
         }
 
-        putBlob(mpu.containerName(), blobBuilder.build(), PutOptions.NONE);
+        // Publishing the assembled object is the write the condition applies
+        // to, so hand it to putBlob rather than checking it beforehand.  A
+        // refused completion throws from here, leaving the parts in place for
+        // the client to retry or abort.  Only If-None-Match: the caller
+        // resolves If-Match, which needs a compare-and-swap this store has
+        // no way to perform.
+        var completeOptions = PutOptions.NONE;
+        var mpuOptions = mpu.putOptions();
+        if (mpuOptions != null && mpuOptions.ifNoneMatch() != null) {
+            completeOptions = PutOptions.builder()
+                    .ifNoneMatch(mpuOptions.ifNoneMatch())
+                    .build();
+        }
+        putBlob(mpu.containerName(), blobBuilder.build(), completeOptions);
 
         // Remove every uploaded part, not just the ones referenced by the
         // manifest, so parts excluded from the final object do not leak.

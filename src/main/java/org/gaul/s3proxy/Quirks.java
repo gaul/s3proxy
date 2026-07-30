@@ -76,6 +76,20 @@ final class Quirks {
             "transient-nio2"
     );
 
+    /**
+     * Blobstores whose completeMultipartUpload evaluates the conditional
+     * headers itself.  This is not the same set as for a plain put: GCS
+     * compose can only require that the target be absent, and Swift's
+     * manifest PUT only honours If-None-Match: *, so neither can answer a
+     * condition naming an ETag.
+     */
+    static final Set<String> NATIVE_CONDITIONAL_COMPLETE = Set.of(
+            "aws-s3-sdk",
+            "azureblob-sdk",
+            "filesystem-nio2",
+            "transient-nio2"
+    );
+
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob-sdk",

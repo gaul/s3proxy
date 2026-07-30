@@ -720,8 +720,23 @@ public final class AwsSdkTest {
         client.deleteObject(b -> b.bucket(containerName).key(key));
     }
 
+    /**
+     * Whether the backend resolves a conditional CompleteMultipartUpload.
+     * GCS compose can only require that the target be absent and Swift's
+     * manifest PUT honours only If-None-Match: *, so neither can answer a
+     * condition naming an ETag and s3proxy refuses; LocalStack accepts the
+     * request and answers NotImplemented itself.
+     */
+    private boolean supportsConditionalComplete() {
+        return !blobStoreType.equals("google-cloud-storage-sdk") &&
+                !blobStoreType.equals("openstack-swift-sdk") &&
+                !blobStoreType.equals("sftp") &&
+                blobStoreEndpoint.getPort() != LOCALSTACK_PORT;
+    }
+
     @Test
     public void testCompleteMultipartUploadConditional() throws Exception {
+        assumeTrue(supportsConditionalComplete());
         var key = "testCompleteMultipartUploadConditional";
         var content = new byte[5 * 1024 * 1024];
         Arrays.fill(content, (byte) 'A');

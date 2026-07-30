@@ -38,6 +38,13 @@ public record PutOptions(
         return new Builder();
     }
 
+    public Builder toBuilder() {
+        return new Builder()
+                .blobAccess(blobAccess)
+                .ifMatch(ifMatch)
+                .ifNoneMatch(ifNoneMatch);
+    }
+
     public static final class Builder {
         private BlobAccess blobAccess = BlobAccess.PRIVATE;
         private @Nullable String ifMatch;

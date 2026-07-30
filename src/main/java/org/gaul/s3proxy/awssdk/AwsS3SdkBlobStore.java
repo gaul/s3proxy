@@ -859,6 +859,14 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                         .parts(completedParts)
                         .build());
 
+        var putOptions = mpu.putOptions();
+        if (putOptions != null) {
+            // S3 resolves the condition as it publishes the object, so it
+            // holds even against a writer racing this completion
+            requestBuilder.ifMatch(putOptions.ifMatch());
+            requestBuilder.ifNoneMatch(putOptions.ifNoneMatch());
+        }
+
         try {
             var response = s3Client.completeMultipartUpload(
                     requestBuilder.build());
