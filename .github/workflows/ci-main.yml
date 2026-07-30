@@ -135,7 +135,12 @@ jobs:
         run: npx --yes --loglevel info azurite@3.36.0 --version
       - name: Start Azurite
         shell: bash
-        run: npx --yes --package azurite@3.36.0 azurite-blob &
+        run: |
+          npx --yes --package azurite@3.36.0 azurite-blob &
+          # A 403 AuthorizationFailure means the blob service is up and
+          # reached its authentication layer.
+          ./src/test/resources/wait-for-url.sh \
+            'http://127.0.0.1:10000/devstoreaccount1?comp=list'
       - name: Maven Test with Azurite
         run: |
           mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
@@ -175,10 +180,15 @@ jobs:
       - name: Start LocalStack
         run: |
           docker run -d --name localstack -p 4566:4566 localstack/localstack:4.11.1
-          # Wait for LocalStack to be ready
+          # Wait for LocalStack to be ready.  Its health endpoint answers
+          # before s3 is listed, so wait-for-url.sh is not enough here.
           for i in $(seq 30); do
             if curl -s http://127.0.0.1:4566/_localstack/health | grep -q '"s3"'; then
               break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "LocalStack did not offer s3 within 30 seconds" >&2
+              exit 1
             fi
             sleep 1
           done
@@ -228,7 +238,10 @@ jobs:
       - name: Install fake-gcs-server
         run: go install github.com/fsouza/fake-gcs-server@v1.55.0
       - name: Start fake-gcs-server
-        run: $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &
+        run: |
+          $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &
+          ./src/test/resources/wait-for-url.sh \
+            http://127.0.0.1:4443/storage/v1/b
       - name: Maven Test with fake-gcs-server
         run: |
           STORAGE_EMULATOR_HOST=http://localhost:4443 mvn test -Ds3proxy.test.conf=s3proxy-fake-gcs-server.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
@@ -276,7 +289,9 @@ jobs:
           (cd "$RUNNER_TEMP/openstackswift" &&
             go build -o "$HOME/go/bin/swift" ./cmd/swift)
       - name: Start openstackswift
-        run: $HOME/go/bin/swift server --binding 127.0.0.1 --port 5000 &
+        run: |
+          $HOME/go/bin/swift server --binding 127.0.0.1 --port 5000 &
+          ./src/test/resources/wait-for-url.sh http://127.0.0.1:5000/version
       - name: Maven Test with openstackswift
         run: |
           mvn test -Ds3proxy.test.conf=s3proxy-swift.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
