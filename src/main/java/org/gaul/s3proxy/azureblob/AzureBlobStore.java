@@ -110,7 +110,15 @@ public final class AzureBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final long MAXIMUM_MULTIPART_PART_SIZE =
             4000L * 1024 * 1024;
-    private static final String TARGET_BLOB_NAME_TAG = "s3proxy_target_blob_name";
+    /**
+     * Metadata entry on a stub blob naming the blob the upload completes to.
+     * Previously a blob index tag, whose value admits only alphanumerics and
+     * " +-.:=_/" within 256 characters -- so a key holding any other
+     * character, or any non-ASCII one, could not be recorded and
+     * CreateMultipartUpload failed for a key Azure accepts as a blob name.
+     */
+    private static final String TARGET_BLOB_NAME_METADATA =
+            "s3proxy_target_blob_name";
     // S3 requires MD5 for ETag and Content-MD5 interoperability.
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
@@ -819,21 +827,73 @@ public final class AzureBlobStore implements BlobStore {
         var uploadOptions = new BlockBlobSimpleUploadOptions(
                 new ByteArrayInputStream(new byte[0]), 0);
         uploadOptions.setHeaders(headers);
-        if (userMetadata != null && !userMetadata.isEmpty()) {
-            uploadOptions.setMetadata(userMetadata);
+        // Metadata names are case insensitive, so drop any spelling a caller
+        // sent of our own before adding it -- two entries differing only in
+        // case would collide, and ours must be the one that survives.
+        var stubMetadata = new java.util.LinkedHashMap<String, String>();
+        if (userMetadata != null) {
+            stubMetadata.putAll(userMetadata);
         }
+        stubMetadata.keySet().removeIf(
+                key -> key.equalsIgnoreCase(TARGET_BLOB_NAME_METADATA));
+        stubMetadata.put(TARGET_BLOB_NAME_METADATA,
+                encodeTargetBlobName(targetBlobName));
+        uploadOptions.setMetadata(stubMetadata);
         if (blobMetadata.storageClass() != null && blobMetadata.storageClass() != StorageClass.STANDARD) {
             uploadOptions.setTier(toAccessTier(blobMetadata.storageClass()));
         }
 
+        // The destination rides along with the stub rather than following in a
+        // setTags call, so a failure cannot leave a stub whose destination is
+        // unknown -- one that listMultipartUploads skips and no abort reaches.
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);
-
-        var tags = new java.util.HashMap<String, String>();
-        tags.put(TARGET_BLOB_NAME_TAG, targetBlobName);
-        stubBlobClient.setTags(tags);
 
         return new MultipartUpload(container, targetBlobName,
                 uploadKey, blobMetadata, options);
+    }
+
+    /**
+     * A metadata value is signed into an x-ms-meta-* request header, which
+     * carries ASCII only: a raw UTF-8 key fails Azure's shared key
+     * authentication outright.  base64url keeps any key storable.
+     */
+    private static String encodeTargetBlobName(String targetBlobName) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                targetBlobName.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Null when the blob is not one of our stubs. */
+    @Nullable
+    private static String decodeTargetBlobName(
+            @Nullable Map<String, String> metadata) {
+        if (metadata == null) {
+            return null;
+        }
+        String encoded = metadata.get(TARGET_BLOB_NAME_METADATA);
+        if (encoded == null) {
+            return null;
+        }
+        return new String(Base64.getUrlDecoder().decode(encoded),
+                StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The stub carries the caller's metadata alongside our own entry, and
+     * completeMultipartUpload copies that map onto the finished blob.  Drop the
+     * internal entry so it does not surface as caller metadata.
+     */
+    private static Map<String, String> withoutTargetBlobName(
+            @Nullable Map<String, String> metadata) {
+        if (metadata == null) {
+            return Map.of();
+        }
+        var result = new java.util.LinkedHashMap<String, String>();
+        for (var entry : metadata.entrySet()) {
+            if (!entry.getKey().equalsIgnoreCase(TARGET_BLOB_NAME_METADATA)) {
+                result.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return result;
     }
 
     /**
@@ -886,10 +946,8 @@ public final class AzureBlobStore implements BlobStore {
         var stubBlobClient = containerClient.getBlobClient(uploadKey);
 
         BlobProperties stubProperties;
-        java.util.Map<String, String> stubTags;
         try {
             stubProperties = stubBlobClient.getProperties();
-            stubTags = stubBlobClient.getTags();
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
                 throw new IllegalArgumentException(
@@ -898,13 +956,14 @@ public final class AzureBlobStore implements BlobStore {
             throw bse;
         }
 
-        String targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
+        var stubMetadata = stubProperties.getMetadata();
+        String targetBlobName = decodeTargetBlobName(stubMetadata);
         if (targetBlobName == null) {
             throw new IllegalArgumentException(
-                    "Stub blob missing target name tag: uploadId=" + uploadKey);
+                    "Stub blob missing target name: uploadId=" + uploadKey);
         }
 
-        var userMetadata = stubProperties.getMetadata();
+        var userMetadata = withoutTargetBlobName(stubMetadata);
         var contentMetadata = toContentMetadata(stubProperties);
         var tier = stubProperties.getAccessTier();
 
@@ -1206,14 +1265,18 @@ public final class AzureBlobStore implements BlobStore {
 
         String targetBlobName;
         try {
-            var stubTags = stubBlobClient.getTags();
-            targetBlobName = stubTags.get(TARGET_BLOB_NAME_TAG);
+            targetBlobName = decodeTargetBlobName(
+                    stubBlobClient.getProperties().getMetadata());
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
                 throw new KeyNotFoundException(mpu.containerName(), uploadKey,
                         "Multipart upload not found: " + uploadKey);
             }
             throw bse;
+        }
+        if (targetBlobName == null) {
+            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+                    "Multipart upload not found: " + uploadKey);
         }
 
         var client = containerClient
@@ -1273,19 +1336,19 @@ public final class AzureBlobStore implements BlobStore {
         var options = new ListBlobsOptions();
         options.setPrefix(STUB_BLOB_PREFIX);
         var details = new BlobListDetails();
-        details.setRetrieveTags(true);
+        details.setRetrieveMetadata(true);
         options.setDetails(details);
 
         for (var blobItem : containerClient.listBlobs(options, null, null)) {
             // e.g., ".s3proxy/stubs/<uuid>"
             String uploadKey = blobItem.getName();
-            var tags = blobItem.getTags();
 
-            if (tags == null || tags.get(TARGET_BLOB_NAME_TAG) == null) {
+            String targetBlobName = decodeTargetBlobName(
+                    blobItem.getMetadata());
+            if (targetBlobName == null) {
                 continue;
             }
 
-            String targetBlobName = tags.get(TARGET_BLOB_NAME_TAG);
             builder.add(new MultipartUpload(container, targetBlobName,
                     uploadKey, null, null));
         }
