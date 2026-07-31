@@ -734,16 +734,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         return new ContainerNotFoundException(container, e.getMessage());
     }
 
-    private void applyMultipartAclIfNeeded(MultipartUpload mpu) {
-        if (mpu == null) {
-            return;
-        }
-        PutOptions putOptions = mpu.putOptions();
-        if (putOptions != null && putOptions.blobAccess() == BlobAccess.PUBLIC_READ) {
-            setBlobAccess(mpu.containerName(), mpu.blobName(), BlobAccess.PUBLIC_READ);
-        }
-    }
-
     @Override
     public void setBlobAccess(String container, String key, BlobAccess access) {
         ObjectCannedACL acl = access == BlobAccess.PUBLIC_READ ?
@@ -870,7 +860,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         try {
             var response = s3Client.completeMultipartUpload(
                     requestBuilder.build());
-            applyMultipartAclIfNeeded(mpu);
             return response.eTag();
         } catch (S3Exception e) {
             throw translate(e, mpu.containerName(), mpu.blobName());
