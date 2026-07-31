@@ -1031,8 +1031,8 @@ public class S3ProxyHandler {
             } else if (uploadId != null) {
                 if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
                     setOperation(ctx, S3Operation.UPLOAD_PART_COPY);
-                    handleCopyPart(request, response, blobStore, path[1],
-                            path[2], uploadId);
+                    handleCopyPart(request, response, blobStore,
+                            requestIdentity, path[1], path[2], uploadId);
                 } else {
                     setOperation(ctx, S3Operation.UPLOAD_PART);
                     handleUploadPart(request, response, is, blobStore, path[1],
@@ -1041,8 +1041,8 @@ public class S3ProxyHandler {
                 return;
             } else if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
                 setOperation(ctx, S3Operation.COPY_OBJECT);
-                handleCopyBlob(request, response, is, blobStore, path[1],
-                        path[2]);
+                handleCopyBlob(request, response, is, blobStore,
+                        requestIdentity, path[1], path[2]);
                 return;
             } else {
                 if (request.getParameter("acl") != null) {
@@ -2550,8 +2550,26 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * Authorize the bucket named by x-amz-copy-source.  doHandle resolves the
+     * blob store from the bucket in the request URI, i.e. the copy
+     * destination; the source names a second bucket that never passes through
+     * that check.  A BlobStoreLocator which scopes buckets to identities --
+     * GlobBlobStoreLocator does -- would otherwise still let a caller read a
+     * bucket it cannot address directly by copying out of it.
+     */
+    private void authorizeCopySource(@Nullable String requestIdentity,
+            String sourceContainerName, String sourceBlobName)
+            throws S3Exception {
+        if (blobStoreLocator.locateBlobStore(requestIdentity,
+                sourceContainerName, sourceBlobName) == null) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+        }
+    }
+
     private void handleCopyBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
+            @Nullable String requestIdentity,
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
         String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
@@ -2567,6 +2585,8 @@ public class S3ProxyHandler {
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
+        authorizeCopySource(requestIdentity, sourceContainerName,
+                sourceBlobName);
         boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
                 AwsHttpHeaders.METADATA_DIRECTIVE));
 
@@ -4249,6 +4269,7 @@ public class S3ProxyHandler {
 
     private void handleCopyPart(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
+            @Nullable String requestIdentity,
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
@@ -4265,6 +4286,8 @@ public class S3ProxyHandler {
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
+        authorizeCopySource(requestIdentity, sourceContainerName,
+                sourceBlobName);
 
         var optionsBuilder = GetOptions.builder();
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
