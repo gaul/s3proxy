@@ -31,9 +31,6 @@ final class Quirks {
             "openstack-swift-sdk"
     );
 
-    /** Blobstores which do not support the Content-Disposition header. */
-    static final Set<String> NO_CONTENT_DISPOSITION = Set.of();
-
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
             "google-cloud-storage-sdk"
@@ -42,15 +39,6 @@ final class Quirks {
     /** Blobstores which do not support the Content-Language header. */
     static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
             "openstack-swift-sdk"
-    );
-
-    static final Set<String> NO_EXPIRES = Set.of(
-            "azureblob-sdk"
-    );
-
-    /** Blobstores which do not allow listing zero keys. */
-    static final Set<String> NO_LIST_ZERO_KEYS = Set.of(
-            "azureblob-sdk"
     );
 
     /**

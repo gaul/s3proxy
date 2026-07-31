@@ -2331,9 +2331,7 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 b.cacheControl(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                b.contentDisposition(contentDisposition);
-            }
+            b.contentDisposition(contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 b.contentEncoding(contentEncoding);
             }
@@ -2352,10 +2350,8 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                assertThat(meta.contentDisposition()).isEqualTo(
-                        contentDisposition);
-            }
+            assertThat(meta.contentDisposition()).isEqualTo(
+                    contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
@@ -2417,9 +2413,7 @@ public final class AwsSdkTest {
                             blobStoreType)) {
                         b.cacheControl(cacheControl);
                     }
-                    if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                        b.contentDisposition(contentDisposition);
-                    }
+                    b.contentDisposition(contentDisposition);
                     if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                         b.contentEncoding(contentEncoding);
                     }
@@ -2466,10 +2460,8 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                assertThat(meta.contentDisposition()).isEqualTo(
-                        contentDisposition);
-            }
+            assertThat(meta.contentDisposition()).isEqualTo(
+                    contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
@@ -2604,9 +2596,7 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 b.cacheControl(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                b.contentDisposition(contentDisposition);
-            }
+            b.contentDisposition(contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 b.contentEncoding(contentEncoding);
             }
@@ -2629,10 +2619,8 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                assertThat(meta.contentDisposition()).isEqualTo(
-                        contentDisposition);
-            }
+            assertThat(meta.contentDisposition()).isEqualTo(
+                    contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
@@ -2662,9 +2650,7 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 b.cacheControl("max-age=3600");
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                b.contentDisposition("attachment; filename=old.jpg");
-            }
+            b.contentDisposition("attachment; filename=old.jpg");
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 b.contentEncoding("compress");
             }
@@ -2691,9 +2677,7 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 b.cacheControl(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                b.contentDisposition(contentDisposition);
-            }
+            b.contentDisposition(contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 b.contentEncoding(contentEncoding);
             }
@@ -2711,10 +2695,8 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            if (!Quirks.NO_CONTENT_DISPOSITION.contains(blobStoreType)) {
-                assertThat(meta.contentDisposition()).isEqualTo(
-                        contentDisposition);
-            }
+            assertThat(meta.contentDisposition()).isEqualTo(
+                    contentDisposition);
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
