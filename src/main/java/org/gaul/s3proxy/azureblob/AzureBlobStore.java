@@ -496,10 +496,20 @@ public final class AzureBlobStore implements BlobStore {
      * its read() even calls block() internally, so emit from a scheduler
      * that permits blocking; subscribeOn also forwards downstream requests
      * onto that scheduler.
+     *
+     * The chunk size alone does not bound heap use: reactor-netty demands
+     * reactor.netty.send.maxPrefetchSize chunks, 128 by default, before it
+     * writes any of them, so one upload holds 128 at once whenever the
+     * caller outruns the socket.  At 4 MiB that was 512 MiB per concurrent
+     * upload, and exhausting the heap mid-request surfaced as a stalled
+     * connection and a write timeout rather than as an OutOfMemoryError.
+     * The whole Flux is a single Put Blob or Put Block request whatever the
+     * chunk size, so this is streaming granularity only and shrinking it
+     * costs no extra round trips.
      */
     private static Flux<ByteBuffer> chunkedByteBufferFlux(InputStream is,
             long contentLength) {
-        final int maxChunkSize = 4 * 1024 * 1024;
+        final int maxChunkSize = 256 * 1024;
         return Flux.<ByteBuffer, Long>generate(
             () -> 0L,
             (position, sink) -> {
