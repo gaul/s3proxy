@@ -201,6 +201,10 @@ s3proxy.cors-allow-credential=true
 
 CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
 Actual CORS requests are supported for GET, PUT, POST, HEAD and DELETE methods.
+Cross-origin sharing is opt-in: a proxy with no CORS configuration, including
+one built through `S3Proxy.Builder` without `corsRules`, shares nothing.
+Responses that depend on the request `Origin` carry `Vary: Origin` so that
+shared caches do not serve one origin's response to another.
 
 The wiki collects
 [compatibility notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)

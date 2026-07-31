@@ -342,6 +342,9 @@ public final class CrossOriginResourceSharingResponseTest {
         assertThat(response.getFirstHeader(
                 HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
                 .isEqualTo("ETag");
+        // A cache must not serve this origin's response to another one
+        assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
+                .isEqualTo(HttpHeaders.ORIGIN);
     }
 
     @Test
@@ -354,6 +357,10 @@ public final class CrossOriginResourceSharingResponseTest {
                 HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
         assertThat(response.containsHeader(
                 HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS)).isFalse();
+        // ... nor cache this header-less response and replay it to one that
+        // is allowed
+        assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
+                .isEqualTo(HttpHeaders.ORIGIN);
     }
 
     private static String createRandomContainerName() {

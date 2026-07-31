@@ -114,12 +114,31 @@ public final class CrossOriginResourceSharing {
         logger.info("CORS allow credentials: {}", allowCredentials);
     }
 
+    /**
+     * A policy allowing no cross-origin access, the default when a caller
+     * configures none.  Callers opt into sharing explicitly, either with
+     * s3proxy.cors-allow-origins or with the allow-all constructor.
+     */
+    public static CrossOriginResourceSharing disabled() {
+        return new CrossOriginResourceSharing(List.of(), List.of(), List.of(),
+                List.of(), "");
+    }
+
     public String getAllowedMethods() {
         return this.allowedMethodsRaw;
     }
 
     public String getExposedHeaders() {
         return this.exposedHeadersRaw;
+    }
+
+    /**
+     * Whether any origin could be allowed.  When false the proxy never emits
+     * CORS headers, so its responses do not depend on the Origin header and
+     * need not be varied on it.
+     */
+    public boolean isEnabled() {
+        return this.anyOriginAllowed || !this.allowedOrigins.isEmpty();
     }
 
     public String getAllowedOrigin(String origin) {

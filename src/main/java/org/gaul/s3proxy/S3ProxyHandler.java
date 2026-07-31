@@ -327,7 +327,11 @@ public class S3ProxyHandler {
         if (corsRules != null) {
             this.corsRules = corsRules;
         } else {
-            this.corsRules = new CrossOriginResourceSharing();
+            // No configured policy means no cross-origin sharing.  Defaulting
+            // to allow-all would let any web page read from a proxy that its
+            // browser can reach but its author cannot, e.g. one bound to
+            // localhost with anonymous authorization.
+            this.corsRules = CrossOriginResourceSharing.disabled();
         }
         if (authenticationType != AuthenticationType.NONE) {
             anonymousIdentity = false;
@@ -4830,6 +4834,15 @@ public class S3ProxyHandler {
 
     private void addCorsResponseHeader(HttpServletRequest request,
           HttpServletResponse response) {
+        if (!corsRules.isEnabled()) {
+            return;
+        }
+        // Whether the headers below appear at all, and which origin they name,
+        // depends on the Origin request header, so a shared cache must key on
+        // it.  Without this a cache can hand one origin's response -- or a
+        // no-Origin response carrying no CORS headers -- to a different
+        // origin.  handleOptionsBlob sets the same header for preflights.
+        response.addHeader(HttpHeaders.VARY, HttpHeaders.ORIGIN);
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
         if (!Strings.isNullOrEmpty(corsOrigin) &&
                 corsRules.isOriginAllowed(corsOrigin)) {
