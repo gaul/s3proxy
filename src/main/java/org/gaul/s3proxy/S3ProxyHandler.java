@@ -745,9 +745,18 @@ public class S3ProxyHandler {
                     () -> new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID));
             blobStore = grant.blobStore();
 
+            // A presigned URL carries its lifetime in the query string, which
+            // is unauthenticated at this point.  Answer AccessDenied for
+            // values that do not parse rather than letting the numeric
+            // exception escape as a 500.
             String expiresString = request.getParameter("Expires");
             if (expiresString != null) { // v2 query
-                long expires = Long.parseLong(expiresString);
+                long expires;
+                try {
+                    expires = Long.parseLong(expiresString);
+                } catch (NumberFormatException nfe) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED, nfe);
+                }
                 long nowSeconds = System.currentTimeMillis() / 1000;
                 if (nowSeconds >= expires) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
@@ -762,8 +771,14 @@ public class S3ProxyHandler {
             //from para v4 query
             expiresString = request.getParameter("X-Amz-Expires");
             if (dateString != null && expiresString != null) { //v4 query
-                long date = parseIso8601(dateString);
-                long expires = Long.parseLong(expiresString);
+                long date;
+                long expires;
+                try {
+                    date = parseIso8601(dateString);
+                    expires = Long.parseLong(expiresString);
+                } catch (IllegalArgumentException iae) {
+                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+                }
                 long nowSeconds = System.currentTimeMillis() / 1000;
                 if (nowSeconds >= date + expires) {
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
