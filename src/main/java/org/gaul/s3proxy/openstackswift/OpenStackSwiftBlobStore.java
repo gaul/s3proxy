@@ -753,6 +753,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public String copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+            // Matches setBlobAccess: Swift grants read at the container, so a
+            // public copy is refused rather than silently made private.
+            throw new UnsupportedOperationException(
+                    "blob-level access unsupported in Swift");
+        }
         enforceCopySourcePreconditions(fromContainer, fromName, options);
         var contentMetadata = options.contentMetadata();
         var userMetadata = options.userMetadata();

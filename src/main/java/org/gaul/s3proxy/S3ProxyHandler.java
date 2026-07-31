@@ -2617,6 +2617,21 @@ public class S3ProxyHandler {
 
         CopyOptions.Builder options = CopyOptions.builder();
 
+        // The access rides down with the copy so that the store applies it as
+        // it creates the object, rather than a PutObjectAcl afterwards whose
+        // failure would leave the copy readable to nobody who asked for it.
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
+        if (cannedAcl != null && !"private".equalsIgnoreCase(cannedAcl)) {
+            if ("public-read".equalsIgnoreCase(cannedAcl)) {
+                options.blobAccess(BlobAccess.PUBLIC_READ);
+            } else if (CANNED_ACLS.contains(cannedAcl)) {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            } else {
+                response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+                return;
+            }
+        }
+
         String ifMatch = request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
         if (ifMatch != null) {
             options.ifMatch(ifMatch);
@@ -2681,13 +2696,6 @@ public class S3ProxyHandler {
                     destContainerName, destBlobName, options.build());
         } catch (KeyNotFoundException knfe) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, knfe);
-        }
-
-        // TODO: jclouds should include this in CopyOptions
-        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
-        if (cannedAcl != null && !cannedAcl.equalsIgnoreCase("private")) {
-            handleSetBlobAcl(request, response, is, blobStore,
-                    destContainerName, destBlobName);
         }
 
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,

@@ -19,10 +19,12 @@ package org.gaul.s3proxy.blobstore.options;
 
 import java.util.Date;
 import java.util.Map;
+import java.util.Objects;
 
 import com.google.common.collect.ImmutableMap;
 
 import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.jspecify.annotations.Nullable;
 
 public record CopyOptions(
@@ -31,9 +33,14 @@ public record CopyOptions(
         @Nullable Date ifModifiedSince,
         @Nullable Date ifUnmodifiedSince,
         @Nullable String ifMatch,
-        @Nullable String ifNoneMatch) {
+        @Nullable String ifNoneMatch,
+        BlobAccess blobAccess) {
 
     public static final CopyOptions NONE = builder().build();
+
+    public CopyOptions {
+        Objects.requireNonNull(blobAccess, "blobAccess");
+    }
 
     public static Builder builder() {
         return new Builder();
@@ -46,6 +53,7 @@ public record CopyOptions(
         private @Nullable Date ifUnmodifiedSince;
         private @Nullable String ifMatch;
         private @Nullable String ifNoneMatch;
+        private BlobAccess blobAccess = BlobAccess.PRIVATE;
 
         public Builder contentMetadata(ContentMetadata contentMetadata) {
             this.contentMetadata = contentMetadata;
@@ -77,11 +85,17 @@ public record CopyOptions(
             return this;
         }
 
+        public Builder blobAccess(BlobAccess blobAccess) {
+            this.blobAccess = Objects.requireNonNull(blobAccess, "blobAccess");
+            return this;
+        }
+
         public CopyOptions build() {
             Map<String, String> userMetadataCopy = userMetadata == null ?
                     null : ImmutableMap.copyOf(userMetadata);
             return new CopyOptions(contentMetadata, userMetadataCopy,
-                    ifModifiedSince, ifUnmodifiedSince, ifMatch, ifNoneMatch);
+                    ifModifiedSince, ifUnmodifiedSince, ifMatch, ifNoneMatch,
+                    blobAccess);
         }
     }
 }

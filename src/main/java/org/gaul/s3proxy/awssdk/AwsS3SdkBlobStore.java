@@ -593,6 +593,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     ifUnmodifiedSince.toInstant());
         }
 
+        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+            requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
+        }
+
         try {
             var response = s3Client.copyObject(requestBuilder.build());
             return response.copyObjectResult().eTag();

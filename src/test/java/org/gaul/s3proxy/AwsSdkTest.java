@@ -2197,6 +2197,36 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testCopyObjectPublicRead() throws Exception {
+        // Azure and Swift grant read at the container, so a per-blob ACL has
+        // nowhere to live and the copy is refused instead.
+        assumeTrue(!blobStoreType.equals("azureblob-sdk") &&
+                !blobStoreType.equals("openstack-swift-sdk"));
+        // GCS is skipped for a different reason: the copy does carry
+        // destinationPredefinedAcl, but fake-gcs-server drops it and gives the
+        // destination the source's ACL instead.  Remove this once
+        // https://github.com/fsouza/fake-gcs-server/pull/2309 and its
+        // companion for objects are released and the lane picks them up.
+        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+
+        client.putObject(b -> b.bucket(containerName).key("source"),
+                RequestBody.fromString("content"));
+
+        // The access a copy is created with must be the access it has, the
+        // same as for a plain put.
+        client.copyObject(b -> b.sourceBucket(containerName)
+                .sourceKey("source").destinationBucket(containerName)
+                .destinationKey("public-copy")
+                .acl(ObjectCannedACL.PUBLIC_READ));
+
+        assertThat(blobStore.getBlobAccess(containerName, "public-copy"))
+                .isEqualTo(BlobAccess.PUBLIC_READ);
+        // The source is untouched by the copy's ACL
+        assertThat(blobStore.getBlobAccess(containerName, "source"))
+                .isEqualTo(BlobAccess.PRIVATE);
+    }
+
+    @Test
     public void testCreateContainerPublicRead() throws Exception {
         // The access a container is created with must be the access it has.
         // Backends that carry it in a second call after the create can report

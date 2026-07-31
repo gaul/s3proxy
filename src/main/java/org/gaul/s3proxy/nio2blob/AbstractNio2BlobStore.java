@@ -807,7 +807,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
-            return putBlob(toContainer, builder.build(), PutOptions.NONE);
+            return putBlob(toContainer, builder.build(), PutOptions.builder()
+                    .blobAccess(options.blobAccess()).build());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }

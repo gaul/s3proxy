@@ -616,11 +616,17 @@ public final class GCloudBlobStore implements BlobStore {
                     ifMatch, ifNoneMatch, ifModifiedSince, ifUnmodifiedSince);
         }
 
+        var targetOptions = new java.util.ArrayList<BlobTargetOption>();
+        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+            targetOptions.add(BlobTargetOption.predefinedAcl(
+                    Storage.PredefinedAcl.PUBLIC_READ));
+        }
+
         try {
             var copyRequest = CopyRequest.newBuilder()
                     .setSource(source)
                     .setSourceOptions(sourceOptions)
-                    .setTarget(targetBuilder.build())
+                    .setTarget(targetBuilder.build(), targetOptions)
                     .build();
             var result = storage.copy(copyRequest);
             return result.getResult().getEtag();

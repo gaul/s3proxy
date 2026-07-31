@@ -573,6 +573,11 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public String copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+            // Matches setBlobAccess: Azure grants read at the container, so a
+            // public copy is refused rather than silently made private.
+            throw new UnsupportedOperationException("unsupported in Azure");
+        }
         var expiryTime = OffsetDateTime.now().plusDays(1);
         var permission = new BlobSasPermission().setReadPermission(true);
         var values = new BlobServiceSasSignatureValues(expiryTime, permission)
