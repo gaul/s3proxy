@@ -103,6 +103,7 @@ public final class GCloudBlobStore implements BlobStore {
     private static final int MAX_COMPOSE_PARTS = 32;
 
     private final Storage storage;
+    private final boolean atomicBucketAcl;
 
     public GCloudBlobStore(
             Supplier<Credentials> creds,
@@ -143,10 +144,20 @@ public final class GCloudBlobStore implements BlobStore {
             storageBuilder.setCredentials(NoCredentials.getInstance());
         }
         var endpoint = endpointUrl;
-        if (endpoint != null && !endpoint.isEmpty() &&
-                !endpoint.equals("https://storage.googleapis.com")) {
+        boolean customEndpoint = endpoint != null && !endpoint.isEmpty() &&
+                !endpoint.equals("https://storage.googleapis.com");
+        if (customEndpoint) {
             storageBuilder.setHost(endpoint);
         }
+        // Only Google's own service is known to apply a predefined ACL named
+        // on buckets.insert; fake-gcs-server accepts the parameter and drops
+        // it, leaving a private bucket.  Anything but the real endpoint
+        // therefore sets the ACL in a second request.  Keyed on the endpoint
+        // rather than on it being local because an emulator is often reached
+        // by container hostname rather than at localhost.
+        // TODO: create every bucket atomically after
+        // https://github.com/fsouza/fake-gcs-server/pull/2309 is released
+        atomicBucketAcl = !customEndpoint;
         storage = storageBuilder.build().getService();
     }
 
@@ -255,13 +266,14 @@ public final class GCloudBlobStore implements BlobStore {
             CreateContainerOptions options) {
         try {
             var bucketInfo = BucketInfo.newBuilder(container).build();
-            storage.create(bucketInfo);
-            if (options.publicRead()) {
-                try {
+            if (options.publicRead() && atomicBucketAcl) {
+                storage.create(bucketInfo, Storage.BucketTargetOption
+                        .predefinedAcl(Storage.PredefinedAcl.PUBLIC_READ));
+            } else {
+                storage.create(bucketInfo);
+                if (options.publicRead()) {
                     storage.createAcl(container,
                             Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
-                } catch (StorageException se2) {
-                    // ACL operations not supported (e.g., emulator)
                 }
             }
             return true;
