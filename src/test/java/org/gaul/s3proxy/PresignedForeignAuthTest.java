@@ -146,7 +146,7 @@ public final class PresignedForeignAuthTest {
     @Test
     public void testForeignAuthorizationHeaderWithoutPresigning()
             throws Exception {
-        var uri = URI.create(presignedGet.toString().split("\\?")[0]);
+        var uri = presignedGet.resolve(presignedGet.getRawPath());
         HttpResponse<String> response = httpClient.send(
                 HttpRequest.newBuilder(uri)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer token")

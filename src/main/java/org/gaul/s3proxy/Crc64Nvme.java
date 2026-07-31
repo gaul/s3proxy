@@ -111,6 +111,7 @@ final class Crc64Nvme implements HashFunction {
         return newHasher().putObject(instance, funnel).hash();
     }
 
+    @SuppressWarnings("deprecation")
     private static final class Crc64NvmeHasher implements Hasher {
         private long crc = -1L;
 

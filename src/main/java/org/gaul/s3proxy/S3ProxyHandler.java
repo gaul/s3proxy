@@ -1076,7 +1076,7 @@ public class S3ProxyHandler {
                 return;
             } else if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
                 setOperation(ctx, S3Operation.COPY_OBJECT);
-                handleCopyBlob(request, response, is, blobStore,
+                handleCopyBlob(request, response, blobStore,
                         requestIdentity, path[1], path[2]);
                 return;
             } else {
@@ -2611,7 +2611,7 @@ public class S3ProxyHandler {
     }
 
     private void handleCopyBlob(HttpServletRequest request,
-            HttpServletResponse response, InputStream is, BlobStore blobStore,
+            HttpServletResponse response, BlobStore blobStore,
             @Nullable String requestIdentity,
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
@@ -4025,6 +4025,7 @@ public class S3ProxyHandler {
     }
 
     /** An uploaded part's true digest and length. */
+    @SuppressWarnings("ArrayRecordComponent")
     private record PartChecksum(byte[] digest, long length) {
     }
 
@@ -4109,10 +4110,6 @@ public class S3ProxyHandler {
 
         String header() {
             return header;
-        }
-
-        int length() {
-            return length;
         }
 
         boolean bigEndianInt() {
