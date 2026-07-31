@@ -117,6 +117,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import tools.jackson.core.exc.StreamReadException;
+import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.dataformat.xml.XmlFactory;
@@ -379,6 +380,34 @@ public class S3ProxyHandler {
                         false)
                 .disable(XmlReadFeature.AUTO_DETECT_XSI_TYPE)
                 .build();
+    }
+
+    /**
+     * Parse a request body, answering MalformedXML for a body Jackson
+     * refuses.  StreamReadException alone is not enough: it covers XML that
+     * does not parse, while XML that parses but will not bind -- a PartNumber
+     * that is not a number, a Quiet that is not a boolean -- fails with
+     * DatabindException, a sibling rather than a subclass.  Those used to
+     * reach the catch-all in S3ProxyHandlerJetty and answer 500, which tells
+     * a client to retry a request that cannot ever succeed.
+     *
+     * <p>Between them the two cover every way Jackson reports bad content.
+     * JacksonIOException, which wraps a failure to read the body rather than
+     * a complaint about it, is deliberately left to propagate to the
+     * IOException handling that knows what it means.
+     */
+    private <T> T readXmlBody(InputStream is, Class<T> type)
+            throws S3Exception {
+        try {
+            return mapper.readValue(is, type);
+        } catch (StreamReadException | DatabindException e) {
+            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, e);
+        }
+    }
+
+    private <T> T readXmlBody(byte[] body, Class<T> type)
+            throws S3Exception {
+        return readXmlBody(new ByteArrayInputStream(body), type);
     }
 
     private static String formatIso8601Date(Date date) {
@@ -1219,7 +1248,7 @@ public class S3ProxyHandler {
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
-            AccessControlPolicy policy = mapper.readValue(
+            AccessControlPolicy policy = readXmlBody(
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
@@ -1291,7 +1320,7 @@ public class S3ProxyHandler {
         int ch = pis.read();
         if (ch != -1) {
             pis.unread(ch);
-            AccessControlPolicy policy = mapper.readValue(
+            AccessControlPolicy policy = readXmlBody(
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
@@ -1655,12 +1684,8 @@ public class S3ProxyHandler {
                 locationString = null;
             } else {
                 pis.unread(ch);
-                CreateBucketRequest cbr;
-                try {
-                    cbr = mapper.readValue(pis, CreateBucketRequest.class);
-                } catch (StreamReadException jpe) {
-                    throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
-                }
+                CreateBucketRequest cbr = readXmlBody(
+                        pis, CreateBucketRequest.class);
                 locationString = cbr.locationConstraint();
             }
         }
@@ -2059,7 +2084,7 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
         }
         validateMultiBlobRemoveChecksum(request, body);
-        DeleteMultipleObjectsRequest dmor = mapper.readValue(
+        DeleteMultipleObjectsRequest dmor = readXmlBody(
                 body, DeleteMultipleObjectsRequest.class);
         if (dmor.objects() == null) {
             throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
@@ -3225,12 +3250,8 @@ public class S3ProxyHandler {
         // meaning, even when the completion would fail for other reasons.
         validateChecksumHeaderValues(request);
 
-        CompleteMultipartUploadRequest cmu;
-        try {
-            cmu = mapper.readValue(is, CompleteMultipartUploadRequest.class);
-        } catch (StreamReadException jpe) {
-            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, jpe);
-        }
+        CompleteMultipartUploadRequest cmu = readXmlBody(
+                is, CompleteMultipartUploadRequest.class);
 
         BlobMetadata metadata;
         PutOptions options;
