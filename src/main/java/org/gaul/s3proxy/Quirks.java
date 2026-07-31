@@ -96,10 +96,13 @@ final class Quirks {
             "google-cloud-storage-sdk"
     );
 
-    /** Blobstores with opaque markers. */
+    /**
+     * Blobstores whose list marker is a token they issue rather than a key,
+     * so that a caller paging with the last key it was given needs the
+     * frontend to substitute the marker that produced it.
+     */
     static final Set<String> OPAQUE_MARKERS = Set.of(
-            "azureblob-sdk",
-            "google-cloud-storage-sdk"
+            "azureblob-sdk"
     );
 
     private Quirks() {
