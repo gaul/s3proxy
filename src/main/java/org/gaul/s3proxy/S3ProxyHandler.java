@@ -1910,12 +1910,20 @@ public class S3ProxyHandler {
                         isListV2 ? "NextContinuationToken" : "NextMarker",
                         encodeBlob(encodingType, nextMarker));
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
+                    // A caller may page with the last key it was given rather
+                    // than the marker, which S3 allows and which a store with
+                    // opaque markers rejects.  Remember which marker produced
+                    // that key so the next request can present it instead.
+                    // Keyed on the name as the store spells it, since the
+                    // marker is read back from the query string already
+                    // decoded.  A caller echoing the marker needs no entry:
+                    // one this cache does not know passes through untouched,
+                    // which is what the store wants anyway.
                     StorageMetadata sm = Streams.findLast(
                             set.entries().stream()).orElse(null);
                     if (sm != null) {
-                        lastKeyToMarker.put(Map.entry(
-                                containerName,
-                                encodeBlob(encodingType, nextMarker)),
+                        lastKeyToMarker.put(
+                                Map.entry(containerName, sm.name()),
                                 nextMarker);
                     }
                 }
