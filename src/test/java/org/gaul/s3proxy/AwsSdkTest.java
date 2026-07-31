@@ -18,7 +18,8 @@ package org.gaul.s3proxy;
 
 // SigV2 (AWS Signature Version 2) tests were removed in the AWS SDK v2
 // migration: v2 has no public SigV2 path for S3.  The proxy still
-// implements SigV2 and is exercised via the v1 jclouds backend.
+// implements SigV2, but only its header parsing is covered, by
+// S3AuthorizationHeaderTest; nothing signs a SigV2 request end to end.
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -1424,9 +1425,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testSpecialCharacters() throws Exception {
-        // TODO: fixed in jclouds 2.6.1
+        // LocalStack no longer needs skipping here; MinIO is untested, having
+        // no lane, so its guard stays.
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
 
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
         if (blobStoreType.equals("azureblob-sdk")) {
@@ -1640,12 +1641,6 @@ public final class AwsSdkTest {
             client.abortMultipartUpload(b -> b.bucket(containerName)
                     .key(blobName).uploadId(result.uploadId()));
         }
-    }
-
-    @Test
-    public void testHttpClient() throws Exception {
-        // jclouds HttpClient is no longer available; skip this test
-        assumeTrue(false);
     }
 
     @Test
@@ -2392,7 +2387,6 @@ public final class AwsSdkTest {
                 .contentEncoding()).isNull();
     }
 
-    // TODO: fails for GCS (jclouds not implemented)
     @Test
     public void testMultipartUpload() throws Exception {
         String blobName = "multipart-upload";
@@ -2525,7 +2519,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
-        // TODO: fixed in jclouds 2.6.1
+        // Skipped on MinIO since before the jclouds backend went away, and no
+        // lane exercises MinIO, so whether it still needs skipping is untested.
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
         String blobName = "multipart-upload-abort";
