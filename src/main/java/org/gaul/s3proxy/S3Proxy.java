@@ -100,6 +100,11 @@ public final class S3Proxy {
         httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
         httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
         httpConfiguration.setHeaderCacheCaseSensitive(true);
+        // Do not name the embedded server or its version, in the Server header
+        // or in the error pages Jetty renders for requests that never reach
+        // S3ProxyHandler.  S3 does not, and the version tells an attacker
+        // which Jetty advisories to try.
+        httpConfiguration.setSendServerVersion(false);
 
         var src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
