@@ -294,10 +294,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                                 .locationConstraint(awsRegion.id())
                                 .build());
             }
-            s3Client.createBucket(requestBuilder.build());
             if (options.publicRead()) {
-                setContainerAccess(container, ContainerAccess.PUBLIC_READ);
+                requestBuilder.acl(BucketCannedACL.PUBLIC_READ);
             }
+            s3Client.createBucket(requestBuilder.build());
             return true;
         } catch (S3Exception e) {
             if (e.statusCode() == 409) {

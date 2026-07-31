@@ -2197,6 +2197,22 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testCreateContainerPublicRead() throws Exception {
+        // The access a container is created with must be the access it has.
+        // Backends that carry it in a second call after the create can report
+        // success having applied only the first half.
+        String publicContainer = createRandomContainerName();
+        blobStore.createContainer(publicContainer,
+                new CreateContainerOptions(/*publicRead=*/ true));
+        try {
+            assertThat(blobStore.getContainerAccess(publicContainer))
+                    .isEqualTo(ContainerAccess.PUBLIC_READ);
+        } finally {
+            blobStore.deleteContainer(publicContainer);
+        }
+    }
+
+    @Test
     public void testSlashKeyAccessIsolatedFromContainer() throws Exception {
         // A blob ACL and a container ACL are both the OTHERS_READ POSIX bit on
         // their respective paths. If "/" aliased the container directory,
