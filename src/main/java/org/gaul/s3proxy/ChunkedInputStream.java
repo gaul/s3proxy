@@ -151,6 +151,14 @@ final class ChunkedInputStream extends FilterInputStream {
                     throw new IOException("unexpected trailer: " + parts[0]);
                 }
                 String[] checksumParts = parts[0].split(":", 2);
+                // A trailer carrying no value at all, which validateTrailerHash
+                // already refuses on the other path that reads one.  Wrap the
+                // S3Exception so that the handler answers 400 rather than
+                // letting an index out of bounds become a 500.
+                if (checksumParts.length != 2) {
+                    throw new IOException(new S3Exception(
+                            S3ErrorCode.INVALID_REQUEST));
+                }
                 var expectedHash = checksumParts[1];
                 var actualHash = switch (checksumParts[0]) {
                 case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer.allocate(4).putInt(hasher.hash().asInt()).array(); // Use big-endian to match AWS
