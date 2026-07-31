@@ -296,9 +296,15 @@ final class AwsSignature {
 
     private static String createCanonicalRequest(HttpServletRequest request,
                                                  String uri, byte[] payload,
-                                                 String hashAlgorithm)
+                                                 String hashAlgorithm,
+                                                 boolean presignedUrl)
             throws IOException, NoSuchAlgorithmException, S3Exception {
-        String authorizationHeader = request.getHeader("Authorization");
+        // A presigned request is signed through the query string.  Any
+        // Authorization header it also carries addresses something other than
+        // this proxy, so it names neither the signed headers nor the payload
+        // treatment and must not be read as though it did.
+        String authorizationHeader = presignedUrl ? null :
+                request.getHeader("Authorization");
         String xAmzContentSha256 = request.getHeader(
                 AwsHttpHeaders.CONTENT_SHA256);
         if (xAmzContentSha256 == null) {
@@ -371,12 +377,13 @@ final class AwsSignature {
      */
     static String createAuthorizationSignatureV4(
             HttpServletRequest request, S3AuthorizationHeader authHeader,
-            byte[] payload, String uri, String credential)
+            byte[] payload, String uri, String credential,
+            boolean presignedUrl)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
             S3Exception {
         // V4 headers always carry these fields
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
-                requireNonNull(authHeader.getHashAlgorithm()));
+                requireNonNull(authHeader.getHashAlgorithm()), presignedUrl);
         String algorithm = requireNonNull(authHeader.getHmacAlgorithm());
         byte[] signingKey = deriveSigningKeyV4(authHeader, credential);
         String date = request.getHeader(AwsHttpHeaders.DATE);

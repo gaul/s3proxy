@@ -30,6 +30,8 @@ final class S3AuthorizationHeader {
             "MD5", "MD5");
     private static final String SIGNATURE_FIELD = "Signature=";
     private static final String CREDENTIAL_FIELD = "Credential=";
+    private static final String V2_SCHEME = "AWS ";
+    private static final String V4_SCHEME = "AWS4-HMAC";
 
     private final AuthenticationType authenticationType;
     @Nullable private final String hmacAlgorithm;
@@ -41,7 +43,7 @@ final class S3AuthorizationHeader {
     private final String signature;
 
     S3AuthorizationHeader(String header) {
-        if (header.startsWith("AWS ")) {
+        if (header.startsWith(V2_SCHEME)) {
             authenticationType = AuthenticationType.AWS_V2;
             hmacAlgorithm = null;
             hashAlgorithm = null;
@@ -59,7 +61,7 @@ final class S3AuthorizationHeader {
             }
             identity = identityTuple.get(0);
             signature = identityTuple.get(1);
-        } else if (header.startsWith("AWS4-HMAC")) {
+        } else if (header.startsWith(V4_SCHEME)) {
             authenticationType = AuthenticationType.AWS_V4;
             signature = extractSignature(header);
 
@@ -102,6 +104,16 @@ final class S3AuthorizationHeader {
         } else {
             throw new IllegalArgumentException("Invalid header");
         }
+    }
+
+    /**
+     * Whether the header names one of the schemes this proxy signs with.  A
+     * header naming any other scheme addresses something else the caller is
+     * talking to and carries nothing for us to check; one naming ours but
+     * failing to parse is malformed and belongs in an error.
+     */
+    static boolean hasAwsScheme(String header) {
+        return header.startsWith(V2_SCHEME) || header.startsWith(V4_SCHEME);
     }
 
     @Override

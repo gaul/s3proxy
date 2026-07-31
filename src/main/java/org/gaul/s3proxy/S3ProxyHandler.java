@@ -562,7 +562,23 @@ public class S3ProxyHandler {
         boolean presignedUrl = false;
 
         if (!anonymousIdentity) {
-            if (Strings.isNullOrEmpty(headerAuthorization)) {
+            // An Authorization header naming a scheme that is not ours belongs
+            // to something else the caller is talking to -- S3 reads the
+            // signature out of the query string in that case rather than
+            // refusing the request, so a presigned URL keeps working when the
+            // client also carries a bearer token of its own.  A header naming
+            // our scheme but failing to parse is still an error: falling back
+            // would answer a malformed signature with AccessDenied instead.
+            if (!Strings.isNullOrEmpty(headerAuthorization) &&
+                    S3AuthorizationHeader.hasAwsScheme(headerAuthorization)) {
+                try {
+                    authHeader = new S3AuthorizationHeader(headerAuthorization);
+                    //whether v2 or v4 (normal header and query)
+                } catch (IllegalArgumentException iae) {
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+                }
+            }
+            if (authHeader == null) {
                 String algorithm = request.getParameter("X-Amz-Algorithm");
                 if (algorithm == null) { //v2 query
                     String identity = request.getParameter("AWSAccessKeyId");
@@ -592,13 +608,13 @@ public class S3ProxyHandler {
                     throw new IllegalArgumentException("unknown algorithm: " +
                             algorithm);
                 }
-            }
 
-            try {
-                authHeader = new S3AuthorizationHeader(headerAuthorization);
-                //whether v2 or v4 (normal header and query)
-            } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+                try {
+                    authHeader = new S3AuthorizationHeader(headerAuthorization);
+                    //whether v2 or v4 (normal header and query)
+                } catch (IllegalArgumentException iae) {
+                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+                }
             }
             requestIdentity = authHeader.getIdentity();
         }
@@ -882,7 +898,7 @@ public class S3ProxyHandler {
                     expectedSignature = AwsSignature
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
-                            credential);
+                            credential, presignedUrl);
                     if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                             contentSha256) ||
                             "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
