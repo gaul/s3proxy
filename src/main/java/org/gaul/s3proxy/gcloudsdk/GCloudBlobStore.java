@@ -47,6 +47,7 @@ import com.google.cloud.storage.Storage.BlobField;
 import com.google.cloud.storage.Storage.BlobGetOption;
 import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.Storage.BlobSourceOption;
+import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.Storage.BucketField;
 import com.google.cloud.storage.Storage.BucketGetOption;
@@ -91,6 +92,7 @@ public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";
+    private static final String BLOB_ACCESS_KEY = "s3proxy_blob_access";
     // S3 requires MD5 for ETag and Content-MD5 interoperability.
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
@@ -859,6 +861,15 @@ public final class GCloudBlobStore implements BlobStore {
                     blobMetadata.storageClass().name());
         }
 
+        // The access rides on the stub because it is only offered here.  This
+        // backend does not require a stub as far as Quirks is concerned, so
+        // the MultipartUpload that completeMultipartUpload receives carries
+        // PutOptions.NONE and cannot be asked what the caller wanted.
+        if (options != null && options.blobAccess() == BlobAccess.PUBLIC_READ) {
+            stubMetadata.put(BLOB_ACCESS_KEY,
+                    BlobAccess.PUBLIC_READ.name());
+        }
+
         var stubInfo = BlobInfo.newBuilder(
                 BlobId.of(container, uploadKey))
                 .setMetadata(stubMetadata)
@@ -973,6 +984,16 @@ public final class GCloudBlobStore implements BlobStore {
             targetBuilder.setMetadata(userMetadata);
         }
 
+        // A single part is copied onto the target and can name the access on
+        // that request, so no later one can fail and leave a private blob
+        // where the caller asked for a public one.  Compose cannot; see below.
+        var targetOptions = new java.util.ArrayList<BlobTargetOption>();
+        if (BlobAccess.PUBLIC_READ.name().equals(
+                stubMetadata.get(BLOB_ACCESS_KEY))) {
+            targetOptions.add(BlobTargetOption.predefinedAcl(
+                    Storage.PredefinedAcl.PUBLIC_READ));
+        }
+
         // If single part, just copy it to the target
         if (parts.size() == 1) {
             String partBlobName = makePartBlobName(nonce,
@@ -980,7 +1001,7 @@ public final class GCloudBlobStore implements BlobStore {
             var source = BlobId.of(mpu.containerName(), partBlobName);
             var copyRequest = CopyRequest.newBuilder()
                     .setSource(source)
-                    .setTarget(targetBuilder.build())
+                    .setTarget(targetBuilder.build(), targetOptions)
                     .build();
             var result = storage.copy(copyRequest);
             // Clean up
@@ -999,6 +1020,21 @@ public final class GCloudBlobStore implements BlobStore {
 
         String eTag = composeRecursive(mpu.containerName(),
                 targetBuilder.build(), sourceBlobIds, nonce);
+
+        // objects.compose accepts destinationPredefinedAcl, but the SDK drops
+        // it: HttpStorageRpc.compose forwards only the generation,
+        // metageneration and userProject options.  Naming it here would do
+        // nothing, so set the access in a second request -- cheaper than
+        // composing to a temporary name and copying that onto the target
+        // solely to carry the ACL.
+        // TODO: name the ACL on the compose itself, as the single-part copy
+        // above does, after
+        // https://github.com/googleapis/google-cloud-java/pull/13975 is
+        // released and google-cloud-storage is bumped past it
+        if (!targetOptions.isEmpty()) {
+            storage.createAcl(BlobId.of(mpu.containerName(), targetBlobName),
+                    Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
+        }
 
         // Clean up part blobs and stub
         for (var blobId : sourceBlobIds) {
