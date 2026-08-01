@@ -280,7 +280,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "stable"
 
@@ -335,7 +335,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "stable"
 
