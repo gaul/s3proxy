@@ -1932,6 +1932,39 @@ public final class AwsSdkTest {
         assertThat(result.contents().get(0).key()).isEqualTo("4");
     }
 
+    /**
+     * A client may hold start-after for the whole listing and add the
+     * continuation token as it pages, sending both.  S3 ignores start-after
+     * once a token is present rather than refusing the pair, so the second
+     * page follows the token.
+     */
+    @Test
+    public void testBlobListV2StartAfterAndContinuationToken()
+            throws Exception {
+        assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
+
+        for (int i = 1; i < 5; ++i) {
+            putBlob(containerName, String.valueOf(i), BYTE_SOURCE);
+        }
+
+        ListObjectsV2Response result = client.listObjectsV2(b -> b
+                .bucket(containerName).maxKeys(1).startAfter("1"));
+        assertThat(result.contents().get(0).key()).isEqualTo("2");
+
+        String nextToken = result.nextContinuationToken();
+        result = client.listObjectsV2(b -> b.bucket(containerName).maxKeys(1)
+                .startAfter("1").continuationToken(nextToken));
+
+        // Following start-after would repeat "2"; the token moves on to "3".
+        assertThat(result.contents()).hasSize(1);
+        assertThat(result.contents().get(0).key()).isEqualTo("3");
+        // Both are echoed back as sent, ignored or not.
+        assertThat(result.startAfter()).isEqualTo("1");
+        if (blobStoreEndpoint.getPort() != MINIO_PORT) {
+            assertThat(result.continuationToken()).isEqualTo("2");
+        }
+    }
+
     @Test
     public void testBlobMetadata() throws Exception {
         String blobName = "blob";

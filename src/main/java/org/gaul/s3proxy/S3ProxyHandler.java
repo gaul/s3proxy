@@ -1824,14 +1824,14 @@ public class S3ProxyHandler {
             marker = request.getParameter("marker");
         } else if (listType.equals("2")) {
             isListV2 = true;
-            if (continuationToken != null && startAfter != null) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
-            }
-            if (continuationToken != null) {
-                marker = continuationToken;
-            } else {
-                marker = startAfter;
-            }
+            // S3 ignores start-after when continuation-token is set rather
+            // than refusing the pair: the token already says where the last
+            // page ended, so the two cannot disagree about where to resume.
+            // Refusing it turned an ordinary paging loop -- a client that
+            // names start-after once and then adds the token for each page
+            // after -- into a 400 on the second request.
+            marker = continuationToken != null ? continuationToken :
+                    startAfter;
         } else {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         }
