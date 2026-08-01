@@ -4842,6 +4842,25 @@ public class S3ProxyHandler {
             response.addHeader(AwsHttpHeaders.DELETE_MARKER, "false");
         }
 
+        // A browser refuses any cross-origin response that does not name its
+        // origin, whatever the response says, so an error without these
+        // headers reaches the page as "No 'Access-Control-Allow-Origin' header
+        // is present on the requested resource" and the Code and Message
+        // written below are never read.  Every failure then looks like a CORS
+        // misconfiguration rather than the expired URL, wrong key or absent
+        // object it was.
+        //
+        // Not for a preflight: answering one without them is how the browser
+        // is told the real request may not proceed, and naming an allowed
+        // origin while refusing only muddles that.  Nor when a handler emitted
+        // them before failing -- a second copy is precisely what browsers
+        // reject.  addCorsResponseHeader writes Vary first and nothing else
+        // writes it, so its presence says the headers are already there.
+        if (!request.getMethod().equals("OPTIONS") &&
+                !response.containsHeader(HttpHeaders.VARY)) {
+            addCorsResponseHeader(request, response);
+        }
+
         response.setStatus(code.getHttpStatusCode());
 
         if (request.getMethod().equals("HEAD")) {

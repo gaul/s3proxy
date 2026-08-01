@@ -347,6 +347,86 @@ public final class CrossOriginResourceSharingResponseTest {
                 .isEqualTo(HttpHeaders.ORIGIN);
     }
 
+    /**
+     * An error must name the origin too.  A browser refuses a cross-origin
+     * response that does not, so without these headers the page is told
+     * "No 'Access-Control-Allow-Origin' header is present" and never sees
+     * that the object was simply missing -- issue #492.
+     */
+    @Test
+    public void testCorsActualErrorNoSuchKey() throws Exception {
+        var request = new HttpGet(URI.create(publicGET + "-missing"));
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_NOT_FOUND);
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
+                .isEqualTo("https://example.com");
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS).getValue())
+                .isEqualTo("GET, PUT");
+        assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
+                .isEqualTo(HttpHeaders.ORIGIN);
+    }
+
+    /** The failure the reporter of #492 actually hit, behind the message. */
+    @Test
+    public void testCorsActualErrorSignatureDoesNotMatch() throws Exception {
+        var request = new HttpGet(URI.create(presignedGET.toString()
+                .replaceAll("X-Amz-Signature=[0-9a-fA-F]+",
+                        "X-Amz-Signature=" + "0".repeat(64))));
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_FORBIDDEN);
+        assertThat(response.getFirstHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN).getValue())
+                .isEqualTo("https://example.com");
+    }
+
+    /** An origin no rule allows is still named by none of them. */
+    @Test
+    public void testCorsActualErrorDisallowedOrigin() throws Exception {
+        var request = new HttpGet(URI.create(publicGET + "-missing"));
+        request.setHeader(HttpHeaders.ORIGIN, "https://disallowed.example.org");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_NOT_FOUND);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
+        // ... and a cache must not replay it to one that is
+        assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
+                .isEqualTo(HttpHeaders.ORIGIN);
+    }
+
+    /**
+     * A refused preflight keeps answering bare: that refusal is how the
+     * browser learns the real request may not proceed.
+     */
+    @Test
+    public void testCorsPreflightRefusalStaysBare() throws Exception {
+        var request = new HttpOptions(publicGET);
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        request.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_BAD_REQUEST);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
+    }
+
+    /** An error carries one copy of each header, not two. */
+    @Test
+    public void testCorsActualErrorHeadersNotDuplicated() throws Exception {
+        var request = new HttpGet(URI.create(publicGET + "-missing"));
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getHeaders(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).hasSize(1);
+        assertThat(response.getHeaders(HttpHeaders.VARY)).hasSize(1);
+    }
+
     @Test
     public void testNonCors() throws Exception {
         var request = new HttpGet(presignedGET);
