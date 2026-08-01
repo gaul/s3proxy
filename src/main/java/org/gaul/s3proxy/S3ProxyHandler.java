@@ -2942,8 +2942,11 @@ public class S3ProxyHandler {
     }
 
     private static String loadGitHash() {
-        try (InputStream stream = S3ProxyHandler.class.getClassLoader()
-                .getResourceAsStream("git.properties")) {
+        // Resolved against this class's package, not the classpath root: an
+        // application embedding s3proxy often has a git.properties of its own
+        // there and the first one found would answer for both.
+        try (InputStream stream =
+                S3ProxyHandler.class.getResourceAsStream("git.properties")) {
             if (stream == null) {
                 return "unknown";
             }

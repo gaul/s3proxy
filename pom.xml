@@ -302,6 +302,11 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
         </executions>
         <configuration>
           <generateGitPropertiesFile>true</generateGitPropertiesFile>
+          <!-- Under the package rather than the classpath root, where an
+               application embedding s3proxy commonly writes a git.properties
+               of its own with this same plugin and whichever landed first
+               would answer for both. -->
+          <generateGitPropertiesFilename>${project.build.outputDirectory}/org/gaul/s3proxy/git.properties</generateGitPropertiesFilename>
           <includeOnlyProperties>
             <includeOnlyProperty>git.commit.id.abbrev</includeOnlyProperty>
             <includeOnlyProperty>git.commit.id</includeOnlyProperty>

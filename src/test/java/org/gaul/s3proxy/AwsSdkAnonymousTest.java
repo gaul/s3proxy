@@ -165,7 +165,10 @@ public final class AwsSdkAnonymousTest {
         }
 
         assertThat(body).contains("\"status\":\"OK\"");
-        assertThat(body).contains("\"gitHash\":\"");
+        // A real commit, not the "unknown" that answers when the resource
+        // cannot be found -- the only thing that catches git.properties
+        // moving out from under the reader.
+        assertThat(body).containsPattern("\"gitHash\":\"[0-9a-f]{7,40}\"");
         assertThat(body).contains("\"launchTime\":\"");
         assertThat(body).contains("\"currentTime\":\"");
         assertThat(body).startsWith("{").endsWith("}");
