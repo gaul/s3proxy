@@ -21,6 +21,8 @@ import static java.util.Objects.requireNonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
@@ -28,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
@@ -493,57 +496,78 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 inputStream = ByteSource.empty().openStream();
                 size = isDirectory ? 0 : attr.size();
             } else {
-                size = attr.size();
-                long offset = 0;
-                long last = size;
-                boolean hasRange = !options.ranges().isEmpty();
-                if (hasRange) {
-                    var range = options.ranges().get(0);
-                    if (!range.contains("-")) {
-                        throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
-                    }
-                    // HTTP uses a closed interval while Java array indexing uses a
-                    // half-open interval.
-                    try {
-                        if (range.startsWith("-")) {
-                            offset = last - Long.parseLong(range.substring(1));
-                            if (offset < 0) {
-                                offset = 0;
-                            }
-                        } else if (range.endsWith("-")) {
-                            offset = Long.parseLong(range.substring(0, range.length() - 1));
-                        } else {
-                            String[] firstLast = range.split("\\-", 2);
-                            offset = Long.parseLong(firstLast[0]);
-                            last = Long.parseLong(firstLast[1]);
+                // Length the response promises comes from the descriptor that
+                // will serve it, not from the stat above.  putBlob publishes
+                // by renaming a new file over the key, so the path can name a
+                // different inode by the time it is opened, and a length taken
+                // from the earlier stat describes a version other than the one
+                // being sent: too long truncates the response, too short
+                // overruns it.  A descriptor, once open, refers to one file for
+                // as long as it is held, whatever the name goes on to mean.
+                var channel = FileChannel.open(path, StandardOpenOption.READ);
+                boolean giveAway = false;
+                try {
+                    size = channel.size();
+                    long offset = 0;
+                    long last = size;
+                    boolean hasRange = !options.ranges().isEmpty();
+                    if (hasRange) {
+                        var range = options.ranges().get(0);
+                        if (!range.contains("-")) {
+                            throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
                         }
-                    } catch (NumberFormatException nfe) {
-                        throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
-                    }
-
-                    if (offset >= size || offset > last) {
-                        throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
-                    }
-                    if (last + 1 > size) {
-                        last = size - 1;
-                    }
-                    contentRange = "bytes " + offset + "-" + last + "/" + attr.size();
-                    size = last - offset + 1;
-                }
-
-                inputStream = Files.newInputStream(path);
-                if (hasRange) {
-                    try {
-                        inputStream.skipNBytes(offset);
-                    } catch (IOException ioe) {
+                        // HTTP uses a closed interval while Java array indexing uses a
+                        // half-open interval.
                         try {
-                            inputStream.close();
-                        } catch (IOException ce) {
-                            ioe.addSuppressed(ce);
+                            if (range.startsWith("-")) {
+                                offset = last - Long.parseLong(range.substring(1));
+                                if (offset < 0) {
+                                    offset = 0;
+                                }
+                            } else if (range.endsWith("-")) {
+                                offset = Long.parseLong(range.substring(0, range.length() - 1));
+                            } else {
+                                String[] firstLast = range.split("\\-", 2);
+                                offset = Long.parseLong(firstLast[0]);
+                                last = Long.parseLong(firstLast[1]);
+                            }
+                        } catch (NumberFormatException nfe) {
+                            throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
                         }
-                        throw ioe;
+
+                        if (offset >= size || offset > last) {
+                            throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
+                        }
+                        if (last + 1 > size) {
+                            last = size - 1;
+                        }
+                        contentRange = "bytes " + offset + "-" + last + "/" + channel.size();
+                        size = last - offset + 1;
                     }
-                    inputStream = ByteStreams.limit(inputStream, size);
+
+                    if (hasRange) {
+                        // Seek rather than read and discard: the stream
+                        // Channels wraps a channel in skips the default way,
+                        // by reading the prefix it means to throw away.
+                        channel.position(offset);
+                    }
+                    inputStream = Channels.newInputStream(channel);
+                    if (hasRange) {
+                        inputStream = ByteStreams.limit(inputStream, size);
+                    }
+                    // The stream owns the channel from here; closing it closes
+                    // the channel.
+                    giveAway = true;
+                } finally {
+                    // A range this file cannot satisfy, or a seek that fails,
+                    // leaves without a stream to carry the channel out.
+                    if (!giveAway) {
+                        try {
+                            channel.close();
+                        } catch (IOException ioe) {
+                            logger.debug("failed to close {}", path, ioe);
+                        }
+                    }
                 }
             }
 
