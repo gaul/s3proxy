@@ -68,6 +68,9 @@ public enum S3ErrorCode {
     INVALID_PART_ORDER(HttpServletResponse.SC_BAD_REQUEST,
             "The list of parts must be specified in ascending" +
             " PartNumber order."),
+    INVALID_POLICY_DOCUMENT(HttpServletResponse.SC_BAD_REQUEST,
+            "The content of the form does not meet the conditions specified" +
+            " in the policy document."),
     INVALID_REQUEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_STORAGE_CLASS(HttpServletResponse.SC_BAD_REQUEST,
             "The storage class you specified is not valid."),

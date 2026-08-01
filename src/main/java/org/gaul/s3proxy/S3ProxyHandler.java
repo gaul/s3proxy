@@ -1732,9 +1732,15 @@ public class S3ProxyHandler {
         // handling.
         logger.debug("Creating bucket with location: {}", locationString);
 
+        // public-read-write grants AllUsers read as well as write.  A
+        // ContainerAccess says only whether a container is readable, so the
+        // write half is dropped -- but dropping the read half too left a
+        // bucket created for anonymous use answering AccessDenied to the
+        // anonymous reads its own ACL had allowed.
         String acl = request.getHeader(AwsHttpHeaders.ACL);
         var options = new CreateContainerOptions(
-                "public-read".equalsIgnoreCase(acl));
+                "public-read".equalsIgnoreCase(acl) ||
+                "public-read-write".equalsIgnoreCase(acl));
 
         boolean created;
         try {
@@ -2998,13 +3004,12 @@ public class S3ProxyHandler {
             return;
         }
 
-        String blobName = null;
-        String contentType = null;
-        String identity = null;
-        // TODO: handle policy
-        byte[] policy = null;
-        String signature = null;
-        String algorithm = null;
+        // Every field, lowercased, since both a policy condition and the form
+        // field it names are matched without regard to case.  The payload is
+        // deliberately absent: it is the one field whose value is not a
+        // string, and the policy constrains its length rather than its bytes.
+        var fields = new LinkedHashMap<String, String>();
+        String fileName = null;
         byte[] payload = null;
         FlexChecksum checksum = null;
         String checksumValue = null;
@@ -3018,54 +3023,83 @@ public class S3ProxyHandler {
         MultiPartFormData.Parts parts = futureParts.join();
         try {
             for (var part : parts) {
-                var header = part.getName();
-                if (header.equalsIgnoreCase("acl")) {
-                    // TODO: acl
-                } else if (header.equalsIgnoreCase("AWSAccessKeyId") ||
-                        header.equalsIgnoreCase("X-Amz-Credential")) {
-                    identity = part.getContentAsString(
-                            StandardCharsets.UTF_8);
-                } else if (header.equalsIgnoreCase("Content-Type")) {
-                    contentType = part.getContentAsString(
-                            StandardCharsets.UTF_8);
-                } else if (header.equalsIgnoreCase("file")) {
+                var name = part.getName();
+                if (name.equalsIgnoreCase("file")) {
                     // TODO: buffers entire payload
                     payload = part.getContentAsString(
                             StandardCharsets.ISO_8859_1)
                             .getBytes(StandardCharsets.ISO_8859_1);
-                } else if (header.equalsIgnoreCase("key")) {
-                    blobName = part.getContentAsString(
-                            StandardCharsets.UTF_8);
-                } else if (header.equalsIgnoreCase("policy")) {
-                    policy = part.getContentAsString(
-                            StandardCharsets.ISO_8859_1)
-                            .getBytes(StandardCharsets.ISO_8859_1);
-                } else if (header.equalsIgnoreCase("signature") ||
-                        header.equalsIgnoreCase("X-Amz-Signature")) {
-                    signature = part.getContentAsString(
-                            StandardCharsets.UTF_8);
-                } else if (header.equalsIgnoreCase("X-Amz-Algorithm")) {
-                    algorithm = part.getContentAsString(
-                            StandardCharsets.UTF_8);
-                } else if (FlexChecksum.fromHeaderName(header) != null) {
-                    FlexChecksum candidate = FlexChecksum.fromHeaderName(
-                            header);
+                    fileName = part.getFileName();
+                    continue;
+                }
+                String value = part.getContentAsString(StandardCharsets.UTF_8);
+                fields.put(name.toLowerCase(java.util.Locale.ROOT), value);
+                FlexChecksum candidate = FlexChecksum.fromHeaderName(name);
+                if (candidate != null) {
                     if (checksum != null && checksum != candidate) {
                         throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
                                 "Expecting a single x-amz-checksum- field.");
                     }
                     checksum = candidate;
-                    checksumValue = part.getContentAsString(
-                            StandardCharsets.UTF_8);
+                    checksumValue = value;
                 }
             }
         } finally {
             parts.close();
         }
 
-        if (blobName == null || policy == null || payload == null) {
+        String blobName = fields.get("key");
+        // Substituted before the policy sees it, so a condition constrains the
+        // name the object is stored under rather than the literal the form
+        // sent.  A form that names ${filename} and a policy that requires the
+        // key to start with "foo" agree only after this.
+        if (blobName != null && blobName.contains("${filename}")) {
+            blobName = blobName.replace("${filename}",
+                    Strings.nullToEmpty(fileName));
+            fields.put("key", blobName);
+        }
+        // The bucket a condition is matched against is the one being written
+        // to, not a bucket field the form supplied: a form may name any bucket
+        // it likes, and a policy naming the same one must still not authorize
+        // a POST aimed elsewhere.
+        fields.put("bucket", containerName);
+
+        byte[] policy = null;
+        String policyField = fields.get("policy");
+        if (policyField != null) {
+            policy = policyField.getBytes(StandardCharsets.ISO_8859_1);
+        }
+        String identity = fields.get("awsaccesskeyid");
+        if (identity == null) {
+            identity = fields.get("x-amz-credential");
+        }
+        String signature = fields.get("signature");
+        if (signature == null) {
+            signature = fields.get("x-amz-signature");
+        }
+        String algorithm = fields.get("x-amz-algorithm");
+        String contentType = fields.get("content-type");
+
+        if (blobName == null || payload == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
+        }
+
+        // A form carrying none of the three is an unauthenticated upload,
+        // which S3 answers from the bucket's own permissions.
+        if (policy == null && signature == null && identity == null) {
+            finishPostBlob(request, response, blobStore, containerName,
+                    blobName, contentType, fields, payload, checksum,
+                    checksumValue);
+            return;
+        }
+        // Carrying some but not all of them is a form built wrong rather than
+        // one built for anonymous use, and saying so beats reporting it as a
+        // refusal the caller cannot act on.
+        if (policy == null || signature == null) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                    "Bucket POST must contain both 'policy' and a signature" +
+                    " when it is authenticated.");
         }
 
         String headerAuthorization = null;
@@ -3161,6 +3195,28 @@ public class S3ProxyHandler {
             }
         }
 
+        // The signature proves only that the policy came from someone holding
+        // the credential.  Whether this particular form is the one the policy
+        // describes is a separate question, and asking it is the whole point
+        // of the document.
+        PostPolicy.parse(policy).evaluate(fields, payload.length);
+
+        finishPostBlob(request, response, blobStore, containerName, blobName,
+                contentType, fields, payload, checksum, checksumValue);
+    }
+
+    /**
+     * Store what a form POST uploaded and answer it the way the form asked to
+     * be answered.  Shared by the authenticated path and the anonymous one,
+     * which differ only in whether a policy stood between them and here.
+     */
+    private void finishPostBlob(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName, String blobName,
+            @Nullable String contentType, Map<String, String> fields,
+            byte[] payload, @Nullable FlexChecksum checksum,
+            @Nullable String checksumValue)
+            throws IOException, S3Exception {
         if (checksum != null && checksumValue != null) {
             byte[] expected = checksum.decodeValue(checksumValue);
             byte[] actual = checksum.rawDigest(
@@ -3175,19 +3231,80 @@ public class S3ProxyHandler {
         if (contentType != null) {
             builder.contentType(contentType);
         }
-        if (checksum != null && checksumValue != null) {
-            builder.userMetadata(Map.of(checksum.metadataKey(),
-                    checksumValue));
+        var userMetadata = new TreeMap<String, String>();
+        for (var entry : fields.entrySet()) {
+            if (entry.getKey().startsWith(USER_METADATA_PREFIX)) {
+                userMetadata.put(entry.getKey().substring(
+                        USER_METADATA_PREFIX.length()), entry.getValue());
+            }
         }
-        Blob blob = builder.build();
-        blobStore.putBlob(containerName, blob, PutOptions.NONE);
+        if (checksum != null && checksumValue != null) {
+            userMetadata.put(checksum.metadataKey(), checksumValue);
+        }
+        if (!userMetadata.isEmpty()) {
+            builder.userMetadata(userMetadata);
+        }
+        String eTag = blobStore.putBlob(containerName, builder.build(),
+                PutOptions.NONE);
 
-        response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+        addCorsResponseHeader(request, response);
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
         }
+        if (eTag != null) {
+            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        }
 
-        addCorsResponseHeader(request, response);
+        // A browser posting a form has nowhere to display a response body, so
+        // the form says where to send the user instead.  The redirect wins
+        // over a status when both are present, as it does on S3.
+        String redirect = fields.get("success_action_redirect");
+        if (redirect == null) {
+            redirect = fields.get("redirect");
+        }
+        if (redirect != null) {
+            String location = redirect +
+                    (redirect.contains("?") ? "&" : "?") +
+                    "bucket=" + urlEscaper.escape(containerName) +
+                    "&key=" + urlEscaper.escape(blobName) +
+                    "&etag=" + urlEscaper.escape(
+                            maybeQuoteETag(Strings.nullToEmpty(eTag)));
+            response.setStatus(HttpServletResponse.SC_SEE_OTHER);
+            response.addHeader(HttpHeaders.LOCATION, location);
+            return;
+        }
+
+        // Only the three statuses S3 will send; anything else is treated as
+        // unsaid rather than refused, which is what lets a form hard-code a
+        // status a future version might add.
+        String status = fields.get("success_action_status");
+        if ("201".equals(status)) {
+            response.setStatus(HttpServletResponse.SC_CREATED);
+            response.setCharacterEncoding(UTF_8);
+            response.setContentType(XML_CONTENT_TYPE);
+            try (Writer writer = response.getWriter()) {
+                XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                        writer);
+                xml.writeStartDocument();
+                xml.writeStartElement("PostResponse");
+                writeSimpleElement(xml, "Location",
+                        request.getRequestURL() + "/" +
+                        urlEscaper.escape(blobName));
+                writeSimpleElement(xml, "Bucket", containerName);
+                writeSimpleElement(xml, "Key", blobName);
+                if (eTag != null) {
+                    writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+                }
+                xml.writeEndElement();
+                xml.flush();
+            } catch (XMLStreamException xse) {
+                throw new IOException(xse);
+            }
+        } else if ("200".equals(status)) {
+            response.setStatus(HttpServletResponse.SC_OK);
+        } else {
+            response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+        }
     }
 
     private void handleInitiateMultipartUpload(HttpServletRequest request,
