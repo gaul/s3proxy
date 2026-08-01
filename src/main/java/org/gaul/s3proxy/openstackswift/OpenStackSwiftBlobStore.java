@@ -130,6 +130,20 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     private static final int STATUS_PRECONDITION_FAILED = 412;
     private static final int STATUS_RANGE_NOT_SATISFIABLE = 416;
 
+    /**
+     * Write an HTTP date, which RFC 7231 fixes the width of: the day of month
+     * is always two digits.  RFC_1123_DATE_TIME writes one for the first nine
+     * of each month, since RFC 1123 allows either, and a parser holding to the
+     * HTTP grammar rejects that outright -- Go's net/http among them, which
+     * treats an unparseable If-Modified-Since as absent and answers 200 where
+     * it owed 304.  A conditional request therefore worked or did not by the
+     * date it happened to be made on.  Locale.US pins the day and month names,
+     * which the header spells in English whatever the server is set to.
+     */
+    private static final DateTimeFormatter HTTP_DATE =
+            DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'",
+                    Locale.US);
+
     // Reserved key prefix for multipart-upload internals (segment objects and a
     // metadata marker) stored alongside user objects in the same container.
     // Keys under this prefix are hidden from list() so an in-progress or
@@ -1308,9 +1322,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return object != null ? object.getSizeInBytes() : 0L;
     }
 
-    private static String toHttpDate(Date date) {
-        return DateTimeFormatter.RFC_1123_DATE_TIME.format(
-                date.toInstant().atOffset(ZoneOffset.UTC));
+    static String toHttpDate(Date date) {
+        return HTTP_DATE.format(date.toInstant().atOffset(ZoneOffset.UTC));
     }
 
     @Nullable
