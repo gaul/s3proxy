@@ -18,6 +18,8 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
@@ -26,6 +28,7 @@ import org.jspecify.annotations.Nullable;
 public final class S3Exception extends Exception {
     private final S3ErrorCode error;
     private final Map<String, String> elements;
+    private final String rawMessage;
 
     S3Exception(S3ErrorCode error) {
         this(error, error.getMessage(), (Throwable) null, Map.of());
@@ -47,7 +50,11 @@ public final class S3Exception extends Exception {
                 Map<String, String> elements) {
         super(requireNonNull(message), cause);
         this.error = requireNonNull(error);
-        this.elements = Map.copyOf(elements);
+        // Keep the caller's order: these become sibling XML elements, and a
+        // reader looks for them in the order the error was written to tell.
+        this.elements = Collections.unmodifiableMap(
+                new LinkedHashMap<>(elements));
+        this.rawMessage = message;
     }
 
     S3ErrorCode getError() {
@@ -58,9 +65,19 @@ public final class S3Exception extends Exception {
         return elements;
     }
 
+    /**
+     * The message on its own, for the Message element of an error response,
+     * where the elements travel beside it as elements of their own.
+     * {@link #getMessage} folds them in instead, for logs and stack traces
+     * that have only the one string to show.
+     */
+    String getRawMessage() {
+        return rawMessage;
+    }
+
     @Override
     public String getMessage() {
-        var builder = new StringBuilder().append(super.getMessage());
+        var builder = new StringBuilder().append(rawMessage);
         if (!elements.isEmpty()) {
             builder.append(" ").append(elements);
         }

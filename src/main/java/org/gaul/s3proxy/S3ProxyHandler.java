@@ -824,15 +824,17 @@ public class S3ProxyHandler {
             }
 
             String expectedSignature = null;
+            AwsSignature.SignatureDetail signatureDetail = null;
 
             if (authHeader.getHmacAlgorithm() == null) { //v2
                 // When presigned url is generated, it doesn't consider
                 // service path
                 String uriForSigning = presignedUrl ? uri : this.servicePath +
                         uri;
-                expectedSignature = AwsSignature.createAuthorizationSignature(
+                signatureDetail = AwsSignature.createAuthorizationSignature(
                         request, uriForSigning, credential, presignedUrl,
                         haveBothDateHeader);
+                expectedSignature = signatureDetail.signature();
                 // The canonicalized resource of a bucket-level request is
                 // "/bucket/": the request URI relative to the bucket is "/",
                 // which a virtual-host-style request line carries literally
@@ -842,10 +844,11 @@ public class S3ProxyHandler {
                 if (!constantTimeEquals(expectedSignature,
                         authHeader.getSignature()) &&
                         isBucketRootUri(uri)) {
-                    expectedSignature =
+                    signatureDetail =
                             AwsSignature.createAuthorizationSignature(
                                     request, uriForSigning + "/", credential,
                                     presignedUrl, haveBothDateHeader);
+                    expectedSignature = signatureDetail.signature();
                 }
             } else {
                 String contentSha256 = request.getHeader(
@@ -895,10 +898,26 @@ public class S3ProxyHandler {
                     // uri, does not have the virtual host bucket prepended,
                     // matching what clients sign for v4.
                     String uriForSigning = originalUri;
-                    expectedSignature = AwsSignature
+                    String pinnedSha256 = AwsSignature.pinnedPayloadHash(
+                            baseRequest);
+                    signatureDetail = AwsSignature
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
-                            credential, presignedUrl);
+                            credential, presignedUrl, pinnedSha256);
+                    expectedSignature = signatureDetail.signature();
+                    // A URL that pins a payload hash may have signed it on the
+                    // payload line or left UNSIGNED-PAYLOAD there: the AWS SDK
+                    // presigner writes the token whatever headers it signs,
+                    // while other signers write the hash.  Both spellings need
+                    // the same secret, so accepting either costs nothing.
+                    if (pinnedSha256 != null && !constantTimeEquals(
+                            expectedSignature, authHeader.getSignature())) {
+                        signatureDetail = AwsSignature
+                                .createAuthorizationSignatureV4(
+                                baseRequest, authHeader, payload, uriForSigning,
+                                credential, presignedUrl, /*pinnedHash=*/ null);
+                        expectedSignature = signatureDetail.signature();
+                    }
                     if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                             contentSha256) ||
                             "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
@@ -930,7 +949,23 @@ public class S3ProxyHandler {
             // AWS does not check signatures with OPTIONS verb
             if (!method.equals("OPTIONS") && !constantTimeEquals(
                     expectedSignature, authHeader.getSignature())) {
-                throw new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
+                throw signatureDoesNotMatch(baseRequest, authHeader,
+                        signatureDetail, presignedUrl);
+            }
+
+            // A presigned URL that signed x-amz-content-sha256 pins the body
+            // it may upload, which is the point of signing it: the URL becomes
+            // usable for one payload rather than any.  Enforce that as the
+            // body streams by, since the hash arrived signed and needs no
+            // buffering to check, unlike the header-authorized path above.
+            String pinnedSha256 = AwsSignature.pinnedPayloadHash(baseRequest);
+            if (pinnedSha256 != null) {
+                is = new ChecksumValidatingInputStream(is, Hashing.sha256(),
+                        BaseEncoding.base16().lowerCase().decode(
+                                pinnedSha256.toLowerCase()),
+                        /*bigEndianInt=*/ false,
+                        request.getContentLengthLong(),
+                        S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH);
             }
         }
 
@@ -5162,5 +5197,71 @@ public class S3ProxyHandler {
     private static boolean constantTimeEquals(String x, String y) {
         return MessageDigest.isEqual(x.getBytes(StandardCharsets.UTF_8),
                 y.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Report a signature mismatch the way S3 does, quoting the strings the
+     * proxy signed.  A bare Forbidden gives the caller nothing to act on --
+     * a stale clock, a rewritten Host, an unrepeated signed header and a
+     * wrong secret all look identical from outside -- while the canonical
+     * request shows which line diverged from the one it signed.  None of it
+     * is secret: it is the caller's own request as the proxy parsed it, and
+     * turning it into a signature still needs the credential.
+     */
+    private static S3Exception signatureDoesNotMatch(
+            HttpServletRequest request, S3AuthorizationHeader authHeader,
+            AwsSignature.@Nullable SignatureDetail detail,
+            boolean presignedUrl) {
+        // Ordered as S3 orders them, less the StringToSignBytes and
+        // CanonicalRequestBytes hex dumps, which say nothing the text does
+        // not once buildCanonicalHeaders has folded the whitespace.
+        var elements = new LinkedHashMap<String, String>();
+        String identity = authHeader.getIdentity();
+        if (identity != null) {
+            elements.put("AWSAccessKeyId", identity);
+        }
+        if (detail != null) {
+            elements.put("StringToSign", xmlSafe(detail.stringToSign()));
+        }
+        String provided = authHeader.getSignature();
+        if (provided != null) {
+            elements.put("SignatureProvided", provided);
+        }
+        if (detail != null) {
+            String canonicalRequest = detail.canonicalRequest();
+            if (canonicalRequest != null) {
+                elements.put("CanonicalRequest", xmlSafe(canonicalRequest));
+            }
+        }
+
+        var message = new StringBuilder("The request signature we calculated" +
+                " does not match the signature you provided. Check your key" +
+                " and signing method.");
+        List<String> missing = AwsSignature.missingSignedHeaders(request,
+                presignedUrl);
+        if (!missing.isEmpty()) {
+            // The likeliest cause by far, and the one the canonical request
+            // states only implicitly, as a header line with nothing after the
+            // colon.
+            message.append(" The request omits headers it declares as signed: ")
+                    .append(String.join(", ", missing)).append('.');
+        }
+        return new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH,
+                message.toString(), /*cause=*/ null, elements);
+    }
+
+    /**
+     * Drop what XML cannot carry, so echoing a request back to its sender
+     * cannot turn a 403 into an unserializable response.
+     */
+    private static String xmlSafe(String s) {
+        var builder = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); ++i) {
+            char c = s.charAt(i);
+            builder.append(c == 0x9 || c == 0xa || c == 0xd ||
+                    (c >= 0x20 && c <= 0xd7ff) ||
+                    (c >= 0xe000 && c <= 0xfffd) ? c : '�');
+        }
+        return builder.toString();
     }
 }

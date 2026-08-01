@@ -67,7 +67,7 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             HttpServletResponse response, S3Exception se)
             throws IOException {
         handler.sendSimpleErrorResponse(request, response,
-                se.getError(), se.getMessage(), se.getElements());
+                se.getError(), se.getRawMessage(), se.getElements());
     }
 
     @Override

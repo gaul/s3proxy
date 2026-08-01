@@ -79,14 +79,28 @@ final class AwsSignature {
             "website"
     );
     private static final Pattern REPEATING_WHITESPACE = Pattern.compile("\\s+");
+    /** A SHA-256 as x-amz-content-sha256 spells it, as opposed to one of the
+     *  UNSIGNED-PAYLOAD or STREAMING-* tokens that header also accepts. */
+    private static final Pattern SHA256_HEX = Pattern.compile(
+            "[0-9a-fA-F]{64}");
 
     private AwsSignature() { }
+
+    /**
+     * A computed signature together with the strings it was computed from.
+     * S3 returns these alongside SignatureDoesNotMatch so a client can diff
+     * them against its own and see where the two canonicalizations parted
+     * ways, which is otherwise invisible: every mismatch, whatever its cause,
+     * looks the same from outside.
+     */
+    record SignatureDetail(String signature, String stringToSign,
+            @Nullable String canonicalRequest) { }
 
     /**
      * Create Amazon V2 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
      */
-    static String createAuthorizationSignature(
+    static SignatureDetail createAuthorizationSignature(
             HttpServletRequest request, String uri, String credential,
             boolean queryAuth, boolean bothDateHeader) {
         // sort Amazon headers
@@ -177,8 +191,10 @@ final class AwsSignature {
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
-        return Base64.getEncoder().encodeToString(mac.doFinal(
-                stringToSign.getBytes(StandardCharsets.UTF_8)));
+        return new SignatureDetail(
+                Base64.getEncoder().encodeToString(mac.doFinal(
+                        stringToSign.getBytes(StandardCharsets.UTF_8))),
+                stringToSign, /*canonicalRequest=*/ null);
     }
 
     private static byte[] signMessage(byte[] data, byte[] key, String algorithm)
@@ -220,6 +236,84 @@ final class AwsSignature {
         MessageDigest md = MessageDigest.getInstance(algorithm);
         byte[] hash = md.digest(payload);
         return BaseEncoding.base16().lowerCase().encode(hash);
+    }
+
+    /**
+     * The payload hash a presigned URL pinned through x-amz-content-sha256,
+     * or null when it pinned none.  Naming that header among the signed ones
+     * commits the URL to a single body, which some signers express by putting
+     * the hash on the payload line of the canonical request where
+     * UNSIGNED-PAYLOAD would otherwise go.  A header the query string did not
+     * sign says nothing about how the URL was signed and is ignored, as is one
+     * of the streaming tokens, whose chunked body this path does not decode.
+     */
+    @Nullable
+    static String pinnedPayloadHash(HttpServletRequest request) {
+        String signedHeaders = request.getParameter("X-Amz-SignedHeaders");
+        if (signedHeaders == null) {
+            return null;
+        }
+        boolean signed = false;
+        for (String header : Splitter.on(';').split(signedHeaders)) {
+            if (header.equalsIgnoreCase(AwsHttpHeaders.CONTENT_SHA256)) {
+                signed = true;
+                break;
+            }
+        }
+        if (!signed) {
+            return null;
+        }
+        String value = request.getHeader(AwsHttpHeaders.CONTENT_SHA256);
+        if (value == null) {
+            value = request.getParameter("X-Amz-Content-Sha256");
+        }
+        if (value == null || !SHA256_HEX.matcher(value).matches()) {
+            return null;
+        }
+        return value;
+    }
+
+    /**
+     * The headers a request declares it signed, however it declares them, or
+     * null when it declares none.
+     */
+    @Nullable
+    private static List<String> signedHeaderNames(HttpServletRequest request,
+            boolean presignedUrl) {
+        // A presigned request is signed through the query string.  Any
+        // Authorization header it also carries addresses something other than
+        // this proxy, so it names neither the signed headers nor the payload
+        // treatment and must not be read as though it did.
+        String authorizationHeader = presignedUrl ? null :
+                request.getHeader("Authorization");
+        if (authorizationHeader != null) {
+            return extractSignedHeaders(authorizationHeader);
+        }
+        String param = request.getParameter("X-Amz-SignedHeaders");
+        return param == null ? null : Splitter.on(';').splitToList(param);
+    }
+
+    /**
+     * Signed headers the request does not carry.  Signing a header commits
+     * the caller to sending it: a URL presigned with x-amz-content-sha256 and
+     * then uploaded through an HTTP client that does not know to repeat it
+     * canonicalizes to an empty value here and to the real one at the signer,
+     * so the signatures cannot agree.  The comparison alone cannot say that,
+     * so name the absent headers instead of leaving the caller to guess.
+     */
+    static List<String> missingSignedHeaders(HttpServletRequest request,
+            boolean presignedUrl) {
+        List<String> signedHeaders = signedHeaderNames(request, presignedUrl);
+        if (signedHeaders == null) {
+            return List.of();
+        }
+        var missing = new ArrayList<String>();
+        for (String header : signedHeaders) {
+            if (request.getHeader(header) == null) {
+                missing.add(header.toLowerCase());
+            }
+        }
+        return missing;
     }
 
     @Nullable
@@ -297,7 +391,8 @@ final class AwsSignature {
     private static String createCanonicalRequest(HttpServletRequest request,
                                                  String uri, byte[] payload,
                                                  String hashAlgorithm,
-                                                 boolean presignedUrl)
+                                                 boolean presignedUrl,
+                                                 @Nullable String pinnedHash)
             throws IOException, NoSuchAlgorithmException, S3Exception {
         // A presigned request is signed through the query string.  Any
         // Authorization header it also carries addresses something other than
@@ -312,7 +407,9 @@ final class AwsSignature {
         }
         String digest;
         if (authorizationHeader == null) {
-            digest = "UNSIGNED-PAYLOAD";
+            // A presigned URL leaves the payload out of the signature, save
+            // for the pinned hash the caller asks about here.
+            digest = pinnedHash != null ? pinnedHash : "UNSIGNED-PAYLOAD";
         } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
                 xAmzContentSha256)) {
             digest = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD";
@@ -326,19 +423,9 @@ final class AwsSignature {
         } else {
             digest = getMessageDigest(payload, hashAlgorithm);
         }
-        List<String> signedHeaders;
-        if (authorizationHeader != null) {
-            signedHeaders = extractSignedHeaders(authorizationHeader);
-            if (signedHeaders == null) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-            }
-        } else {
-            String signedHeadersParam = request.getParameter(
-                    "X-Amz-SignedHeaders");
-            if (signedHeadersParam == null) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-            }
-            signedHeaders = Splitter.on(';').splitToList(signedHeadersParam);
+        List<String> signedHeaders = signedHeaderNames(request, presignedUrl);
+        if (signedHeaders == null) {
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
 
         /*
@@ -358,32 +445,29 @@ final class AwsSignature {
             }
         }
 
-        String canonicalRequest = String.join("\n",
+        return String.join("\n",
                 method,
                 uri,
                 buildCanonicalQueryString(request),
                 buildCanonicalHeaders(request, signedHeaders) + "\n",
                 String.join(";", signedHeaders),
                 digest);
-
-        return getMessageDigest(
-                canonicalRequest.getBytes(StandardCharsets.UTF_8),
-                hashAlgorithm);
     }
 
     /**
      * Create v4 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
      */
-    static String createAuthorizationSignatureV4(
+    static SignatureDetail createAuthorizationSignatureV4(
             HttpServletRequest request, S3AuthorizationHeader authHeader,
             byte[] payload, String uri, String credential,
-            boolean presignedUrl)
+            boolean presignedUrl, @Nullable String pinnedHash)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException,
             S3Exception {
         // V4 headers always carry these fields
+        String hashAlgorithm = requireNonNull(authHeader.getHashAlgorithm());
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
-                requireNonNull(authHeader.getHashAlgorithm()), presignedUrl);
+                hashAlgorithm, presignedUrl, pinnedHash);
         String algorithm = requireNonNull(authHeader.getHmacAlgorithm());
         byte[] signingKey = deriveSigningKeyV4(authHeader, credential);
         String date = request.getHeader(AwsHttpHeaders.DATE);
@@ -394,10 +478,13 @@ final class AwsSignature {
                 date + "\n" +
                 authHeader.getDate() + "/" + authHeader.getRegion() +
                 "/s3/aws4_request\n" +
-                canonicalRequest;
+                getMessageDigest(canonicalRequest.getBytes(
+                        StandardCharsets.UTF_8), hashAlgorithm);
         byte[] signature = signMessage(
                 signatureString.getBytes(StandardCharsets.UTF_8),
                 signingKey, algorithm);
-        return BaseEncoding.base16().lowerCase().encode(signature);
+        return new SignatureDetail(
+                BaseEncoding.base16().lowerCase().encode(signature),
+                signatureString, canonicalRequest);
     }
 }

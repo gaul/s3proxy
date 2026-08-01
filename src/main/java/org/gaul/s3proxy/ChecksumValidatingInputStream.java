@@ -33,7 +33,9 @@ import com.google.common.hash.Hasher;
  * computed incrementally as the body is consumed and compared once the
  * declared content length is reached or end of stream is encountered,
  * whichever comes first; a mismatch throws {@link S3Exception} with
- * {@link S3ErrorCode#BAD_DIGEST}.  Comparing at the content-length boundary
+ * {@link S3ErrorCode#BAD_DIGEST}, or whichever code the caller names -- a
+ * presigned URL pinning x-amz-content-sha256 reports its own.  Comparing at
+ * the content-length boundary
  * rather than only at end of stream is necessary because some consumers read
  * exactly the declared number of bytes and never read the trailing -1.
  */
@@ -42,16 +44,25 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
     private final byte[] expected;
     private final boolean bigEndianInt;
     private final long contentLength;
+    private final S3ErrorCode errorCode;
     private long bytesRead;
     private boolean validated;
 
     ChecksumValidatingInputStream(InputStream is, HashFunction hashFunction,
             byte[] expected, boolean bigEndianInt, long contentLength) {
+        this(is, hashFunction, expected, bigEndianInt, contentLength,
+                S3ErrorCode.BAD_DIGEST);
+    }
+
+    ChecksumValidatingInputStream(InputStream is, HashFunction hashFunction,
+            byte[] expected, boolean bigEndianInt, long contentLength,
+            S3ErrorCode errorCode) {
         super(is);
         this.hasher = hashFunction.newHasher();
         this.expected = expected.clone();
         this.bigEndianInt = bigEndianInt;
         this.contentLength = contentLength;
+        this.errorCode = errorCode;
     }
 
     @Override
@@ -101,7 +112,7 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
                 ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
                 hash.asBytes();
         if (!Arrays.equals(expected, actual)) {
-            throw new IOException(new S3Exception(S3ErrorCode.BAD_DIGEST));
+            throw new IOException(new S3Exception(errorCode));
         }
     }
 }
