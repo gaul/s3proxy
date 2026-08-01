@@ -363,6 +363,29 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         logger.debug("Getting blob at: {}", path);
 
         try {
+            // Everything below the payload -- the ETag, the user metadata, the
+            // Content-* headers, the storage class, Last-Modified -- is read
+            // through the path, which resolves anew on each call.  putBlob
+            // publishes by renaming a new file over the key, so a put landing
+            // between two of these reads, or between them and the open that
+            // follows, leaves the answer describing more than one version of
+            // the object: an ETag naming bytes other than the ones sent, or
+            // user metadata belonging to a write the payload does not.  The
+            // payload's length is exempt, being taken from the descriptor that
+            // serves it; nothing else can be.
+            //
+            // Reading it all through that one descriptor is what fstat(2) and
+            // fgetxattr(2) are for, and NIO offers neither.  Attributes reach
+            // only through a Path: Files.readAttributes and
+            // Files.getFileAttributeView have no overload taking a
+            // FileChannel, a SeekableByteChannel or a FileDescriptor, and
+            // FileChannel exposes size() alone -- no modification time, no
+            // user-defined attributes.  Nor is the descriptor itself reachable
+            // to name through /proc/self/fd on Linux, since FileChannel does
+            // not hand it out and FileDescriptor keeps its integer private.
+            //
+            // Closing this means keeping the metadata where the bytes are, so
+            // that one read of one open file answers for both.  See #490.
             var attr = Files.readAttributes(path, BasicFileAttributes.class);
             var isDirectory = attr.isDirectory();
             var xattrs = safeGetXattrs(path);
