@@ -733,6 +733,15 @@ public class S3ProxyHandler {
             if (grant == null) {
                 throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
             }
+            // A presigned URL states when it stops working, and it stops
+            // working here too.  The proxy cannot check the signature over
+            // that window without a credential to check it against, so this
+            // says nothing about who sent the request -- anyone who can reach
+            // a proxy running without authorization can read from it, expiry
+            // or no expiry.  What it does is keep a URL from outliving what it
+            // says: a caller who asks for fifteen seconds and gets an object
+            // an hour later has been told something untrue.
+            checkPresignedExpiry(request);
             blobStore = grant.blobStore();
             String contentSha256 = request.getHeader(
                     AwsHttpHeaders.CONTENT_SHA256);
@@ -761,49 +770,7 @@ public class S3ProxyHandler {
                     () -> new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID));
             blobStore = grant.blobStore();
 
-            // A presigned URL carries its lifetime in the query string, which
-            // is unauthenticated at this point.  Answer AccessDenied for
-            // values that do not parse rather than letting the numeric
-            // exception escape as a 500.
-            String expiresString = request.getParameter("Expires");
-            if (expiresString != null) { // v2 query
-                long expires;
-                try {
-                    expires = Long.parseLong(expiresString);
-                } catch (NumberFormatException nfe) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED, nfe);
-                }
-                long nowSeconds = System.currentTimeMillis() / 1000;
-                if (nowSeconds >= expires) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
-                            "Request has expired");
-                }
-                if (expires - nowSeconds > TimeUnit.DAYS.toSeconds(365)) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-                }
-            }
-
-            String dateString = request.getParameter("X-Amz-Date");
-            //from para v4 query
-            expiresString = request.getParameter("X-Amz-Expires");
-            if (dateString != null && expiresString != null) { //v4 query
-                long date;
-                long expires;
-                try {
-                    date = parseIso8601(dateString);
-                    expires = Long.parseLong(expiresString);
-                } catch (IllegalArgumentException iae) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
-                }
-                long nowSeconds = System.currentTimeMillis() / 1000;
-                if (nowSeconds >= date + expires) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
-                            "Request has expired");
-                }
-                if (expires > TimeUnit.DAYS.toSeconds(7)) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
-                }
-            }
+            checkPresignedExpiry(request);
             // The aim ?
             switch (authHeader.getAuthenticationType()) {
             case AWS_V2 -> {
@@ -5192,6 +5159,59 @@ public class S3ProxyHandler {
             }
         }
         return true;
+    }
+
+    /**
+     * Refuse a presigned URL whose window has closed, or one naming a window
+     * longer than S3 will sign.  Answer AccessDenied for values that do not
+     * parse rather than letting the numeric exception escape as a 500.
+     *
+     * <p>The query string carrying these is unauthenticated -- the signature
+     * over it is checked afterwards, and not at all when the proxy runs
+     * without authorization -- so this bounds how long a URL works rather than
+     * establishing who may use it.
+     */
+    private static void checkPresignedExpiry(HttpServletRequest request)
+            throws S3Exception {
+        String expiresString = request.getParameter("Expires");
+        if (expiresString != null) { // v2 query
+            long expires;
+            try {
+                expires = Long.parseLong(expiresString);
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, nfe);
+            }
+            long nowSeconds = System.currentTimeMillis() / 1000;
+            if (nowSeconds >= expires) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                        "Request has expired");
+            }
+            if (expires - nowSeconds > TimeUnit.DAYS.toSeconds(365)) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+        }
+
+        String dateString = request.getParameter("X-Amz-Date");
+        //from para v4 query
+        expiresString = request.getParameter("X-Amz-Expires");
+        if (dateString != null && expiresString != null) { //v4 query
+            long date;
+            long expires;
+            try {
+                date = parseIso8601(dateString);
+                expires = Long.parseLong(expiresString);
+            } catch (IllegalArgumentException iae) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+            }
+            long nowSeconds = System.currentTimeMillis() / 1000;
+            if (nowSeconds >= date + expires) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                        "Request has expired");
+            }
+            if (expires > TimeUnit.DAYS.toSeconds(7)) {
+                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            }
+        }
     }
 
     private static boolean constantTimeEquals(String x, String y) {
