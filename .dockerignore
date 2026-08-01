@@ -2,4 +2,4 @@
 *
 !/target/s3proxy
 !/target/jdeps-modules.txt
-!/src/main/resources/run-docker-container.sh
+!/src/main/config/run-docker-container.sh

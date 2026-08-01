@@ -198,9 +198,9 @@
           </execution>
         </executions>
         <configuration>
-          <configLocation>src/main/resources/checkstyle.xml</configLocation>
-          <propertyExpansion>checkstyle.header.file=src/main/resources/copyright_header.txt
-checkstyle.header.file.jclouds=src/main/resources/copyright_header_jclouds.txt</propertyExpansion>
+          <configLocation>src/main/config/checkstyle.xml</configLocation>
+          <propertyExpansion>checkstyle.header.file=src/main/config/copyright_header.txt
+checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</propertyExpansion>
           <includeTestSourceDirectory>true</includeTestSourceDirectory>
           <violationSeverity>warning</violationSeverity>
           <failOnViolation>true</failOnViolation>

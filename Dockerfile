@@ -50,7 +50,7 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 
 COPY \
     target/s3proxy \
-    src/main/resources/run-docker-container.sh \
+    src/main/config/run-docker-container.sh \
     /opt/s3proxy/
 
 ENV \
