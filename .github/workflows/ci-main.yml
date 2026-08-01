@@ -65,7 +65,7 @@ jobs:
         with:
           submodules: "recursive"
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.6.0
         with:
           distribution: "temurin"
           java-version: "25"
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.6.0
         with:
           distribution: "temurin"
           java-version: "25"
@@ -203,7 +203,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.6.0
         with:
           distribution: "temurin"
           java-version: "25"
@@ -271,7 +271,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.6.0
         with:
           distribution: "temurin"
           java-version: "25"
@@ -326,7 +326,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.6.0
         with:
           distribution: "temurin"
           java-version: "25"
