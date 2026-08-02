@@ -194,6 +194,10 @@ public final class S3Proxy {
         // Reject new requests during stop and let server.stop() wait for
         // in-flight ones, so SIGTERM drains rather than dropping transfers.
         server.setHandler(new GracefulHandler(context));
+        // Answer the requests Jetty rejects on its own -- a URI or header the
+        // parser refuses never reaches S3ProxyHandler -- with an S3 error
+        // document instead of Jetty's HTML page.
+        server.setErrorHandler(new S3ErrorHandler());
         server.setStopTimeout(STOP_TIMEOUT_MS);
     }
 
