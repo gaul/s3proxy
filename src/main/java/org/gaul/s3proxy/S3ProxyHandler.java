@@ -4821,8 +4821,14 @@ public class S3ProxyHandler {
         }
         String overrideContentType = request.getParameter(
                 "response-content-type");
-        response.setContentType(overrideContentType != null ?
-                overrideContentType : contentMetadata.contentType());
+        String contentType = overrideContentType != null ?
+                overrideContentType : contentMetadata.contentType();
+        // S3 names a type for every object, so one a backend reports none for
+        // -- written around S3Proxy, or by a client of a backend that does not
+        // require one -- answers with the default rather than with no
+        // Content-Type at all.
+        response.setContentType(contentType != null ? contentType :
+                ContentMetadata.DEFAULT_CONTENT_TYPE);
         String eTag = metadata.eTag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));

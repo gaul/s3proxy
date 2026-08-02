@@ -413,9 +413,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
             if (contentType == null && !isDirectory) {
+                // A file written around S3Proxy carries no type of ours, so
+                // guess from its name and fall back to what S3 answers for an
+                // object stored without one.
                 contentType = Files.probeContentType(path);
                 if (contentType == null) {
-                    contentType = "application/octet-stream";
+                    contentType = ContentMetadata.DEFAULT_CONTENT_TYPE;
                 }
             }
 

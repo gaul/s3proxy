@@ -39,6 +39,13 @@ public record ContentMetadata(
         @Nullable String contentEncoding,
         @Nullable Date expires) {
 
+    /**
+     * What S3 names an object whose upload declared no Content-Type, and what
+     * it answers with for one stored without a type.  Note that it is not
+     * application/octet-stream.
+     */
+    public static final String DEFAULT_CONTENT_TYPE = "binary/octet-stream";
+
     public ContentMetadata {
         if (contentMD5 != null) {
             checkArgument(contentMD5.bits() == 128,
@@ -65,7 +72,7 @@ public record ContentMetadata(
 
     public static final class Builder {
         private @Nullable String cacheControl;
-        private @Nullable String contentType = "application/unknown";
+        private @Nullable String contentType = DEFAULT_CONTENT_TYPE;
         private @Nullable Long contentLength;
         private @Nullable HashCode contentMD5;
         private @Nullable String contentDisposition;
