@@ -172,8 +172,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 S3Proxy emulates the following operations:
 
 * conditional PUT object when using If-Match or If-None-Match, unless the `azureblob-sdk` provider is used
-* copy multi-part objects, see [#76](https://github.com/gaul/s3proxy/issues/76)
-* multi-part upload on the `filesystem` and `transient` backends, which store a stub object to carry the metadata
+* multi-part upload on the `filesystem-nio2` and `transient-nio2` backends, which store a stub object to carry the metadata
 * object and bucket owners, which are always the same synthetic user
 
 Some limitations depend on the storage backend:
@@ -187,6 +186,12 @@ Some limitations depend on the storage backend:
 | `Content-Language` not preserved | `openstack-swift-sdk` |
 | `Expires` not preserved | `azureblob-sdk` |
 | `max-keys=0` not honored | `azureblob-sdk` |
+| `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem-nio2`, `transient-nio2`, `openstack-swift-sdk`, `sftp` |
+
+Two backends copy a part on the server but fall back to streaming it through
+S3Proxy in one case each: `google-cloud-storage-sdk` for a range covering less
+than the whole object, which GCS cannot copy server-side, and `azureblob-sdk`
+against an endpoint that refuses Put Block From URL, which Azurite does.
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
 file (and corresponding ENV variables for Docker):
