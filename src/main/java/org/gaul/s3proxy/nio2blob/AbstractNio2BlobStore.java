@@ -633,6 +633,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final String putBlob(String container, Blob blob, PutOptions options) {
+        return putBlob(container, blob, options, /*parts=*/ null);
+    }
+
+    /**
+     * Stores a blob, optionally assembling it from part files already in the
+     * store rather than from the payload stream.  Naming the parts lets the
+     * kernel join them: FileChannel.transferTo becomes copy_file_range, which
+     * a copy-on-write filesystem serves by sharing extents rather than
+     * copying bytes, and which a network filesystem can serve on the server.
+     * Reading the payload instead would cost a full read and write of an
+     * object that has already been written once as parts.
+     */
+    private String putBlob(String container, Blob blob, PutOptions options,
+            @Nullable List<Path> parts) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
         // TODO: should we use a known suffix to filter these out during list?
@@ -673,20 +687,34 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
         var metadata = blob.getMetadata().contentMetadata();
         try {
-            HashCode actualHashCode;
+            // Null when the parts were joined by the kernel: nothing reads the
+            // MD5 of an assembled multipart object, whose ETag is the digest
+            // of the part digests that the caller already computed.
+            HashCode actualHashCode = null;
             // Close the streams before doing xattr writes, setBlobAccess,
             // and Files.move: Windows refuses to atomically move a file
             // that still has an open OutputStream.
-            try (var is = new HashingInputStream(md5,
-                    requireNonNull(blob.getPayload()));
-                 var os = Files.newOutputStream(tmpPath)) {
-                is.transferTo(os);
-                actualHashCode = is.hash();
+            if (parts != null) {
+                concatenate(parts, tmpPath);
+            } else {
+                try (var is = new HashingInputStream(md5,
+                        requireNonNull(blob.getPayload()));
+                     var os = Files.newOutputStream(tmpPath)) {
+                    is.transferTo(os);
+                    actualHashCode = is.hash();
+                }
+                var expectedHashCode = metadata.contentMD5();
+                if (expectedHashCode != null &&
+                        !actualHashCode.equals(expectedHashCode)) {
+                    throw returnResponseException(400);
+                }
             }
-            var expectedHashCode = metadata.contentMD5();
-            if (expectedHashCode != null && !actualHashCode.equals(expectedHashCode)) {
-                throw returnResponseException(400);
-            }
+            // What this reports back: the payload's MD5 for a regular put,
+            // and for an assembled multipart the ETag the caller preset,
+            // since no digest of the whole object was taken.
+            String storedETag = actualHashCode != null ?
+                    actualHashCode.toString() :
+                    requireNonNull(blob.getMetadata().eTag());
 
             var view = getXattrView(tmpPath);
             if (view != null) {
@@ -700,7 +728,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     var providedETag = blob.getMetadata().eTag();
                     var eTag = providedETag != null ?
                             providedETag.getBytes(StandardCharsets.US_ASCII) :
-                            actualHashCode.asBytes();
+                            requireNonNull(actualHashCode).asBytes();
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(eTag));
                     writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.cacheControl());
                     writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.contentDisposition());
@@ -747,9 +775,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         throw returnResponseException(412);
                     }
                     Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE);
-                    return actualHashCode.toString();
+                    return storedETag;
                 }
-                return actualHashCode.toString();
+                return storedETag;
             }
             if (ifNoneMatch != null) {
                 // A named ETag cannot be resolved by the move, and the
@@ -766,7 +794,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-            return actualHashCode.toString();
+            return storedETag;
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         } finally {
@@ -1132,7 +1160,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .ifNoneMatch(mpuOptions.ifNoneMatch())
                     .build();
         }
-        putBlob(mpu.containerName(), blobBuilder.build(), completeOptions);
+        // Name the part files so the assembly is a kernel copy rather than a
+        // read of every byte back through this process.  The payload built
+        // above stays on the blob as the fallback for a store whose parts are
+        // not files of its own.
+        var containerPath = requireContainerPath(mpu.containerName());
+        var partPaths = ImmutableList.<Path>builder();
+        for (var part : parts) {
+            partPaths.add(resolveBlobPath(containerPath, multipartPartName(
+                    mpu.id(), mpu.blobName(), part.partNumber())));
+        }
+        putBlob(mpu.containerName(), blobBuilder.build(), completeOptions,
+                partPaths.build());
 
         // Remove every uploaded part, not just the ones referenced by the
         // manifest, so parts excluded from the final object do not leak.
@@ -1476,6 +1515,50 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * <p>To keep that reserved namespace private, any other key that would
      * resolve to the slash blob or a descendant of it is rejected with 400.
      */
+    /**
+     * Joins part files into one, asking the kernel to do the copying.
+     * FileChannel.transferTo is copy_file_range on Linux, which btrfs and XFS
+     * serve by sharing extents when the destination offset is block aligned --
+     * every part but the last is, at the part sizes clients actually use -- and
+     * which NFS and SMB can serve on the server rather than over the wire.
+     * Where none of that holds the kernel still copies without the bytes
+     * crossing into this process.
+     */
+    private static void concatenate(List<Path> parts, Path tmpPath)
+            throws IOException {
+        try (var dst = FileChannel.open(tmpPath, StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE)) {
+            long position = 0;
+            for (var part : parts) {
+                try (var src = FileChannel.open(part, StandardOpenOption.READ)) {
+                    long size = src.size();
+                    long transferred = 0;
+                    while (transferred < size) {
+                        long count = src.transferTo(transferred,
+                                size - transferred, dst);
+                        if (count <= 0) {
+                            // transferTo declines rather than fails on some
+                            // filesystems; fall back for the remainder.
+                            try (var is = Channels.newInputStream(
+                                    src.position(transferred));
+                                 var os = Channels.newOutputStream(dst)) {
+                                is.transferTo(os);
+                            }
+                            transferred = size;
+                            break;
+                        }
+                        transferred += count;
+                    }
+                    position += size;
+                }
+            }
+            if (dst.size() != position) {
+                throw new IOException("assembled " + dst.size() +
+                        " bytes from parts totalling " + position);
+            }
+        }
+    }
+
     private static Path resolveBlobPath(Path containerPath, String key) {
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
         Path path;
