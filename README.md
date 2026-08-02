@@ -171,7 +171,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 S3Proxy emulates the following operations:
 
-* conditional PUT object when using If-Match or If-None-Match, unless the `azureblob-sdk` provider is used
 * multi-part upload on the `filesystem-nio2` and `transient-nio2` backends, which store a stub object to carry the metadata
 * object and bucket owners, which are always the same synthetic user
 
@@ -187,11 +186,22 @@ Some limitations depend on the storage backend:
 | `Expires` not preserved | `azureblob-sdk` |
 | `max-keys=0` not honored | `azureblob-sdk` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem-nio2`, `transient-nio2`, `openstack-swift-sdk`, `sftp` |
+| conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift-sdk` |
 
 Two backends copy a part on the server but fall back to streaming it through
 S3Proxy in one case each: `google-cloud-storage-sdk` for a range covering less
 than the whole object, which GCS cannot copy server-side, and `azureblob-sdk`
 against an endpoint that refuses Put Block From URL, which Azurite does.
+
+`aws-s3-sdk`, `azureblob-sdk` and `google-cloud-storage-sdk` perform a
+conditional PUT on the backend.  The nio2 backends resolve `If-None-Match` as
+they write and emulate `If-Match` within a single S3Proxy process, so it does
+not hold against another writer.  Where a backend cannot do either, a
+conditional PUT is refused rather than emulated, since emulating it would mean
+a read followed by a write -- which answers correctly only when nothing else is
+writing that key, and a conditional PUT is asked for precisely because
+something might be.  Set `s3proxy.aws-s3.conditional-writes=emulated` for an
+S3-compatible endpoint that does not implement conditional writes itself.
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
 file (and corresponding ENV variables for Docker):
