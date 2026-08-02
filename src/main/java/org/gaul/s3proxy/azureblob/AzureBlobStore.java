@@ -173,6 +173,7 @@ public final class AzureBlobStore implements BlobStore {
     public PageSet<? extends StorageMetadata> list() {
         var set = ImmutableSet.<StorageMetadata>builder();
         for (var container : blobServiceClient.listBlobContainers()) {
+            // Azure containers have no creation time.
             set.add(new ContainerMetadata(container.getName(),
                     /*creationDate=*/ null));
         }
