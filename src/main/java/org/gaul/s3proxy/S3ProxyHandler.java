@@ -2797,7 +2797,9 @@ public class S3ProxyHandler {
         }
 
         if (contentLengthString == null) {
-            throw new S3Exception(S3ErrorCode.MISSING_CONTENT_LENGTH);
+            byte[] body = readBodyOfUnknownLength(request, is);
+            is = new ByteArrayInputStream(body);
+            contentLengthString = String.valueOf(body.length);
         }
         long contentLength;
         try {
@@ -4713,7 +4715,9 @@ public class S3ProxyHandler {
         }
 
         if (contentLengthString == null) {
-            throw new S3Exception(S3ErrorCode.MISSING_CONTENT_LENGTH);
+            byte[] body = readBodyOfUnknownLength(request, is);
+            is = new ByteArrayInputStream(body);
+            contentLengthString = String.valueOf(body.length);
         }
         long contentLength;
         try {
@@ -5235,6 +5239,32 @@ public class S3ProxyHandler {
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
         return string.toLowerCase().startsWith(prefix.toLowerCase());
+    }
+
+    /**
+     * Reads the body of an upload that declared no length, so that the length
+     * is known before a backend is asked to store it.  S3 accepts an upload
+     * framed with Transfer-Encoding: chunked, but most backends need a size
+     * before they can stream one on, and a chunked body says nothing about how
+     * large it will turn out to be -- hence the same bound, and the same
+     * error beyond it, that a SigV4 request whose payload must be digested
+     * already carries.  An upload that framed its body neither way is the one
+     * S3 answers 411 to.
+     */
+    private byte[] readBodyOfUnknownLength(HttpServletRequest request,
+            InputStream is) throws IOException, S3Exception {
+        String transferEncoding = request.getHeader(
+                HttpHeaders.TRANSFER_ENCODING);
+        if (transferEncoding == null ||
+                !transferEncoding.toLowerCase().contains("chunked")) {
+            throw new S3Exception(S3ErrorCode.MISSING_CONTENT_LENGTH);
+        }
+        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
+                .readAllBytes();
+        if (body.length == v4MaxNonChunkedRequestSize + 1) {
+            throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+        }
+        return body;
     }
 
     /**
