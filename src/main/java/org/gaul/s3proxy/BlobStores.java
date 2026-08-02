@@ -38,6 +38,7 @@ public final class BlobStores {
     }
 
     public static BlobStore create(String provider, Properties properties) {
+        provider = resolveProviderAlias(provider);
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY,
                 "");
         String credential = properties.getProperty(
@@ -96,6 +97,26 @@ public final class BlobStores {
                 provider + ". Supported providers: filesystem-nio2," +
                 " transient-nio2, aws-s3-sdk, azureblob-sdk," +
                 " google-cloud-storage-sdk, openstack-swift-sdk, sftp");
+        };
+    }
+
+    /**
+     * Maps a jclouds provider name to the store that replaced it, so that a
+     * configuration written before those backends were replaced keeps
+     * working.  Resolving here rather than in Main covers every caller,
+     * including the JUnit rule and anything embedding S3Proxy as a library.
+     * A name that is already current, or that names nothing, is returned
+     * unchanged for create to reject.
+     */
+    static String resolveProviderAlias(String provider) {
+        return switch (provider) {
+        case "transient" -> "transient-nio2";
+        case "filesystem" -> "filesystem-nio2";
+        case "aws-s3", "s3" -> "aws-s3-sdk";
+        case "azureblob" -> "azureblob-sdk";
+        case "google-cloud-storage" -> "google-cloud-storage-sdk";
+        case "openstack-swift" -> "openstack-swift-sdk";
+        default -> provider;
         };
     }
 }

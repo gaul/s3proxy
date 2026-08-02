@@ -365,7 +365,10 @@ public final class Main {
             System.exit(1);
         }
 
-        provider = resolveProviderAlias(provider);
+        // Resolve here as well as in BlobStores.create so that the branches
+        // below, and anything reading the property afterwards, see the name
+        // the store will actually be created under.
+        provider = BlobStores.resolveProviderAlias(provider);
         properties.setProperty(Constants.PROPERTY_PROVIDER, provider);
 
         if (provider.equals("filesystem-nio2") ||
@@ -398,26 +401,6 @@ public final class Main {
         properties.setProperty(Constants.PROPERTY_CREDENTIAL, credential);
 
         return BlobStores.create(provider, properties);
-    }
-
-    /**
-     * Map deprecated jclouds provider names to their modern replacements.
-     */
-    private static String resolveProviderAlias(String provider) {
-        if (provider.equals("transient")) {
-            return "transient-nio2";
-        } else if (provider.equals("filesystem")) {
-            return "filesystem-nio2";
-        } else if (provider.equals("aws-s3")) {
-            return "aws-s3-sdk";
-        } else if (provider.equals("azureblob")) {
-            return "azureblob-sdk";
-        } else if (provider.equals("google-cloud-storage")) {
-            return "google-cloud-storage-sdk";
-        } else if (provider.equals("s3")) {
-            return "aws-s3-sdk";
-        }
-        return provider;
     }
 
     private static void usage(CmdLineParser parser) {
