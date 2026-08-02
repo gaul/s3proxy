@@ -67,7 +67,7 @@
     </module>
     <module name="InnerAssignment"/>
     <module name="InterfaceIsType"/>
-    <module name="JavadocStyle"/>
+    <module name="SummaryJavadoc"/>
     <module name="LeftCurly"/>
     <module name="LocalFinalVariableName"/>
     <module name="LocalVariableName"/>
