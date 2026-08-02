@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -68,8 +69,11 @@ public final class S3ErrorHandlerTest {
     /** A percent-encoding which does not decode to UTF-8. */
     @Test
     public void testUnparseableUri() throws Exception {
-        String response = send("GET /container/%AE%8A- HTTP/1.1\r\n" +
-                "Host: 127.0.0.1\r\n\r\n");
+        String response = send("""
+                GET /container/%AE%8A- HTTP/1.1\r
+                Host: 127.0.0.1\r
+                \r
+                """);
         assertThat(response).startsWith("HTTP/1.1 400 ");
         assertThat(response).contains("<Code>InvalidURI</Code>");
         assertThat(response).contains(
@@ -97,8 +101,11 @@ public final class S3ErrorHandlerTest {
     /** The error names the request, as every S3 error does. */
     @Test
     public void testRequestId() throws Exception {
-        String response = send("GET /container/%AE%8A- HTTP/1.1\r\n" +
-                "Host: 127.0.0.1\r\n\r\n");
+        String response = send("""
+                GET /container/%AE%8A- HTTP/1.1\r
+                Host: 127.0.0.1\r
+                \r
+                """);
         assertThat(response).contains("x-amz-request-id");
         assertThat(response).containsPattern(
                 "<RequestId>[0-9A-F]{16}</RequestId>");
@@ -106,7 +113,8 @@ public final class S3ErrorHandlerTest {
 
     private String send(String request) throws Exception {
         try (var socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port));
+            socket.connect(new InetSocketAddress(
+                    InetAddress.getLoopbackAddress(), port));
             socket.setSoTimeout(10_000);
             OutputStream out = socket.getOutputStream();
             out.write(request.getBytes(StandardCharsets.ISO_8859_1));

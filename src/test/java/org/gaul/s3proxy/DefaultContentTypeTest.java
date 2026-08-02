@@ -21,11 +21,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+
+import com.google.common.base.Splitter;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,9 +55,12 @@ public final class DefaultContentTypeTest {
             Thread.sleep(10);
         }
         port = s3Proxy.getPort();
-        send("PUT /container HTTP/1.1\r\n" +
-                "Host: 127.0.0.1\r\n" +
-                "Content-Length: 0\r\n\r\n");
+        send("""
+                PUT /container HTTP/1.1\r
+                Host: 127.0.0.1\r
+                Content-Length: 0\r
+                \r
+                """);
     }
 
     @AfterEach
@@ -114,7 +120,7 @@ public final class DefaultContentTypeTest {
     }
 
     private static String contentTypeOf(String response) {
-        for (String line : response.split("\r\n")) {
+        for (String line : Splitter.on("\r\n").split(response)) {
             if (line.toLowerCase().startsWith("content-type:")) {
                 return line.substring(line.indexOf(':') + 1).trim();
             }
@@ -124,7 +130,8 @@ public final class DefaultContentTypeTest {
 
     private String send(String request) throws Exception {
         try (var socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port));
+            socket.connect(new InetSocketAddress(
+                    InetAddress.getLoopbackAddress(), port));
             socket.setSoTimeout(10_000);
             OutputStream out = socket.getOutputStream();
             out.write(request.getBytes(StandardCharsets.ISO_8859_1));

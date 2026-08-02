@@ -36,12 +36,18 @@ import org.junit.jupiter.api.Test;
  * cannot be read (400) and one that can be read and says no (403).
  */
 public final class PostPolicyTest {
-    private static final String FUTURE = Instant.now()
-            .plus(1, ChronoUnit.HOURS).toString();
+    /**
+     * An expiration these examples never reach.  Read when a test runs rather
+     * than when the class loads, which would date the whole suite from the
+     * moment it was first touched.
+     */
+    private static String future() {
+        return Instant.now().plus(1, ChronoUnit.HOURS).toString();
+    }
 
     /** The conditions every well-formed example here starts from. */
     private static String policy(String conditions) {
-        return "{\"expiration\": \"" + FUTURE + "\", \"conditions\": [" +
+        return "{\"expiration\": \"" + future() + "\", \"conditions\": [" +
                 conditions + "]}";
     }
 
@@ -161,15 +167,15 @@ public final class PostPolicyTest {
         assertCode(() -> parse("[]"),
                 S3ErrorCode.INVALID_POLICY_DOCUMENT);
         // The two top-level names are matched exactly.
-        assertCode(() -> parse("{\"EXPIRATION\": \"" + FUTURE +
+        assertCode(() -> parse("{\"EXPIRATION\": \"" + future() +
                 "\", \"conditions\": [{\"bucket\": \"buck\"}]}"),
                 S3ErrorCode.INVALID_POLICY_DOCUMENT);
-        assertCode(() -> parse("{\"expiration\": \"" + FUTURE +
+        assertCode(() -> parse("{\"expiration\": \"" + future() +
                 "\", \"CONDITIONS\": [{\"bucket\": \"buck\"}]}"),
                 S3ErrorCode.INVALID_POLICY_DOCUMENT);
         assertCode(() -> parse("{\"conditions\": [{\"bucket\": \"buck\"}]}"),
                 S3ErrorCode.INVALID_POLICY_DOCUMENT);
-        assertCode(() -> parse("{\"expiration\": \"" + FUTURE + "\"}"),
+        assertCode(() -> parse("{\"expiration\": \"" + future() + "\"}"),
                 S3ErrorCode.INVALID_POLICY_DOCUMENT);
         // A date that is not ISO 8601, e.g. Python's str(datetime).
         assertCode(() -> parse("{\"expiration\": \"2026-08-01 12:00:00\"," +
