@@ -439,6 +439,13 @@ jobs:
             -genkeypair -keyalg EC -groupname secp256r1 -alias smoke \
             -dname CN=smoke -storepass password -keystore /tmp/smoke.p12
 
+          # java.instrument backs the -javaagent option that
+          # S3PROXY_JAVA_OPTS exists to pass, e.g. an OpenTelemetry or
+          # Prometheus agent.  Nothing references it statically, so jdeps
+          # cannot see it and the VM exits before main once it is dropped.
+          docker run --rm --entrypoint java s3proxy-smoke --list-modules |
+            grep --quiet '^java.instrument'
+
           # End-to-end request handling against the default filesystem
           # backend.
           docker run --detach --name smoke-fs --publish 127.0.0.1:8080:80 \

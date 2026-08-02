@@ -13,9 +13,12 @@ RUN apt-get update && \
 
 COPY target/jdeps-modules.txt /tmp/jdeps-modules.txt
 
-# jdeps only sees statically-referenced modules.  Providers that the JDK
-# loads reflectively via the java.security config must be listed by hand:
-#   jdk.crypto.cryptoki - SunPKCS11: PKCS#11 keystores, e.g. FIPS deployments
+# jdeps only sees statically-referenced modules, so anything reached another
+# way must be listed by hand:
+#   jdk.crypto.cryptoki - SunPKCS11, which the java.security config loads
+#     reflectively: PKCS#11 keystores, e.g. FIPS deployments
+#   java.instrument - the -javaagent option, which S3PROXY_JAVA_OPTS exists
+#     to pass; without the module the VM exits before main
 # (SunEC lives in java.base since JDK 22.)  --bind-services also links in
 # every service provider reachable from the module graph (locale data,
 # extended charsets, security providers), guarding against providers that
@@ -23,7 +26,8 @@ COPY target/jdeps-modules.txt /tmp/jdeps-modules.txt
 # jdk.localedata since the proxy formats HTTP dates with Locale.US.  The
 # CI smoke test exercises the result.
 RUN jlink \
-    --add-modules "$(cat /tmp/jdeps-modules.txt),jdk.crypto.cryptoki" \
+    --add-modules \
+        "$(cat /tmp/jdeps-modules.txt),jdk.crypto.cryptoki,java.instrument" \
     --bind-services \
     --include-locales=en \
     --strip-debug \
