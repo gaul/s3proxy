@@ -32,6 +32,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.http.HttpHeaderName;
@@ -193,9 +194,10 @@ public final class AzureBlobStore implements BlobStore {
         var set = ImmutableSet.<StorageMetadata>builder();
         PagedResponse<BlobItem> page;
         try {
-            page = client.listBlobsByHierarchy(
-                    options.delimiter(), azureOptions, /*timeout=*/ null)
-                    .iterableByPage(marker).iterator().next();
+            var pages = client.listBlobsByHierarchy(
+                    options.delimiter(), azureOptions, /*timeout=*/ null);
+            page = firstPageWithEntries(
+                    m -> pages.iterableByPage(m).iterator().next(), marker);
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
@@ -222,6 +224,28 @@ public final class AzureBlobStore implements BlobStore {
 
         return new PageSet<StorageMetadata>(set.build(),
                 page.getContinuationToken());
+    }
+
+    /**
+     * The first page Azure returns holding anything, or the last one when the
+     * container is exhausted.  Azure can answer a listing with no blobs at all
+     * and a continuation token, which it expects the caller to follow; passing
+     * such a page on leaves an S3 client a truncated result with neither
+     * Contents nor CommonPrefixes to take its next marker from, so a client
+     * that derives one from the last key it saw -- s3cmd does -- stops there
+     * and reports the prefix as empty.  OpenStackSwiftBlobStore.list keeps
+     * fetching for the same reason.
+     */
+    static PagedResponse<BlobItem> firstPageWithEntries(
+            Function<@Nullable String, PagedResponse<BlobItem>> fetch,
+            @Nullable String marker) {
+        while (true) {
+            PagedResponse<BlobItem> page = fetch.apply(marker);
+            marker = page.getContinuationToken();
+            if (!page.getValue().isEmpty() || marker == null) {
+                return page;
+            }
+        }
     }
 
     @Override
@@ -266,9 +290,14 @@ public final class AzureBlobStore implements BlobStore {
     public boolean deleteContainerIfEmpty(String container) {
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
-            var page = client.listBlobsByHierarchy(
-                    /*delimiter=*/ null, /*options=*/ null, /*timeout=*/ null)
-                    .iterableByPage().iterator().next();
+            // An empty page can carry a continuation token onto blobs that do
+            // exist, and deleting the container on the strength of it would
+            // take them with it.
+            var pages = client.listBlobsByHierarchy(
+                    /*delimiter=*/ null, /*options=*/ null, /*timeout=*/ null);
+            var page = firstPageWithEntries(
+                    m -> pages.iterableByPage(m).iterator().next(),
+                    /*marker=*/ null);
             if (!page.getValue().isEmpty()) {
                 return false;
             }
