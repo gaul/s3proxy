@@ -23,8 +23,14 @@ public final class Constants {
     public static final short VERSION = 1;
     public static final String AES_CIPHER = "AES/CFB/NoPadding";
     public static final String S3_ENC_SUFFIX = ".s3enc";
+    /**
+     * The ETag S3 gives an object assembled from parts: the MD5 of the part
+     * MD5s, a dash, then the part count.  The head has to be a real hash for
+     * the count to mean anything -- a backend whose ETag is opaque can end in
+     * a dash and a digit without either describing how many parts there were.
+     */
     public static final Pattern MPU_ETAG_SUFFIX_PATTERN =
-        Pattern.compile("-([0-9]+)$");
+        Pattern.compile("^\"?[0-9a-fA-F]{32}-([0-9]+)\"?$");
     public static final String METADATA_ENCRYPTION_PARTS =
         "s3proxy_encryption_parts";
     public static final String METADATA_IS_ENCRYPTED_MULTIPART =

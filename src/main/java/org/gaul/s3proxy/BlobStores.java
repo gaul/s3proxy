@@ -69,7 +69,11 @@ public final class BlobStores {
                     conditionalWrites, chunkedEncodingEnabled,
                     stripETagQuotes);
         }
-        case "azureblob-sdk" -> new AzureBlobStore(creds, endpoint);
+        case "azureblob-sdk" -> {
+            String eTagMode = properties.getProperty(
+                    "s3proxy.azureblob.etag", "opaque");
+            yield new AzureBlobStore(creds, endpoint, eTagMode);
+        }
         case "google-cloud-storage-sdk" ->
             new GCloudBlobStore(creds, endpoint);
         case "openstack-swift-sdk" -> {

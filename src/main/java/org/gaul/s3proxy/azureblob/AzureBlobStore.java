@@ -120,6 +120,15 @@ public final class AzureBlobStore implements BlobStore {
      */
     private static final String TARGET_BLOB_NAME_METADATA =
             "s3proxy_target_blob_name";
+    /**
+     * The suffix S3 gives the ETag of an object assembled from parts, and with
+     * it the standing signal that the value is not a hash of the content: a
+     * client seeing a dash skips its integrity check instead of decoding the
+     * ETag as hex.  Azure mints tokens like {@code 0x8DD3F4A5F0B2C1E}, which
+     * are neither a hash nor even valid hex, so every object leaves under this
+     * suffix and arrives at a condition wearing it.
+     */
+    private static final String OPAQUE_ETAG_SUFFIX = "-1";
     // S3 requires MD5 for ETag and Content-MD5 interoperability.
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
@@ -134,6 +143,12 @@ public final class AzureBlobStore implements BlobStore {
     private final BlobServiceAsyncClient blobServiceAsyncClient;
     private final String endpoint;
     private final Supplier<Credentials> creds;
+    /**
+     * Report the ETag Azure mints under {@link #OPAQUE_ETAG_SUFFIX} rather
+     * than bare.  S3 SDKs decode a dashless ETag as hex and abort the request
+     * when they cannot, which Azure's is not.
+     */
+    private final boolean opaqueETags;
     // Azurite responds 501 to Put Block From URL; discovered on first use
     // so the caller can fall back to streamed emulation.
     private volatile boolean nativePartCopyUnsupported;
@@ -141,6 +156,20 @@ public final class AzureBlobStore implements BlobStore {
     public AzureBlobStore(
             Supplier<Credentials> creds,
             String endpointUrl) {
+        this(creds, endpointUrl, /*eTagMode=*/ "opaque");
+    }
+
+    public AzureBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl,
+            String eTagMode) {
+        this.opaqueETags = switch (eTagMode) {
+        case "opaque" -> true;
+        case "native" -> false;
+        default -> throw new IllegalArgumentException(
+                "Invalid ETag mode: " + eTagMode + ".  Supported modes:" +
+                " opaque, native");
+        };
         // TODO: derive endpoint from Constants.PROPERTY_ENDPOINT when unset,
         // e.g., default to https://<account>.blob.core.windows.net based on
         // the configured identity.
@@ -167,6 +196,46 @@ public final class AzureBlobStore implements BlobStore {
         // fresh IMDS token acquisition on every multipart part upload.
         blobServiceClient = blobServiceClientBuilder.buildClient();
         blobServiceAsyncClient = blobServiceClientBuilder.buildAsyncClient();
+    }
+
+    /**
+     * The ETag to report for a blob.  The token Azure mints means nothing to
+     * an S3 client and stops some outright, so it travels dressed as the ETag
+     * of an object assembled from parts: unverifiable by construction, which
+     * is the truth about it.
+     */
+    String reportETag(String azureETag) {
+        if (!opaqueETags) {
+            return azureETag;
+        }
+        return unquote(azureETag) + OPAQUE_ETAG_SUFFIX;
+    }
+
+    /**
+     * The ETag to hand Azure for a precondition the caller expressed.  A
+     * caller echoes back whatever it was given, so the suffix comes off and
+     * the service adjudicates against its own token.  Nothing needs reading
+     * first, and no window opens between deciding and writing: the condition
+     * Azure evaluates is the one the caller asked for.
+     */
+    @Nullable String backendCondition(@Nullable String eTag) {
+        if (!opaqueETags || eTag == null) {
+            return eTag;
+        }
+        String bare = unquote(eTag);
+        if (!bare.endsWith(OPAQUE_ETAG_SUFFIX)) {
+            return eTag;
+        }
+        return bare.substring(0,
+                bare.length() - OPAQUE_ETAG_SUFFIX.length());
+    }
+
+    private static String unquote(String eTag) {
+        if (eTag.length() >= 2 && eTag.startsWith("\"") &&
+                eTag.endsWith("\"")) {
+            return eTag.substring(1, eTag.length() - 1);
+        }
+        return eTag;
     }
 
     @Override
@@ -213,7 +282,7 @@ public final class AzureBlobStore implements BlobStore {
                         ContentMetadata.builder().build()));
             } else {
                 set.add(new BlobMetadata(StorageType.BLOB, blob.getName(),
-                        Map.of(), properties.getETag(),
+                        Map.of(), reportETag(properties.getETag()),
                         toDate(properties.getLastModified()),
                         fromAccessTier(properties.getAccessTier()),
                         /*container=*/ null,
@@ -367,10 +436,10 @@ public final class AzureBlobStore implements BlobStore {
             }
         }
         var conditions = new BlobRequestConditions()
-                .setIfMatch(options.ifMatch())
+                .setIfMatch(backendCondition(options.ifMatch()))
                 .setIfModifiedSince(toOffsetDateTime(
                         options.ifModifiedSince()))
-                .setIfNoneMatch(options.ifNoneMatch())
+                .setIfNoneMatch(backendCondition(options.ifNoneMatch()))
                 .setIfUnmodifiedSince(toOffsetDateTime(
                         options.ifUnmodifiedSince()));
         BlobInputStream blobStream;
@@ -416,7 +485,7 @@ public final class AzureBlobStore implements BlobStore {
                 .contentLength(contentLength)
                 .contentType(properties.getContentType())
                 .expires(expires != null ? toDate(expires) : null)
-                .eTag(properties.getETag())
+                .eTag(reportETag(properties.getETag()))
                 .lastModified(toDate(properties.getLastModified()));
         if (azureRange != null) {
             builder.contentRange(
@@ -467,8 +536,9 @@ public final class AzureBlobStore implements BlobStore {
             if (options != null && (options.ifMatch() != null ||
                     options.ifNoneMatch() != null)) {
                 requestConditions = new BlobRequestConditions()
-                        .setIfMatch(options.ifMatch())
-                        .setIfNoneMatch(options.ifNoneMatch());
+                        .setIfMatch(backendCondition(options.ifMatch()))
+                        .setIfNoneMatch(
+                                backendCondition(options.ifNoneMatch()));
             }
 
             Long contentLength = contentMetadata.contentLength();
@@ -485,9 +555,9 @@ public final class AzureBlobStore implements BlobStore {
                         .setMetadata(metadata)
                         .setTier(tier)
                         .setRequestConditions(requestConditions);
-                return client.uploadWithResponse(uploadOptions,
+                return reportETag(client.uploadWithResponse(uploadOptions,
                         /*timeout=*/ null, /*context=*/ null)
-                        .getValue().getETag();
+                        .getValue().getETag());
             }
 
             // Content-Length is unknown, so fall back to the output stream,
@@ -507,11 +577,11 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             // TODO: racy
-            return blobServiceClient
+            return reportETag(blobServiceClient
                     .getBlobContainerClient(container)
                     .getBlobClient(blob.getMetadata().name())
                     .getProperties()
-                    .getETag();
+                    .getETag());
         } catch (BlobStorageException bse) {
             throw translate(bse, container, blob.getMetadata().name());
         } catch (IOException ioe) {
@@ -669,12 +739,14 @@ public final class AzureBlobStore implements BlobStore {
         // which translate() maps to PreconditionFailed.
         var sourceConditions = new BlobRequestConditions();
         boolean haveSourceConditions = false;
-        String ifMatch = options.ifMatch();
+        // Undressed once here: the Put Blob From URL path below and the
+        // Copy Blob fallback both hand these straight to the service.
+        String ifMatch = backendCondition(options.ifMatch());
         if (ifMatch != null) {
             sourceConditions.setIfMatch(ifMatch);
             haveSourceConditions = true;
         }
-        String ifNoneMatch = options.ifNoneMatch();
+        String ifNoneMatch = backendCondition(options.ifNoneMatch());
         if (ifNoneMatch != null) {
             sourceConditions.setIfNoneMatch(ifNoneMatch);
             haveSourceConditions = true;
@@ -705,7 +777,7 @@ public final class AzureBlobStore implements BlobStore {
                 client.setMetadata(userMetadata);
             }
 
-            return response.getValue().getETag();
+            return reportETag(response.getValue().getETag());
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
                 throw translate(bse, fromContainer, fromName);
@@ -748,7 +820,7 @@ public final class AzureBlobStore implements BlobStore {
                 if (contentMetadata != null) {
                     client.setHttpHeaders(headers);
                 }
-                return client.getProperties().getETag();
+                return reportETag(client.getProperties().getETag());
             } catch (BlobStorageException bse2) {
                 throw translate(bse2, fromContainer, fromName);
             }
@@ -784,7 +856,8 @@ public final class AzureBlobStore implements BlobStore {
             throw translate(bse, container, /*key=*/ null);
         }
         return new BlobMetadata(StorageType.BLOB, key,
-                properties.getMetadata(), properties.getETag(),
+                properties.getMetadata(),
+                reportETag(properties.getETag()),
                 toDate(properties.getLastModified()),
                 fromAccessTier(properties.getAccessTier()),
                 container,
@@ -1070,8 +1143,9 @@ public final class AzureBlobStore implements BlobStore {
         if (putOpts != null && (putOpts.ifMatch() != null ||
                 putOpts.ifNoneMatch() != null)) {
             options.setRequestConditions(new BlobRequestConditions()
-                    .setIfMatch(putOpts.ifMatch())
-                    .setIfNoneMatch(putOpts.ifNoneMatch()));
+                    .setIfMatch(backendCondition(putOpts.ifMatch()))
+                    .setIfNoneMatch(
+                            backendCondition(putOpts.ifNoneMatch())));
         }
 
         try {
@@ -1080,7 +1154,7 @@ public final class AzureBlobStore implements BlobStore {
 
             stubBlobClient.delete();
 
-            String finalETag = response.getValue().getETag();
+            String finalETag = reportETag(response.getValue().getETag());
             return finalETag;
         } catch (BlobStorageException bse) {
             var errorCode = bse.getErrorCode();
@@ -1202,8 +1276,8 @@ public final class AzureBlobStore implements BlobStore {
         if (ifMatch != null || ifNoneMatch != null ||
                 ifModifiedSince != null || ifUnmodifiedSince != null) {
             var conditions = new BlobRequestConditions()
-                    .setIfMatch(ifMatch)
-                    .setIfNoneMatch(ifNoneMatch);
+                    .setIfMatch(backendCondition(ifMatch))
+                    .setIfNoneMatch(backendCondition(ifNoneMatch));
             if (ifModifiedSince != null) {
                 conditions.setIfModifiedSince(OffsetDateTime.ofInstant(
                         ifModifiedSince.toInstant(), ZoneOffset.UTC));

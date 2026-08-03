@@ -193,6 +193,17 @@ S3Proxy in one case each: `google-cloud-storage-sdk` for a range covering less
 than the whole object, which GCS cannot copy server-side, and `azureblob-sdk`
 against an endpoint that refuses Put Block From URL, which Azurite does.
 
+Azure mints ETags like `0x8DD3F4A5F0B2C1E`, which S3 SDKs decode as hex and
+abort the request when they cannot -- the AWS SDK for .NET raises
+`ArgumentOutOfRangeException (Parameter 'hex')` and the one for Java reports
+`Input is expected to be encoded in multiple of 2 bytes`.  `azureblob-sdk`
+therefore reports it under the `-1` suffix S3 gives an object assembled from
+parts, which every client already treats as a value not to verify, and takes
+the suffix off again when a conditional request names one.  The ETag remains
+opaque either way: it is not the object's MD5 and nothing can check the
+object against it.  Set `s3proxy.azureblob.etag=native` to report the bare
+Azure ETag, as releases before 4.0.0 did.
+
 `aws-s3-sdk`, `azureblob-sdk` and `google-cloud-storage-sdk` perform a
 conditional PUT on the backend.  The nio2 backends resolve `If-None-Match` as
 they write and emulate `If-Match` within a single S3Proxy process, so it does
