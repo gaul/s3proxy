@@ -807,12 +807,5 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <artifactId>apache5-client</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- S3BackupSftpBridgeTest drives an S3AsyncClient, which needs the
-         async HTTP implementation the runtime classpath excludes. -->
-    <dependency>
-      <groupId>software.amazon.awssdk</groupId>
-      <artifactId>netty-nio-client</artifactId>
-      <scope>test</scope>
-    </dependency>
   </dependencies>
 </project>

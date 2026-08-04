@@ -22,8 +22,6 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Suppliers;
 
@@ -42,12 +40,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.core.async.AsyncRequestBody;
-import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 
 public final class S3BackupSftpBridgeTest {
@@ -60,7 +58,7 @@ public final class S3BackupSftpBridgeTest {
     private SshServer sshServer;
     private SftpBlobStore sftpBlobStore;
     private S3Proxy s3Proxy;
-    private S3AsyncClient s3Client;
+    private S3Client s3Client;
     @TempDir
     private Path sftpRoot;
     @TempDir
@@ -96,13 +94,14 @@ public final class S3BackupSftpBridgeTest {
                 .build();
         s3Proxy.start();
 
-        s3Client = S3AsyncClient.builder()
-                .multipartEnabled(true)
+        s3Client = S3Client.builder()
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(S3_IDENTITY, S3_CREDENTIAL)))
                 .region(Region.US_EAST_1)
                 .endpointOverride(
                         URI.create("http://127.0.0.1:" + s3Proxy.getPort()))
+                // Explicit: the test classpath has two sync implementations.
+                .httpClient(Apache5HttpClient.builder().build())
                 .requestChecksumCalculation(
                         RequestChecksumCalculation.WHEN_REQUIRED)
                 .responseChecksumValidation(
@@ -138,55 +137,50 @@ public final class S3BackupSftpBridgeTest {
         var appPayload = "backups/app/1000/db_dump.zip";
         var appEntry = "backups/app/1000/entry.txt";
 
-        get(s3Client.createBucket(request -> request.bucket(bucket)));
+        s3Client.createBucket(request -> request.bucket(bucket));
         putObject(bucket, snapshotPayload, bytes(1024 * 1024));
         putObject(bucket, snapshotEntry, "snapshot-entry".getBytes(
                 StandardCharsets.UTF_8));
         putObject(bucket, appPayload, bytes(2 * 1024 * 1024));
         putObject(bucket, appEntry, "app-entry".getBytes(StandardCharsets.UTF_8));
 
-        assertThat(get(s3Client.headObject(request -> request.bucket(bucket)
-                .key(snapshotPayload))).contentLength()).isEqualTo(1024 * 1024);
-        assertThat(get(s3Client.headObject(request -> request.bucket(bucket)
-                .key(appPayload))).contentLength()).isEqualTo(2 * 1024 * 1024);
-        assertThat(get(s3Client.getObject(request -> request.bucket(bucket)
-                .key(snapshotPayload), AsyncResponseTransformer.toBytes()))
+        assertThat(s3Client.headObject(request -> request.bucket(bucket)
+                .key(snapshotPayload)).contentLength()).isEqualTo(1024 * 1024);
+        assertThat(s3Client.headObject(request -> request.bucket(bucket)
+                .key(appPayload)).contentLength()).isEqualTo(2 * 1024 * 1024);
+        assertThat(s3Client.getObjectAsBytes(request -> request.bucket(bucket)
+                .key(snapshotPayload))
                 .asByteArray()).isEqualTo(bytes(1024 * 1024));
-        assertThat(get(s3Client.getObject(request -> request.bucket(bucket)
-                .key(appPayload), AsyncResponseTransformer.toBytes()))
+        assertThat(s3Client.getObjectAsBytes(request -> request.bucket(bucket)
+                .key(appPayload))
                 .asByteArray()).isEqualTo(bytes(2 * 1024 * 1024));
-        assertThat(get(s3Client.getObject(request -> request.bucket(bucket)
-                .key(snapshotEntry), AsyncResponseTransformer.toBytes()))
+        assertThat(s3Client.getObjectAsBytes(request -> request.bucket(bucket)
+                .key(snapshotEntry))
                 .asUtf8String()).isEqualTo("snapshot-entry");
-        assertThat(get(s3Client.getObject(request -> request.bucket(bucket)
-                .key(appEntry), AsyncResponseTransformer.toBytes()))
+        assertThat(s3Client.getObjectAsBytes(request -> request.bucket(bucket)
+                .key(appEntry))
                 .asUtf8String()).isEqualTo("app-entry");
 
-        var snapshotKeys = get(s3Client.listObjectsV2(request -> request
+        var snapshotKeys = s3Client.listObjectsV2(request -> request
                 .bucket(bucket)
-                .prefix("backups/snapshot/"))).contents();
+                .prefix("backups/snapshot/")).contents();
         assertThat(snapshotKeys).extracting(object -> object.key())
                 .containsExactlyInAnyOrder(snapshotPayload, snapshotEntry);
 
-        get(s3Client.deleteObject(request -> request.bucket(bucket)
-                .key(snapshotEntry)));
-        get(s3Client.deleteObject(request -> request.bucket(bucket)
-                .key(snapshotPayload)));
-        get(s3Client.deleteObject(request -> request.bucket(bucket)
-                .key(appEntry)));
-        get(s3Client.deleteObject(request -> request.bucket(bucket)
-                .key(appPayload)));
-        get(s3Client.deleteBucket(request -> request.bucket(bucket)));
+        s3Client.deleteObject(request -> request.bucket(bucket)
+                .key(snapshotEntry));
+        s3Client.deleteObject(request -> request.bucket(bucket)
+                .key(snapshotPayload));
+        s3Client.deleteObject(request -> request.bucket(bucket)
+                .key(appEntry));
+        s3Client.deleteObject(request -> request.bucket(bucket)
+                .key(appPayload));
+        s3Client.deleteBucket(request -> request.bucket(bucket));
     }
 
-    private void putObject(String bucket, String key, byte[] content)
-            throws Exception {
-        get(s3Client.putObject(request -> request.bucket(bucket).key(key),
-                AsyncRequestBody.fromBytes(content)));
-    }
-
-    private static <T> T get(CompletableFuture<T> future) throws Exception {
-        return future.get(30, TimeUnit.SECONDS);
+    private void putObject(String bucket, String key, byte[] content) {
+        s3Client.putObject(request -> request.bucket(bucket).key(key),
+                RequestBody.fromBytes(content));
     }
 
     private static byte[] bytes(int size) {
