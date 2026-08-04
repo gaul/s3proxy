@@ -371,11 +371,11 @@ public final class Main {
         provider = BlobStores.resolveProviderAlias(provider);
         properties.setProperty(Constants.PROPERTY_PROVIDER, provider);
 
-        if (provider.equals("filesystem-nio2") ||
-                provider.equals("transient-nio2")) {
+        if (provider.equals("filesystem") ||
+                provider.equals("transient")) {
             identity = Strings.nullToEmpty(identity);
             credential = Strings.nullToEmpty(credential);
-        } else if (provider.equals("google-cloud-storage-sdk")) {
+        } else if (provider.equals("google-cloud-storage")) {
             if (credential != null && !credential.isEmpty()) {
                 var path = FileSystems.getDefault().getPath(credential);
                 if (Files.exists(path)) {

@@ -80,7 +80,7 @@ ENV \
     S3PROXY_METRICS_ENABLED="false" \
     S3PROXY_METRICS_PORT="9090" \
     S3PROXY_METRICS_HOST="0.0.0.0" \
-    JCLOUDS_PROVIDER="filesystem-nio2" \
+    JCLOUDS_PROVIDER="filesystem" \
     JCLOUDS_ENDPOINT="" \
     JCLOUDS_REGION="" \
     JCLOUDS_IDENTITY="remote-identity" \

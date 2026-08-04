@@ -155,32 +155,32 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 S3Proxy emulates the following operations:
 
-* multi-part upload on the `filesystem-nio2` and `transient-nio2` backends, which store a stub object to carry the metadata
+* multi-part upload on the `filesystem` and `transient` backends, which store a stub object to carry the metadata
 * object and bucket owners, which are always the same synthetic user
 
 Some limitations depend on the storage backend:
 
 | limitation | backends |
 | --- | --- |
-| no per-object ACLs, including public-read | `azureblob-sdk`, `openstack-swift-sdk` |
-| ETag is not the object MD5 | `azureblob-sdk`, `google-cloud-storage-sdk` |
-| `Cache-Control` not preserved | `google-cloud-storage-sdk`, `openstack-swift-sdk` |
-| `Content-Encoding` not preserved | `google-cloud-storage-sdk` |
-| `Content-Language` not preserved | `openstack-swift-sdk` |
-| `Expires` not preserved | `azureblob-sdk` |
-| `max-keys=0` not honored | `azureblob-sdk` |
-| `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem-nio2`, `transient-nio2`, `openstack-swift-sdk`, `sftp` |
-| conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift-sdk` |
+| no per-object ACLs, including public-read | `azureblob`, `openstack-swift` |
+| ETag is not the object MD5 | `azureblob`, `google-cloud-storage` |
+| `Cache-Control` not preserved | `google-cloud-storage`, `openstack-swift` |
+| `Content-Encoding` not preserved | `google-cloud-storage` |
+| `Content-Language` not preserved | `openstack-swift` |
+| `Expires` not preserved | `azureblob` |
+| `max-keys=0` not honored | `azureblob` |
+| `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
+| conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
 
 Two backends copy a part on the server but fall back to streaming it through
-S3Proxy in one case each: `google-cloud-storage-sdk` for a range covering less
-than the whole object, which GCS cannot copy server-side, and `azureblob-sdk`
+S3Proxy in one case each: `google-cloud-storage` for a range covering less
+than the whole object, which GCS cannot copy server-side, and `azureblob`
 against an endpoint that refuses Put Block From URL, which Azurite does.
 
 Azure mints ETags like `0x8DD3F4A5F0B2C1E`, which S3 SDKs decode as hex and
 abort the request when they cannot -- the AWS SDK for .NET raises
 `ArgumentOutOfRangeException (Parameter 'hex')` and the one for Java reports
-`Input is expected to be encoded in multiple of 2 bytes`.  `azureblob-sdk`
+`Input is expected to be encoded in multiple of 2 bytes`.  `azureblob`
 therefore reports it under the `-1` suffix S3 gives an object assembled from
 parts, which every client already treats as a value not to verify, and takes
 the suffix off again when a conditional request names one.  The ETag remains
@@ -188,15 +188,16 @@ opaque either way: it is not the object's MD5 and nothing can check the
 object against it.  Set `s3proxy.azureblob.etag=native` to report the bare
 Azure ETag, as releases before 4.0.0 did.
 
-`aws-s3-sdk`, `azureblob-sdk` and `google-cloud-storage-sdk` perform a
-conditional PUT on the backend.  The nio2 backends resolve `If-None-Match` as
-they write and emulate `If-Match` within a single S3Proxy process, so it does
-not hold against another writer.  Where a backend cannot do either, a
-conditional PUT is refused rather than emulated, since emulating it would mean
-a read followed by a write -- which answers correctly only when nothing else is
-writing that key, and a conditional PUT is asked for precisely because
-something might be.  Set `s3proxy.aws-s3.conditional-writes=emulated` for an
-S3-compatible endpoint that does not implement conditional writes itself.
+`aws-s3`, `azureblob` and `google-cloud-storage` perform a conditional PUT on
+the backend.  The `filesystem` and `transient` backends resolve
+`If-None-Match` as they write and emulate `If-Match` within a single S3Proxy
+process, so it does not hold against another writer.  Where a backend cannot
+do either, a conditional PUT is refused rather than emulated, since emulating
+it would mean a read followed by a write -- which answers correctly only when
+nothing else is writing that key, and a conditional PUT is asked for
+precisely because something might be.  Set
+`s3proxy.aws-s3.conditional-writes=emulated` for an S3-compatible endpoint
+that does not implement conditional writes itself.
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
 file (and corresponding ENV variables for Docker):

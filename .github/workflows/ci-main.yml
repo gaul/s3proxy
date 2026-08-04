@@ -89,32 +89,32 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: surefire-reports-transient-nio2
+          name: surefire-reports-transient
           path: target/surefire-reports/
 
-      - name: Maven Test with filesystem-nio2
+      - name: Maven Test with filesystem
         run: |
           mkdir /tmp/blobstore
           # Surefire writes a report per test class, so the run above would
           # otherwise leave reports for the classes this one does not run.
           rm -rf target/surefire-reports
-          mvn test -Ds3proxy.test.conf=s3proxy-filesystem-nio2.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
+          mvn test -Ds3proxy.test.conf=s3proxy-filesystem.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: surefire-reports-filesystem-nio2
+          name: surefire-reports-filesystem
           path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
-      - name: Run s3-tests with transient-nio2
+      - name: Run s3-tests with transient
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy.conf
-      - name: Run s3-tests with filesystem-nio2
+      - name: Run s3-tests with filesystem
         run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-filesystem-nio2.conf
+          ./src/test/resources/run-s3-tests.sh s3proxy-filesystem.conf
 
       #Store the s3-tests results, which name the tests that failed and the
       #ones that only passed because a fails_on_s3proxy marker expected them
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: s3-tests-results-nio2
+          name: s3-tests-results-local
           path: target/s3-tests-*.xml
 
       #Store the target
@@ -235,11 +235,11 @@ jobs:
             sleep 1
           done
 
-      - name: Maven Test with LocalStack (aws-s3-sdk)
+      - name: Maven Test with LocalStack
         run: |
           # EncryptedBlobStoreTest is excluded: its multipart tests use
           # parts below the 5 MB minimum which native S3 backends reject.
-          mvn test -Ds3proxy.test.conf=s3proxy-localstack-aws-s3-sdk.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
+          mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -250,12 +250,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
-      - name: Run s3-tests with LocalStack (s3)
+      - name: Run s3-tests with LocalStack
         run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-localstack-s3.conf
-      - name: Run s3-tests with LocalStack (aws-s3-sdk)
-        run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-localstack-aws-s3-sdk.conf
+          ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
           docker stop localstack
       - uses: actions/upload-artifact@v7
         if: always()

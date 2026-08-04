@@ -21,24 +21,24 @@ import java.util.Set;
 final class Quirks {
     /** Blobstores which do not support blob-level access control. */
     static final Set<String> NO_BLOB_ACCESS_CONTROL = Set.of(
-            "azureblob-sdk",
-            "openstack-swift-sdk"
+            "azureblob",
+            "openstack-swift"
     );
 
     /** Blobstores which do not support the Cache-Control header. */
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
-            "google-cloud-storage-sdk",
-            "openstack-swift-sdk"
+            "google-cloud-storage",
+            "openstack-swift"
     );
 
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
-            "google-cloud-storage-sdk"
+            "google-cloud-storage"
     );
 
     /** Blobstores which do not support the Content-Language header. */
     static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
-            "openstack-swift-sdk"
+            "openstack-swift"
     );
 
     /**
@@ -46,12 +46,12 @@ final class Quirks {
      * require it during complete multipart.  Emulate the former in the latter
      * by storing and retrieving a stub object.
      *
-     * Note: azureblob-sdk also uses stubs for multipart uploads but handles
+     * Note: azureblob also uses stubs for multipart uploads but handles
      * this internally in AzureBlobStore rather than in S3ProxyHandler.
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
-            "filesystem-nio2",
-            "transient-nio2"
+            "filesystem",
+            "transient"
     );
 
     /**
@@ -60,8 +60,8 @@ final class Quirks {
      * among them: it needs a compare-and-swap the filesystem cannot offer.
      */
     static final Set<String> NATIVE_IF_NONE_MATCH = Set.of(
-            "filesystem-nio2",
-            "transient-nio2"
+            "filesystem",
+            "transient"
     );
 
     /**
@@ -72,16 +72,16 @@ final class Quirks {
      * condition naming an ETag.
      */
     static final Set<String> NATIVE_CONDITIONAL_COMPLETE = Set.of(
-            "aws-s3-sdk",
-            "azureblob-sdk",
-            "filesystem-nio2",
-            "transient-nio2"
+            "aws-s3",
+            "azureblob",
+            "filesystem",
+            "transient"
     );
 
     /** Blobstores with opaque ETags. */
     static final Set<String> OPAQUE_ETAG = Set.of(
-            "azureblob-sdk",
-            "google-cloud-storage-sdk"
+            "azureblob",
+            "google-cloud-storage"
     );
 
     /**
@@ -90,7 +90,7 @@ final class Quirks {
      * frontend to substitute the marker that produced it.
      */
     static final Set<String> OPAQUE_MARKERS = Set.of(
-            "azureblob-sdk"
+            "azureblob"
     );
 
     private Quirks() {

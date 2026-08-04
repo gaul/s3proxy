@@ -76,7 +76,7 @@ public final class CopySourceAuthorizationTest {
         String blobStoreType = info.getProperties().getProperty(
                 Constants.PROPERTY_PROVIDER, "");
         assumeTrue(blobStoreType.isEmpty() ||
-                blobStoreType.equals("transient-nio2"));
+                blobStoreType.equals("transient"));
 
         blobStore = info.getBlobStore();
         s3Proxy = info.getS3Proxy();

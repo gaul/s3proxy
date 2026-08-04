@@ -147,7 +147,7 @@ final class TestUtils {
     }
 
     /** Returns the provider which the s3proxy.test.conf system property
-     * configures. */
+     * configures, resolved to its current name. */
     static String testBlobStoreProvider() throws IOException {
         var properties = new Properties();
         String configFile = System.getProperty("s3proxy.test.conf",
@@ -156,12 +156,13 @@ final class TestUtils {
                 configFile)).openStream()) {
             properties.load(is);
         }
-        return properties.getProperty(Constants.PROPERTY_PROVIDER);
+        return BlobStores.resolveProviderAlias(
+                properties.getProperty(Constants.PROPERTY_PROVIDER, ""));
     }
 
     /**
      * Creates the backend blobstore which the s3proxy.test.conf system
-     * property configures, defaulting to transient-nio2.
+     * property configures, defaulting to transient.
      */
     static BlobStore createTestBlobStore() throws IOException {
         var properties = new Properties();
@@ -176,11 +177,12 @@ final class TestUtils {
 
     private static BlobStore createBlobStore(Properties properties)
             throws IOException {
-        String provider = properties.getProperty(Constants.PROPERTY_PROVIDER);
+        String provider = BlobStores.resolveProviderAlias(
+                properties.getProperty(Constants.PROPERTY_PROVIDER, ""));
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY);
         String credential = properties.getProperty(
                 Constants.PROPERTY_CREDENTIAL);
-        if (provider.equals("google-cloud-storage-sdk")) {
+        if (provider.equals("google-cloud-storage")) {
             if (credential != null && !credential.isEmpty()) {
                 var path = FileSystems.getDefault().getPath(credential);
                 if (Files.exists(path)) {
@@ -214,7 +216,7 @@ final class TestUtils {
         // backend configuration while the complete s3proxy.* namespace comes
         // from the test's configuration.  This lets the specialized tests
         // run against every backend lane instead of their hardcoded
-        // transient-nio2 provider.
+        // transient provider.
         String backendConfigFile = System.getProperty("s3proxy.test.conf");
         if (backendConfigFile != null &&
                 !backendConfigFile.equals(configFile)) {
@@ -230,6 +232,12 @@ final class TestUtils {
                 }
             }
         }
+
+        // Resolve as Main does so that tests reading the property back
+        // compare against the name the store was created under.
+        info.getProperties().setProperty(Constants.PROPERTY_PROVIDER,
+                BlobStores.resolveProviderAlias(info.getProperties()
+                        .getProperty(Constants.PROPERTY_PROVIDER, "")));
 
         info.blobStore = createBlobStore(info.getProperties());
 
@@ -288,7 +296,7 @@ final class TestUtils {
         var props = new Properties();
         props.setProperty(Constants.PROPERTY_IDENTITY, "identity");
         props.setProperty(Constants.PROPERTY_CREDENTIAL, "credential");
-        return BlobStores.create("transient-nio2", props);
+        return BlobStores.create("transient", props);
     }
 
     static String createRandomContainerName() {

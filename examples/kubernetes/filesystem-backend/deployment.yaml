@@ -30,7 +30,7 @@ spec:
               containerPort: 80
           env:
             - name: JCLOUDS_PROVIDER
-              value: filesystem-nio2
+              value: filesystem
             # *_FILE variants read mounted Secret files so credentials stay
             # out of the environment and the pod spec.
             - name: S3PROXY_IDENTITY_FILE

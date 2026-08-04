@@ -61,7 +61,7 @@ public class S3ProxyJunitCore {
         @Nullable private String secretStorePassword;
         private int port = -1;
         private boolean ignoreUnknownHeaders;
-        private String blobStoreProvider = "filesystem-nio2";
+        private String blobStoreProvider = "filesystem";
 
         public Builder withCredentials(AuthenticationType authType,
                                         String accessKey, String secretKey) {

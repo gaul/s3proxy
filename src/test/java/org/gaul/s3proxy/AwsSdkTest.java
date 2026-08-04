@@ -376,11 +376,11 @@ public final class AwsSdkTest {
         // body is forwarded to the backend, so it surfaces as a clean
         // BadDigest only on backends whose putBlob reads the payload once and
         // propagates the error.  Skip the one that cannot:
-        // google-cloud-storage-sdk's Storage.createFrom() finalizes the
+        // google-cloud-storage's Storage.createFrom() finalizes the
         // resumable upload on close, leaving a 0-byte object that is
         // indistinguishable on the wire from a legitimate empty-object PUT,
         // so the rejected key still exists afterwards.
-        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
 
         var key = "testPutObjectInvalidChecksumHeader";
         var content = TestUtils.randomByteSource().slice(0, 1024).read();
@@ -787,8 +787,8 @@ public final class AwsSdkTest {
      * request and answers NotImplemented itself.
      */
     private boolean supportsConditionalComplete() {
-        return !blobStoreType.equals("google-cloud-storage-sdk") &&
-                !blobStoreType.equals("openstack-swift-sdk") &&
+        return !blobStoreType.equals("google-cloud-storage") &&
+                !blobStoreType.equals("openstack-swift") &&
                 !blobStoreType.equals("sftp") &&
                 blobStoreEndpoint.getPort() != LOCALSTACK_PORT;
     }
@@ -894,8 +894,8 @@ public final class AwsSdkTest {
         // needs a backend whose ETags are the S3 composite.  Azure and GCS
         // mint their own, so a retry there is indistinguishable from an
         // unknown upload.
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
-        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+        assumeTrue(!blobStoreType.equals("azureblob"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
 
         var key = "testCompleteMultipartUploadRetry";
         var content = new byte[5 * 1024 * 1024];
@@ -1001,8 +1001,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartCopyPreconditionFailed() throws Exception {
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+        assumeTrue(!blobStoreType.equals("openstack-swift"));
+        assumeTrue(!blobStoreType.equals("azureblob"));
 
         String sourceBlobName = "testMultipartCopyPrecondition-source";
         String targetBlobName = "testMultipartCopyPrecondition-target";
@@ -1081,8 +1081,8 @@ public final class AwsSdkTest {
         // The multipart ETag ("<md5>-<n>") that CompleteMultipartUpload
         // returns must be persisted, so a later HEAD reports the same ETag
         // rather than the MD5 of the assembled object.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String key = "multipart-etag";
         long partSize = MINIMUM_MULTIPART_SIZE;
@@ -1394,10 +1394,10 @@ public final class AwsSdkTest {
     @Test
     public void testSetBlobAclMissingObjectSurfacesError() throws Exception {
         // A real ACL failure must surface rather than being swallowed as a
-        // false success.  google-cloud-storage-sdk previously discarded every
+        // false success.  google-cloud-storage previously discarded every
         // StorageException from ACL operations; setting an ACL on a missing
         // object must return NoSuchKey, not report success.
-        assumeTrue(blobStoreType.equals("google-cloud-storage-sdk"));
+        assumeTrue(blobStoreType.equals("google-cloud-storage"));
 
         try {
             client.putObjectAcl(b -> b.bucket(containerName).key("no-such-key")
@@ -1430,7 +1430,7 @@ public final class AwsSdkTest {
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
-        if (blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob")) {
             prefix = prefix.replace("\\", "");
             // Avoid blob names that end with a dot (.), a forward slash (/), or
             // a sequence or combination of the two.
@@ -1503,7 +1503,7 @@ public final class AwsSdkTest {
         // sort before ordinary keys, so a whole listing page can consist
         // entirely of hidden objects; pagination must skip past them instead
         // of terminating early and hiding the real objects that follow.
-        assumeTrue(blobStoreType.equals("openstack-swift-sdk"));
+        assumeTrue(blobStoreType.equals("openstack-swift"));
 
         String key = "multipart-in-progress";
         long partSize = MINIMUM_MULTIPART_SIZE;
@@ -1726,7 +1726,7 @@ public final class AwsSdkTest {
         assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
         // LocalStack in us-east-1 returns 200 OK for duplicate bucket creation (legacy S3 behavior)
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
-        assumeTrue(!blobStoreType.equals("aws-s3-sdk"));
+        assumeTrue(!blobStoreType.equals("aws-s3"));
         String containerName2 = createRandomContainerName();
         client.createBucket(b -> b.bucket(containerName2));
         try {
@@ -2000,8 +2000,8 @@ public final class AwsSdkTest {
     public void testDirectoryMarkerWithoutTrailingSlash() throws Exception {
         // Real S3 distinguishes "foo" from "foo/" as literal keys. The
         // nio2blob backends use POSIX paths and used to conflate them.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String dirName = "testrun-7560";
         String marker = dirName + "/";
@@ -2057,8 +2057,8 @@ public final class AwsSdkTest {
         // Deleting a directory-marker key whose directory still holds objects
         // must succeed and remove only the marker, not fail with 500 because
         // the underlying directory is non-empty.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String marker = "testdir-9142/";
         client.putObject(b -> b.bucket(containerName).key(marker),
@@ -2091,8 +2091,8 @@ public final class AwsSdkTest {
         // "directory placeholder" key (one ending in "/"). The nio2 backends
         // used to omit them for such keys, so spec-abiding clients (e.g.
         // Hadoop's S3A connector) read a null/absent size and NPE.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String marker = "dir-marker/";
         client.putObject(b -> b.bucket(containerName).key(marker),
@@ -2134,8 +2134,8 @@ public final class AwsSdkTest {
         // S3A's empty-directory probe (list prefix="<dir>/" delimiter="/")
         // relies on this; otherwise getFileStatus(<dir>) throws
         // FileNotFoundException, breaking HBase bulk load.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String marker = "dir-marker/";
         client.putObject(b -> b.bucket(containerName).key(marker),
@@ -2175,8 +2175,8 @@ public final class AwsSdkTest {
         // incompatibly (a client artifact, not a server behavior), so it 403s
         // before reaching the backend. The s3fs integration test covers the
         // end-to-end HTTP path with a client that signs "//" correctly.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         blobStore.putBlob(containerName, Blob.builder("sibling.txt")
                 .payload(ByteSource.wrap(new byte[4])).build(),
@@ -2217,8 +2217,8 @@ public final class AwsSdkTest {
         // The original vulnerability: DELETE bucket/%2F ran
         // Files.delete(containerPath) and silently removed an empty bucket.
         // Removing key "/" must be an idempotent no-op on the empty bucket.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         blobStore.removeBlob(containerName, "/");
         assertThat(blobStore.containerExists(containerName)).isTrue();
@@ -2228,14 +2228,14 @@ public final class AwsSdkTest {
     public void testCopyObjectPublicRead() throws Exception {
         // Azure and Swift grant read at the container, so a per-blob ACL has
         // nowhere to live and the copy is refused instead.
-        assumeTrue(!blobStoreType.equals("azureblob-sdk") &&
-                !blobStoreType.equals("openstack-swift-sdk"));
+        assumeTrue(!blobStoreType.equals("azureblob") &&
+                !blobStoreType.equals("openstack-swift"));
         // GCS is skipped for a different reason: the copy does carry
         // destinationPredefinedAcl, but fake-gcs-server drops it and gives the
         // destination the source's ACL instead.  Remove this once
         // https://github.com/fsouza/fake-gcs-server/pull/2309 and its
         // companion for objects are released and the lane picks them up.
-        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
 
         client.putObject(b -> b.bucket(containerName).key("source"),
                 RequestBody.fromString("content"));
@@ -2276,8 +2276,8 @@ public final class AwsSdkTest {
         // their respective paths. If "/" aliased the container directory,
         // get/setBlobAccess("/") would read and write the bucket ACL. The
         // reserved backing store keeps the two independent.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         blobStore.putBlob(containerName, Blob.builder("/")
                 .payload(ByteSource.empty()).build(), PutOptions.NONE);
@@ -2309,8 +2309,8 @@ public final class AwsSdkTest {
     public void testReservedSlashBlobNameRejected() throws Exception {
         // The reserved name backing "/" must not be addressable as an ordinary
         // key, or a client could interfere with the "/" object's storage.
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         try {
             client.putObject(
@@ -2396,7 +2396,7 @@ public final class AwsSdkTest {
         assumeTrue(!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType));
         // Swift keeps a Content-Encoding naming one encoding but drops one
         // naming several, so it cannot observe what this checks.
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
+        assumeTrue(!blobStoreType.equals("openstack-swift"));
 
         String blobName = "content-encoding-tokens";
         client.putObject(b -> b.bucket(containerName).key(blobName)
@@ -2505,8 +2505,8 @@ public final class AwsSdkTest {
     @Test
     public void testMaximumMultipartUpload() throws Exception {
         // skip with remote blobstores to avoid excessive run-times
-        assumeTrue(blobStoreType.equals("filesystem-nio2") ||
-                blobStoreType.equals("transient-nio2"));
+        assumeTrue(blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient"));
 
         String blobName = "multipart-upload";
         int numParts = 32;
@@ -2600,7 +2600,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
-        if (blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob")) {
             // Azurite's Copy Blob fetches the source over HTTP and tries to
             // decompress it when the source blob declares Content-Encoding:
             // gzip; the random test payload is not gzip so the copy 500s.
@@ -2662,7 +2662,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectReplaceMetadata() throws Exception {
-        if (blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("azureblob")) {
             // Azurite's Copy Blob fetches the source over HTTP and tries to
             // decompress it when the source blob declares Content-Encoding:
             // gzip; the random test payload is not gzip so the copy 500s.
@@ -2742,7 +2742,7 @@ public final class AwsSdkTest {
      * rather than emulate a guarantee it would not keep.
      */
     private boolean supportsIfMatchWrites() {
-        return !blobStoreType.equals("openstack-swift-sdk") &&
+        return !blobStoreType.equals("openstack-swift") &&
                 !blobStoreType.equals("sftp");
     }
 
@@ -2839,7 +2839,7 @@ public final class AwsSdkTest {
     @Test
     public void testConditionalGet() throws Exception {
         // TODO:
-        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
 
         String blobName = "blob-name";
         PutObjectResponse result = client.putObject(b -> b.bucket(containerName)
@@ -2869,7 +2869,7 @@ public final class AwsSdkTest {
         // If-Match: * matches any existing object, so the GET succeeds;
         // If-None-Match: * also matches any existing object, so the GET is
         // 304 Not Modified.  Real S3 and Swift evaluate the wildcard natively;
-        // google-cloud-storage-sdk, azureblob-sdk, and the nio2 backends
+        // google-cloud-storage, azureblob, and the nio2 backends
         // emulate the conditional inside s3proxy, which this also exercises.
         // LocalStack and MinIO do not implement the If-Match/If-None-Match "*"
         // wildcard, returning 412 where real S3 returns 200/304.
@@ -2905,8 +2905,8 @@ public final class AwsSdkTest {
         // If-Modified-Since equals the object's own Last-Modified must be
         // treated as "not modified" (304), and If-Unmodified-Since with the
         // same value as "unmodified" (200).
-        assumeTrue(blobStoreType.equals("google-cloud-storage-sdk") ||
-                blobStoreType.equals("azureblob-sdk"));
+        assumeTrue(blobStoreType.equals("google-cloud-storage") ||
+                blobStoreType.equals("azureblob"));
 
         String blobName = "conditional-since";
         client.putObject(b -> b.bucket(containerName).key(blobName),
@@ -2939,9 +2939,9 @@ public final class AwsSdkTest {
         // Minio only supports STANDARD and REDUCED_REDUNDANCY
         assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
         // TODO:
-        assumeTrue(!blobStoreType.equals("google-cloud-storage-sdk"));
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // Swift does not support per-object storage classes
-        assumeTrue(!blobStoreType.equals("openstack-swift-sdk"));
+        assumeTrue(!blobStoreType.equals("openstack-swift"));
         String blobName = "test-storage-class";
         client.putObject(b -> b.bucket(containerName).key(blobName)
                         .storageClass(StorageClass.STANDARD_IA),
@@ -2954,8 +2954,8 @@ public final class AwsSdkTest {
         // GET must report the storage class consistently with HEAD.  Scoped to
         // the SDK backends that map it; other backends carry the tier on
         // getBlob differently.
-        if (blobStoreType.equals("aws-s3-sdk") ||
-                blobStoreType.equals("azureblob-sdk")) {
+        if (blobStoreType.equals("aws-s3") ||
+                blobStoreType.equals("azureblob")) {
             try (ResponseInputStream<GetObjectResponse> object =
                     client.getObject(b -> b.bucket(containerName)
                             .key(blobName))) {
@@ -3313,7 +3313,7 @@ public final class AwsSdkTest {
     public void testBlobStoreLocator() throws Exception {
         // Only the in-memory backend works without configuration.
         assumeTrue(blobStoreType.isEmpty() ||
-                blobStoreType.equals("transient-nio2"));
+                blobStoreType.equals("transient"));
         final BlobStore blobStore1 = blobStore;
         final BlobStore blobStore2 = TestUtils.createTransientBlobStore();
         s3Proxy.setBlobStoreLocator(new BlobStoreLocator() {
@@ -3358,7 +3358,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyRelativePath() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob-sdk"));
+        assumeTrue(!blobStoreType.equals("azureblob"));
         try {
             client.copyObject(b -> b.sourceBucket(containerName)
                     .sourceKey("../evil.txt").destinationBucket(containerName)
@@ -3374,8 +3374,8 @@ public final class AwsSdkTest {
         try {
             client.deleteObject(b -> b.bucket(containerName)
                     .key("../evil.txt"));
-            if (blobStoreType.equals("filesystem-nio2") ||
-                    blobStoreType.equals("transient-nio2")) {
+            if (blobStoreType.equals("filesystem") ||
+                    blobStoreType.equals("transient")) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
             }
@@ -3400,8 +3400,8 @@ public final class AwsSdkTest {
             client.putObject(b -> b.bucket(containerName).key("../evil.txt"),
                     RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
                             BYTE_SOURCE.size()));
-            if (blobStoreType.equals("filesystem-nio2") ||
-                    blobStoreType.equals("transient-nio2")) {
+            if (blobStoreType.equals("filesystem") ||
+                    blobStoreType.equals("transient")) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
             }
@@ -3415,8 +3415,8 @@ public final class AwsSdkTest {
         try {
             client.listObjects(b -> b.bucket(containerName)
                     .prefix("../evil/"));
-            if (blobStoreType.equals("filesystem-nio2") ||
-                    blobStoreType.equals("transient-nio2")) {
+            if (blobStoreType.equals("filesystem") ||
+                    blobStoreType.equals("transient")) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
             }

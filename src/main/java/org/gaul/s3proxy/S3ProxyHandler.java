@@ -427,20 +427,20 @@ public class S3ProxyHandler {
         }
         String name = inner.getClass().getName();
         if (name.contains(".azureblob.")) {
-            return "azureblob-sdk";
+            return "azureblob";
         }
         if (name.contains(".gcloudsdk.")) {
-            return "google-cloud-storage-sdk";
+            return "google-cloud-storage";
         }
         if (name.contains(".awssdk.")) {
-            return "aws-s3-sdk";
+            return "aws-s3";
         }
         if (name.contains(".openstackswift.")) {
-            return "openstack-swift-sdk";
+            return "openstack-swift";
         }
         if (name.contains(".nio2blob.")) {
             return name.endsWith(".TransientNio2BlobStore") ?
-                    "transient-nio2" : "filesystem-nio2";
+                    "transient" : "filesystem";
         }
         return "";
     }
@@ -2830,14 +2830,14 @@ public class S3ProxyHandler {
 
         // Providers that support native conditional writes
         boolean supportsNativeConditionalWrites =
-                blobStoreType.equals("azureblob-sdk") ||
-                blobStoreType.equals("aws-s3-sdk") ||
-                blobStoreType.equals("google-cloud-storage-sdk") ||
+                blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("aws-s3") ||
+                blobStoreType.equals("google-cloud-storage") ||
                 // the nio2 stores resolve If-None-Match as they write
                 (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType) &&
                         ifMatch == null && ifNoneMatch != null) ||
                 // Swift only supports If-None-Match: * natively
-                (blobStoreType.equals("openstack-swift-sdk") &&
+                (blobStoreType.equals("openstack-swift") &&
                         ifMatch == null && "*".equals(ifNoneMatch));
 
         // Emulating the rest would mean a HEAD followed by an unconditional
@@ -3363,10 +3363,10 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
 
         // Azure only supports If-None-Match: *, not If-Match: *
-        // Handle If-Match: * manually for the azureblob-sdk provider.
+        // Handle If-Match: * manually for the azureblob provider.
         // Note: this is a non-atomic operation (HEAD then PUT).
         if (ifMatch != null && ifMatch.equals("*") &&
-                blobStoreType.equals("azureblob-sdk")) {
+                blobStoreType.equals("azureblob")) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (metadata == null) {
                 throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
@@ -3474,8 +3474,8 @@ public class S3ProxyHandler {
 
         final List<MultipartPart> parts = new ArrayList<>();
         String blobStoreType = getBlobStoreType(blobStore);
-        if (blobStoreType.equals("azureblob-sdk") ||
-                blobStoreType.equals("google-cloud-storage-sdk")) {
+        if (blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("google-cloud-storage")) {
             Map<Integer, MultipartPart> partsByListing;
             try {
                 partsByListing =
@@ -3519,7 +3519,7 @@ public class S3ProxyHandler {
                         throw new S3Exception(S3ErrorCode.INVALID_PART);
                     }
                     // Validate the client-supplied ETag against the uploaded
-                    // part when the backend reports one (azureblob-sdk returns
+                    // part when the backend reports one (azureblob returns
                     // an empty ETag and is left unvalidated).
                     String uploadedETag = uploadedPart.partETag();
                     if (uploadedETag != null && !uploadedETag.isEmpty() &&

@@ -37,7 +37,7 @@ public final class OpenStackSwiftBlobStoreTest {
 
         // Authentication is lazy, so creating the BlobStore must not require a
         // running Keystone or Swift.
-        BlobStore blobStore = BlobStores.create("openstack-swift-sdk",
+        BlobStore blobStore = BlobStores.create("openstack-swift",
                 properties);
         assertThat(blobStore).isNotNull();
     }
@@ -56,7 +56,7 @@ public final class OpenStackSwiftBlobStoreTest {
                 "ExampleDomain");
         properties.setProperty("openstack-swift-sdk.region", "RegionOne");
 
-        BlobStore blobStore = BlobStores.create("openstack-swift-sdk",
+        BlobStore blobStore = BlobStores.create("openstack-swift",
                 properties);
         assertThat(blobStore).isNotNull();
     }

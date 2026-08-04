@@ -112,7 +112,7 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     tags="${tags} and not fails_on_aws"
 elif [[ "${S3PROXY_CONF}" == s3proxy-*-nio2.conf ]] ||
         [[ "${S3PROXY_CONF}" == s3proxy.conf ]]; then
-    # s3proxy.conf defaults to the transient-nio2 backend.
+    # s3proxy.conf defaults to the transient backend.
     backend="nio2"
 fi
 

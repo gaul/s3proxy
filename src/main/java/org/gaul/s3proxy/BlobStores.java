@@ -51,13 +51,13 @@ public final class BlobStores {
                 new Credentials(identity, credential));
 
         return switch (provider) {
-        case "filesystem-nio2" -> {
+        case "filesystem" -> {
             String baseDir = properties.getProperty(
                     "jclouds.filesystem.basedir");
             yield new FilesystemNio2BlobStore(baseDir);
         }
-        case "transient-nio2" -> new TransientNio2BlobStore();
-        case "aws-s3-sdk" -> {
+        case "transient" -> new TransientNio2BlobStore();
+        case "aws-s3" -> {
             String conditionalWrites = properties.getProperty(
                     "s3proxy.aws-s3.conditional-writes", "native");
             String chunkedEncodingEnabled = properties.getProperty(
@@ -69,14 +69,14 @@ public final class BlobStores {
                     conditionalWrites, chunkedEncodingEnabled,
                     stripETagQuotes);
         }
-        case "azureblob-sdk" -> {
+        case "azureblob" -> {
             String eTagMode = properties.getProperty(
                     "s3proxy.azureblob.etag", "opaque");
             yield new AzureBlobStore(creds, endpoint, eTagMode);
         }
-        case "google-cloud-storage-sdk" ->
+        case "google-cloud-storage" ->
             new GCloudBlobStore(creds, endpoint);
-        case "openstack-swift-sdk" -> {
+        case "openstack-swift" -> {
             String projectName = properties.getProperty(
                     OpenStackSwiftBlobStore.PROPERTY_PROJECT_NAME, "");
             String projectDomainName = properties.getProperty(
@@ -98,28 +98,30 @@ public final class BlobStores {
             yield new SftpBlobStore(creds, endpoint, baseDir, hostKey);
         }
         default -> throw new IllegalArgumentException("Unknown provider: " +
-                provider + ". Supported providers: filesystem-nio2," +
-                " transient-nio2, aws-s3-sdk, azureblob-sdk," +
-                " google-cloud-storage-sdk, openstack-swift-sdk, sftp");
+                provider + ". Supported providers: filesystem, transient," +
+                " aws-s3, azureblob, google-cloud-storage, openstack-swift," +
+                " sftp");
         };
     }
 
     /**
-     * Maps a jclouds provider name to the store that replaced it, so that a
-     * configuration written before those backends were replaced keeps
-     * working.  Resolving here rather than in Main covers every caller,
-     * including the JUnit rule and anything embedding S3Proxy as a library.
-     * A name that is already current, or that names nothing, is returned
-     * unchanged for create to reject.
+     * Maps a retired provider name to its current one, so that a
+     * configuration written for an earlier release keeps working.  The -sdk
+     * and -nio2 suffixes distinguished these stores from the jclouds
+     * implementations they grew up alongside; with jclouds gone the short
+     * names are canonical.  Resolving here rather than in Main covers every
+     * caller, including the JUnit rule and anything embedding S3Proxy as a
+     * library.  A name that is already current, or that names nothing, is
+     * returned unchanged for create to reject.
      */
     static String resolveProviderAlias(String provider) {
         return switch (provider) {
-        case "transient" -> "transient-nio2";
-        case "filesystem" -> "filesystem-nio2";
-        case "aws-s3", "s3" -> "aws-s3-sdk";
-        case "azureblob" -> "azureblob-sdk";
-        case "google-cloud-storage" -> "google-cloud-storage-sdk";
-        case "openstack-swift" -> "openstack-swift-sdk";
+        case "transient-nio2" -> "transient";
+        case "filesystem-nio2" -> "filesystem";
+        case "aws-s3-sdk", "s3" -> "aws-s3";
+        case "azureblob-sdk" -> "azureblob";
+        case "google-cloud-storage-sdk" -> "google-cloud-storage";
+        case "openstack-swift-sdk" -> "openstack-swift";
         default -> provider;
         };
     }

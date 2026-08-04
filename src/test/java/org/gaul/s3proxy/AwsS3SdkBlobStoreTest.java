@@ -32,7 +32,7 @@ public final class AwsS3SdkBlobStoreTest {
         properties.setProperty("jclouds.credential", "test-credential");
         properties.setProperty("jclouds.endpoint", "http://localhost:9000");
 
-        BlobStore blobStore = BlobStores.create("aws-s3-sdk", properties);
+        BlobStore blobStore = BlobStores.create("aws-s3", properties);
         assertThat(blobStore).isNotNull();
     }
 
@@ -44,7 +44,7 @@ public final class AwsS3SdkBlobStoreTest {
         properties.setProperty("jclouds.endpoint", "http://localhost:9000");
         properties.setProperty("jclouds.region", "eu-west-1");
 
-        BlobStore blobStore = BlobStores.create("aws-s3-sdk", properties);
+        BlobStore blobStore = BlobStores.create("aws-s3", properties);
         assertThat(blobStore).isNotNull();
     }
 }
