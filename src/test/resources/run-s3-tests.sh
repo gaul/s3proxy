@@ -110,8 +110,8 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
     tags="${tags} and not fails_on_aws"
-elif [[ "${S3PROXY_CONF}" == s3proxy-*-nio2.conf ]] ||
-        [[ "${S3PROXY_CONF}" == s3proxy.conf ]]; then
+elif [ "${S3PROXY_CONF}" = "s3proxy-filesystem.conf" ] ||
+        [ "${S3PROXY_CONF}" = "s3proxy.conf" ]; then
     # s3proxy.conf defaults to the transient backend.
     backend="nio2"
 fi
