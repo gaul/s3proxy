@@ -592,16 +592,93 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <groupId>com.google.cloud</groupId>
       <artifactId>google-cloud-storage</artifactId>
       <version>2.70.0</version>
+      <!-- GCloudBlobStore uses the HTTP transport, so the gRPC transport
+           and the client-side-metrics stack it exports through are dead
+           weight: some 30 MB of grpc (including grpc-xds and
+           grpc-netty-shaded), conscrypt, and Cloud Monitoring protos.
+           The HTTP transport still touches the protobuf model (the
+           proto-google-cloud-storage-v2 resource names in its JSON codec,
+           gax error details in proto-google-common-protos) and reaches
+           io.grpc.Context through opencensus, hence the grpc-context
+           dependency below. -->
+      <exclusions>
+        <exclusion>
+          <groupId>io.grpc</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.conscrypt</groupId>
+          <artifactId>conscrypt-openjdk-uber</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.api</groupId>
+          <artifactId>gax-grpc</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.cloud</groupId>
+          <artifactId>google-cloud-monitoring</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.api.grpc</groupId>
+          <artifactId>proto-google-cloud-monitoring-v3</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.api.grpc</groupId>
+          <artifactId>grpc-google-cloud-storage-v2</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.api.grpc</groupId>
+          <artifactId>gapic-google-cloud-storage-v2</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.cloud.opentelemetry</groupId>
+          <artifactId>exporter-metrics</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.cloud.opentelemetry</groupId>
+          <artifactId>shared-resourcemapping</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
+    <!-- The one grpc artifact the HTTP transport does reach: opencensus
+         tracing in HttpStorageRpc needs io.grpc.Context.  Keep the version
+         aligned with the grpc that google-cloud-storage above excludes. -->
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-context</artifactId>
+      <version>1.81.0</version>
+      <scope>runtime</scope>
+    </dependency>
+    <!-- Both Azure artifacts swap the default Netty HTTP transport for the
+         JDK HttpClient one below, dropping Netty, reactor-netty, and
+         boringssl natives for five platforms from the assembled jar. -->
     <dependency>
       <groupId>com.azure</groupId>
       <artifactId>azure-storage-blob</artifactId>
       <version>12.35.0</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.azure</groupId>
+          <artifactId>azure-core-http-netty</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>com.azure</groupId>
       <artifactId>azure-identity</artifactId>
       <version>1.18.4</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.azure</groupId>
+          <artifactId>azure-core-http-netty</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>com.azure</groupId>
+      <artifactId>azure-core-http-jdk-httpclient</artifactId>
+      <version>1.1.5</version>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>com.github.openstack4j.core</groupId>
@@ -700,9 +777,17 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>auth</artifactId>
     </dependency>
+    <!-- AwsS3SdkBlobStore only builds the synchronous client, so the Netty
+         async client is excluded here and from sts below. -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- Required at runtime by DefaultCredentialsProvider's
          WebIdentityTokenFileCredentialsProvider (e.g. EKS IRSA). -->
@@ -710,10 +795,23 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sts</artifactId>
       <scope>runtime</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>apache5-client</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- S3BackupSftpBridgeTest drives an S3AsyncClient, which needs the
+         async HTTP implementation the runtime classpath excludes. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>netty-nio-client</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
