@@ -60,7 +60,7 @@ The process is similar to the single ```Blob``` decryption but with the differen
 ## Blob suffix
 Each stored ```Blob``` will get a suffix named ```.s3enc``` this helps to determine if a ```Blob``` is encrypted. For the s3 client the ```.s3enc``` suffix is not visible and the ```Blob``` size will always show the unencrypted size.  
 
-## Tested jClouds provider
+## Tested storage backends
 - S3
     - Minio
     - OBS from OpenTelekomCloud

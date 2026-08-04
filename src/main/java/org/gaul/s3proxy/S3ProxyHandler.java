@@ -2587,7 +2587,7 @@ public class S3ProxyHandler {
         addMetadataToResponse(request, response, blob.getMetadata(),
                 status == HttpServletResponse.SC_PARTIAL_CONTENT);
 
-        // TODO: handles only a single range due to jclouds limitations
+        // TODO: handles only a single range due to blobstore API limitations
         String contentRange = blob.getContentRange();
         if (contentRange != null) {
             response.addHeader(HttpHeaders.CONTENT_RANGE, contentRange);

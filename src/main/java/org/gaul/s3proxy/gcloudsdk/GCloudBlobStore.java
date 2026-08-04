@@ -334,7 +334,7 @@ public final class GCloudBlobStore implements BlobStore {
             return null;
         }
 
-        // Enforce conditional-GET preconditions before streaming.  jclouds
+        // Enforce conditional-GET preconditions before streaming.  The
         // backends report every conditional-header failure as 412; the
         // frontend (S3ProxyHandlerJetty) remaps GET/HEAD If-None-Match and
         // If-Modified-Since misses to 304 Not Modified.
@@ -1379,7 +1379,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     /**
-     * Translate StorageException to a jclouds exception, returning the
+     * Translate StorageException to a blobstore exception, returning the
      * original StorageException unchanged if no translation applies.
      */
     private static RuntimeException translate(StorageException se,
@@ -1410,7 +1410,7 @@ public final class GCloudBlobStore implements BlobStore {
         return se;
     }
 
-    // Build a jclouds HttpResponseException carrying a status code so that
+    // Build an HttpResponseException carrying a status code so that
     // S3ProxyHandler translates it to the matching S3 error code (e.g.
     // 400 -> BadDigest, 412 -> PreconditionFailed, 416 -> InvalidRange).
     private static HttpResponseException httpResponseException(

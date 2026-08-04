@@ -9,7 +9,7 @@ S3Proxy implements the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
 and *proxies* requests, enabling several use cases:
 
-* translation from S3 to Backblaze B2, EMC Atmos, Google Cloud, Microsoft Azure, and OpenStack Swift
+* translation from S3 to Google Cloud, Microsoft Azure, and OpenStack Swift
 * testing without Amazon by using the local filesystem
 * extension via middlewares
 * embedding into Java applications
@@ -78,29 +78,13 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 
 ## Supported storage backends
 
-* atmos
-* aws-s3 (Amazon-only, alias for aws-s3-sdk)
-* aws-s3-sdk (S3-compatible backends via AWS SDK, recommended)
-* aws-s3-jclouds (Amazon-only via jclouds, deprecated)
-* azureblob (alias for azureblob-sdk)
-* azureblob-sdk (recommended)
-* azureblob-jclouds (Azure Blob via jclouds, deprecated)
-* b2
-* filesystem (on-disk storage, alias for filesystem-nio2)
-* filesystem-nio2 (on-disk storage, recommended)
-* filesystem-jclouds (on-disk storage via jclouds, deprecated)
-* google-cloud-storage (alias for google-cloud-storage-sdk)
-* google-cloud-storage-sdk (recommended)
-* google-cloud-storage-jclouds (Google Cloud Storage via jclouds, deprecated)
-* openstack-swift (OpenStack Swift via jclouds)
-* openstack-swift-sdk (OpenStack Swift via openstack4j, Keystone v3 only)
-* rackspace-cloudfiles-uk and rackspace-cloudfiles-us
-* s3 (non-Amazon, alias for aws-s3-sdk)
-* s3-jclouds (non-Amazon S3 via jclouds, deprecated)
+* aws-s3
+* azureblob
+* filesystem (on-disk storage)
+* google-cloud-storage
+* openstack-swift (Keystone v3 only)
 * sftp (SFTP storage via Apache MINA SSHD)
-* transient (in-memory storage, alias for transient-nio2)
-* transient-nio2 (in-memory storage, recommended)
-* transient-jclouds (in-memory storage via jclouds, deprecated)
+* transient (in-memory storage)
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 
@@ -243,7 +227,6 @@ for specific storage backends.
 
 ## References
 
-* [Apache jclouds](https://jclouds.apache.org/) provides storage backend support for S3Proxy
 * [Ceph s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
 * [fake-s3](https://github.com/jubos/fake-s3), [gofakes3](https://github.com/johannesboyne/gofakes3), [minio](https://github.com/minio/minio), [S3 ninja](https://github.com/scireum/s3ninja), and [s3rver](https://github.com/jamhall/s3rver) provide functionality similar to S3Proxy when using the filesystem backend
 * [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs

@@ -47,9 +47,9 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.jspecify.annotations.Nullable;
 
 /**
- * S3Proxy translates S3 HTTP operations into jclouds provider-agnostic
- * operations.  This allows applications using the S3 API to interface with any
- * provider that jclouds supports, e.g., EMC Atmos, Microsoft Azure,
+ * S3Proxy translates S3 HTTP operations into provider-agnostic blobstore
+ * operations.  This allows applications using the S3 API to interface with
+ * storage backends such as Google Cloud Storage, Microsoft Azure, and
  * OpenStack Swift.
  */
 public final class S3Proxy {

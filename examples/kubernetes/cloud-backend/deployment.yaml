@@ -25,7 +25,7 @@ spec:
             - name: s3
               containerPort: 80
           env:
-            # Any jclouds provider, e.g. aws-s3, azureblob-sdk,
+            # Any cloud backend, e.g. aws-s3, azureblob,
             # google-cloud-storage; add JCLOUDS_ENDPOINT and JCLOUDS_REGION
             # as the backend requires.
             - name: JCLOUDS_PROVIDER

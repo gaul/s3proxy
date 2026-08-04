@@ -7,7 +7,7 @@ configuration management and adjust.  Helm users may prefer the third-party
 
 Two self-contained variants:
 
-* `cloud-backend/` proxies to a cloud blobstore (any jclouds provider).
+* `cloud-backend/` proxies to a cloud blobstore (any cloud backend).
   S3Proxy is stateless in this mode: scale `replicas` freely.
 * `filesystem-backend/` stores blobs on a PersistentVolumeClaim.  Run a
   single replica; the `Recreate` strategy prevents rolling updates from

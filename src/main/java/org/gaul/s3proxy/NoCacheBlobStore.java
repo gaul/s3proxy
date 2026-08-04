@@ -24,7 +24,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * BlobStore which drops ETag or date-based cache options from object requests.
- * This is useful as jclouds does not fully support the proxying of HTTP 304 responses.
+ * This is useful as the backends do not fully support the proxying of HTTP
+ * 304 responses.
  */
 final class NoCacheBlobStore extends ForwardingBlobStore {
 

@@ -1539,7 +1539,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
-     * Translate BlobStorageException to a jclouds exception, returning the
+     * Translate BlobStorageException to a blobstore exception, returning the
      * original BlobStorageException unchanged if no translation applies.
      */
     private RuntimeException translate(BlobStorageException bse,
