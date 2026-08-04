@@ -9,7 +9,7 @@ S3Proxy implements the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
 and *proxies* requests, enabling several use cases:
 
-* translation from S3 to Google Cloud, Microsoft Azure, and OpenStack Swift
+* translation from S3 to Google Cloud, Microsoft Azure, OpenStack Swift, and SFTP
 * testing without Amazon by using the local filesystem
 * extension via middlewares
 * embedding into Java applications
