@@ -212,6 +212,15 @@ public class S3ProxyHandler {
     private static final Set<String> UNSUPPORTED_WRITE_PARAMETERS = Set.of(
             "policy"
     );
+    /** The parameters that replace response headers on a read. */
+    private static final Set<String> RESPONSE_HEADER_OVERRIDES = Set.of(
+            "response-cache-control",
+            "response-content-disposition",
+            "response-content-encoding",
+            "response-content-language",
+            "response-content-type",
+            "response-expires"
+    );
     /** All supported x-amz- headers, except for x-amz-meta- user metadata. */
     private static final Set<String> SUPPORTED_X_AMZ_HEADERS = Set.of(
             AwsHttpHeaders.ACL,
@@ -1117,6 +1126,29 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * Refuse the parameters that replace response headers on a read, which S3
+     * honours only for a request it can attribute to a caller.  They let the
+     * URL decide what the response says it contains -- text/html for an object
+     * stored as JSON, say, or a Content-Disposition naming a filename the
+     * object does not have.  On a request nobody signed that turns any object
+     * a reader can fetch into markup served from the proxy's own origin, so
+     * the caller has to prove it holds a credential before it may choose.
+     *
+     * <p>A presigned URL may still carry them: it reaches doHandle rather than
+     * here, and they are part of the query string it signs.
+     */
+    private static void checkNoResponseHeaderOverrides(
+            HttpServletRequest request) throws S3Exception {
+        for (String parameter : RESPONSE_HEADER_OVERRIDES) {
+            if (request.getParameter(parameter) != null) {
+                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                        "Request specific response headers cannot be used for" +
+                        " anonymous GET requests.");
+            }
+        }
+    }
+
     private static boolean checkPublicAccess(BlobStore blobStore,
             String containerName, String blobName) throws S3Exception {
         String blobStoreType = getBlobStoreType(blobStore);
@@ -1145,6 +1177,10 @@ public class S3ProxyHandler {
 
         if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
             ctx.setBucket(path[1]);
+        }
+
+        if (method.equals("GET") || method.equals("HEAD")) {
+            checkNoResponseHeaderOverrides(request);
         }
 
         switch (method) {
