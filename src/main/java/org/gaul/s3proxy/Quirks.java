@@ -28,17 +28,31 @@ final class Quirks {
     /** Blobstores which do not support the Cache-Control header. */
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
             "google-cloud-storage",
-            "openstack-swift"
+            "openstack-swift",
+            "sftp"
     );
 
     /** Blobstores which do not support the Content-Encoding header. */
     static final Set<String> NO_CONTENT_ENCODING = Set.of(
-            "google-cloud-storage"
+            "google-cloud-storage",
+            "sftp"
     );
 
     /** Blobstores which do not support the Content-Language header. */
     static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
-            "openstack-swift"
+            "openstack-swift",
+            "sftp"
+    );
+
+    /**
+     * Blobstores which store only the object bytes.  SFTP servers offer no
+     * portable user extended attributes, so everything the nio2 stores keep
+     * in xattrs -- content metadata, user metadata, ETags, checksums, and
+     * storage class -- does not survive the write, and reads report
+     * defaults instead.
+     */
+    static final Set<String> NO_PERSISTED_METADATA = Set.of(
+            "sftp"
     );
 
     /**
@@ -51,6 +65,7 @@ final class Quirks {
      */
     static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "filesystem",
+            "sftp",
             "transient"
     );
 

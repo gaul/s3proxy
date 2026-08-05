@@ -143,6 +143,9 @@ public final class EncryptedBlobStoreTest {
         //noinspection UnstableApiUsage
         blobStore = TestUtils.createTestBlobStore();
         provider = TestUtils.testBlobStoreProvider();
+        // The encrypted layer recovers decrypted sizes from user metadata or
+        // stored ETag suffixes, neither of which sftp persists.
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(provider));
 
         var properties = new Properties();
         properties.put(S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE, "true");

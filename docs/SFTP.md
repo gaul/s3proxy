@@ -85,14 +85,24 @@ SFTP servers.
 
 ## Compatibility Profile
 
-The embedded SFTP test covers the common S3-compatible backup operation set:
+The full `AwsSdkTest` suite runs against the SFTP backend in CI.  The
+`s3proxy-sftp.conf` test configuration pins the fingerprint of the checked-in
+`sftp-test-host-key`, and `SftpTestServerListener` starts an embedded SFTP
+server on the configured endpoint for the whole test JVM, so the lane needs no
+external setup:
 
-* create bucket;
-* upload payload and metadata objects;
-* `HEAD` payload objects;
-* `GET` payload and metadata objects;
-* list objects with a prefix;
-* delete objects and bucket.
+```
+mvn test -Ds3proxy.test.conf=s3proxy-sftp.conf -Dtest=AwsSdkTest
+```
 
-Broader S3 API compatibility should be validated against the target SFTP server
-before production use.
+The suite exercises object CRUD, listing, copy, multipart upload, ranged
+reads, checksum validation during upload, and `If-None-Match: *` conditional
+writes.  Tests whose observations require persisted metadata skip on sftp
+(`Quirks.NO_PERSISTED_METADATA`): stored Content-Type and other content
+metadata, user metadata, ETags of previously written objects, persisted
+checksums, storage classes, and the conditional requests that compare against
+a stored ETag.  The encrypted blobstore layer requires persisted metadata and
+does not work over sftp.
+
+Behavior against a real OpenSSH server may still differ from the embedded
+Apache MINA server and should be validated before production use.

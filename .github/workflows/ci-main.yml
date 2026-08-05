@@ -105,6 +105,18 @@ jobs:
           name: surefire-reports-filesystem
           path: target/surefire-reports/
 
+      - name: Maven Test with sftp
+        run: |
+          # SftpTestServerListener starts the embedded SFTP server that
+          # s3proxy-sftp.conf points at.
+          rm -rf target/surefire-reports
+          mvn test -Ds3proxy.test.conf=s3proxy-sftp.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-sftp
+          path: target/surefire-reports/
+
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip

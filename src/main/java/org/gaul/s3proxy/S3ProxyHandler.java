@@ -438,6 +438,9 @@ public class S3ProxyHandler {
         if (name.contains(".openstackswift.")) {
             return "openstack-swift";
         }
+        if (name.contains(".sftp.")) {
+            return "sftp";
+        }
         if (name.contains(".nio2blob.")) {
             return name.endsWith(".TransientNio2BlobStore") ?
                     "transient" : "filesystem";
@@ -2836,6 +2839,10 @@ public class S3ProxyHandler {
                 // the nio2 stores resolve If-None-Match as they write
                 (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType) &&
                         ifMatch == null && ifNoneMatch != null) ||
+                // sftp publishes exclusively like the other nio2 stores but
+                // persists no ETag to compare a named form against
+                (blobStoreType.equals("sftp") &&
+                        ifMatch == null && "*".equals(ifNoneMatch)) ||
                 // Swift only supports If-None-Match: * natively
                 (blobStoreType.equals("openstack-swift") &&
                         ifMatch == null && "*".equals(ifNoneMatch));

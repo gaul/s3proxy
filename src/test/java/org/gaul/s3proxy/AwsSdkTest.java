@@ -427,7 +427,9 @@ public final class AwsSdkTest {
 
         headResponse = client.headObject(b -> b.bucket(containerName).key(key)
                 .checksumMode(ChecksumMode.ENABLED));
-        assertThat(headResponse.checksumSHA256()).isEqualTo(checksum);
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(headResponse.checksumSHA256()).isEqualTo(checksum);
+        }
         // the reserved persistence key must not leak as user metadata
         assertThat(headResponse.metadata()).isEmpty();
     }
@@ -448,7 +450,10 @@ public final class AwsSdkTest {
                 b -> b.bucket(containerName).key(key)
                         .checksumMode(ChecksumMode.ENABLED))) {
             object.transferTo(OutputStream.nullOutputStream());
-            assertThat(object.response().checksumSHA256()).isEqualTo(checksum);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(object.response().checksumSHA256()).isEqualTo(
+                        checksum);
+            }
         }
 
         // a ranged GET does not, so S3 omits the checksum entirely rather
@@ -484,7 +489,9 @@ public final class AwsSdkTest {
 
         headResponse = client.headObject(b -> b.bucket(containerName).key(key)
                 .checksumMode(ChecksumMode.ENABLED));
-        assertThat(headResponse.checksumCRC64NVME()).isEqualTo(checksum);
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(headResponse.checksumCRC64NVME()).isEqualTo(checksum);
+        }
 
         // a digest that does not describe the body is rejected
         try {
@@ -559,7 +566,8 @@ public final class AwsSdkTest {
 
         // only MULTIPART_REQUIRES_STUB backends persist the composite for
         // later HeadObject requests
-        if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType) &&
+                !Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
             HeadObjectResponse headResponse = client.headObject(
                     b -> b.bucket(containerName).key(key)
                             .checksumMode(ChecksumMode.ENABLED));
@@ -574,6 +582,9 @@ public final class AwsSdkTest {
         // the CRC the same bytes would have hashed to in one PutObject --
         // and unlike a composite it carries no "-<partCount>" suffix.
         assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
+        // the full-object marker rides on the stub, whose metadata must
+        // survive until completion
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         var key = "testMultipartUploadFullObjectChecksum";
         var part1 = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024)
@@ -893,9 +904,10 @@ public final class AwsSdkTest {
         // retry by the object carrying the ETag the parts compose to, which
         // needs a backend whose ETags are the S3 composite.  Azure and GCS
         // mint their own, so a retry there is indistinguishable from an
-        // unknown upload.
+        // unknown upload, and sftp persists no ETag at all.
         assumeTrue(!blobStoreType.equals("azureblob"));
         assumeTrue(!blobStoreType.equals("google-cloud-storage"));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         var key = "testCompleteMultipartUploadRetry";
         var content = new byte[5 * 1024 * 1024];
@@ -1003,6 +1015,8 @@ public final class AwsSdkTest {
     public void testMultipartCopyPreconditionFailed() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift"));
         assumeTrue(!blobStoreType.equals("azureblob"));
+        // the precondition compares against the source's stored ETag
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         String sourceBlobName = "testMultipartCopyPrecondition-source";
         String targetBlobName = "testMultipartCopyPrecondition-target";
@@ -2324,6 +2338,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testSinglepartUploadJettyCachedHeader() throws Exception {
+        // the observation needs a Content-Type that survives the write
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
         String blobName = "singlepart-upload-jetty-cached";
         String contentType = "text/plain";
 
@@ -2378,16 +2395,20 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            assertThat(meta.contentDisposition()).isEqualTo(
-                    contentDisposition);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentDisposition()).isEqualTo(
+                        contentDisposition);
+            }
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
             if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
                 assertThat(meta.contentLanguage()).isEqualTo(contentLanguage);
             }
-            assertThat(meta.contentType()).isEqualTo(contentType);
-            assertThat(meta.metadata()).isEqualTo(userMetadata);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentType()).isEqualTo(contentType);
+                assertThat(meta.metadata()).isEqualTo(userMetadata);
+            }
         }
     }
 
@@ -2487,16 +2508,20 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            assertThat(meta.contentDisposition()).isEqualTo(
-                    contentDisposition);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentDisposition()).isEqualTo(
+                        contentDisposition);
+            }
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
             if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
                 assertThat(meta.contentLanguage()).isEqualTo(contentLanguage);
             }
-            assertThat(meta.contentType()).isEqualTo(contentType);
-            assertThat(meta.metadata()).isEqualTo(userMetadata);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentType()).isEqualTo(contentType);
+                assertThat(meta.metadata()).isEqualTo(userMetadata);
+            }
         }
     }
 
@@ -2647,16 +2672,20 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            assertThat(meta.contentDisposition()).isEqualTo(
-                    contentDisposition);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentDisposition()).isEqualTo(
+                        contentDisposition);
+            }
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
             if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
                 assertThat(meta.contentLanguage()).isEqualTo(contentLanguage);
             }
-            assertThat(meta.contentType()).isEqualTo(contentType);
-            assertThat(meta.metadata()).isEqualTo(userMetadata);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentType()).isEqualTo(contentType);
+                assertThat(meta.metadata()).isEqualTo(userMetadata);
+            }
         }
     }
 
@@ -2723,16 +2752,20 @@ public final class AwsSdkTest {
             if (!Quirks.NO_CACHE_CONTROL_SUPPORT.contains(blobStoreType)) {
                 assertThat(meta.cacheControl()).isEqualTo(cacheControl);
             }
-            assertThat(meta.contentDisposition()).isEqualTo(
-                    contentDisposition);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentDisposition()).isEqualTo(
+                        contentDisposition);
+            }
             if (!Quirks.NO_CONTENT_ENCODING.contains(blobStoreType)) {
                 assertThat(meta.contentEncoding()).isEqualTo(contentEncoding);
             }
             if (!Quirks.NO_CONTENT_LANGUAGE.contains(blobStoreType)) {
                 assertThat(meta.contentLanguage()).isEqualTo(contentLanguage);
             }
-            assertThat(meta.contentType()).isEqualTo(contentType);
-            assertThat(meta.metadata()).isEqualTo(userMetadata);
+            if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+                assertThat(meta.contentType()).isEqualTo(contentType);
+                assertThat(meta.metadata()).isEqualTo(userMetadata);
+            }
         }
     }
 
@@ -2840,6 +2873,8 @@ public final class AwsSdkTest {
     public void testConditionalGet() throws Exception {
         // TODO:
         assumeTrue(!blobStoreType.equals("google-cloud-storage"));
+        // comparing against a named ETag needs the stored ETag
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         String blobName = "blob-name";
         PutObjectResponse result = client.putObject(b -> b.bucket(containerName)
@@ -2942,6 +2977,8 @@ public final class AwsSdkTest {
         assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // Swift does not support per-object storage classes
         assumeTrue(!blobStoreType.equals("openstack-swift"));
+        // sftp reports the default class because nothing persists it
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
         String blobName = "test-storage-class";
         client.putObject(b -> b.bucket(containerName).key(blobName)
                         .storageClass(StorageClass.STANDARD_IA),
@@ -3174,8 +3211,10 @@ public final class AwsSdkTest {
     public void testGetObjectPartNumberMultipartNotImplemented()
             throws Exception {
         // a composite ETag is what marks the object as multipart, so this
-        // needs a backend that composes ETags the way S3 does
+        // needs a backend that composes ETags the way S3 does and stores
+        // them
         assumeTrue(!Quirks.OPAQUE_ETAG.contains(blobStoreType));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         var key = "testGetObjectPartNumberMultipart";
         var part1 = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024)
@@ -3213,6 +3252,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testGetObjectAttributes() throws Exception {
+        // the reported ETag and checksum only survive where they persist
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
         var key = "testGetObjectAttributes";
         var content = BYTE_SOURCE.read();
         var checksum = crc32cWireForm(content);

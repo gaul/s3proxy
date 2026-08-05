@@ -212,8 +212,9 @@ final class TestUtils {
 
         // When s3proxy.test.conf selects a backend and a test supplies its
         // own frontend configuration (anonymous, virtual-host, CORS, ...),
-        // combine the two: the backend (jclouds.*) settings come from the
-        // backend configuration while the complete s3proxy.* namespace comes
+        // combine the two: the backend settings (jclouds.* plus the
+        // backend-specific s3proxy.sftp.* namespace) come from the backend
+        // configuration while the rest of the s3proxy.* namespace comes
         // from the test's configuration.  This lets the specialized tests
         // run against every backend lane instead of their hardcoded
         // transient provider.
@@ -226,7 +227,8 @@ final class TestUtils {
                 backendProperties.load(is);
             }
             for (String key : backendProperties.stringPropertyNames()) {
-                if (!key.startsWith("s3proxy.")) {
+                if (!key.startsWith("s3proxy.") ||
+                        key.startsWith("s3proxy.sftp.")) {
                     info.getProperties().setProperty(key,
                             backendProperties.getProperty(key));
                 }
