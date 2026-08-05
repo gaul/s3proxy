@@ -3189,12 +3189,16 @@ public class S3ProxyHandler {
 
         // A POST carries no Authorization header -- doHandle routes a request
         // without one here -- so the policy is the only thing that can say the
-        // caller may write.  A form carrying none is refused: S3 answers such
-        // a form from the bucket's own permissions, which admit an anonymous
-        // write only through a bucket policy granting one, and ContainerAccess
-        // says whether a bucket is readable and nothing else.  Accepting it
-        // would let anyone who can reach the proxy create and overwrite
-        // objects in every bucket the backend holds.
+        // caller may write.  A form carrying none is refused, where S3 answers
+        // it from the bucket's own permissions and uploads when those grant
+        // AllUsers WRITE.  S3Proxy has nowhere to keep such a grant:
+        // CreateBucket drops the write half of public-read-write, PutBucketAcl
+        // answers NotImplemented for it, and the anonymous path implements no
+        // PUT or DELETE at all -- so a bucket anyone may write to is not a
+        // thing this proxy can be told about, and honouring a form that
+        // assumes one would let anyone who can reach the proxy create and
+        // overwrite objects in every bucket the backend holds.  s3-tests marks
+        // the three POSTs that expect otherwise.
         if (policy == null && signature == null && identity == null) {
             throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
