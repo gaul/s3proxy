@@ -164,4 +164,11 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
         }
         return builder.toString();
     }
+    // Disable versioning: the metadata rewrite does not extend
+    // to the versioned operations.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

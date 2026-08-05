@@ -391,7 +391,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                         List.of("%d-%d".formatted(startAt, endAt)),
                         getOptions.ifModifiedSince(),
                         getOptions.ifUnmodifiedSince(),
-                        getOptions.ifMatch(), getOptions.ifNoneMatch());
+                        getOptions.ifMatch(), getOptions.ifNoneMatch(),
+                        getOptions.versionId());
                 }
 
                 Blob blob = delegate().getBlob(containerName, blobName,
@@ -636,4 +637,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
         return blobMetadata;
     }
+    // Disable versioning: versioned reads would return ciphertext and
+    // suffixed names.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

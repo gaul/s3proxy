@@ -31,6 +31,8 @@ import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PutResult;
+import org.gaul.s3proxy.blobstore.domain.RemoveResult;
+import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -86,8 +88,20 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public RemoveResult removeBlob(final String containerName,
+            final String blobName, final @Nullable String versionId) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
     public void removeBlobs(final String containerName,
             final Iterable<String> blobNames) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void setContainerVersioning(final String containerName,
+            final VersioningStatus status) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

@@ -22,9 +22,28 @@ import org.jspecify.annotations.Nullable;
 /** Thrown when a blob cannot be located in the container. */
 public final class KeyNotFoundException extends RuntimeException {
 
+    private final @Nullable String deleteMarkerVersionId;
+
     public KeyNotFoundException(String container, @Nullable String key,
             @Nullable String message) {
+        this(container, key, message, /*deleteMarkerVersionId=*/ null);
+    }
+
+    public KeyNotFoundException(String container, @Nullable String key,
+            @Nullable String message,
+            @Nullable String deleteMarkerVersionId) {
         super("%s not found in container %s: %s".formatted(key, container,
                 message));
+        this.deleteMarkerVersionId = deleteMarkerVersionId;
+    }
+
+    /**
+     * When the current "version" of the key is a delete marker, its version
+     * id; null when the key is plainly absent.  Lets the error response
+     * carry x-amz-delete-marker and x-amz-version-id as S3 does.
+     */
+    @Nullable
+    public String deleteMarkerVersionId() {
+        return deleteMarkerVersionId;
     }
 }

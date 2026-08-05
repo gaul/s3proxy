@@ -33,6 +33,7 @@ import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.HttpResponse;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.VersionNotFoundException;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,9 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             if (eTag != null) {
                 response.setHeader(HttpHeaders.ETAG, eTag);
             }
+            // e.g. x-amz-delete-marker and x-amz-version-id riding on a
+            // versioned backend's refusal to read a delete marker
+            hr.headers().forEach(response::setHeader);
 
             int status = hr.statusCode();
             switch (status) {
@@ -117,6 +121,9 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             }
             case 416 -> sendS3Exception(request, response,
                     new S3Exception(S3ErrorCode.INVALID_RANGE));
+            case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
+                sendS3Exception(request, response,
+                        new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED));
             // Swift returns 422 Unprocessable Entity
             case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendS3Exception(
                     request, response,
@@ -161,7 +168,20 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             }
             throw ioe;
         } catch (KeyNotFoundException knfe) {
+            // The "missing" object may be a delete marker, which answers
+            // NoSuchKey but says so in headers.
+            String deleteMarkerVersionId = knfe.deleteMarkerVersionId();
+            if (deleteMarkerVersionId != null) {
+                response.setHeader(AwsHttpHeaders.DELETE_MARKER, "true");
+                response.setHeader(AwsHttpHeaders.VERSION_ID,
+                        deleteMarkerVersionId);
+            }
             S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
+            handler.sendSimpleErrorResponse(request, response, code,
+                    code.getMessage(), Map.of());
+            return;
+        } catch (VersionNotFoundException vnfe) {
+            S3ErrorCode code = S3ErrorCode.NO_SUCH_VERSION;
             handler.sendSimpleErrorResponse(request, response, code,
                     code.getMessage(), Map.of());
             return;

@@ -33,11 +33,15 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.PutResult;
+import org.gaul.s3proxy.blobstore.domain.RemoveResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.VersionPage;
+import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
@@ -133,6 +137,13 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     @Nullable
+    public BlobMetadata blobMetadata(String container, String name,
+            @Nullable String versionId) {
+        return delegate().blobMetadata(container, name, versionId);
+    }
+
+    @Override
+    @Nullable
     public Blob getBlob(String containerName, String blobName,
             GetOptions getOptions) {
         return delegate().getBlob(containerName, blobName, getOptions);
@@ -141,6 +152,35 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     @Override
     public void removeBlob(String container, String name) {
         delegate().removeBlob(container, name);
+    }
+
+    @Override
+    public RemoveResult removeBlob(String container, String name,
+            @Nullable String versionId) {
+        return delegate().removeBlob(container, name, versionId);
+    }
+
+    @Override
+    public boolean supportsVersioning() {
+        return delegate().supportsVersioning();
+    }
+
+    @Override
+    @Nullable
+    public VersioningStatus getContainerVersioning(String container) {
+        return delegate().getContainerVersioning(container);
+    }
+
+    @Override
+    public void setContainerVersioning(String container,
+            VersioningStatus status) {
+        delegate().setContainerVersioning(container, status);
+    }
+
+    @Override
+    public VersionPage listVersions(String container,
+            ListVersionsOptions options) {
+        return delegate().listVersions(container, options);
     }
 
     @Override

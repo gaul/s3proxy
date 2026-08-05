@@ -34,6 +34,7 @@ public record CopyOptions(
         @Nullable Date ifUnmodifiedSince,
         @Nullable String ifMatch,
         @Nullable String ifNoneMatch,
+        @Nullable String sourceVersionId,
         BlobAccess blobAccess) {
 
     public static final CopyOptions NONE = builder().build();
@@ -53,6 +54,7 @@ public record CopyOptions(
         private @Nullable Date ifUnmodifiedSince;
         private @Nullable String ifMatch;
         private @Nullable String ifNoneMatch;
+        private @Nullable String sourceVersionId;
         private BlobAccess blobAccess = BlobAccess.PRIVATE;
 
         public Builder contentMetadata(ContentMetadata contentMetadata) {
@@ -90,12 +92,23 @@ public record CopyOptions(
             return this;
         }
 
+        /**
+         * Copies one version of the source rather than its current object.
+         * Only a store that {@link
+         * org.gaul.s3proxy.blobstore.BlobStore#supportsVersioning} honors
+         * this; the others throw UnsupportedOperationException.
+         */
+        public Builder sourceVersionId(@Nullable String sourceVersionId) {
+            this.sourceVersionId = sourceVersionId;
+            return this;
+        }
+
         public CopyOptions build() {
             Map<String, String> userMetadataCopy = userMetadata == null ?
                     null : ImmutableMap.copyOf(userMetadata);
             return new CopyOptions(contentMetadata, userMetadataCopy,
                     ifModifiedSince, ifUnmodifiedSince, ifMatch, ifNoneMatch,
-                    blobAccess);
+                    sourceVersionId, blobAccess);
         }
     }
 }

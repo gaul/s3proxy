@@ -32,11 +32,15 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.PutResult;
+import org.gaul.s3proxy.blobstore.domain.RemoveResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.VersionPage;
+import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
@@ -101,10 +105,68 @@ public interface BlobStore extends AutoCloseable {
     @Nullable
     BlobMetadata blobMetadata(String container, String name);
 
+    /**
+     * Reads the metadata of one version, or of the current version when
+     * {@code versionId} is null.  Returns null when the object does not
+     * exist; throws {@link KeyNotFoundException} carrying the marker's
+     * version when the current "version" is a delete marker, and {@link
+     * VersionNotFoundException} when the named version does not exist.
+     * Only meaningful on a store that {@link #supportsVersioning}; the
+     * default implementation throws UnsupportedOperationException.
+     */
+    @Nullable
+    default BlobMetadata blobMetadata(String container, String name,
+            @Nullable String versionId) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
+
     @Nullable
     Blob getBlob(String container, String name, GetOptions options);
 
     void removeBlob(String container, String name);
+
+    /**
+     * Deletes one version, or acts as an ordinary delete when
+     * {@code versionId} is null -- which on a versioning-enabled container
+     * creates a delete marker rather than removing data.  Only meaningful
+     * on a store that {@link #supportsVersioning}; the default
+     * implementation throws UnsupportedOperationException.
+     */
+    default RemoveResult removeBlob(String container, String name,
+            @Nullable String versionId) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /**
+     * Whether this store supports object versioning.  Only a store that
+     * reports true honors {@link GetOptions#versionId}, {@link
+     * CopyOptions#sourceVersionId}, the versioned blobMetadata and
+     * removeBlob overloads, and the operations below; the default
+     * implementations throw UnsupportedOperationException.
+     */
+    default boolean supportsVersioning() {
+        return false;
+    }
+
+    /**
+     * Reads the container's versioning state, or null when the container has
+     * never been versioned.
+     */
+    @Nullable
+    default VersioningStatus getContainerVersioning(String container) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    default void setContainerVersioning(String container,
+            VersioningStatus status) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /** Lists a container's object versions and delete markers. */
+    default VersionPage listVersions(String container,
+            ListVersionsOptions options) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
 
     default void removeBlobs(String container, Iterable<String> names) {
         for (String name : names) {
@@ -150,6 +212,9 @@ public interface BlobStore extends AutoCloseable {
      * to streamed emulation, e.g. when the backend discovers at runtime
      * that the service does not implement the copy operation.
      *
+     * @param sourceVersionId version of the source object to copy, or null
+     *        for the current version; only meaningful on a store that
+     *        {@link #supportsVersioning}
      * @param copySourceRange raw x-amz-copy-source-range value, e.g.
      *        bytes=first-last, or null to copy the entire object; the
      *        backend enforces its own validation and the copy-source
@@ -157,6 +222,7 @@ public interface BlobStore extends AutoCloseable {
      */
     default MultipartPart copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
+            @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
             @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
             @Nullable Date ifUnmodifiedSince) {

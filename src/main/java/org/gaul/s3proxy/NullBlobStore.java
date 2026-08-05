@@ -75,7 +75,8 @@ final class NullBlobStore extends ForwardingBlobStore {
         } else {
             blob = super.getBlob(container, name, new GetOptions(List.of(),
                     options.ifModifiedSince(), options.ifUnmodifiedSince(),
-                    options.ifMatch(), options.ifNoneMatch()));
+                    options.ifMatch(), options.ifNoneMatch(),
+                    options.versionId()));
         }
         if (blob == null) {
             return null;
@@ -268,4 +269,11 @@ final class NullBlobStore extends ForwardingBlobStore {
             closed = true;
         }
     }
+    // Disable versioning: versioned reads would return the stored stub
+    // rather than fake content.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

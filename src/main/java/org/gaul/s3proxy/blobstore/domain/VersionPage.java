@@ -1,6 +1,5 @@
 /*
- * Copyright 2009-2025 The Apache Software Foundation
- * Copyright 2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,21 +16,24 @@
 
 package org.gaul.s3proxy.blobstore.domain;
 
-import java.util.Date;
+import java.util.List;
 
 import org.jspecify.annotations.Nullable;
 
-public record MultipartPart(
-        int partNumber,
-        long partSize,
-        @Nullable String partETag,
-        @Nullable Date lastModified,
-        @Nullable String copySourceVersionId) {
+/**
+ * One page of a version listing.  Versions arrive in S3 order -- keys
+ * ascending, and each key's versions newest first -- and pagination resumes
+ * from the (nextKeyMarker, nextVersionIdMarker) pair, both null on the last
+ * page.
+ */
+public record VersionPage(
+        List<VersionMetadata> versions,
+        List<String> commonPrefixes,
+        @Nullable String nextKeyMarker,
+        @Nullable String nextVersionIdMarker) {
 
-    /** A part that no version-aware copy produced. */
-    public MultipartPart(int partNumber, long partSize,
-            @Nullable String partETag, @Nullable Date lastModified) {
-        this(partNumber, partSize, partETag, lastModified,
-                /*copySourceVersionId=*/ null);
+    public VersionPage {
+        versions = List.copyOf(versions);
+        commonPrefixes = List.copyOf(commonPrefixes);
     }
 }

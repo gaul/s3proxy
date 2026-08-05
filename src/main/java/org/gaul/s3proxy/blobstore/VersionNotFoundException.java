@@ -1,6 +1,5 @@
 /*
- * Copyright 2009-2025 The Apache Software Foundation
- * Copyright 2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,22 +16,18 @@
 
 package org.gaul.s3proxy.blobstore;
 
-import java.util.Map;
-
 import org.jspecify.annotations.Nullable;
 
-public record HttpResponse(int statusCode, @Nullable String eTag,
-        Map<String, String> headers) {
+/**
+ * Thrown when a request names a version that does not exist.  Distinct from
+ * {@link KeyNotFoundException} because S3 answers NoSuchVersion, not
+ * NoSuchKey, when the key exists but the version does not.
+ */
+public final class VersionNotFoundException extends RuntimeException {
 
-    public HttpResponse {
-        headers = Map.copyOf(headers);
-    }
-
-    public HttpResponse(int statusCode) {
-        this(statusCode, null, Map.of());
-    }
-
-    public HttpResponse(int statusCode, @Nullable String eTag) {
-        this(statusCode, eTag, Map.of());
+    public VersionNotFoundException(String container, @Nullable String key,
+            @Nullable String versionId, @Nullable String message) {
+        super("version %s of %s not found in container %s: %s".formatted(
+                versionId, key, container, message));
     }
 }

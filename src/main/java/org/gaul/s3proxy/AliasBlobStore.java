@@ -271,4 +271,11 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         }
         return builder.build();
     }
+    // Disable versioning: the alias mapping does not extend to the
+    // versioned operations.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

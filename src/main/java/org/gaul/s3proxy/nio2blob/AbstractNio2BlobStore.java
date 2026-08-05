@@ -405,7 +405,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public final Blob getBlob(String container, String key, GetOptions options) {
+    public final Blob getBlob(String container, String key,
+            GetOptions options) {
+        if (options.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         return getBlobInternal(container, key, options, /*openStream=*/ true);
     }
 
@@ -873,6 +878,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Override
     public final CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        if (options.sourceVersionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
         if (blob == null) {
             throw new KeyNotFoundException(fromContainer, fromName, "while copying");

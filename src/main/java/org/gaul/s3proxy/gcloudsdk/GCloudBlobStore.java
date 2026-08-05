@@ -317,6 +317,10 @@ public final class GCloudBlobStore implements BlobStore {
     public org.gaul.s3proxy.blobstore.domain.@Nullable Blob getBlob(
             String container,
             String key, GetOptions options) {
+        if (options.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         var gcsOptions = new java.util.ArrayList<BlobGetOption>();
 
         Blob gcsBlob;
@@ -575,6 +579,10 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        if (options.sourceVersionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         var source = BlobId.of(fromContainer, fromName);
         var targetBuilder = BlobInfo.newBuilder(
                 BlobId.of(toContainer, toName));
@@ -1159,9 +1167,14 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public MultipartPart copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
+            @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
             @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
             @Nullable Date ifUnmodifiedSince) {
+        if (sourceVersionId != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " +

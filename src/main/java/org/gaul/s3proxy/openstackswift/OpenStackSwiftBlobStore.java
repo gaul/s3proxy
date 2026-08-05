@@ -534,6 +534,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     @Nullable
     public Blob getBlob(String container, String key, GetOptions options) {
+        if (options.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         if (hasPathTraversal(key)) {
             // okhttp normalizes ".." segments in the request URL, which would
             // turn an object GET into a request for a different resource (e.g.
@@ -770,6 +774,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        if (options.sourceVersionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
             // Matches setBlobAccess: Swift grants read at the container, so a
             // public copy is refused rather than silently made private.

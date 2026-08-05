@@ -1,6 +1,5 @@
 /*
- * Copyright 2009-2025 The Apache Software Foundation
- * Copyright 2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,17 +20,18 @@ import java.util.Date;
 
 import org.jspecify.annotations.Nullable;
 
-public record MultipartPart(
-        int partNumber,
-        long partSize,
-        @Nullable String partETag,
+/**
+ * One entry of a version listing: an object version or a delete marker.
+ * The versionId is the literal "null" for versions written while the bucket
+ * was unversioned.  A delete marker carries no ETag or size.
+ */
+public record VersionMetadata(
+        String name,
+        String versionId,
+        boolean latest,
+        boolean deleteMarker,
+        @Nullable String eTag,
         @Nullable Date lastModified,
-        @Nullable String copySourceVersionId) {
-
-    /** A part that no version-aware copy produced. */
-    public MultipartPart(int partNumber, long partSize,
-            @Nullable String partETag, @Nullable Date lastModified) {
-        this(partNumber, partSize, partETag, lastModified,
-                /*copySourceVersionId=*/ null);
-    }
+        @Nullable Long size,
+        StorageClass storageClass) {
 }

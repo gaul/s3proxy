@@ -252,4 +252,11 @@ public final class RegexBlobStore extends ForwardingBlobStore {
 
         return newName;
     }
+    // Disable versioning: the name rewrite does not extend to the
+    // versioned operations.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

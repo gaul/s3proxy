@@ -43,6 +43,9 @@ public enum S3Operation {
     PUT_BUCKET_ACL("PutBucketAcl"),
     GET_BUCKET_LOCATION("GetBucketLocation"),
     GET_BUCKET_POLICY("GetBucketPolicy"),
+    GET_BUCKET_VERSIONING("GetBucketVersioning"),
+    PUT_BUCKET_VERSIONING("PutBucketVersioning"),
+    LIST_OBJECT_VERSIONS("ListObjectVersions"),
     OPTIONS_OBJECT("OptionsObject"),
     UNKNOWN("Unknown");
 

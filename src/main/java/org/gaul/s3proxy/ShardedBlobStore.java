@@ -580,4 +580,11 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
+    // Disable versioning: the shard mapping does not extend to the
+    // versioned operations.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

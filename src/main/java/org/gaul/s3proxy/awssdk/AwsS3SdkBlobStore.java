@@ -29,6 +29,7 @@ import java.util.Set;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
@@ -42,6 +43,7 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.HttpResponse;
 import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.VersionNotFoundException;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -52,13 +54,18 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.PutResult;
+import org.gaul.s3proxy.blobstore.domain.RemoveResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
+import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
+import org.gaul.s3proxy.blobstore.domain.VersionPage;
+import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
@@ -77,6 +84,7 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
@@ -86,8 +94,10 @@ import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.Grant;
@@ -95,14 +105,18 @@ import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -110,8 +124,12 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.VersioningConfiguration;
 
 public final class AwsS3SdkBlobStore implements BlobStore {
+    private static final String DELETE_MARKER_HEADER = "x-amz-delete-marker";
+    private static final String VERSION_ID_HEADER = "x-amz-version-id";
+
     private final S3Client s3Client;
     private final String endpoint;
     private final boolean useNativeConditionalWrites;
@@ -384,6 +402,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 .bucket(container)
                 .key(key);
 
+        if (options.versionId() != null) {
+            requestBuilder.versionId(options.versionId());
+        }
+
         if (!options.ranges().isEmpty()) {
             String rangeSpec = options.ranges().get(0);
             requestBuilder.range("bytes=" + rangeSpec);
@@ -439,9 +461,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             // STANDARD for GLACIER/IA objects.
             builder.storageClass(fromAwsStorageClass(response.storageClass()));
 
+            builder.versionId(response.versionId());
+
             return builder.build();
         } catch (NoSuchKeyException e) {
-            throw new KeyNotFoundException(container, key, e.getMessage());
+            throw keyNotFoundOrDeleteMarker(container, key, e);
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
@@ -450,6 +474,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                         .firstMatchingHeader(HttpHeaders.ETAG).orElse(null);
                 throw new HttpResponseException(
                         new HttpResponse(304, eTag), e);
+            }
+            if (e.statusCode() == 405) {
+                // Reading a delete marker by its version answers 405 with
+                // x-amz-delete-marker; carry the headers through.
+                throw new HttpResponseException(new HttpResponse(405, null,
+                        versioningHeaders(e)), e);
             }
             throw translate(e, container, key);
         }
@@ -548,6 +578,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 .destinationBucket(toContainer)
                 .destinationKey(toName);
 
+        if (options.sourceVersionId() != null) {
+            requestBuilder.sourceVersionId(options.sourceVersionId());
+        }
+
         var contentMetadata = options.contentMetadata();
         if (contentMetadata != null) {
             if (contentMetadata.cacheControl() != null) {
@@ -605,8 +639,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             return new CopyResult(response.copyObjectResult().eTag(),
                     response.versionId(), response.copySourceVersionId());
         } catch (NoSuchKeyException e) {
-            throw new KeyNotFoundException(fromContainer, fromName,
-                    e.getMessage());
+            throw keyNotFoundOrDeleteMarker(fromContainer, fromName, e);
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(fromContainer, e.getMessage());
         } catch (S3Exception e) {
@@ -617,42 +650,78 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     @Override
     public void removeBlob(String container, String key) {
         try {
-            s3Client.deleteObject(DeleteObjectRequest.builder()
-                    .bucket(container)
-                    .key(key)
-                    .build());
-        } catch (NoSuchKeyException | NoSuchBucketException e) {
+            removeBlob(container, key, /*versionId=*/ null);
+        } catch (ContainerNotFoundException e) {
             // Ignore - delete is idempotent
+        }
+    }
+
+    @Override
+    public RemoveResult removeBlob(String container, String key,
+            @Nullable String versionId) {
+        var requestBuilder = DeleteObjectRequest.builder()
+                .bucket(container)
+                .key(key);
+        if (versionId != null) {
+            requestBuilder.versionId(versionId);
+        }
+        try {
+            var response = s3Client.deleteObject(requestBuilder.build());
+            return new RemoveResult(response.versionId(),
+                    Boolean.TRUE.equals(response.deleteMarker()));
+        } catch (NoSuchKeyException e) {
+            // Delete is idempotent; an absent key is not an error.
+            return RemoveResult.NONE;
+        } catch (NoSuchBucketException e) {
+            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            if (e.statusCode() != 404) {
-                throw e;
+            if (e.statusCode() == 404 && versionId == null) {
+                return RemoveResult.NONE;
             }
+            throw translate(e, container, key);
         }
     }
 
     @Override
     @Nullable
     public BlobMetadata blobMetadata(String container, String key) {
+        return blobMetadata(container, key, /*versionId=*/ null);
+    }
+
+    @Override
+    @Nullable
+    public BlobMetadata blobMetadata(String container, String key,
+            @Nullable String versionId) {
+        var requestBuilder = HeadObjectRequest.builder()
+                .bucket(container)
+                .key(key);
+        if (versionId != null) {
+            requestBuilder.versionId(versionId);
+        }
         try {
             HeadObjectResponse response = s3Client.headObject(
-                    HeadObjectRequest.builder()
-                            .bucket(container)
-                            .key(key)
-                            .build());
+                    requestBuilder.build());
 
             return new BlobMetadata(StorageType.BLOB, key,
                     response.metadata(), response.eTag(),
                     toDate(response.lastModified()),
                     fromAwsStorageClass(response.storageClass()),
                     container,
-                    toContentMetadata(response));
+                    toContentMetadata(response),
+                    response.versionId());
         } catch (NoSuchKeyException e) {
-            return null;
+            return nullOrDeleteMarker(container, key, e);
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
-                return null;
+                return nullOrDeleteMarker(container, key, e);
+            }
+            if (e.statusCode() == 405) {
+                // Reading a delete marker by its version answers 405 with
+                // x-amz-delete-marker; carry the headers through.
+                throw new HttpResponseException(new HttpResponse(405, null,
+                        versioningHeaders(e)), e);
             }
             throw translate(e, container, key);
         }
@@ -686,6 +755,127 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .bucket(container)
                     .acl(acl)
                     .build());
+        } catch (NoSuchBucketException e) {
+            throw new ContainerNotFoundException(container, e.getMessage());
+        } catch (S3Exception e) {
+            throw translate(e, container, null);
+        }
+    }
+
+    @Override
+    public boolean supportsVersioning() {
+        return true;
+    }
+
+    @Override
+    @Nullable
+    public VersioningStatus getContainerVersioning(String container) {
+        try {
+            var response = s3Client.getBucketVersioning(
+                    GetBucketVersioningRequest.builder()
+                            .bucket(container)
+                            .build());
+            var status = response.status();
+            if (status == BucketVersioningStatus.ENABLED) {
+                return VersioningStatus.ENABLED;
+            } else if (status == BucketVersioningStatus.SUSPENDED) {
+                return VersioningStatus.SUSPENDED;
+            }
+            return null;
+        } catch (NoSuchBucketException e) {
+            throw new ContainerNotFoundException(container, e.getMessage());
+        } catch (S3Exception e) {
+            throw translate(e, container, null);
+        }
+    }
+
+    @Override
+    public void setContainerVersioning(String container,
+            VersioningStatus status) {
+        var awsStatus = status == VersioningStatus.ENABLED ?
+                BucketVersioningStatus.ENABLED :
+                BucketVersioningStatus.SUSPENDED;
+        try {
+            s3Client.putBucketVersioning(PutBucketVersioningRequest.builder()
+                    .bucket(container)
+                    .versioningConfiguration(VersioningConfiguration.builder()
+                            .status(awsStatus)
+                            .build())
+                    .build());
+        } catch (NoSuchBucketException e) {
+            throw new ContainerNotFoundException(container, e.getMessage());
+        } catch (S3Exception e) {
+            throw translate(e, container, null);
+        }
+    }
+
+    @Override
+    public VersionPage listVersions(String container,
+            ListVersionsOptions options) {
+        var requestBuilder = ListObjectVersionsRequest.builder()
+                .bucket(container);
+        if (options.prefix() != null) {
+            requestBuilder.prefix(options.prefix());
+        }
+        if (options.delimiter() != null) {
+            requestBuilder.delimiter(options.delimiter());
+        }
+        if (options.keyMarker() != null) {
+            requestBuilder.keyMarker(options.keyMarker());
+        }
+        if (options.versionIdMarker() != null) {
+            requestBuilder.versionIdMarker(options.versionIdMarker());
+        }
+        if (options.maxResults() != null) {
+            requestBuilder.maxKeys(options.maxResults());
+        }
+
+        try {
+            var response = s3Client.listObjectVersions(requestBuilder.build());
+
+            // The service interleaves Version and DeleteMarker elements in
+            // one ordered document, but the SDK parses them into two lists,
+            // each still in that order.  Merge them back by S3's order --
+            // keys ascending, then newest first -- which recovers the
+            // original sequence except for a version and a marker of the
+            // same key stamped in the same millisecond.
+            var versionEntries = response.versions().stream()
+                    .map(AwsS3SdkBlobStore::toVersionMetadata)
+                    .toList();
+            var markerEntries = response.deleteMarkers().stream()
+                    .map(AwsS3SdkBlobStore::toVersionMetadata)
+                    .toList();
+            var versions = ImmutableList.<VersionMetadata>builder();
+            int vi = 0;
+            int mi = 0;
+            while (vi < versionEntries.size() || mi < markerEntries.size()) {
+                boolean takeVersion;
+                if (vi == versionEntries.size()) {
+                    takeVersion = false;
+                } else if (mi == markerEntries.size()) {
+                    takeVersion = true;
+                } else {
+                    takeVersion = compareVersionOrder(versionEntries.get(vi),
+                            markerEntries.get(mi)) <= 0;
+                }
+                versions.add(takeVersion ?
+                        versionEntries.get(vi++) : markerEntries.get(mi++));
+            }
+
+            var commonPrefixes = ImmutableList.<String>builder();
+            for (CommonPrefix prefix : response.commonPrefixes()) {
+                commonPrefixes.add(prefix.prefix());
+            }
+
+            String nextKeyMarker = null;
+            String nextVersionIdMarker = null;
+            if (Boolean.TRUE.equals(response.isTruncated())) {
+                nextKeyMarker = response.nextKeyMarker();
+                nextVersionIdMarker = response.nextVersionIdMarker();
+            }
+
+            return new VersionPage(versions.build(), commonPrefixes.build(),
+                    nextKeyMarker, nextVersionIdMarker);
         } catch (NoSuchBucketException e) {
             throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
@@ -904,6 +1094,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     @Override
     public MultipartPart copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
+            @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
             @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
             @Nullable Date ifUnmodifiedSince) {
@@ -914,6 +1105,9 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 .destinationKey(mpu.blobName())
                 .uploadId(mpu.id())
                 .partNumber(partNumber);
+        if (sourceVersionId != null) {
+            builder.sourceVersionId(sourceVersionId);
+        }
         if (copySourceRange != null) {
             builder.copySourceRange(copySourceRange);
         }
@@ -930,10 +1124,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             builder.copySourceIfUnmodifiedSince(ifUnmodifiedSince.toInstant());
         }
         try {
-            var result = s3Client.uploadPartCopy(builder.build())
-                    .copyPartResult();
+            var response = s3Client.uploadPartCopy(builder.build());
+            var result = response.copyPartResult();
             return new MultipartPart(partNumber, /*partSize=*/ -1,
-                    result.eTag(), Date.from(result.lastModified()));
+                    result.eTag(), Date.from(result.lastModified()),
+                    response.copySourceVersionId());
         } catch (S3Exception e) {
             throw translate(e, sourceContainer, sourceName);
         }
@@ -1082,6 +1277,55 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
     }
 
+    private static VersionMetadata toVersionMetadata(ObjectVersion version) {
+        return new VersionMetadata(version.key(),
+                version.versionId(),
+                Boolean.TRUE.equals(version.isLatest()),
+                /*deleteMarker=*/ false,
+                version.eTag(),
+                toDate(version.lastModified()),
+                version.size(),
+                fromAwsObjectVersionStorageClass(version.storageClass()));
+    }
+
+    private static VersionMetadata toVersionMetadata(
+            DeleteMarkerEntry marker) {
+        return new VersionMetadata(marker.key(),
+                marker.versionId(),
+                Boolean.TRUE.equals(marker.isLatest()),
+                /*deleteMarker=*/ true,
+                /*eTag=*/ null,
+                toDate(marker.lastModified()),
+                /*size=*/ null,
+                StorageClass.STANDARD);
+    }
+
+    /** S3 listing order: keys ascending, then newest first. */
+    private static int compareVersionOrder(VersionMetadata left,
+            VersionMetadata right) {
+        int compare = left.name().compareTo(right.name());
+        if (compare != 0) {
+            return compare;
+        }
+        var leftModified = left.lastModified();
+        var rightModified = right.lastModified();
+        return Long.compare(
+                rightModified == null ? 0 : rightModified.getTime(),
+                leftModified == null ? 0 : leftModified.getTime());
+    }
+
+    private static StorageClass fromAwsObjectVersionStorageClass(
+            @Nullable ObjectVersionStorageClass storageClass) {
+        if (storageClass == null) {
+            return StorageClass.STANDARD;
+        }
+        try {
+            return StorageClass.valueOf(storageClass.name());
+        } catch (IllegalArgumentException e) {
+            return StorageClass.STANDARD;
+        }
+    }
+
     private static org.gaul.s3proxy.blobstore.ContentMetadata toContentMetadata(
             HeadObjectResponse response) {
         // The SDK deprecated expires() in favor of expiresString() but the
@@ -1101,10 +1345,76 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 .build();
     }
 
+    /**
+     * The versioning response headers riding on an error, so a delete-marker
+     * 404 or 405 reaches the client with x-amz-delete-marker and
+     * x-amz-version-id the way S3 sends them.
+     */
+    private static Map<String, String> versioningHeaders(S3Exception e) {
+        var headers = ImmutableMap.<String, String>builder();
+        var details = e.awsErrorDetails();
+        if (details != null) {
+            var http = details.sdkHttpResponse();
+            for (var header : List.of(DELETE_MARKER_HEADER, VERSION_ID_HEADER,
+                    HttpHeaders.ALLOW)) {
+                http.firstMatchingHeader(header).ifPresent(
+                        value -> headers.put(header, value));
+            }
+        }
+        return headers.buildOrThrow();
+    }
+
+    /**
+     * Maps a 404 to KeyNotFoundException, marking it when the "missing"
+     * object is really the bucket's current delete marker, or to
+     * VersionNotFoundException when the request named a version that does
+     * not exist.
+     */
+    private static RuntimeException keyNotFoundOrDeleteMarker(String container,
+            String key, S3Exception e) {
+        var details = e.awsErrorDetails();
+        if (details != null) {
+            if ("NoSuchVersion".equals(details.errorCode())) {
+                return new VersionNotFoundException(container, key,
+                        /*versionId=*/ null, e.getMessage());
+            }
+            var marker = details.sdkHttpResponse()
+                    .firstMatchingHeader(DELETE_MARKER_HEADER);
+            if (marker.map(Boolean::parseBoolean).orElse(false)) {
+                return new KeyNotFoundException(container, key, e.getMessage(),
+                        details.sdkHttpResponse()
+                                .firstMatchingHeader(VERSION_ID_HEADER)
+                                .orElse("null"));
+            }
+        }
+        return new KeyNotFoundException(container, key, e.getMessage());
+    }
+
+    /**
+     * Like {@link #keyNotFoundOrDeleteMarker} but answering the
+     * blobMetadata contract: an absent object is null, while a delete
+     * marker or missing version still throws.
+     */
+    @Nullable
+    private static BlobMetadata nullOrDeleteMarker(String container,
+            String key, S3Exception e) {
+        RuntimeException translated = keyNotFoundOrDeleteMarker(container,
+                key, e);
+        if (translated instanceof KeyNotFoundException knfe &&
+                knfe.deleteMarkerVersionId() == null) {
+            return null;
+        }
+        throw translated;
+    }
+
     private RuntimeException translate(S3Exception e,
             @Nullable String container, @Nullable String key) {
         if (container != null && e.statusCode() == 404) {
             String errorCode = e.awsErrorDetails().errorCode();
+            if ("NoSuchVersion".equals(errorCode)) {
+                return new VersionNotFoundException(container, key,
+                        /*versionId=*/ null, e.getMessage());
+            }
             if ("NoSuchBucket".equals(errorCode)) {
                 return new ContainerNotFoundException(container, e.getMessage());
             } else if ("NoSuchKey".equals(errorCode)) {

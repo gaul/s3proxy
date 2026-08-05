@@ -39,6 +39,8 @@ final class AwsHttpHeaders {
     static final String COPY_SOURCE_IF_UNMODIFIED_SINCE =
             "x-amz-copy-source-if-unmodified-since";
     static final String COPY_SOURCE_RANGE = "x-amz-copy-source-range";
+    static final String COPY_SOURCE_VERSION_ID =
+            "x-amz-copy-source-version-id";
     static final String DATE = "x-amz-date";
     static final String DECODED_CONTENT_LENGTH =
             "x-amz-decoded-content-length";
@@ -51,6 +53,7 @@ final class AwsHttpHeaders {
     static final String TRAILER = "x-amz-trailer";
     static final String TRANSFER_ENCODING = "x-amz-te";
     static final String USER_AGENT = "x-amz-user-agent";
+    static final String VERSION_ID = "x-amz-version-id";
 
     private AwsHttpHeaders() {
         throw new AssertionError("intentionally unimplemented");

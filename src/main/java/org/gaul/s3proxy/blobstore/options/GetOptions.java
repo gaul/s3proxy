@@ -31,7 +31,8 @@ public record GetOptions(
         @Nullable Date ifModifiedSince,
         @Nullable Date ifUnmodifiedSince,
         @Nullable String ifMatch,
-        @Nullable String ifNoneMatch) {
+        @Nullable String ifNoneMatch,
+        @Nullable String versionId) {
 
     public static final GetOptions NONE = builder().build();
 
@@ -49,6 +50,7 @@ public record GetOptions(
         private @Nullable Date ifUnmodifiedSince;
         private @Nullable String ifMatch;
         private @Nullable String ifNoneMatch;
+        private @Nullable String versionId;
 
         public Builder range(long start, long end) {
             checkArgument(start >= 0, "start must be >= 0");
@@ -89,9 +91,20 @@ public record GetOptions(
             return this;
         }
 
+        /**
+         * Reads one version rather than the current object.  Only a store
+         * that {@link
+         * org.gaul.s3proxy.blobstore.BlobStore#supportsVersioning} honors
+         * this; the others throw UnsupportedOperationException.
+         */
+        public Builder versionId(@Nullable String versionId) {
+            this.versionId = versionId;
+            return this;
+        }
+
         public GetOptions build() {
             return new GetOptions(ranges, ifModifiedSince,
-                    ifUnmodifiedSince, ifMatch, ifNoneMatch);
+                    ifUnmodifiedSince, ifMatch, ifNoneMatch, versionId);
         }
     }
 }

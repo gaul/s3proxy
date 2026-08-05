@@ -1,6 +1,5 @@
 /*
- * Copyright 2009-2025 The Apache Software Foundation
- * Copyright 2026 Andrew Gaul <andrew@gaul.org>
+ * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,21 +16,15 @@
 
 package org.gaul.s3proxy.blobstore.domain;
 
-import java.util.Date;
-
 import org.jspecify.annotations.Nullable;
 
-public record MultipartPart(
-        int partNumber,
-        long partSize,
-        @Nullable String partETag,
-        @Nullable Date lastModified,
-        @Nullable String copySourceVersionId) {
+/**
+ * What a versioned delete did.  deleteMarker is true when the delete created
+ * a marker -- a delete naming no version on a versioned bucket -- or removed
+ * one, and versionId then names that marker; a delete naming a version
+ * reports the version it removed.  An unversioned backend reports neither.
+ */
+public record RemoveResult(@Nullable String versionId, boolean deleteMarker) {
 
-    /** A part that no version-aware copy produced. */
-    public MultipartPart(int partNumber, long partSize,
-            @Nullable String partETag, @Nullable Date lastModified) {
-        this(partNumber, partSize, partETag, lastModified,
-                /*copySourceVersionId=*/ null);
-    }
+    public static final RemoveResult NONE = new RemoveResult(null, false);
 }

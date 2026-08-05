@@ -41,10 +41,20 @@ public record BlobMetadata(
         @Nullable Date lastModified,
         StorageClass storageClass,
         @Nullable String container,
-        ContentMetadata contentMetadata) implements StorageMetadata {
+        ContentMetadata contentMetadata,
+        @Nullable String versionId) implements StorageMetadata {
 
     public BlobMetadata {
         userMetadata = ImmutableMap.copyOf(userMetadata);
+    }
+
+    /** Metadata without a version, as every unversioned store reports it. */
+    public BlobMetadata(StorageType type, String name,
+            Map<String, String> userMetadata, @Nullable String eTag,
+            @Nullable Date lastModified, StorageClass storageClass,
+            @Nullable String container, ContentMetadata contentMetadata) {
+        this(type, name, userMetadata, eTag, lastModified, storageClass,
+                container, contentMetadata, /*versionId=*/ null);
     }
 
     @Override
@@ -70,7 +80,8 @@ public record BlobMetadata(
                 .lastModified(lastModified)
                 .storageClass(storageClass)
                 .container(container)
-                .contentMetadata(contentMetadata);
+                .contentMetadata(contentMetadata)
+                .versionId(versionId);
     }
 
     public static final class Builder {
@@ -83,6 +94,7 @@ public record BlobMetadata(
         private @Nullable String container;
         private ContentMetadata contentMetadata =
                 ContentMetadata.builder().build();
+        private @Nullable String versionId;
 
         private Builder() {
         }
@@ -136,10 +148,16 @@ public record BlobMetadata(
             return this;
         }
 
+        public Builder versionId(@Nullable String versionId) {
+            this.versionId = versionId;
+            return this;
+        }
+
         public BlobMetadata build() {
             return new BlobMetadata(type, requireNonNull(name, "name"),
                     userMetadata, eTag,
-                    lastModified, storageClass, container, contentMetadata);
+                    lastModified, storageClass, container, contentMetadata,
+                    versionId);
         }
     }
 }

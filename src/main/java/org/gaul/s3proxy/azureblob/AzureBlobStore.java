@@ -393,6 +393,10 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     @Nullable
     public Blob getBlob(String container, String key, GetOptions options) {
+        if (options.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
         // Azure rejects the literal If-None-Match: * with 400
@@ -677,6 +681,10 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
+        if (options.sourceVersionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
             // Matches setBlobAccess: Azure grants read at the container, so a
             // public copy is refused rather than silently made private.
@@ -1243,9 +1251,14 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public MultipartPart copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
+            @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
             @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
             @Nullable Date ifUnmodifiedSince) {
+        if (sourceVersionId != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " +

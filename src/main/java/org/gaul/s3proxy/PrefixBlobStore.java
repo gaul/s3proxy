@@ -346,4 +346,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         }
         return builder.build();
     }
+    // Disable versioning: the prefix rewrite does not extend to the
+    // versioned operations.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

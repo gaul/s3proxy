@@ -242,4 +242,11 @@ final class EventualBlobStore extends ForwardingBlobStore {
             return null;
         }
     }
+    // Disable versioning: the near and far stores disagree about
+    // versions.
+    @Override
+    public boolean supportsVersioning() {
+        return false;
+    }
+
 }

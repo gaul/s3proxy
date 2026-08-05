@@ -126,6 +126,11 @@ public final class Blob {
             return this;
         }
 
+        public Builder versionId(@Nullable String versionId) {
+            metadataBuilder.versionId(versionId);
+            return this;
+        }
+
         public Builder userMetadata(Map<String, String> userMetadata) {
             metadataBuilder.userMetadata(userMetadata);
             return this;

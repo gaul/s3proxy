@@ -98,6 +98,7 @@ import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
 import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.VersionNotFoundException;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -107,12 +108,17 @@ import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
 import org.gaul.s3proxy.blobstore.domain.PutResult;
+import org.gaul.s3proxy.blobstore.domain.RemoveResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
+import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
+import org.gaul.s3proxy.blobstore.domain.VersionPage;
+import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
+import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 import org.jspecify.annotations.Nullable;
@@ -210,8 +216,6 @@ public class S3ProxyHandler {
             "retention",
             "tagging",
             "torrent",
-            "versioning",
-            "versions",
             "website"
     );
     /**
@@ -549,8 +553,6 @@ public class S3ProxyHandler {
         if (hasDateHeader && hasXAmzDateHeader) {
             haveBothDateHeader = true;
         }
-
-        checkVersionId(request);
 
         // The bucket and key the request names, decoded once here so that the
         // anonymous path below and the authenticated one further down agree
@@ -997,6 +999,8 @@ public class S3ProxyHandler {
             }
         }
 
+        checkVersionId(request, blobStore);
+
         String uploadId = request.getParameter("uploadId");
 
         if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
@@ -1006,6 +1010,13 @@ public class S3ProxyHandler {
         switch (method) {
         case "DELETE" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
+                // Bucket subresources that cannot be deleted must not fall
+                // through to DeleteBucket, which ignores the parameter and
+                // would remove the bucket itself.
+                if (request.getParameter("versioning") != null ||
+                        request.getParameter("versions") != null) {
+                    throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                }
                 setOperation(ctx, S3Operation.DELETE_BUCKET);
                 handleContainerDelete(request, response, blobStore, path[1]);
                 return;
@@ -1043,6 +1054,16 @@ public class S3ProxyHandler {
                 } else if (request.getParameter("uploads") != null) {
                     setOperation(ctx, S3Operation.LIST_MULTIPART_UPLOADS);
                     handleListMultipartUploads(request, response, blobStore,
+                            path[1]);
+                    return;
+                } else if (request.getParameter("versioning") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_VERSIONING);
+                    handleGetBucketVersioning(request, response, blobStore,
+                            path[1]);
+                    return;
+                } else if (request.getParameter("versions") != null) {
+                    setOperation(ctx, S3Operation.LIST_OBJECT_VERSIONS);
+                    handleListObjectVersions(request, response, blobStore,
                             path[1]);
                     return;
                 }
@@ -1108,6 +1129,12 @@ public class S3ProxyHandler {
                 if (request.getParameter("acl") != null) {
                     setOperation(ctx, S3Operation.PUT_BUCKET_ACL);
                     handleSetContainerAcl(request, response, is, blobStore,
+                            path[1]);
+                    return;
+                }
+                if (request.getParameter("versioning") != null) {
+                    setOperation(ctx, S3Operation.PUT_BUCKET_VERSIONING);
+                    handleSetBucketVersioning(request, response, is, blobStore,
                             path[1]);
                     return;
                 }
@@ -1229,6 +1256,8 @@ public class S3ProxyHandler {
             checkNoResponseHeaderOverrides(request);
         }
 
+        checkVersionId(request, blobStore);
+
         switch (method) {
         case "GET" -> {
             if (uri.equals("/")) {
@@ -1241,6 +1270,18 @@ public class S3ProxyHandler {
                 if (access == ContainerAccess.PRIVATE) {
                     setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                     throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("versioning") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_VERSIONING);
+                    handleGetBucketVersioning(request, response, blobStore,
+                            containerName);
+                    return;
+                }
+                if (request.getParameter("versions") != null) {
+                    setOperation(ctx, S3Operation.LIST_OBJECT_VERSIONS);
+                    handleListObjectVersions(request, response, blobStore,
+                            containerName);
+                    return;
                 }
                 setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                 handleBlobList(request, response, blobStore, containerName);
@@ -1388,7 +1429,12 @@ public class S3ProxyHandler {
 
     private void handleGetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName, String blobName) throws IOException {
+            String containerName, String blobName)
+            throws IOException, S3Exception {
+        // Resolves only the current object; ignoring a versionId would
+        // answer with the wrong version's ACL.
+        checkVersionId(request);
+
         BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
 
         response.setCharacterEncoding(UTF_8);
@@ -1424,6 +1470,10 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
+        // Resolves only the current object; ignoring a versionId would
+        // change the wrong version's ACL.
+        checkVersionId(request);
+
         BlobAccess access;
 
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
@@ -1615,6 +1665,228 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
         throw new S3Exception(S3ErrorCode.NO_SUCH_POLICY);
+    }
+
+    /**
+     * GetBucketVersioning.  A store without versioning still answers: its
+     * buckets have never been versioned, which S3 spells as a configuration
+     * with no Status element.
+     */
+    private void handleGetBucketVersioning(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
+        VersioningStatus status;
+        if (blobStore.supportsVersioning()) {
+            status = blobStore.getContainerVersioning(containerName);
+        } else {
+            if (!blobStore.containerExists(containerName)) {
+                throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            }
+            status = null;
+        }
+
+        response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
+        try (Writer writer = response.getWriter()) {
+            response.setContentType(XML_CONTENT_TYPE);
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("VersioningConfiguration");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+            if (status != null) {
+                writeSimpleElement(xml, "Status", status.value());
+            }
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+    }
+
+    private void handleSetBucketVersioning(HttpServletRequest request,
+            HttpServletResponse response, InputStream is, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
+        if (!blobStore.supportsVersioning()) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Versioning is not supported.");
+        }
+
+        // Bound the buffered body: the configuration is a few elements, but
+        // the request is otherwise attacker-controlled.
+        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
+                .readAllBytes();
+        if (body.length == v4MaxNonChunkedRequestSize + 1) {
+            throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+        }
+        VersioningConfigurationRequest vcr = readXmlBody(body,
+                VersioningConfigurationRequest.class);
+        if (vcr.mfaDelete() != null) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                    "MFA delete is not supported.");
+        }
+        VersioningStatus status = vcr.status() == null ? null :
+                VersioningStatus.fromValue(vcr.status());
+        if (status == null) {
+            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+        }
+
+        blobStore.setContainerVersioning(containerName, status);
+        addCorsResponseHeader(request, response);
+    }
+
+    private void handleListObjectVersions(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException, S3Exception {
+        if (!blobStore.supportsVersioning()) {
+            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Versioning is not supported.");
+        }
+
+        String encodingType = request.getParameter("encoding-type");
+        var optionsBuilder = ListVersionsOptions.builder();
+        String prefix = request.getParameter("prefix");
+        if (prefix != null && !prefix.isEmpty()) {
+            optionsBuilder.prefix(prefix);
+        }
+        String delimiter = request.getParameter("delimiter");
+        if (delimiter != null && !delimiter.isEmpty()) {
+            optionsBuilder.delimiter(delimiter);
+        }
+        String keyMarker = request.getParameter("key-marker");
+        if (keyMarker != null) {
+            optionsBuilder.keyMarker(keyMarker);
+        }
+        String versionIdMarker = request.getParameter("version-id-marker");
+        if (versionIdMarker != null) {
+            optionsBuilder.versionIdMarker(versionIdMarker);
+        }
+
+        int maxKeys = 1000;
+        String maxKeysString = request.getParameter("max-keys");
+        if (maxKeysString != null) {
+            try {
+                maxKeys = Integer.parseInt(maxKeysString);
+            } catch (NumberFormatException nfe) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            }
+            if (maxKeys < 0) {
+                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            }
+            if (maxKeys > 1000) {
+                maxKeys = 1000;
+            }
+        }
+        optionsBuilder.maxResults(maxKeys);
+
+        VersionPage page = blobStore.listVersions(containerName,
+                optionsBuilder.build());
+
+        addCorsResponseHeader(request, response);
+        response.setCharacterEncoding(UTF_8);
+        try (Writer writer = response.getWriter()) {
+            response.setContentType(XML_CONTENT_TYPE);
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("ListVersionsResult");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+
+            writeSimpleElement(xml, "Name", containerName);
+
+            if (prefix == null) {
+                xml.writeEmptyElement("Prefix");
+            } else {
+                writeSimpleElement(xml, "Prefix", encodeBlob(
+                        encodingType, prefix));
+            }
+
+            if (keyMarker == null) {
+                xml.writeEmptyElement("KeyMarker");
+            } else {
+                writeSimpleElement(xml, "KeyMarker", encodeBlob(
+                        encodingType, keyMarker));
+            }
+
+            if (versionIdMarker == null) {
+                xml.writeEmptyElement("VersionIdMarker");
+            } else {
+                writeSimpleElement(xml, "VersionIdMarker", versionIdMarker);
+            }
+
+            writeSimpleElement(xml, "MaxKeys", String.valueOf(maxKeys));
+
+            if (!Strings.isNullOrEmpty(delimiter)) {
+                writeSimpleElement(xml, "Delimiter", encodeBlob(
+                        encodingType, delimiter));
+            }
+
+            if (encodingType != null && encodingType.equals("url")) {
+                writeSimpleElement(xml, "EncodingType", encodingType);
+            }
+
+            String nextKeyMarker = page.nextKeyMarker();
+            if (nextKeyMarker != null) {
+                writeSimpleElement(xml, "IsTruncated", "true");
+                writeSimpleElement(xml, "NextKeyMarker", encodeBlob(
+                        encodingType, nextKeyMarker));
+                String nextVersionIdMarker = page.nextVersionIdMarker();
+                if (nextVersionIdMarker != null) {
+                    writeSimpleElement(xml, "NextVersionIdMarker",
+                            nextVersionIdMarker);
+                }
+            } else {
+                writeSimpleElement(xml, "IsTruncated", "false");
+            }
+
+            for (VersionMetadata version : page.versions()) {
+                xml.writeStartElement(
+                        version.deleteMarker() ? "DeleteMarker" : "Version");
+
+                writeSimpleElement(xml, "Key", encodeBlob(encodingType,
+                        version.name()));
+                writeSimpleElement(xml, "VersionId", version.versionId());
+                writeSimpleElement(xml, "IsLatest",
+                        String.valueOf(version.latest()));
+                Date lastModified = version.lastModified();
+                if (lastModified != null) {
+                    writeSimpleElement(xml, "LastModified",
+                            formatDate(lastModified));
+                }
+
+                if (!version.deleteMarker()) {
+                    String eTag = version.eTag();
+                    if (eTag != null) {
+                        writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+                    }
+                    Long size = version.size();
+                    if (size != null) {
+                        writeSimpleElement(xml, "Size", String.valueOf(size));
+                    }
+                }
+
+                writeOwnerStanza(xml);
+
+                if (!version.deleteMarker()) {
+                    writeSimpleElement(xml, "StorageClass",
+                            version.storageClass().toString());
+                }
+
+                xml.writeEndElement();
+            }
+
+            for (String commonPrefix : page.commonPrefixes()) {
+                xml.writeStartElement("CommonPrefixes");
+                writeSimpleElement(xml, "Prefix", encodeBlob(encodingType,
+                        commonPrefix));
+                xml.writeEndElement();
+            }
+
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
     }
 
     private void handleListMultipartUploads(HttpServletRequest request,
@@ -2102,7 +2374,19 @@ public class S3ProxyHandler {
         if (request.getHeader(HttpHeaders.IF_MATCH) != null) {
             throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
         }
-        blobStore.removeBlob(containerName, blobName);
+        if (blobStore.supportsVersioning()) {
+            RemoveResult result = blobStore.removeBlob(containerName,
+                    blobName, request.getParameter("versionId"));
+            String versionId = result.versionId();
+            if (versionId != null) {
+                response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
+            }
+            if (result.deleteMarker()) {
+                response.addHeader(AwsHttpHeaders.DELETE_MARKER, "true");
+            }
+        } else {
+            blobStore.removeBlob(containerName, blobName);
+        }
         addCorsResponseHeader(request, response);
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
@@ -2230,6 +2514,8 @@ public class S3ProxyHandler {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
         }
 
+        boolean supportsVersioning = blobStore.supportsVersioning();
+        boolean anyVersion = false;
         Collection<String> blobNames = new ArrayList<>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects()) {
@@ -2239,14 +2525,40 @@ public class S3ProxyHandler {
             if (s3Object.hasCondition()) {
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
             }
-            if (s3Object.hasVersion()) {
+            // On a versioning store even the literal "null" names a version
+            // -- the one written while the bucket was unversioned -- so any
+            // VersionId element routes the delete through the versioned path.
+            if (s3Object.versionId() != null && supportsVersioning) {
+                anyVersion = true;
+            } else if (s3Object.hasVersion()) {
                 throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
             }
             blobNames.add(s3Object.key());
         }
 
-        blobStore.removeBlobs(containerName, blobNames);
+        // A request naming versions deletes key by key for the per-key
+        // results; one naming none keeps the store's bulk delete, whose
+        // response reports no version information.
+        List<DeletedObjectResult> results = null;
+        if (anyVersion) {
+            results = new ArrayList<>();
+            for (DeleteMultipleObjectsRequest.S3Object s3Object :
+                    dmor.objects()) {
+                try {
+                    RemoveResult result = blobStore.removeBlob(containerName,
+                            s3Object.key(), s3Object.versionId());
+                    results.add(new DeletedObjectResult(s3Object.key(),
+                            s3Object.versionId(), result, null));
+                } catch (VersionNotFoundException vnfe) {
+                    results.add(new DeletedObjectResult(s3Object.key(),
+                            s3Object.versionId(), null,
+                            S3ErrorCode.NO_SUCH_VERSION));
+                }
+            }
+        } else {
+            blobStore.removeBlobs(containerName, blobNames);
+        }
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -2258,7 +2570,40 @@ public class S3ProxyHandler {
             xml.writeStartElement("DeleteResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            if (!dmor.quiet()) {
+            if (results != null) {
+                for (DeletedObjectResult result : results) {
+                    S3ErrorCode error = result.error();
+                    if (error != null) {
+                        xml.writeStartElement("Error");
+                        writeSimpleElement(xml, "Key", result.key());
+                        String versionId = result.requestedVersionId();
+                        if (versionId != null) {
+                            writeSimpleElement(xml, "VersionId", versionId);
+                        }
+                        writeSimpleElement(xml, "Code", error.getErrorCode());
+                        writeSimpleElement(xml, "Message", error.getMessage());
+                        xml.writeEndElement();
+                    } else if (!dmor.quiet()) {
+                        xml.writeStartElement("Deleted");
+                        writeSimpleElement(xml, "Key", result.key());
+                        String versionId = result.requestedVersionId();
+                        if (versionId != null) {
+                            writeSimpleElement(xml, "VersionId", versionId);
+                        }
+                        RemoveResult removed = result.result();
+                        if (removed != null && removed.deleteMarker()) {
+                            writeSimpleElement(xml, "DeleteMarker", "true");
+                            String markerVersionId = removed.versionId();
+                            if (markerVersionId != null) {
+                                writeSimpleElement(xml,
+                                        "DeleteMarkerVersionId",
+                                        markerVersionId);
+                            }
+                        }
+                        xml.writeEndElement();
+                    }
+                }
+            } else if (!dmor.quiet()) {
                 for (String blobName : blobNames) {
                     xml.writeStartElement("Deleted");
 
@@ -2268,7 +2613,7 @@ public class S3ProxyHandler {
                 }
             }
 
-            // TODO: emit error stanza
+            // TODO: emit error stanza for the bulk path
             xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {
@@ -2276,11 +2621,20 @@ public class S3ProxyHandler {
         }
     }
 
+    /** One key's outcome in a versioned DeleteObjects. */
+    private record DeletedObjectResult(String key,
+            @Nullable String requestedVersionId,
+            @Nullable RemoveResult result, @Nullable S3ErrorCode error) {
+    }
+
     private void handleBlobMetadata(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException, S3Exception {
-        BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
+        BlobMetadata metadata = blobStore.supportsVersioning() ?
+                blobStore.blobMetadata(containerName, blobName,
+                        request.getParameter("versionId")) :
+                blobStore.blobMetadata(containerName, blobName);
         if (metadata == null) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -2313,16 +2667,29 @@ public class S3ProxyHandler {
     }
 
     /**
-     * Vet a versionId.  S3Proxy does not implement versioning and cannot
-     * resolve a version, but ignoring the parameter silently operates on the
-     * current object instead -- for a DELETE that destroys data the caller
-     * never named.  "null" is the version every object in an unversioned
-     * bucket carries, so it denotes the current object and is allowed.
+     * Vet a versionId against the store the request resolved to.  A store
+     * without versioning cannot resolve a version, but ignoring the
+     * parameter silently operates on the current object instead -- for a
+     * DELETE that destroys data the caller never named.  "null" is the
+     * version every object in an unversioned bucket carries, so it denotes
+     * the current object and is allowed.  A store with versioning receives
+     * the parameter in the operations that consume it; the ones that do not
+     * -- object ACLs, GetObjectAttributes -- refuse it individually via
+     * {@link #checkVersionId(HttpServletRequest)}.
      *
      * <p>Note this cannot live in UNSUPPORTED_PARAMETERS, which rejects a
-     * parameter outright, and which anonymous requests never reach.  It runs
-     * before the anonymous dispatch so that public reads are vetted too.
+     * parameter outright, and which anonymous requests never reach.  Both
+     * dispatch paths run it before acting so that public reads are vetted
+     * too.
      */
+    private static void checkVersionId(HttpServletRequest request,
+            BlobStore blobStore) throws S3Exception {
+        if (!blobStore.supportsVersioning()) {
+            checkVersionId(request);
+        }
+    }
+
+    /** Vet a versionId for an operation that cannot resolve one. */
     private static void checkVersionId(HttpServletRequest request)
             throws S3Exception {
         String versionId = request.getParameter("versionId");
@@ -2424,6 +2791,9 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException, S3Exception {
+        // Resolves only the current object; ignoring a versionId would
+        // answer with the wrong version's attributes.
+        checkVersionId(request);
         Set<String> attributes = requestedObjectAttributes(request);
 
         BlobMetadata metadata = blobStore.blobMetadata(containerName,
@@ -2602,6 +2972,10 @@ public class S3ProxyHandler {
         int status = HttpServletResponse.SC_OK;
         var optionsBuilder = GetOptions.builder();
 
+        if (blobStore.supportsVersioning()) {
+            optionsBuilder.versionId(request.getParameter("versionId"));
+        }
+
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         if (ifMatch != null) {
             optionsBuilder.ifETagMatches(ifMatch);
@@ -2687,6 +3061,47 @@ public class S3ProxyHandler {
     }
 
     /**
+     * The versionId the raw x-amz-copy-source header names, or null.  The
+     * query must split from the raw header before percent-decoding: decoding
+     * first would conflate a key containing an encoded "?versionId=" with
+     * the version syntax.  On a store without versioning only the literal
+     * "null" is accepted, denoting the current object as {@link
+     * #checkVersionId(HttpServletRequest)} does for the query parameter.
+     */
+    @Nullable
+    private static String parseCopySourceVersionId(String rawCopySource,
+            BlobStore blobStore) throws S3Exception {
+        int query = rawCopySource.indexOf('?');
+        if (query == -1) {
+            return null;
+        }
+        String queryString = rawCopySource.substring(query + 1);
+        if (!queryString.startsWith("versionId=")) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        String versionId = URLDecoder.decode(
+                queryString.substring("versionId=".length()),
+                StandardCharsets.UTF_8);
+        if (versionId.isEmpty()) {
+            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        if (!blobStore.supportsVersioning()) {
+            if (!versionId.equals("null")) {
+                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                        "Versioning is not supported.");
+            }
+            return null;
+        }
+        return versionId;
+    }
+
+    /** The x-amz-copy-source bucket/key with any query part removed. */
+    private static String stripCopySourceQuery(String rawCopySource) {
+        int query = rawCopySource.indexOf('?');
+        return query == -1 ? rawCopySource : rawCopySource.substring(0, query);
+    }
+
+    /**
      * Authorize the bucket named by x-amz-copy-source.  doHandle resolves the
      * blob store from the bucket in the request URI, i.e. the copy
      * destination; the source names a second bucket that never passes through
@@ -2708,9 +3123,11 @@ public class S3ProxyHandler {
             @Nullable String requestIdentity,
             String destContainerName, String destBlobName)
             throws IOException, S3Exception {
-        String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
-        copySourceHeader = URLDecoder.decode(
-                copySourceHeader, StandardCharsets.UTF_8);
+        String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
+        String sourceVersionId = parseCopySourceVersionId(rawCopySource,
+                blobStore);
+        String copySourceHeader = URLDecoder.decode(
+                stripCopySourceQuery(rawCopySource), StandardCharsets.UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -2726,13 +3143,18 @@ public class S3ProxyHandler {
         boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
                 AwsHttpHeaders.METADATA_DIRECTIVE));
 
+        // Copying a named version of an object onto the object itself is a
+        // legitimate way to restore that version, so the self-copy check
+        // applies only to a copy of the current object.
         if (sourceContainerName.equals(destContainerName) &&
                 sourceBlobName.equals(destBlobName) &&
+                sourceVersionId == null &&
                 !replaceMetadata) {
             throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
         }
 
         CopyOptions.Builder options = CopyOptions.builder();
+        options.sourceVersionId(sourceVersionId);
 
         // The access rides down with the copy so that the store applies it as
         // it creates the object, rather than a PutObjectAcl afterwards whose
@@ -2819,6 +3241,15 @@ public class S3ProxyHandler {
                 destBlobName);
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
+        String copySourceVersionId = copyResult.copySourceVersionId();
+        if (copySourceVersionId != null) {
+            response.addHeader(AwsHttpHeaders.COPY_SOURCE_VERSION_ID,
+                    copySourceVersionId);
+        }
+        String destVersionId = copyResult.versionId();
+        if (destVersionId != null) {
+            response.addHeader(AwsHttpHeaders.VERSION_ID, destVersionId);
+        }
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -3020,6 +3451,10 @@ public class S3ProxyHandler {
         String eTag = result.eTag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        }
+        String versionId = result.versionId();
+        if (versionId != null) {
+            response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
         }
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
@@ -3395,6 +3830,10 @@ public class S3ProxyHandler {
         String eTag = result.eTag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        }
+        String versionId = result.versionId();
+        if (versionId != null) {
+            response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
         }
 
         // A browser posting a form has nowhere to display a response body, so
@@ -3815,9 +4254,12 @@ public class S3ProxyHandler {
         // store decides the outcome, and once the 200 and the XML prolog are
         // out the refusal can no longer be a status code.  That costs the
         // whitespace kept flowing during a slow completion, which matters
-        // less than answering 412 where S3 answers 412.
+        // less than answering 412 where S3 answers 412.  A versioning store
+        // completes synchronously for the same reason: the version it mints
+        // is a response header, unsendable once the prolog is out.
         PutResult syncResult = null;
-        if (completeIfMatch != null || completeIfNoneMatch != null) {
+        if (completeIfMatch != null || completeIfNoneMatch != null ||
+                blobStore.supportsVersioning()) {
             syncResult = blobStore.completeMultipartUpload(completeMpu, parts);
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
                 blobStore.removeBlob(containerName,
@@ -3828,6 +4270,10 @@ public class S3ProxyHandler {
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
+        if (completedResult != null && completedResult.versionId() != null) {
+            response.addHeader(AwsHttpHeaders.VERSION_ID,
+                    completedResult.versionId());
+        }
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(XML_CONTENT_TYPE);
@@ -4588,9 +5034,11 @@ public class S3ProxyHandler {
             String containerName, String blobName, String uploadId)
             throws IOException, S3Exception {
         // TODO: duplicated from handlePutBlob
-        String copySourceHeader = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
-        copySourceHeader = URLDecoder.decode(
-                copySourceHeader, StandardCharsets.UTF_8);
+        String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
+        String sourceVersionId = parseCopySourceVersionId(rawCopySource,
+                blobStore);
+        String copySourceHeader = URLDecoder.decode(
+                stripCopySourceQuery(rawCopySource), StandardCharsets.UTF_8);
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -4605,6 +5053,7 @@ public class S3ProxyHandler {
                 sourceBlobName);
 
         var optionsBuilder = GetOptions.builder();
+        optionsBuilder.versionId(sourceVersionId);
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         String rawCopySourceRange = range;
         long expectedSize = -1;
@@ -4679,8 +5128,11 @@ public class S3ProxyHandler {
             // same InvalidRange semantics as the emulated path below, which
             // checks the size from getBlob's metadata.
             if (expectedSize != -1) {
-                BlobMetadata sourceMetadata = blobStore.blobMetadata(
-                        sourceContainerName, sourceBlobName);
+                BlobMetadata sourceMetadata = sourceVersionId != null ?
+                        blobStore.blobMetadata(sourceContainerName,
+                                sourceBlobName, sourceVersionId) :
+                        blobStore.blobMetadata(sourceContainerName,
+                                sourceBlobName);
                 if (sourceMetadata == null) {
                     throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
                 }
@@ -4696,7 +5148,7 @@ public class S3ProxyHandler {
             MultipartPart part;
             try {
                 part = blobStore.copyMultipartPart(mpu, partNumber,
-                        sourceContainerName, sourceBlobName,
+                        sourceContainerName, sourceBlobName, sourceVersionId,
                         rawCopySourceRange,
                         request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH),
                         request.getHeader(
@@ -4787,7 +5239,7 @@ public class S3ProxyHandler {
 
         writeCopyPartResponse(request, response,
                 new MultipartPart(partNumber, contentLength, eTag,
-                        lastModified));
+                        lastModified, blobMetadata.versionId()));
     }
 
     private void writeCopyPartResponse(HttpServletRequest request,
@@ -4795,6 +5247,11 @@ public class S3ProxyHandler {
             throws IOException {
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
+        String copySourceVersionId = part.copySourceVersionId();
+        if (copySourceVersionId != null) {
+            response.addHeader(AwsHttpHeaders.COPY_SOURCE_VERSION_ID,
+                    copySourceVersionId);
+        }
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -4994,6 +5451,10 @@ public class S3ProxyHandler {
             response.addDateHeader(HttpHeaders.LAST_MODIFIED,
                     lastModified.getTime());
         }
+        String versionId = metadata.versionId();
+        if (versionId != null) {
+            response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
+        }
         StorageClass storageClass = metadata.storageClass();
         if (storageClass != null) {
             response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
@@ -5106,10 +5567,12 @@ public class S3ProxyHandler {
         }
 
         // A read that found nothing missed an absent object rather than a
-        // delete marker; s3proxy does not implement versioning, so no key
-        // resolves to one.  Set this centrally because some backends raise
-        // NoSuchKey from the blobstore instead of reporting absence.
+        // delete marker; no unversioned key resolves to one.  Set this
+        // centrally because some backends raise NoSuchKey from the blobstore
+        // instead of reporting absence.  A versioning backend that did find
+        // a marker has already said so; do not contradict it.
         if (code == S3ErrorCode.NO_SUCH_KEY &&
+                !response.containsHeader(AwsHttpHeaders.DELETE_MARKER) &&
                 (request.getMethod().equals("GET") ||
                         request.getMethod().equals("HEAD"))) {
             response.addHeader(AwsHttpHeaders.DELETE_MARKER, "false");

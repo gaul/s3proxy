@@ -143,7 +143,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * object ownership controls
 * object server-side encryption
 * object tagging
-* object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74)
+* object versioning on backends other than aws-s3-sdk, see [#74](https://github.com/gaul/s3proxy/issues/74)
 * paginating ListParts with `part-number-marker`
 * public access block
 * reading a single part of a multipart object with `partNumber`, unless the object has only one part
