@@ -175,6 +175,13 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('-'));
     private static final long MAX_MULTIPART_COPY_SIZE =
             5L * 1024L * 1024L * 1024L;
+    /**
+     * The largest body read into a single array, whatever
+     * v4MaxNonChunkedRequestSize is configured to: the JVM will not allocate
+     * an array of Integer.MAX_VALUE on every implementation, and a request
+     * this side of that limit has other problems.
+     */
+    private static final long MAX_BUFFERED_PAYLOAD = Integer.MAX_VALUE - 8;
     /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
     private static final int MAX_BUCKETS = 10_000;
     /** An S3 composite ETag: the parts' MD5s hashed, then the part count. */
@@ -851,13 +858,36 @@ public class S3ProxyHandler {
                     } else if ("UNSIGNED-PAYLOAD".equals(contentSha256)) {
                         payload = new byte[0];
                     } else {
-                        // buffer the entire stream to calculate digest
-                        // why input stream read contentlength of header?
-                        payload = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
-                                .readAllBytes();
-                        if (payload.length == v4MaxNonChunkedRequestSize + 1) {
+                        // The signature covers a digest of the body, so the
+                        // body has to be in hand before the request can be
+                        // authenticated: everything read here is read on
+                        // behalf of a caller who has so far offered only an
+                        // access key id, which is not a secret.  Refuse a
+                        // length that says up front it will not fit, rather
+                        // than reading the limit's worth to find out, and
+                        // read a length that will fit into a buffer of
+                        // exactly that size, since growing one of unknown
+                        // size ends up holding twice the body it keeps.
+                        long declaredLength = request.getContentLengthLong();
+                        if (declaredLength > v4MaxNonChunkedRequestSize) {
                             throw new S3Exception(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+                        }
+                        if (declaredLength >= 0 &&
+                                declaredLength <= MAX_BUFFERED_PAYLOAD) {
+                            payload = is.readNBytes((int) declaredLength);
+                        } else {
+                            // A body of unannounced length, e.g. one framed
+                            // by Transfer-Encoding: chunked.
+                            payload = ByteStreams.limit(is,
+                                    v4MaxNonChunkedRequestSize + 1)
+                                    .readAllBytes();
+                            if (payload.length ==
+                                    v4MaxNonChunkedRequestSize + 1) {
+                                throw new S3Exception(
+                                        S3ErrorCode
+                                        .MAX_MESSAGE_LENGTH_EXCEEDED);
+                            }
                         }
 
                         // maybe we should check this when signing,
