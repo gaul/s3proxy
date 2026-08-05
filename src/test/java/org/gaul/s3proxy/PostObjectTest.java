@@ -87,13 +87,18 @@ public final class PostObjectTest {
         }
     }
 
-    /** A form carrying no credential at all uploads, as S3 allows. */
+    /**
+     * A form carrying no credential at all is refused.  The POST itself is
+     * unauthenticated -- a browser form sends no Authorization header -- so
+     * the policy is the only thing that can say the caller may write, and
+     * S3Proxy cannot express a bucket that anyone may write to.
+     */
     @Test
-    public void testAnonymousPost() throws Exception {
-        HttpResponse<String> response = post(
+    public void testUnsignedPostIsDenied() throws Exception {
+        HttpResponse<String> response = postUnsigned(
                 "key", "foo.txt", "Content-Type", "text/plain");
-        assertThat(response.statusCode()).isEqualTo(204);
-        assertThat(body("foo.txt")).isEqualTo("bar");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
     }
 
     /** The browser has nowhere to show a body, so the form picks a status. */
@@ -240,8 +245,36 @@ public final class PostObjectTest {
         }
     }
 
-    /** Build and send a multipart form whose file part is always "bar". */
+    /**
+     * Build and send a multipart form whose file part is always "bar",
+     * authorized by a policy admitting whatever fields the caller sent.  A
+     * form that carries a policy of its own is left as it is.
+     */
     private HttpResponse<String> post(String... fields) throws Exception {
+        for (int i = 0; i < fields.length; i += 2) {
+            if (fields[i].equalsIgnoreCase("policy")) {
+                return postUnsigned(fields);
+            }
+        }
+        // A policy must name every field the form sends, so mirror them.
+        var conditions = new StringBuilder(
+                "{\"bucket\": \"" + containerName + "\"}");
+        for (int i = 0; i < fields.length; i += 2) {
+            conditions.append(", [\"starts-with\", \"$")
+                    .append(fields[i]).append("\", \"\"]");
+        }
+        String policy = policy(conditions.toString());
+        List<String> signed = new ArrayList<>(List.of(fields));
+        signed.addAll(List.of(
+                "AWSAccessKeyId", IDENTITY,
+                "policy", policy,
+                "signature", sign(policy)));
+        return postUnsigned(signed.toArray(new String[0]));
+    }
+
+    /** The same, sending exactly the fields given and nothing else. */
+    private HttpResponse<String> postUnsigned(String... fields)
+            throws Exception {
         var out = new ByteArrayOutputStream();
         List<String> pairs = new ArrayList<>(List.of(fields));
         for (int i = 0; i < pairs.size(); i += 2) {

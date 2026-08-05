@@ -1205,7 +1205,7 @@ public class S3ProxyHandler {
         case "POST" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 setOperation(ctx, S3Operation.PUT_OBJECT);
-                handlePostBlob(request, response, is, blobStore, path[1]);
+                handlePostBlob(request, response, is, path[1]);
                 return;
             }
         }
@@ -2979,7 +2979,7 @@ public class S3ProxyHandler {
     }
 
     private void handlePostBlob(HttpServletRequest request,
-            HttpServletResponse response, InputStream is, BlobStore blobStore,
+            HttpServletResponse response, InputStream is,
             String containerName)
             throws IOException, S3Exception {
         String contentTypeHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
@@ -3094,16 +3094,19 @@ public class S3ProxyHandler {
             return;
         }
 
-        // A form carrying none of the three is an unauthenticated upload,
-        // which S3 answers from the bucket's own permissions.
+        // A POST carries no Authorization header -- doHandle routes a request
+        // without one here -- so the policy is the only thing that can say the
+        // caller may write.  A form carrying none is refused: S3 answers such
+        // a form from the bucket's own permissions, which admit an anonymous
+        // write only through a bucket policy granting one, and ContainerAccess
+        // says whether a bucket is readable and nothing else.  Accepting it
+        // would let anyone who can reach the proxy create and overwrite
+        // objects in every bucket the backend holds.
         if (policy == null && signature == null && identity == null) {
-            finishPostBlob(request, response, blobStore, containerName,
-                    blobName, contentType, fields, payload, checksum,
-                    checksumValue);
-            return;
+            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
         }
         // Carrying some but not all of them is a form built wrong rather than
-        // one built for anonymous use, and saying so beats reporting it as a
+        // one that meant to go unsigned, and saying so beats reporting it as a
         // refusal the caller cannot act on.
         if (policy == null || signature == null) {
             throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
@@ -3157,8 +3160,13 @@ public class S3ProxyHandler {
                 authHeader.getAuthenticationType());
         }
 
+        // Locating with the bucket and key rather than with the identity alone
+        // both authorizes them -- a BlobStoreLocator which scopes buckets to
+        // identities answers null for one this caller may not address -- and
+        // names the store to write to, which is not necessarily the default
+        // one the anonymous path arrived with.
         AccessGrant grant = blobStoreLocator.locateBlobStore(
-                authHeader.getIdentity(), null, null);
+                authHeader.getIdentity(), containerName, blobName);
         if (grant == null) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return;
@@ -3210,8 +3218,9 @@ public class S3ProxyHandler {
         // of the document.
         PostPolicy.parse(policy).evaluate(fields, payload.length);
 
-        finishPostBlob(request, response, blobStore, containerName, blobName,
-                contentType, fields, payload, checksum, checksumValue);
+        finishPostBlob(request, response, grant.blobStore(), containerName,
+                blobName, contentType, fields, payload, checksum,
+                checksumValue);
     }
 
     /**
