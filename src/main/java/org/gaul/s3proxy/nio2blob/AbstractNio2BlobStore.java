@@ -24,17 +24,20 @@ import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryIteratorException;
 import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -136,11 +139,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             BasicFileAttributes.class);
                 } catch (IOException ioe) {
                     // A container deleted while being enumerated simply does
-                    // not appear.  SFTP sometimes reports the vanished entry
-                    // as a generic error rather than NoSuchFileException, so
-                    // settle it with a second look.
-                    if (ioe instanceof NoSuchFileException ||
-                            Files.notExists(path)) {
+                    // not appear.
+                    if (vanished(ioe, path)) {
                         continue;
                     }
                     throw ioe;
@@ -195,17 +195,25 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // BLOB (not a prefix) because its remainder after the prefix is
             // empty, placing it in <Contents> regardless of the delimiter.
             if (prefix.endsWith("/") && Files.isDirectory(pathPrefix)) {
-                var markerXattrs = safeGetXattrs(pathPrefix);
-                if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
-                    var attr = Files.readAttributes(pathPrefix,
-                            BasicFileAttributes.class);
-                    set.add(new BlobMetadata(StorageType.BLOB,
-                            prefix, Map.of(),
-                            readETagXattr(markerXattrs),
-                            new Date(attr.lastModifiedTime().toMillis()),
-                            StorageClass.STANDARD, /*container=*/ null,
-                            ContentMetadata.builder()
-                                    .contentLength(0L).build()));
+                try {
+                    var markerXattrs = safeGetXattrs(pathPrefix);
+                    if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
+                        var attr = Files.readAttributes(pathPrefix,
+                                BasicFileAttributes.class);
+                        set.add(new BlobMetadata(StorageType.BLOB,
+                                prefix, Map.of(),
+                                readETagXattr(markerXattrs),
+                                new Date(attr.lastModifiedTime().toMillis()),
+                                StorageClass.STANDARD, /*container=*/ null,
+                                ContentMetadata.builder()
+                                        .contentLength(0L).build()));
+                    }
+                } catch (IOException ioe) {
+                    // The prefix directory was deleted mid-request: there is
+                    // no marker left to report.
+                    if (!vanished(ioe, pathPrefix)) {
+                        throw ioe;
+                    }
                 }
             }
 
@@ -243,95 +251,126 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, pathPrefixString);
-        if (!Files.isDirectory(parent)) {  // TODO: TOCTOU
+        if (!Files.isDirectory(parent)) {
             return;
         }
-        try (var stream = Files.newDirectoryStream(parent)) {
-            for (var path : stream) {
-                logger.debug("examining: {}", path);
-                if (filterMultipart && path.getFileName().toString()
-                        .startsWith(MULTIPART_PREFIX)) {
-                    continue;
-                }
-                // The reserved backing store for the "/" key is not itself a
-                // client-visible object; the key "/" is never enumerated.
-                if (path.getFileName().toString().equals(SLASH_BLOB_NAME)) {
-                    continue;
-                }
-                if (!path.toAbsolutePath().toString().startsWith(pathPrefixString)) {
-                    // ignore
-                    continue;
-                }
-                var attr = Files.readAttributes(path, BasicFileAttributes.class);
-                if (attr.isDirectory()) {
-                    if (!"/".equals(delimiter)) {
-                        listHelper(builder, containerPath, path, pathPrefixString, delimiter,
-                                filterMultipart);
+        try (var stream = openDirectoryStreamIfPresent(parent)) {
+            if (stream == null) {
+                // The directory was removed between the caller finding it
+                // and this descent; nothing to list.
+                return;
+            }
+            try {
+                for (var path : stream) {
+                    logger.debug("examining: {}", path);
+                    if (filterMultipart && path.getFileName().toString()
+                            .startsWith(MULTIPART_PREFIX)) {
+                        continue;
                     }
-
-                    var dirXattrs = safeGetXattrs(path);
-                    var markerExists = dirXattrs.attributes()
-                            .contains(XATTR_CONTENT_MD5);
-
-                    // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
-                    if ("/".equals(delimiter) || markerExists) {
-                        var name = relativeName(containerPath, path);
-                        logger.debug("adding prefix: {}", name);
-                        // A directory-marker object (a key ending in "/") that
-                        // was explicitly stored carries the XATTR_CONTENT_MD5
-                        // xattr. Report its metadata so a non-delimited
-                        // ListObjects, which emits this entry as <Contents>,
-                        // includes Size/LastModified/ETag like any other
-                        // 0-byte object. Implicit prefixes (no marker object)
-                        // keep null metadata since they surface only as
-                        // <CommonPrefixes>.
-                        String eTag = null;
-                        Date lastModified = null;
-                        Long size = null;
-                        if (markerExists) {
-                            eTag = readETagXattr(dirXattrs);
-                            lastModified = new Date(
-                                    attr.lastModifiedTime().toMillis());
-                            size = 0L;
+                    // The reserved backing store for the "/" key is not
+                    // itself a client-visible object; the key "/" is never
+                    // enumerated.
+                    if (path.getFileName().toString().equals(SLASH_BLOB_NAME)) {
+                        continue;
+                    }
+                    if (!path.toAbsolutePath().toString().startsWith(
+                            pathPrefixString)) {
+                        // ignore
+                        continue;
+                    }
+                    try {
+                        listEntry(builder, containerPath, path,
+                                pathPrefixString, delimiter, filterMultipart);
+                    } catch (IOException ioe) {
+                        // An object deleted while being enumerated simply
+                        // does not appear.
+                        if (vanished(ioe, path)) {
+                            continue;
                         }
-
-                        builder.add(new BlobMetadata(
-                                StorageType.RELATIVE_PATH,
-                                name + "/", Map.of(), eTag,
-                                lastModified,
-                                StorageClass.STANDARD, /*container=*/ null,
-                                ContentMetadata.builder()
-                                        .contentLength(size).build()));
+                        throw ioe;
                     }
-                } else {
-                    var name = relativeName(containerPath, path);
-                    logger.debug("adding: {}", name);
-                    var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
-
-                    var xattrs = safeGetXattrs(path);
-                    String eTag = readETagXattr(xattrs);
-                    StorageClass storageClass = StorageClass.STANDARD;
-                    if (xattrs.view() != null) {
-                        var tierString = readStringAttributeIfPresent(
-                                xattrs.view(), xattrs.attributes(),
-                                XATTR_STORAGE_TIER);
-                        if (tierString != null) {
-                            storageClass = parseStorageClass(tierString);
-                        }
-                    }
-
-                    builder.add(new BlobMetadata(StorageType.BLOB,
-                            name, Map.of(),
-                            eTag, lastModifiedTime,
-                            storageClass,
-                            /*container=*/ null,
-                            ContentMetadata.builder()
-                                    .contentLength(attr.size())
-                                    .build()));
+                }
+            } catch (DirectoryIteratorException die) {
+                // The directory vanished mid-iteration: its remaining
+                // entries went with it.
+                var cause = requireNonNull(die.getCause());
+                if (!vanished(cause, parent)) {
+                    throw cause;
                 }
             }
-        } catch (NoSuchFileException nsfe) {
-            // ignore
+        }
+    }
+
+    private void listEntry(ImmutableSortedSet.Builder<StorageMetadata> builder,
+            Path containerPath, Path path, String pathPrefixString,
+            @Nullable String delimiter, boolean filterMultipart)
+            throws IOException {
+        var attr = Files.readAttributes(path, BasicFileAttributes.class);
+        if (attr.isDirectory()) {
+            if (!"/".equals(delimiter)) {
+                listHelper(builder, containerPath, path, pathPrefixString,
+                        delimiter, filterMultipart);
+            }
+
+            var dirXattrs = safeGetXattrs(path);
+            var markerExists = dirXattrs.attributes()
+                    .contains(XATTR_CONTENT_MD5);
+
+            // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
+            if ("/".equals(delimiter) || markerExists) {
+                var name = relativeName(containerPath, path);
+                logger.debug("adding prefix: {}", name);
+                // A directory-marker object (a key ending in "/") that
+                // was explicitly stored carries the XATTR_CONTENT_MD5
+                // xattr. Report its metadata so a non-delimited
+                // ListObjects, which emits this entry as <Contents>,
+                // includes Size/LastModified/ETag like any other
+                // 0-byte object. Implicit prefixes (no marker object)
+                // keep null metadata since they surface only as
+                // <CommonPrefixes>.
+                String eTag = null;
+                Date lastModified = null;
+                Long size = null;
+                if (markerExists) {
+                    eTag = readETagXattr(dirXattrs);
+                    lastModified = new Date(
+                            attr.lastModifiedTime().toMillis());
+                    size = 0L;
+                }
+
+                builder.add(new BlobMetadata(
+                        StorageType.RELATIVE_PATH,
+                        name + "/", Map.of(), eTag,
+                        lastModified,
+                        StorageClass.STANDARD, /*container=*/ null,
+                        ContentMetadata.builder()
+                                .contentLength(size).build()));
+            }
+        } else {
+            var name = relativeName(containerPath, path);
+            logger.debug("adding: {}", name);
+            var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
+
+            var xattrs = safeGetXattrs(path);
+            String eTag = readETagXattr(xattrs);
+            StorageClass storageClass = StorageClass.STANDARD;
+            if (xattrs.view() != null) {
+                var tierString = readStringAttributeIfPresent(
+                        xattrs.view(), xattrs.attributes(),
+                        XATTR_STORAGE_TIER);
+                if (tierString != null) {
+                    storageClass = parseStorageClass(tierString);
+                }
+            }
+
+            builder.add(new BlobMetadata(StorageType.BLOB,
+                    name, Map.of(),
+                    eTag, lastModifiedTime,
+                    storageClass,
+                    /*container=*/ null,
+                    ContentMetadata.builder()
+                            .contentLength(attr.size())
+                            .build()));
         }
     }
 
@@ -640,6 +679,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (NoSuchFileException nsfe) {
             return null;
         } catch (IOException ioe) {
+            if (Files.notExists(path)) {
+                // SFTP sometimes reports the missing object as a generic
+                // error rather than NoSuchFileException.
+                return null;
+            }
             throw new RuntimeException(ioe);
         }
     }
@@ -997,14 +1041,44 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (!Files.isDirectory(path)) {
             return;
         }
-        try (var paths = Files.walk(path)) {
-            // deepest first, so a directory is emptied before it is removed
-            for (Path child : paths.sorted(Comparator.reverseOrder())
-                    .toList()) {
-                Files.deleteIfExists(child);
-            }
+        try {
+            deleteRecursively(path);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
+        }
+    }
+
+    /**
+     * Deletes depth-first, so a directory is emptied before it is removed,
+     * tolerating entries that vanish concurrently -- Files.walk fails its
+     * whole traversal when a visited entry disappears before it is statted,
+     * where skipping it is exactly what deletion wants.
+     */
+    private static void deleteRecursively(Path path) throws IOException {
+        if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+            try (var stream = openDirectoryStreamIfPresent(path)) {
+                if (stream != null) {
+                    try {
+                        for (var child : stream) {
+                            deleteRecursively(child);
+                        }
+                    } catch (DirectoryIteratorException die) {
+                        // The directory vanished mid-iteration: its
+                        // remaining entries went with it.
+                        var cause = requireNonNull(die.getCause());
+                        if (!vanished(cause, path)) {
+                            throw cause;
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ioe) {
+            if (!vanished(ioe, path)) {
+                throw ioe;
+            }
         }
     }
 
@@ -1452,9 +1526,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             try {
                 logger.debug("deleting: {}", path);
-                Files.delete(path);
+                Files.deleteIfExists(path);
             } catch (DirectoryNotEmptyException dnee) {
                 break;
+            } catch (IOException ioe) {
+                // Another delete's cleanup already removed this parent.
+                if (!vanished(ioe, path)) {
+                    throw ioe;
+                }
             }
             path = path.getParent();
         }
@@ -1490,6 +1569,34 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * set, or EMPTY if the filesystem does not support extended attributes
      * (e.g., Docker Desktop bind mounts via VirtioFS, some NFS/NAS mounts).
      */
+    /**
+     * Whether an I/O failure on path means it was concurrently removed.
+     * SFTP sometimes reports a vanished entry as a generic error rather
+     * than NoSuchFileException, so settle it with a second look.
+     */
+    private static boolean vanished(IOException ioe, Path path) {
+        return ioe instanceof NoSuchFileException || Files.notExists(path);
+    }
+
+    /**
+     * Opens a directory stream, or returns null when the directory was
+     * concurrently removed or replaced by a file.
+     */
+    @Nullable
+    private static DirectoryStream<Path> openDirectoryStreamIfPresent(
+            Path path) throws IOException {
+        try {
+            return Files.newDirectoryStream(path);
+        } catch (NoSuchFileException | NotDirectoryException e) {
+            return null;
+        } catch (IOException ioe) {
+            if (Files.notExists(path)) {
+                return null;
+            }
+            throw ioe;
+        }
+    }
+
     private static XattrState safeGetXattrs(Path path) {
         var view = getXattrView(path);
         if (view == null) {
