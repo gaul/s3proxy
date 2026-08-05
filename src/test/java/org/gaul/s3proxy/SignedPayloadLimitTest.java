@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -138,8 +139,8 @@ public final class SignedPayloadLimitTest {
 
     private String send(String request) throws Exception {
         try (var socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1",
-                    s3Proxy.getPort()));
+            socket.connect(new InetSocketAddress(
+                    InetAddress.getLoopbackAddress(), s3Proxy.getPort()));
             socket.setSoTimeout(10_000);
             socket.getOutputStream().write(
                     request.getBytes(StandardCharsets.UTF_8));

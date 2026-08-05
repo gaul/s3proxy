@@ -1565,11 +1565,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     /**
-     * Safely read extended attributes for a path. Returns a view and attribute
-     * set, or EMPTY if the filesystem does not support extended attributes
-     * (e.g., Docker Desktop bind mounts via VirtioFS, some NFS/NAS mounts).
-     */
-    /**
      * Whether an I/O failure on path means it was concurrently removed.
      * SFTP sometimes reports a vanished entry as a generic error rather
      * than NoSuchFileException, so settle it with a second look.
@@ -1582,7 +1577,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Opens a directory stream, or returns null when the directory was
      * concurrently removed or replaced by a file.
      */
+    // Both callers take the returned stream into a try-with-resources, which
+    // the check cannot see from the factory method that hands it over.
     @Nullable
+    @SuppressWarnings("StreamResourceLeak")
     private static DirectoryStream<Path> openDirectoryStreamIfPresent(
             Path path) throws IOException {
         try {
@@ -1597,6 +1595,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
+    /**
+     * Safely read extended attributes for a path. Returns a view and attribute
+     * set, or EMPTY if the filesystem does not support extended attributes
+     * (e.g., Docker Desktop bind mounts via VirtioFS, some NFS/NAS mounts).
+     */
     private static XattrState safeGetXattrs(Path path) {
         var view = getXattrView(path);
         if (view == null) {
@@ -1633,20 +1636,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
-    /**
-     * Resolve an S3 object key to its filesystem path within a container.
-     *
-     * <p>The key "/" is special: {@code containerPath.resolve("/")} yields the
-     * absolute filesystem root, which {@link #checkValidPath} rejects. Real S3
-     * treats "/" as a legitimate, distinct object, so it is redirected to a
-     * reserved child ({@link #SLASH_BLOB_NAME}). Because "/" ends in a slash it
-     * flows through the existing directory-marker code as an ordinary 0-byte
-     * marker, but backed by its own inode -- so DELETE/PUT/ACL of "/" never
-     * touch the container directory (which represents the bucket).
-     *
-     * <p>To keep that reserved namespace private, any other key that would
-     * resolve to the slash blob or a descendant of it is rejected with 400.
-     */
     /**
      * Joins part files into one, asking the kernel to do the copying.
      * FileChannel.transferTo is copy_file_range on Linux, which btrfs and XFS
@@ -1691,6 +1680,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
+    /**
+     * Resolve an S3 object key to its filesystem path within a container.
+     *
+     * <p>The key "/" is special: {@code containerPath.resolve("/")} yields the
+     * absolute filesystem root, which {@link #checkValidPath} rejects. Real S3
+     * treats "/" as a legitimate, distinct object, so it is redirected to a
+     * reserved child ({@link #SLASH_BLOB_NAME}). Because "/" ends in a slash it
+     * flows through the existing directory-marker code as an ordinary 0-byte
+     * marker, but backed by its own inode -- so DELETE/PUT/ACL of "/" never
+     * touch the container directory (which represents the bucket).
+     *
+     * <p>To keep that reserved namespace private, any other key that would
+     * resolve to the slash blob or a descendant of it is rejected with 400.
+     */
     private static Path resolveBlobPath(Path containerPath, String key) {
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
         Path path;
