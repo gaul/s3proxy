@@ -53,6 +53,7 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -3061,11 +3062,24 @@ public class S3ProxyHandler {
         var parser = new MultiPartFormData.Parser(boundary);
         parser.setFilesDirectory(java.nio.file.Path.of(
                 System.getProperty("java.io.tmpdir")));
+        // Jetty bounds the number of parts and nothing else, so say how large
+        // a body may be.  Nothing has authorized this one -- a form POST
+        // carries no Authorization header, and the policy that speaks for it
+        // is inside the body still being read -- so an unbounded body is one
+        // anyone who can reach the proxy may send, and it is spilled to the
+        // filesystem on its way to being held whole in memory.  Bound it
+        // where the other body read into memory is bounded.
+        parser.setMaxLength(v4MaxNonChunkedRequestSize);
         var futureParts = new CompletableFuture<MultiPartFormData.Parts>();
         parser.parse(new InputStreamContentSource(is,
                 ByteBufferPool.SIZED_NON_POOLING),
                 Promise.Invocable.toPromise(futureParts));
-        MultiPartFormData.Parts parts = futureParts.join();
+        MultiPartFormData.Parts parts;
+        try {
+            parts = futureParts.join();
+        } catch (CompletionException ce) {
+            throw multipartParseFailure(ce);
+        }
         try {
             for (var part : parts) {
                 var name = part.getName();
@@ -3257,6 +3271,25 @@ public class S3ProxyHandler {
         finishPostBlob(request, response, grant.blobStore(), containerName,
                 blobName, contentType, fields, payload, checksum,
                 checksumValue);
+    }
+
+    /**
+     * Say what the multipart parser refused.  A body that outgrew a limit is
+     * one the proxy will not hold, which is what MaxMessageLengthExceeded
+     * says; every limit arrives as an IllegalStateException naming which.
+     * Anything else it rejected is a body that is not the multipart/form-data
+     * it claimed to be.  Both are the caller's own doing, and neither is the
+     * 500 the unchecked exception would otherwise become.
+     */
+    private static S3Exception multipartParseFailure(CompletionException ce) {
+        Throwable cause = ce.getCause();
+        if (cause instanceof IllegalStateException) {
+            return new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED,
+                    cause);
+        }
+        return new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                "The body of your POST request is not well-formed" +
+                " multipart/form-data.", cause);
     }
 
     /**

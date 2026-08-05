@@ -52,6 +52,7 @@ public final class PostObjectTest {
     private static final String IDENTITY = "identity";
     private static final String CREDENTIAL = "credential";
     private static final String BOUNDARY = "----------s3proxytest";
+    private static final int MAX_REQUEST_SIZE = 16 * 1024;
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -70,6 +71,10 @@ public final class PostObjectTest {
                 .blobStore(blobStore)
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4, IDENTITY,
                         CREDENTIAL)
+                // Small enough that a test can send more than the proxy will
+                // hold without sending the default 128 MB; every form here
+                // but that one is a few hundred bytes.
+                .v4MaxNonChunkedRequestSize(MAX_REQUEST_SIZE)
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .build();
         s3Proxy.start();
@@ -210,6 +215,52 @@ public final class PostObjectTest {
                 "signature", sign(policy));
         assertThat(response.statusCode()).isEqualTo(403);
         assertThat(response.body()).contains("Policy Condition failed");
+    }
+
+    /**
+     * A form arrives before the policy inside it can say who authorized the
+     * upload, so how much of it the proxy will read is bounded rather than
+     * trusted.  Jetty bounds the number of parts and nothing else, which left
+     * an unauthenticated request able to spill as much as it liked through
+     * the temporary directory and into memory.
+     */
+    @Test
+    public void testOversizedPostIsRefused() throws Exception {
+        var out = new ByteArrayOutputStream();
+        out.write(("--" + BOUNDARY + "\r\nContent-Disposition: form-data;" +
+                " name=\"file\"; filename=\"big.txt\"\r\n\r\n")
+                .getBytes(StandardCharsets.UTF_8));
+        out.write("x".repeat(2 * MAX_REQUEST_SIZE)
+                .getBytes(StandardCharsets.UTF_8));
+        out.write(("\r\n--" + BOUNDARY + "--\r\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(bucketUri))
+                        .header("Content-Type",
+                                "multipart/form-data; boundary=" + BOUNDARY)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(
+                                out.toByteArray()))
+                        .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>MaxMessageLengthExceeded</Code>");
+    }
+
+    /** A body the parser cannot finish is a bad request, not a 500. */
+    @Test
+    public void testMalformedPostIsRefused() throws Exception {
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(bucketUri))
+                        .header("Content-Type",
+                                "multipart/form-data; boundary=" + BOUNDARY)
+                        .POST(HttpRequest.BodyPublishers.ofString(
+                                "--" + BOUNDARY + "\r\nContent-Disposition:" +
+                                " form-data; name=\"file\";" +
+                                " filename=\"x\"\r\n\r\ntruncated"))
+                        .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>InvalidRequest</Code>");
     }
 
     /** A policy with no signature is a form built wrong, not a refusal. */
