@@ -38,6 +38,7 @@ import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -131,7 +132,7 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob,
+    public PutResult putBlob(String containerName, Blob blob,
             PutOptions options) {
         long length;
         try (InputStream is = requireNonNull(blob.getPayload())) {
@@ -151,7 +152,7 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(final MultipartUpload mpu,
+    public PutResult completeMultipartUpload(final MultipartUpload mpu,
             final List<MultipartPart> parts) {
         long length = 0;
         for (MultipartPart part : parts) {

@@ -117,7 +117,7 @@ public final class AliasBlobStoreTest {
         Blob blob = Blob.builder(blobName).payload(content)
                 .build();
         String eTag = aliasBlobStore.putBlob(aliasContainerName, blob,
-                PutOptions.NONE);
+                PutOptions.NONE).eTag();
         assertThat(eTag).isEqualTo(contentMD5);
         BlobMetadata blobMetadata = aliasBlobStore.blobMetadata(
                 aliasContainerName, blobName);
@@ -147,7 +147,7 @@ public final class AliasBlobStoreTest {
         var parts = new ImmutableList.Builder<MultipartPart>();
         parts.add(part);
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
-                parts.build());
+                parts.build()).eTag();
         @SuppressWarnings("deprecation")
         HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(

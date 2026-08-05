@@ -46,9 +46,11 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -436,14 +438,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob,
+    public PutResult putBlob(String containerName, Blob blob,
         PutOptions putOptions) {
         return delegate().putBlob(containerName,
             encryptBlob(blob), putOptions);
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName,
+    public CopyResult copyBlob(String fromContainer, String fromName,
         String toContainer, String toName, CopyOptions options) {
 
         // if we copy an encrypted blob
@@ -599,7 +601,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu,
+    public PutResult completeMultipartUpload(MultipartUpload mpu,
         List<MultipartPart> parts) {
 
         return delegate().completeMultipartUpload(filterMultipartUpload(mpu),

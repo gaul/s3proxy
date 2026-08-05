@@ -102,9 +102,11 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
@@ -2804,9 +2806,9 @@ public class S3ProxyHandler {
             options.userMetadata(userMetadata.build());
         }
 
-        String eTag;
+        CopyResult copyResult;
         try {
-            eTag = blobStore.copyBlob(
+            copyResult = blobStore.copyBlob(
                     sourceContainerName, sourceBlobName,
                     destContainerName, destBlobName, options.build());
         } catch (KeyNotFoundException knfe) {
@@ -2832,7 +2834,10 @@ public class S3ProxyHandler {
                         formatDate(lastModified));
             }
 
-            writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+            String eTag = copyResult.eTag();
+            if (eTag != null) {
+                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
+            }
 
             xml.writeEndElement();
             xml.flush();
@@ -2986,7 +2991,6 @@ public class S3ProxyHandler {
                 .ifNoneMatch(ifNoneMatch)
                 .build();
 
-        String eTag;
         Blob.Builder builder = Blob.builder(blobName)
                 .payload(is)
                 .contentLength(contentLength);
@@ -3008,12 +3012,15 @@ public class S3ProxyHandler {
             builder = builder.contentMD5(contentMD5);
         }
 
-        eTag = blobStore.putBlob(containerName, builder.build(),
+        PutResult result = blobStore.putBlob(containerName, builder.build(),
                 options);
 
         addCorsResponseHeader(request, response);
 
-        response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        String eTag = result.eTag();
+        if (eTag != null) {
+            response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
+        }
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
         }
@@ -3378,13 +3385,14 @@ public class S3ProxyHandler {
         if (!userMetadata.isEmpty()) {
             builder.userMetadata(userMetadata);
         }
-        String eTag = blobStore.putBlob(containerName, builder.build(),
+        PutResult result = blobStore.putBlob(containerName, builder.build(),
                 PutOptions.NONE);
 
         addCorsResponseHeader(request, response);
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
         }
+        String eTag = result.eTag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
         }
@@ -3808,15 +3816,15 @@ public class S3ProxyHandler {
         // out the refusal can no longer be a status code.  That costs the
         // whitespace kept flowing during a slow completion, which matters
         // less than answering 412 where S3 answers 412.
-        String syncETag = null;
+        PutResult syncResult = null;
         if (completeIfMatch != null || completeIfNoneMatch != null) {
-            syncETag = blobStore.completeMultipartUpload(completeMpu, parts);
+            syncResult = blobStore.completeMultipartUpload(completeMpu, parts);
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
                 blobStore.removeBlob(containerName,
                         multipartStubName(uploadId));
             }
         }
-        final String completedETag = syncETag;
+        final PutResult completedResult = syncResult;
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -3833,22 +3841,22 @@ public class S3ProxyHandler {
 
             // Launch async thread to allow main thread to emit newlines to
             // the client while completeMultipartUpload processes.
-            final var eTag = new AtomicReference<@Nullable String>(
-                    completedETag);
+            final var result = new AtomicReference<@Nullable PutResult>(
+                    completedResult);
             final AtomicReference<RuntimeException> exception =
                     new AtomicReference<>();
             var thread = new Thread() {
                 @Override
                 public void run() {
                     try {
-                        eTag.set(blobStore.completeMultipartUpload(
+                        result.set(blobStore.completeMultipartUpload(
                                 completeMpu, parts));
                     } catch (RuntimeException re) {
                         exception.set(re);
                     }
                 }
             };
-            if (completedETag == null) {
+            if (completedResult == null) {
                 thread.start();
             }
 
@@ -3895,7 +3903,7 @@ public class S3ProxyHandler {
                 return;
             }
 
-            if (completedETag == null &&
+            if (completedResult == null &&
                     Quirks.MULTIPART_REQUIRES_STUB.contains(
                             getBlobStoreType(blobStore))) {
                 blobStore.removeBlob(containerName,
@@ -3912,8 +3920,11 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", blobName);
 
-            if (eTag.get() != null) {
-                writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag.get()));
+            PutResult completed = result.get();
+            String completedETag = completed == null ? null : completed.eTag();
+            if (completedETag != null) {
+                writeSimpleElement(xml, "ETag",
+                        maybeQuoteETag(completedETag));
             }
 
             if (mpuChecksum != null) {

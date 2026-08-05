@@ -47,9 +47,11 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
@@ -454,7 +456,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public String putBlob(String container, Blob blob, PutOptions options) {
+    public PutResult putBlob(String container, Blob blob,
+            PutOptions options) {
         var contentMetadata = blob.getMetadata().contentMetadata();
         var requestBuilder = PutObjectRequest.builder()
                 .bucket(container)
@@ -527,7 +530,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             } else {
                 var response = s3Client.putObject(requestBuilder.build(),
                         RequestBody.fromInputStream(is, contentLength));
-                return response.eTag();
+                return new PutResult(response.eTag(), response.versionId());
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to read blob payload", e);
@@ -537,7 +540,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName,
+    public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         var requestBuilder = CopyObjectRequest.builder()
                 .sourceBucket(fromContainer)
@@ -599,7 +602,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
         try {
             var response = s3Client.copyObject(requestBuilder.build());
-            return response.copyObjectResult().eTag();
+            return new CopyResult(response.copyObjectResult().eTag(),
+                    response.versionId(), response.copySourceVersionId());
         } catch (NoSuchKeyException e) {
             throw new KeyNotFoundException(fromContainer, fromName,
                     e.getMessage());
@@ -835,7 +839,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu,
+    public PutResult completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         var sortedParts = sortAndValidateParts(parts);
         var completedParts = sortedParts.stream()
@@ -864,7 +868,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         try {
             var response = s3Client.completeMultipartUpload(
                     requestBuilder.build());
-            return response.eTag();
+            return new PutResult(response.eTag(), response.versionId());
         } catch (S3Exception e) {
             throw translate(e, mpu.containerName(), mpu.blobName());
         }

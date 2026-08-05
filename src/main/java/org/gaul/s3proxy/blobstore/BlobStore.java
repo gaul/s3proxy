@@ -27,9 +27,11 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -91,10 +93,10 @@ public interface BlobStore extends AutoCloseable {
 
     boolean blobExists(String container, String name);
 
-    String putBlob(String container, Blob blob, PutOptions options);
+    PutResult putBlob(String container, Blob blob, PutOptions options);
 
-    String copyBlob(String fromContainer, String fromName, String toContainer,
-            String toName, CopyOptions options);
+    CopyResult copyBlob(String fromContainer, String fromName,
+            String toContainer, String toName, CopyOptions options);
 
     @Nullable
     BlobMetadata blobMetadata(String container, String name);
@@ -119,7 +121,7 @@ public interface BlobStore extends AutoCloseable {
 
     void abortMultipartUpload(MultipartUpload mpu);
 
-    String completeMultipartUpload(MultipartUpload mpu,
+    PutResult completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts);
 
     /**

@@ -78,7 +78,7 @@ public final class RegexBlobStoreTest {
                 content).build();
 
         String eTag = regexBlobStore.putBlob(containerName, blob,
-                PutOptions.NONE);
+                PutOptions.NONE).eTag();
         assertThat(eTag).isEqualTo(contentHash);
 
         BlobMetadata blobMetadata = regexBlobStore.blobMetadata(

@@ -27,8 +27,10 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -73,7 +75,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(final String containerName, Blob blob,
+    public PutResult putBlob(final String containerName, Blob blob,
             final PutOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
@@ -96,7 +98,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String copyBlob(final String fromContainer, final String fromName,
+    public CopyResult copyBlob(final String fromContainer, final String fromName,
             final String toContainer, final String toName,
             final CopyOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
@@ -114,7 +116,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(final MultipartUpload mpu,
+    public PutResult completeMultipartUpload(final MultipartUpload mpu,
             final List<MultipartPart> parts) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }

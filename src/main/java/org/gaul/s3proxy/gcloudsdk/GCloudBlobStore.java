@@ -75,9 +75,11 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
@@ -474,7 +476,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public String putBlob(String container,
+    public PutResult putBlob(String container,
             org.gaul.s3proxy.blobstore.domain.Blob blob, PutOptions options) {
         var contentMetadata = blob.getMetadata().contentMetadata();
         var blobInfo = BlobInfo.newBuilder(
@@ -555,7 +557,7 @@ public final class GCloudBlobStore implements BlobStore {
         try (var is = blob.getPayload()) {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
                     writeOptions.toArray(new BlobWriteOption[0]));
-            return gcsBlob.getEtag();
+            return new PutResult(gcsBlob.getEtag());
         } catch (StorageException se) {
             // GCS has no dedicated error code for a checksum mismatch: it
             // reports the md5Match validation we requested as a generic 400
@@ -571,7 +573,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName,
+    public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         var source = BlobId.of(fromContainer, fromName);
         var targetBuilder = BlobInfo.newBuilder(
@@ -629,7 +631,7 @@ public final class GCloudBlobStore implements BlobStore {
                     .setTarget(targetBuilder.build(), targetOptions)
                     .build();
             var result = storage.copy(copyRequest);
-            return result.getResult().getEtag();
+            return new CopyResult(result.getResult().getEtag());
         } catch (StorageException se) {
             throw translate(se, fromContainer, fromName);
         }
@@ -912,7 +914,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu,
+    public PutResult completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -1013,7 +1015,7 @@ public final class GCloudBlobStore implements BlobStore {
             // Clean up
             storage.delete(source);
             storage.delete(BlobId.of(mpu.containerName(), uploadKey));
-            return result.getResult().getEtag();
+            return new PutResult(result.getResult().getEtag());
         }
 
         // GCS compose supports up to 32 parts.
@@ -1055,7 +1057,7 @@ public final class GCloudBlobStore implements BlobStore {
         }
         storage.delete(BlobId.of(mpu.containerName(), uploadKey));
 
-        return eTag;
+        return new PutResult(eTag);
     }
 
     /**

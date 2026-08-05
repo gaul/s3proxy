@@ -91,9 +91,11 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
@@ -506,7 +508,8 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public String putBlob(String container, Blob blob, PutOptions options) {
+    public PutResult putBlob(String container, Blob blob,
+            PutOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(blob.getMetadata().name())
                 .getBlockBlobClient();
@@ -555,9 +558,10 @@ public final class AzureBlobStore implements BlobStore {
                         .setMetadata(metadata)
                         .setTier(tier)
                         .setRequestConditions(requestConditions);
-                return reportETag(client.uploadWithResponse(uploadOptions,
-                        /*timeout=*/ null, /*context=*/ null)
-                        .getValue().getETag());
+                return new PutResult(reportETag(
+                        client.uploadWithResponse(uploadOptions,
+                                /*timeout=*/ null, /*context=*/ null)
+                        .getValue().getETag()));
             }
 
             // Content-Length is unknown, so fall back to the output stream,
@@ -577,11 +581,11 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             // TODO: racy
-            return reportETag(blobServiceClient
+            return new PutResult(reportETag(blobServiceClient
                     .getBlobContainerClient(container)
                     .getBlobClient(blob.getMetadata().name())
                     .getProperties()
-                    .getETag());
+                    .getETag()));
         } catch (BlobStorageException bse) {
             throw translate(bse, container, blob.getMetadata().name());
         } catch (IOException ioe) {
@@ -671,7 +675,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName,
+    public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
             // Matches setBlobAccess: Azure grants read at the container, so a
@@ -777,7 +781,8 @@ public final class AzureBlobStore implements BlobStore {
                 client.setMetadata(userMetadata);
             }
 
-            return reportETag(response.getValue().getETag());
+            return new CopyResult(reportETag(
+                    response.getValue().getETag()));
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
                 throw translate(bse, fromContainer, fromName);
@@ -820,7 +825,8 @@ public final class AzureBlobStore implements BlobStore {
                 if (contentMetadata != null) {
                     client.setHttpHeaders(headers);
                 }
-                return reportETag(client.getProperties().getETag());
+                return new CopyResult(reportETag(
+                        client.getProperties().getETag()));
             } catch (BlobStorageException bse2) {
                 throw translate(bse2, fromContainer, fromName);
             }
@@ -1045,7 +1051,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu,
+    public PutResult completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -1155,7 +1161,7 @@ public final class AzureBlobStore implements BlobStore {
             stubBlobClient.delete();
 
             String finalETag = reportETag(response.getValue().getETag());
-            return finalETag;
+            return new PutResult(finalETag);
         } catch (BlobStorageException bse) {
             var errorCode = bse.getErrorCode();
             if (errorCode.equals(BlobErrorCode.BLOB_NOT_FOUND) ||

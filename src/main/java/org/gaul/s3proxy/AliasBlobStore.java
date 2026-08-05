@@ -37,9 +37,11 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -201,7 +203,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(final String containerName, Blob blob,
+    public PutResult putBlob(final String containerName, Blob blob,
                           final PutOptions options) {
         return delegate().putBlob(getContainer(containerName), blob,
                 options);
@@ -219,7 +221,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String copyBlob(final String fromContainer, final String fromName,
+    public CopyResult copyBlob(final String fromContainer, final String fromName,
                            final String toContainer, final String toName,
                            final CopyOptions options) {
         return delegate().copyBlob(getContainer(fromContainer), fromName,
@@ -241,7 +243,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(final MultipartUpload mpu,
+    public PutResult completeMultipartUpload(final MultipartUpload mpu,
                                           final List<MultipartPart> parts) {
         return delegate().completeMultipartUpload(getDelegateMpu(mpu), parts);
     }

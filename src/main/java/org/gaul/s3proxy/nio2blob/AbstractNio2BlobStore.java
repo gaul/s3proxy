@@ -70,9 +70,11 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
@@ -689,8 +691,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final String putBlob(String container, Blob blob, PutOptions options) {
-        return putBlob(container, blob, options, /*parts=*/ null);
+    public final PutResult putBlob(String container, Blob blob,
+            PutOptions options) {
+        return new PutResult(putBlob(container, blob, options,
+                /*parts=*/ null));
     }
 
     /**
@@ -867,7 +871,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final String copyBlob(String fromContainer, String fromName,
+    public final CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
         if (blob == null) {
@@ -942,8 +946,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
-            return putBlob(toContainer, builder.build(), PutOptions.builder()
-                    .blobAccess(options.blobAccess()).build());
+            return new CopyResult(putBlob(toContainer, builder.build(),
+                    PutOptions.builder().blobAccess(options.blobAccess())
+                            .build(),
+                    /*parts=*/ null));
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -1182,7 +1188,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+    public final PutResult completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
         var metas = ImmutableList.<BlobMetadata>builder();
         long contentLength = 0;
         var md5Hasher = md5.newHasher();
@@ -1284,7 +1290,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             setBlobAccess(mpu.containerName(), mpu.blobName(), mpuPutOptions.blobAccess());
         }
 
-        return mpuETag;
+        return new PutResult(mpuETag);
     }
 
     @Override
@@ -1295,7 +1301,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentLength(contentLength)
                 .contentMD5(contentMD5)
                 .build();
-        var partETag = putBlob(mpu.containerName(), blob, PutOptions.NONE);
+        var partETag = putBlob(mpu.containerName(), blob, PutOptions.NONE,
+                /*parts=*/ null);
         var metadata = requireNonNull(
                 blobMetadata(mpu.containerName(), partName));
         return new MultipartPart(partNumber, contentLength, partETag, metadata.lastModified());

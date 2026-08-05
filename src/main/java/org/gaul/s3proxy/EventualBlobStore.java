@@ -35,8 +35,10 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -122,13 +124,14 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(final String containerName, Blob blob,
+    public PutResult putBlob(final String containerName, Blob blob,
             final PutOptions options) {
         final String nearName = blob.getMetadata().name();
-        String nearETag = writeStore.putBlob(containerName, blob, options);
-        schedule(new Callable<@Nullable String>() {
+        PutResult nearResult = writeStore.putBlob(containerName, blob,
+                options);
+        schedule(new Callable<@Nullable PutResult>() {
                 @Override
-                public @Nullable String call() {
+                public @Nullable PutResult call() {
                     Blob nearBlob = writeStore.getBlob(containerName, nearName,
                             GetOptions.NONE);
                     if (nearBlob == null) {
@@ -138,12 +141,11 @@ final class EventualBlobStore extends ForwardingBlobStore {
                                 " replication", containerName, nearName);
                         return null;
                     }
-                    String farETag = delegate().putBlob(containerName,
-                            nearBlob, options);
-                    return farETag;
+                    return delegate().putBlob(containerName, nearBlob,
+                            options);
                 }
             });
-        return nearETag;
+        return nearResult;
     }
 
     @Override
@@ -172,19 +174,19 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String copyBlob(final String fromContainer, final String fromName,
+    public CopyResult copyBlob(final String fromContainer, final String fromName,
             final String toContainer, final String toName,
             final CopyOptions options) {
-        String nearETag = writeStore.copyBlob(fromContainer, fromName,
-                toContainer, toName, options);
-        schedule(new Callable<String>() {
+        CopyResult nearResult = writeStore.copyBlob(fromContainer,
+                fromName, toContainer, toName, options);
+        schedule(new Callable<CopyResult>() {
                 @Override
-                public String call() {
+                public CopyResult call() {
                     return delegate().copyBlob(fromContainer, fromName,
                             toContainer, toName, options);
                 }
             });
-        return nearETag;
+        return nearResult;
     }
 
     @Override
@@ -201,17 +203,15 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(final MultipartUpload mpu,
+    public PutResult completeMultipartUpload(final MultipartUpload mpu,
             final List<MultipartPart> parts) {
-        schedule(new Callable<String>() {
+        schedule(new Callable<PutResult>() {
                 @Override
-                public String call() {
-                    String farETag = delegate().completeMultipartUpload(mpu,
-                            parts);
-                    return farETag;
+                public PutResult call() {
+                    return delegate().completeMultipartUpload(mpu, parts);
                 }
             });
-        return "";  // TODO: fake ETag
+        return new PutResult("");  // TODO: fake ETag
     }
 
     @Override

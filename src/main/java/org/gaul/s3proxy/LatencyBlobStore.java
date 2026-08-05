@@ -36,9 +36,11 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -181,14 +183,14 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String putBlob(String containerName, Blob blob, PutOptions putOptions) {
+    public PutResult putBlob(String containerName, Blob blob, PutOptions putOptions) {
         simulateLatency(OP_PUT_BLOB);
         Blob newBlob = replaceStream(blob, new ThrottledInputStream(requireNonNull(blob.getPayload()), getSpeed(OP_PUT_BLOB)));
         return super.putBlob(containerName, newBlob, PutOptions.NONE);
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName, String toContainer, String toName, CopyOptions options) {
+    public CopyResult copyBlob(String fromContainer, String fromName, String toContainer, String toName, CopyOptions options) {
         simulateLatency(OP_COPY_BLOB);
         return super.copyBlob(fromContainer, fromName, toContainer, toName, options);
     }
@@ -248,7 +250,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+    public PutResult completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
         simulateLatency(OP_MULTIPART_MESSAGE);
         return super.completeMultipartUpload(mpu, parts);
     }

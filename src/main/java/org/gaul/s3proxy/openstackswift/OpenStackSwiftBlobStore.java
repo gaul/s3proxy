@@ -55,9 +55,11 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
+import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
+import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
@@ -636,7 +638,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public String putBlob(String container, Blob blob, PutOptions options) {
+    public PutResult putBlob(String container, Blob blob,
+            PutOptions options) {
         var swift = objectStorage();
         var metadata = blob.getMetadata();
         var contentMetadata = metadata.contentMetadata();
@@ -715,7 +718,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw new RuntimeException(
                     "could not write object " + metadata.name());
         }
-        return etag;
+        return new PutResult(etag);
     }
 
     // Swift has no native copy-source conditionals, so emulate the
@@ -765,7 +768,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public String copyBlob(String fromContainer, String fromName,
+    public CopyResult copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
             // Matches setBlobAccess: Swift grants read at the container, so a
@@ -794,7 +797,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
             builder.userMetadata(userMetadata != null ? userMetadata :
                     ImmutableMap.of());
-            return putBlob(toContainer, builder.build(), PutOptions.NONE);
+            return new CopyResult(putBlob(toContainer, builder.build(),
+                    PutOptions.NONE).eTag());
         }
         var swift = objectStorage();
         String etag;
@@ -812,7 +816,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw new KeyNotFoundException(fromContainer, fromName,
                     "while copying");
         }
-        return etag;
+        return new CopyResult(etag);
     }
 
     @Override
@@ -1034,7 +1038,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .contentLength(contentLength)
                 .contentMD5(contentMD5)
                 .build();
-        String eTag = putBlob(mpu.containerName(), segment, PutOptions.NONE);
+        String eTag = putBlob(mpu.containerName(), segment, PutOptions.NONE)
+                .eTag();
         return new MultipartPart(partNumber, contentLength, eTag,
                 /*lastModified=*/ null);
     }
@@ -1071,7 +1076,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public String completeMultipartUpload(MultipartUpload mpu,
+    public PutResult completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         var swift = objectStorage();
         String container = mpu.containerName();
@@ -1170,7 +1175,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // the metadata marker is no longer needed.
         removeBlob(container, mpuMetaKey(uploadId));
 
-        return mpuETag != null ? mpuETag : sloETag;
+        return new PutResult(mpuETag != null ? mpuETag : sloETag);
     }
 
     @Override
