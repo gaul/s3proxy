@@ -1046,6 +1046,65 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testMultipartUploadConditionalCopy() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift"));
+        assumeTrue(!blobStoreType.equals("azureblob"));
+        // the preconditions compare against the source's stored ETag
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String sourceBlobName = "testMultipartUploadConditionalCopy-source";
+        String targetBlobName = "testMultipartUploadConditionalCopy-target";
+
+        PutObjectResponse putResponse = client.putObject(
+                b -> b.bucket(containerName).key(sourceBlobName),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
+        String sourceETag = putResponse.eTag();
+
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(targetBlobName)).uploadId();
+
+        // A copy-source-if-none-match naming the source's own ETag cannot
+        // pass, like the mismatched copy-source-if-match.
+        try {
+            client.uploadPartCopy(b -> b
+                    .sourceBucket(containerName)
+                    .sourceKey(sourceBlobName)
+                    .destinationBucket(containerName)
+                    .destinationKey(targetBlobName)
+                    .uploadId(uploadId)
+                    .copySourceIfNoneMatch(sourceETag)
+                    .partNumber(1));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+
+        // The satisfied precondition admits the copy, and the assembled
+        // object carries the source's bytes.
+        UploadPartCopyResponse copyResponse = client.uploadPartCopy(b -> b
+                .sourceBucket(containerName)
+                .sourceKey(sourceBlobName)
+                .destinationBucket(containerName)
+                .destinationKey(targetBlobName)
+                .uploadId(uploadId)
+                .copySourceIfMatch(sourceETag)
+                .partNumber(1));
+
+        client.completeMultipartUpload(b -> b
+                .bucket(containerName).key(targetBlobName).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(copyResponse.copyPartResult().eTag())
+                                .build())
+                        .build()));
+
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(targetBlobName)).asByteArray())
+                .isEqualTo(BYTE_SOURCE.read());
+    }
+
+    @Test
     public void testBigMultipartUpload() throws Exception {
         String key = "multipart-upload";
         long partSize = MINIMUM_MULTIPART_SIZE;
@@ -1353,8 +1412,6 @@ public final class AwsSdkTest {
             }
         }
     }
-
-    // TODO: testMultipartUploadConditionalCopy
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
