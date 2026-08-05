@@ -550,6 +550,16 @@ public class S3ProxyHandler {
 
         checkVersionId(request);
 
+        // The bucket and key the request names, decoded once here so that the
+        // anonymous path below and the authenticated one further down agree
+        // about what they are.  getRequestURI leaves them as they arrived, so
+        // reading them raw looks for a key spelled with the escapes rather
+        // than the key those escapes stand for.
+        String[] path = uri.split("/", 3);
+        for (int i = 0; i < path.length; i++) {
+            path[i] = URLDecoder.decode(path[i], StandardCharsets.UTF_8);
+        }
+
         // when access information is not provided in request header,
         // treat it as anonymous, return all public accessible information
         if (!anonymousIdentity &&
@@ -560,8 +570,8 @@ public class S3ProxyHandler {
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
                 request.getParameter("AWSAccessKeyId") == null &&  // v2 query
                 defaultBlobStore != null) {
-            doHandleAnonymous(request, response, is, uri, defaultBlobStore,
-                    ctx);
+            doHandleAnonymous(request, response, is, uri, path,
+                    defaultBlobStore, ctx);
             return;
         }
 
@@ -708,11 +718,6 @@ public class S3ProxyHandler {
             if (haveDate) {
                 isTimeSkewed(dateSkew, presignedUrl);
             }
-        }
-
-        String[] path = uri.split("/", 3);
-        for (int i = 0; i < path.length; i++) {
-            path[i] = URLDecoder.decode(path[i], StandardCharsets.UTF_8);
         }
 
         boolean writeMethod = method.equals("PUT") || method.equals("DELETE");
@@ -1201,13 +1206,21 @@ public class S3ProxyHandler {
 
     private void doHandleAnonymous(HttpServletRequest request,
             HttpServletResponse response, InputStream is, String uri,
-            BlobStore blobStore, @Nullable RequestContext ctx)
+            String[] path, BlobStore blobStore, @Nullable RequestContext ctx)
             throws IOException, S3Exception {
         String method = request.getMethod();
-        String[] path = uri.split("/", 3);
 
         if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
             ctx.setBucket(path[1]);
+        }
+
+        // The authenticated path refuses a name no bucket can have rather
+        // than asking a backend about it, and so does this one: the two
+        // disagreeing about what a bucket is called is how a request comes to
+        // be answered differently depending on who is asking.
+        if (!uri.equals("/") &&
+                (path.length <= 1 || !isValidContainer(path[1]))) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
         }
 
         if (method.equals("GET") || method.equals("HEAD")) {
