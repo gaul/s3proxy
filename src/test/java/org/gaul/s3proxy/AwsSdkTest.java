@@ -129,7 +129,6 @@ public final class AwsSdkTest {
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
     private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
-    private static final int MINIO_PORT = 9000;
     private static final int LOCALSTACK_PORT = 4566;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";
@@ -1360,7 +1359,6 @@ public final class AwsSdkTest {
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
-        assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
         String blobName = "testUpdateBlobXmlAcls-blob";
         putBlob(containerName, blobName, BYTE_SOURCE);
@@ -1439,10 +1437,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testSpecialCharacters() throws Exception {
-        // LocalStack no longer needs skipping here; MinIO is untested, having
-        // no lane, so its guard stays.
-        assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
-
         String prefix = "special !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
         if (blobStoreType.equals("azureblob")) {
             prefix = prefix.replace("\\", "");
@@ -1908,10 +1902,7 @@ public final class AwsSdkTest {
                 .bucket(containerName).maxKeys(1).startAfter("1"));
         assertThat(result.continuationToken()).isNullOrEmpty();
         assertThat(result.startAfter()).isEqualTo("1");
-        if (blobStoreEndpoint.getPort() != MINIO_PORT) {
-            // Minio returns "2[minio_cache:v2,return:]"
-            assertThat(result.nextContinuationToken()).isEqualTo("2");
-        }
+        assertThat(result.nextContinuationToken()).isEqualTo("2");
         assertThat(result.isTruncated()).isTrue();
         assertThat(result.contents()).hasSize(1);
         assertThat(result.contents().get(0).key()).isEqualTo("2");
@@ -1919,11 +1910,8 @@ public final class AwsSdkTest {
         String nextToken = result.nextContinuationToken();
         result = client.listObjectsV2(b -> b.bucket(containerName).maxKeys(1)
                 .continuationToken(nextToken));
-        if (blobStoreEndpoint.getPort() != MINIO_PORT) {
-            // Minio returns "2[minio_cache:v2,return:]"
-            assertThat(result.continuationToken()).isEqualTo("2");
-            assertThat(result.nextContinuationToken()).isEqualTo("3");
-        }
+        assertThat(result.continuationToken()).isEqualTo("2");
+        assertThat(result.nextContinuationToken()).isEqualTo("3");
         assertThat(result.startAfter()).isNullOrEmpty();
         assertThat(result.isTruncated()).isTrue();
         assertThat(result.contents()).hasSize(1);
@@ -1932,16 +1920,10 @@ public final class AwsSdkTest {
         String nextToken2 = result.nextContinuationToken();
         result = client.listObjectsV2(b -> b.bucket(containerName).maxKeys(1)
                 .continuationToken(nextToken2));
-        if (blobStoreEndpoint.getPort() != MINIO_PORT) {
-            // Minio returns "3[minio_cache:v2,return:]"
-            assertThat(result.continuationToken()).isEqualTo("3");
-            assertThat(result.nextContinuationToken()).isNull();
-        }
+        assertThat(result.continuationToken()).isEqualTo("3");
+        assertThat(result.nextContinuationToken()).isNull();
         assertThat(result.startAfter()).isNullOrEmpty();
-        if (blobStoreEndpoint.getPort() != MINIO_PORT) {
-            // TODO: why does this fail?
-            assertThat(result.isTruncated()).isFalse();
-        }
+        assertThat(result.isTruncated()).isFalse();
         assertThat(result.contents()).hasSize(1);
         assertThat(result.contents().get(0).key()).isEqualTo("4");
     }
@@ -1974,9 +1956,7 @@ public final class AwsSdkTest {
         assertThat(result.contents().get(0).key()).isEqualTo("3");
         // Both are echoed back as sent, ignored or not.
         assertThat(result.startAfter()).isEqualTo("1");
-        if (blobStoreEndpoint.getPort() != MINIO_PORT) {
-            assertThat(result.continuationToken()).isEqualTo("2");
-        }
+        assertThat(result.continuationToken()).isEqualTo("2");
     }
 
     @Test
@@ -2245,10 +2225,11 @@ public final class AwsSdkTest {
         assumeTrue(!blobStoreType.equals("azureblob") &&
                 !blobStoreType.equals("openstack-swift"));
         // GCS is skipped for a different reason: the copy does carry
-        // destinationPredefinedAcl, but fake-gcs-server drops it and gives the
-        // destination the source's ACL instead.  Remove this once
-        // https://github.com/fsouza/fake-gcs-server/pull/2309 and its
-        // companion for objects are released and the lane picks them up.
+        // destinationPredefinedAcl, but the fake-gcs-server release the lane
+        // pins drops it and gives the destination the source's ACL instead.
+        // Upstream fixed this on master (8415544 for buckets, d189de6 for
+        // object copy and compose); remove this skip when a release ships
+        // those and the lane's pin picks it up.
         assumeTrue(!blobStoreType.equals("google-cloud-storage"));
 
         client.putObject(b -> b.bucket(containerName).key("source"),
@@ -2577,10 +2558,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testMultipartUploadAbort() throws Exception {
-        // Skipped on MinIO since before the jclouds backend went away, and no
-        // lane exercises MinIO, so whether it still needs skipping is untested.
-        assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
-
         String blobName = "multipart-upload-abort";
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, MINIMUM_MULTIPART_SIZE);
@@ -2871,8 +2848,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testConditionalGet() throws Exception {
-        // TODO:
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // comparing against a named ETag needs the stored ETag
         assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
@@ -2906,10 +2881,9 @@ public final class AwsSdkTest {
         // 304 Not Modified.  Real S3 and Swift evaluate the wildcard natively;
         // google-cloud-storage, azureblob, and the nio2 backends
         // emulate the conditional inside s3proxy, which this also exercises.
-        // LocalStack and MinIO do not implement the If-Match/If-None-Match "*"
+        // LocalStack does not implement the If-Match/If-None-Match "*"
         // wildcard, returning 412 where real S3 returns 200/304.
         assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
-        assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
 
         String blobName = "blob-name";
         client.putObject(b -> b.bucket(containerName).key(blobName),
@@ -2971,10 +2945,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testStorageClass() throws Exception {
-        // Minio only supports STANDARD and REDUCED_REDUNDANCY
-        assumeTrue(blobStoreEndpoint.getPort() != MINIO_PORT);
-        // TODO:
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
         // Swift does not support per-object storage classes
         assumeTrue(!blobStoreType.equals("openstack-swift"));
         // sftp reports the default class because nothing persists it
