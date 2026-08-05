@@ -84,6 +84,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.ChecksumMode;
 import software.amazon.awssdk.services.s3.model.ChecksumType;
@@ -774,6 +775,38 @@ public final class AwsSdkTest {
                 .versionId("null"));
         client.deleteObject(b -> b.bucket(containerName).key(key)
                 .versionId("null"));
+    }
+
+    @Test
+    public void testGetBucketVersioningUnversioned() throws Exception {
+        // a store without versioning still answers: never versioned
+        var response = client.getBucketVersioning(
+                b -> b.bucket(containerName));
+        assertThat(response.status()).isNull();
+    }
+
+    @Test
+    public void testPutBucketVersioningNotImplemented() throws Exception {
+        try {
+            client.putBucketVersioning(b -> b.bucket(containerName)
+                    .versioningConfiguration(v -> v.status(
+                            BucketVersioningStatus.ENABLED)));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+    }
+
+    @Test
+    public void testListObjectVersionsNotImplemented() throws Exception {
+        try {
+            client.listObjectVersions(b -> b.bucket(containerName));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
     }
 
     @Test
