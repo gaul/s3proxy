@@ -1094,8 +1094,8 @@ public final class AwsSdkTest {
         // The multipart ETag ("<md5>-<n>") that CompleteMultipartUpload
         // returns must be persisted, so a later HEAD reports the same ETag
         // rather than the MD5 of the assembled object.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         String key = "multipart-etag";
         long partSize = MINIMUM_MULTIPART_SIZE;
@@ -1994,8 +1994,10 @@ public final class AwsSdkTest {
     public void testDirectoryMarkerWithoutTrailingSlash() throws Exception {
         // Real S3 distinguishes "foo" from "foo/" as literal keys. The
         // nio2blob backends use POSIX paths and used to conflate them.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        // a directory marker is a directory plus an xattr, which sftp
+        // cannot keep
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         String dirName = "testrun-7560";
         String marker = dirName + "/";
@@ -2051,8 +2053,7 @@ public final class AwsSdkTest {
         // Deleting a directory-marker key whose directory still holds objects
         // must succeed and remove only the marker, not fail with 500 because
         // the underlying directory is non-empty.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
 
         String marker = "testdir-9142/";
         client.putObject(b -> b.bucket(containerName).key(marker),
@@ -2085,8 +2086,10 @@ public final class AwsSdkTest {
         // "directory placeholder" key (one ending in "/"). The nio2 backends
         // used to omit them for such keys, so spec-abiding clients (e.g.
         // Hadoop's S3A connector) read a null/absent size and NPE.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        // a directory marker is a directory plus an xattr, which sftp
+        // cannot keep
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         String marker = "dir-marker/";
         client.putObject(b -> b.bucket(containerName).key(marker),
@@ -2128,8 +2131,10 @@ public final class AwsSdkTest {
         // S3A's empty-directory probe (list prefix="<dir>/" delimiter="/")
         // relies on this; otherwise getFileStatus(<dir>) throws
         // FileNotFoundException, breaking HBase bulk load.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        // a directory marker is a directory plus an xattr, which sftp
+        // cannot keep
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         String marker = "dir-marker/";
         client.putObject(b -> b.bucket(containerName).key(marker),
@@ -2169,8 +2174,10 @@ public final class AwsSdkTest {
         // incompatibly (a client artifact, not a server behavior), so it 403s
         // before reaching the backend. The s3fs integration test covers the
         // end-to-end HTTP path with a client that signs "//" correctly.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        // the "/" object is backed by a directory-marker blob, whose
+        // identity is an xattr that sftp cannot keep
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         blobStore.putBlob(containerName, Blob.builder("sibling.txt")
                 .payload(ByteSource.wrap(new byte[4])).build(),
@@ -2211,8 +2218,7 @@ public final class AwsSdkTest {
         // The original vulnerability: DELETE bucket/%2F ran
         // Files.delete(containerPath) and silently removed an empty bucket.
         // Removing key "/" must be an idempotent no-op on the empty bucket.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
 
         blobStore.removeBlob(containerName, "/");
         assertThat(blobStore.containerExists(containerName)).isTrue();
@@ -2271,8 +2277,10 @@ public final class AwsSdkTest {
         // their respective paths. If "/" aliased the container directory,
         // get/setBlobAccess("/") would read and write the bucket ACL. The
         // reserved backing store keeps the two independent.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        // the "/" object is backed by a directory-marker blob, whose
+        // identity is an xattr that sftp cannot keep
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
         blobStore.putBlob(containerName, Blob.builder("/")
                 .payload(ByteSource.empty()).build(), PutOptions.NONE);
@@ -2304,8 +2312,7 @@ public final class AwsSdkTest {
     public void testReservedSlashBlobNameRejected() throws Exception {
         // The reserved name backing "/" must not be addressable as an ordinary
         // key, or a client could interfere with the "/" object's storage.
-        assumeTrue(blobStoreType.equals("filesystem") ||
-                blobStoreType.equals("transient"));
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
 
         try {
             client.putObject(
@@ -3386,8 +3393,7 @@ public final class AwsSdkTest {
         try {
             client.deleteObject(b -> b.bucket(containerName)
                     .key("../evil.txt"));
-            if (blobStoreType.equals("filesystem") ||
-                    blobStoreType.equals("transient")) {
+            if (Quirks.NIO2_BACKENDS.contains(blobStoreType)) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
             }
@@ -3412,8 +3418,7 @@ public final class AwsSdkTest {
             client.putObject(b -> b.bucket(containerName).key("../evil.txt"),
                     RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
                             BYTE_SOURCE.size()));
-            if (blobStoreType.equals("filesystem") ||
-                    blobStoreType.equals("transient")) {
+            if (Quirks.NIO2_BACKENDS.contains(blobStoreType)) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
             }
@@ -3427,8 +3432,7 @@ public final class AwsSdkTest {
         try {
             client.listObjects(b -> b.bucket(containerName)
                     .prefix("../evil/"));
-            if (blobStoreType.equals("filesystem") ||
-                    blobStoreType.equals("transient")) {
+            if (Quirks.NIO2_BACKENDS.contains(blobStoreType)) {
                 Fail.failBecauseExceptionWasNotThrown(
                         AwsServiceException.class);
             }

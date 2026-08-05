@@ -130,8 +130,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
         try (var stream = Files.newDirectoryStream(root)) {
             for (var path : stream) {
-                var attr = Files.readAttributes(path,
-                        BasicFileAttributes.class);
+                BasicFileAttributes attr;
+                try {
+                    attr = Files.readAttributes(path,
+                            BasicFileAttributes.class);
+                } catch (IOException ioe) {
+                    // A container deleted while being enumerated simply does
+                    // not appear.  SFTP sometimes reports the vanished entry
+                    // as a generic error rather than NoSuchFileException, so
+                    // settle it with a second look.
+                    if (ioe instanceof NoSuchFileException ||
+                            Files.notExists(path)) {
+                        continue;
+                    }
+                    throw ioe;
+                }
                 var creationTime = new Date(attr.creationTime().toMillis());
                 set.add(new ContainerMetadata(
                         path.getFileName().toString(), creationTime));
@@ -908,23 +921,35 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (NoSuchFileException nsfe) {
             return;
         } catch (DirectoryNotEmptyException dnee) {
-            // Deleting a directory-marker key ("dir/") whose directory still
-            // holds objects: the directory must stay for those objects, so
-            // drop only the marker attribute rather than failing with 500.  A
-            // later GET of the marker then correctly reports it absent.
-            var view = getXattrView(path);
-            if (view != null) {
-                try {
-                    if (view.list().contains(XATTR_CONTENT_MD5)) {
-                        view.delete(XATTR_CONTENT_MD5);
-                    }
-                } catch (IOException | UnsupportedOperationException e) {
-                    logger.debug("could not clear directory marker on {}",
-                            path);
-                }
-            }
+            clearDirectoryMarker(path);
         } catch (IOException ioe) {
+            if (key.endsWith("/") && Files.isDirectory(path)) {
+                // An SFTP server reports the non-empty directory as a
+                // generic failure (SSH_FX_DIR_NOT_EMPTY) that the provider
+                // does not map to DirectoryNotEmptyException.
+                clearDirectoryMarker(path);
+                return;
+            }
             throw new RuntimeException(ioe);
+        }
+    }
+
+    /**
+     * Handles deleting a directory-marker key ("dir/") whose directory still
+     * holds objects: the directory must stay for those objects, so drop only
+     * the marker attribute rather than failing with 500.  A later GET of the
+     * marker then correctly reports it absent.
+     */
+    private void clearDirectoryMarker(Path path) {
+        var view = getXattrView(path);
+        if (view != null) {
+            try {
+                if (view.list().contains(XATTR_CONTENT_MD5)) {
+                    view.delete(XATTR_CONTENT_MD5);
+                }
+            } catch (IOException | UnsupportedOperationException e) {
+                logger.debug("could not clear directory marker on {}", path);
+            }
         }
     }
 

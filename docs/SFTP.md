@@ -101,8 +101,9 @@ writes.  Tests whose observations require persisted metadata skip on sftp
 (`Quirks.NO_PERSISTED_METADATA`): stored Content-Type and other content
 metadata, user metadata, ETags of previously written objects, persisted
 checksums, storage classes, and the conditional requests that compare against
-a stored ETag.  The encrypted blobstore layer requires persisted metadata and
-does not work over sftp.
+a stored ETag.  Directory-marker objects (keys ending in `/`) degrade to
+implicit prefixes for the same reason.  The encrypted blobstore layer
+requires persisted metadata and does not work over sftp.
 
 Behavior against a real OpenSSH server may still differ from the embedded
 Apache MINA server and should be validated before production use.

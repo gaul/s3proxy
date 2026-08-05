@@ -47,12 +47,24 @@ final class Quirks {
     /**
      * Blobstores which store only the object bytes.  SFTP servers offer no
      * portable user extended attributes, so everything the nio2 stores keep
-     * in xattrs -- content metadata, user metadata, ETags, checksums, and
-     * storage class -- does not survive the write, and reads report
-     * defaults instead.
+     * in xattrs -- content metadata, user metadata, ETags, checksums,
+     * storage class, and directory-marker identity -- does not survive the
+     * write, and reads report defaults instead.
      */
     static final Set<String> NO_PERSISTED_METADATA = Set.of(
             "sftp"
+    );
+
+    /**
+     * The stores built on AbstractNio2BlobStore.  They share path and
+     * listing semantics -- directory markers, the reserved "/" key,
+     * relative-path rejection -- which the nio2-specific tests pin on
+     * every member.
+     */
+    static final Set<String> NIO2_BACKENDS = Set.of(
+            "filesystem",
+            "sftp",
+            "transient"
     );
 
     /**
