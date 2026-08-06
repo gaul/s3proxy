@@ -52,13 +52,14 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
             int v4MaxChunkSize,
             boolean ignoreUnknownHeaders,
+            S3ProxyHandler.SseMode serverSideEncryption,
             @Nullable CrossOriginResourceSharing corsRules,
             @Nullable String servicePath, int maximumTimeSkew,
             @Nullable S3ProxyMetrics metrics) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
                 credential, virtualHost, maxSinglePartObjectSize,
                 v4MaxNonChunkedRequestSize, v4MaxChunkSize,
-                ignoreUnknownHeaders, corsRules,
+                ignoreUnknownHeaders, serverSideEncryption, corsRules,
                 servicePath, maximumTimeSkew);
         this.metrics = metrics;
     }

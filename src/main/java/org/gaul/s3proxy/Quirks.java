@@ -25,6 +25,20 @@ final class Quirks {
             "openstack-swift"
     );
 
+    /**
+     * Blobstores that always encrypt objects at rest, so acknowledging an
+     * SSE-S3 (AES256) request with a matching echo is truthful. The
+     * s3proxy.server-side-encryption default is derived from this set:
+     * "sse-s3" for these, "reject" otherwise.
+     */
+    static final Set<String> SERVER_SIDE_ENCRYPTION_AT_REST = Set.of(
+            "azureblob",
+            "azureblob-sdk",
+            "aws-s3",
+            "aws-s3-sdk",
+            "s3"
+    );
+
     /** Blobstores which do not support the Cache-Control header. */
     static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
             "google-cloud-storage",
