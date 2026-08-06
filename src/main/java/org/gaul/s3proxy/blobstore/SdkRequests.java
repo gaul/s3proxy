@@ -95,9 +95,9 @@ public final class SdkRequests {
                     Long.parseLong(firstLast[0]);
             Long last = firstLast[1].isEmpty() ? null :
                     Long.parseLong(firstLast[1]);
-            if (first == null && last == null ||
-                    first != null && first < 0 ||
-                    last != null && last < 0) {
+            if ((first == null && last == null) ||
+                    (first != null && first < 0) ||
+                    (last != null && last < 0)) {
                 throw S3Exceptions.fromStatusCode(416);
             }
             return new ByteRange(first, last);

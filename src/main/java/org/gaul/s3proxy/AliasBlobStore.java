@@ -85,13 +85,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
                 .build());
     }
 
-    private MultipartUpload getClientMpu(MultipartUpload mpu) {
-        return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
-                .bucket(aliases.inverse().getOrDefault(
-                        mpu.containerName(), mpu.containerName()))
-                .build());
-    }
-
     public static ImmutableBiMap<String, String> parseAliases(
             Properties properties) {
         Map<String, String> backendBuckets = new HashMap<>();

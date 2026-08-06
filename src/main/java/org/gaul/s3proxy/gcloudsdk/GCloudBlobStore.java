@@ -66,7 +66,6 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
@@ -774,7 +773,7 @@ public final class GCloudBlobStore implements BlobStore {
             var acls = bucket.listAcls();
             for (var acl : acls) {
                 if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
-                    return acl.getRole() == Acl.Role.READER ?
+                    return Acl.Role.READER.equals(acl.getRole()) ?
                             BucketCannedACL.PUBLIC_READ :
                             BucketCannedACL.PUBLIC_READ_WRITE;
                 }
@@ -1415,17 +1414,6 @@ public final class GCloudBlobStore implements BlobStore {
         } else {
             return StorageClass.STANDARD;
         }
-    }
-
-    private static ContentMetadata toContentMetadata(Blob blob) {
-        return ContentMetadata.builder()
-                .cacheControl(blob.getCacheControl())
-                .contentDisposition(blob.getContentDisposition())
-                .contentEncoding(blob.getContentEncoding())
-                .contentLanguage(blob.getContentLanguage())
-                .contentLength(blob.getSize())
-                .contentType(blob.getContentType())
-                .build();
     }
 
     /**

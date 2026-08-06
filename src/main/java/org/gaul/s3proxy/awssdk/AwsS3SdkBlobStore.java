@@ -89,7 +89,6 @@ import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
-import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -725,19 +724,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             previousPartNumber = partNumber;
         }
         return sortedParts;
-    }
-
-    /**
-     * The listed or reported storage class, defaulting an absent or novel
-     * one to STANDARD as the S3 listing schema does.
-     */
-    private static StorageClass orStandard(@Nullable String storageClass) {
-        if (storageClass == null) {
-            return StorageClass.STANDARD;
-        }
-        StorageClass parsed = StorageClass.fromValue(storageClass);
-        return parsed == StorageClass.UNKNOWN_TO_SDK_VERSION ?
-                StorageClass.STANDARD : parsed;
     }
 
     /**

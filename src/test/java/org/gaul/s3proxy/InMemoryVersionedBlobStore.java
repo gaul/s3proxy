@@ -93,6 +93,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
                 last -> Math.max(last + 1, System.currentTimeMillis())));
     }
 
+    @SuppressWarnings("ArrayRecordComponent")
     private record Version(String versionId, boolean deleteMarker,
             byte[] content, @Nullable String contentType, String eTag,
             Date lastModified) {

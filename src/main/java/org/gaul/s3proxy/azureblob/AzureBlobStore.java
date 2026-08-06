@@ -499,6 +499,7 @@ public final class AzureBlobStore implements BlobStore {
         if (accessTier == null) {
             accessTier = client.getProperties().getAccessTier();
         }
+        @SuppressWarnings("deprecation")
         var builder = GetObjectResponse.builder()
                 .metadata(properties.getMetadata())
                 .cacheControl(properties.getCacheControl())
@@ -882,7 +883,8 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, container, /*key=*/ null);
         }
-        return HeadObjectResponse.builder()
+        @SuppressWarnings("deprecation")
+        HeadObjectResponse head = HeadObjectResponse.builder()
                 .metadata(properties.getMetadata())
                 .eTag(reportETag(properties.getETag()))
                 .lastModified(properties.getLastModified() == null ? null :
@@ -898,6 +900,7 @@ public final class AzureBlobStore implements BlobStore {
                 .expires(properties.getExpiresOn() == null ? null :
                         properties.getExpiresOn().toInstant())
                 .build();
+        return head;
     }
 
     @Override
@@ -1260,7 +1263,6 @@ public final class AzureBlobStore implements BlobStore {
 
         String eTag = BaseEncoding.base16()
                 .lowerCase().encode(md5Hash);
-        Date lastModified = null;
         return SdkResponses.uploadedPart(eTag);
     }
 
@@ -1513,14 +1515,6 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public long getMinimumMultipartPartSize() {
         return 1;
-    }
-
-    @Nullable
-    private static OffsetDateTime toOffsetDateTime(@Nullable Date date) {
-        if (date == null) {
-            return null;
-        }
-        return date.toInstant().atOffset(ZoneOffset.UTC);
     }
 
     @Nullable

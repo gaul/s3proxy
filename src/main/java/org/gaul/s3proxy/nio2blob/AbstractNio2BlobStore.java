@@ -1412,8 +1412,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .build();
         var partETag = putBlob(mpu.containerName(), blob,
                 ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null);
-        var metadata = requireNonNull(
-                blobMetadata(mpu.containerName(), partName));
         return SdkResponses.uploadedPart(partETag);
     }
 
