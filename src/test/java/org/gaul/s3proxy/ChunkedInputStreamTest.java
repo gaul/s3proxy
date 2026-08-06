@@ -148,9 +148,9 @@ public final class ChunkedInputStreamTest {
                 SCOPE)) {
             assertThatThrownBy(in::readAllBytes)
                     .isInstanceOf(IOException.class)
-                    .hasCauseInstanceOf(S3Exception.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
                     .cause()
-                    .extracting(c -> ((S3Exception) c).getError())
+                    .extracting(c -> ((S3ProxyException) c).getError())
                     .isEqualTo(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
         }
     }
@@ -179,9 +179,9 @@ public final class ChunkedInputStreamTest {
                 MAX_CHUNK_SIZE, "x-amz-checksum-crc32")) {
             assertThatThrownBy(in::readAllBytes)
                     .isInstanceOf(IOException.class)
-                    .hasCauseInstanceOf(S3Exception.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
                     .cause()
-                    .extracting(c -> ((S3Exception) c).getError())
+                    .extracting(c -> ((S3ProxyException) c).getError())
                     .isEqualTo(S3ErrorCode.BAD_DIGEST);
         }
     }
@@ -204,9 +204,9 @@ public final class ChunkedInputStreamTest {
                 "x-amz-checksum-crc32")) {
             assertThatThrownBy(in::readAllBytes)
                     .isInstanceOf(IOException.class)
-                    .hasCauseInstanceOf(S3Exception.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
                     .cause()
-                    .extracting(c -> ((S3Exception) c).getError())
+                    .extracting(c -> ((S3ProxyException) c).getError())
                     .isEqualTo(S3ErrorCode.BAD_DIGEST);
         }
     }

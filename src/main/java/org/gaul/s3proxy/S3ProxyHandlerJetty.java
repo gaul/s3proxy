@@ -63,11 +63,11 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         this.metrics = metrics;
     }
 
-    private void sendS3Exception(HttpServletRequest request,
-            HttpServletResponse response, S3Exception se)
+    private void sendErrorResponse(HttpServletRequest request,
+            HttpServletResponse response, S3ErrorCode code)
             throws IOException {
-        handler.sendSimpleErrorResponse(request, response,
-                se.getError(), se.getRawMessage(), se.getElements());
+        handler.sendSimpleErrorResponse(request, response, code,
+                code.getMessage(), Map.of());
     }
 
     @Override
@@ -89,8 +89,8 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             // google-cloud-storage uses a different exception
             String message = ise.getMessage();
             if (message != null && message.startsWith("PreconditionFailed")) {
-                sendS3Exception(request, response,
-                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+                sendErrorResponse(request, response,
+                        S3ErrorCode.PRECONDITION_FAILED);
                 return;
             }
             logger.debug("IllegalStateException:", ise);
@@ -99,20 +99,17 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             return;
         } catch (IOException ioe) {
             var cause = Throwables.getCausalChain(ioe).stream()
-                    .filter(S3Exception.class::isInstance)
-                    .map(S3Exception.class::cast)
+                    .filter(AwsServiceException.class::isInstance)
+                    .map(AwsServiceException.class::cast)
                     .findFirst()
                     .orElse(null);
             if (cause != null) {
-                sendS3Exception(request, response, cause);
+                handleAwsServiceException(request, response, cause);
                 return;
             }
             throw ioe;
         } catch (AwsServiceException ase) {
             handleAwsServiceException(request, response, ase);
-            return;
-        } catch (S3Exception se) {
-            sendS3Exception(request, response, se);
             return;
         } catch (UnsupportedOperationException uoe) {
             logger.debug("UnsupportedOperationException:", uoe);
@@ -121,16 +118,16 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             return;
         } catch (Throwable throwable) {
             var causes = Throwables.getCausalChain(throwable);
-            // Backends may wrap a body-validation S3Exception (e.g. BadDigest
-            // from a checksum mismatch thrown while reading the payload) in an
-            // unchecked exception; surface the original error code.
+            // A body-validation error, e.g. BadDigest from a checksum
+            // mismatch thrown while reading the payload, may arrive wrapped
+            // in an unchecked exception; surface the original error code.
             var s3 = causes.stream()
-                    .filter(S3Exception.class::isInstance)
-                    .map(S3Exception.class::cast)
+                    .filter(AwsServiceException.class::isInstance)
+                    .map(AwsServiceException.class::cast)
                     .findFirst()
                     .orElse(null);
             if (s3 != null) {
-                sendS3Exception(request, response, s3);
+                handleAwsServiceException(request, response, s3);
                 return;
             }
             if (causes.stream().anyMatch(
@@ -174,9 +171,14 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         String code = S3Exceptions.errorCode(ase);
         if (code != null) {
             String message = ase.awsErrorDetails().errorMessage();
+            // the ordered elements some error documents carry beside Code
+            // and Message, e.g. StringToSign on SignatureDoesNotMatch
+            Map<String, String> elements =
+                    ase instanceof S3ProxyException pe ?
+                            pe.getElements() : Map.of();
             handler.sendSimpleErrorResponse(request, response, code,
                     ase.statusCode(), message == null ? "" : message,
-                    Map.of());
+                    elements);
             return;
         }
 
@@ -199,24 +201,22 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             if (notModified) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             } else {
-                sendS3Exception(request, response,
-                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+                sendErrorResponse(request, response,
+                        S3ErrorCode.PRECONDITION_FAILED);
             }
         }
-        case 416 -> sendS3Exception(request, response,
-                new S3Exception(S3ErrorCode.INVALID_RANGE));
+        case 416 -> sendErrorResponse(request, response,
+                S3ErrorCode.INVALID_RANGE);
         case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
-            sendS3Exception(request, response,
-                    new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED));
+            sendErrorResponse(request, response,
+                    S3ErrorCode.METHOD_NOT_ALLOWED);
         // Swift returns 422 Unprocessable Entity
-        case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendS3Exception(
-                request, response,
-                new S3Exception(S3ErrorCode.BAD_DIGEST));
+        case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendErrorResponse(
+                request, response, S3ErrorCode.BAD_DIGEST);
         // Backends report authorization failures as 403; surface a proper
         // AccessDenied error document rather than a bare 403 status.
-        case HttpServletResponse.SC_FORBIDDEN -> sendS3Exception(
-                request, response,
-                new S3Exception(S3ErrorCode.ACCESS_DENIED));
+        case HttpServletResponse.SC_FORBIDDEN -> sendErrorResponse(
+                request, response, S3ErrorCode.ACCESS_DENIED);
         default -> {
             logger.debug("AwsServiceException:", ase);
             response.setStatus(status);

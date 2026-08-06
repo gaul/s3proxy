@@ -51,7 +51,7 @@ public final class PostPolicyTest {
                 conditions + "]}";
     }
 
-    private static PostPolicy parse(String json) throws S3Exception {
+    private static PostPolicy parse(String json) {
         return PostPolicy.parse(Base64.getEncoder().encode(
                 json.getBytes(StandardCharsets.UTF_8)));
     }
@@ -66,8 +66,8 @@ public final class PostPolicyTest {
 
     private static void assertCode(ThrowingCallable call, S3ErrorCode code) {
         assertThatThrownBy(call)
-                .isInstanceOf(S3Exception.class)
-                .satisfies(t -> assertThat(((S3Exception) t).getError())
+                .isInstanceOf(S3ProxyException.class)
+                .satisfies(t -> assertThat(((S3ProxyException) t).getError())
                         .isEqualTo(code));
     }
 

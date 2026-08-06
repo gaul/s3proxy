@@ -393,7 +393,7 @@ final class AwsSignature {
                                                  String hashAlgorithm,
                                                  boolean presignedUrl,
                                                  @Nullable String pinnedHash)
-            throws IOException, NoSuchAlgorithmException, S3Exception {
+            throws IOException, NoSuchAlgorithmException {
         // A presigned request is signed through the query string.  Any
         // Authorization header it also carries addresses something other than
         // this proxy, so it names neither the signed headers nor the payload
@@ -425,7 +425,7 @@ final class AwsSignature {
         }
         List<String> signedHeaders = signedHeaderNames(request, presignedUrl);
         if (signedHeaders == null) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
 
         /*
@@ -462,8 +462,7 @@ final class AwsSignature {
             HttpServletRequest request, S3AuthorizationHeader authHeader,
             byte[] payload, String uri, String credential,
             boolean presignedUrl, @Nullable String pinnedHash)
-            throws InvalidKeyException, IOException, NoSuchAlgorithmException,
-            S3Exception {
+            throws InvalidKeyException, IOException, NoSuchAlgorithmException {
         // V4 headers always carry these fields
         String hashAlgorithm = requireNonNull(authHeader.getHashAlgorithm());
         String canonicalRequest = createCanonicalRequest(request, uri, payload,

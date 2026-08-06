@@ -153,10 +153,10 @@ final class ChunkedInputStream extends FilterInputStream {
                 String[] checksumParts = parts[0].split(":", 2);
                 // A trailer carrying no value at all, which validateTrailerHash
                 // already refuses on the other path that reads one.  Wrap the
-                // S3Exception so that the handler answers 400 rather than
+                // S3ProxyException so that the handler answers 400 rather than
                 // letting an index out of bounds become a 500.
                 if (checksumParts.length != 2) {
-                    throw new IOException(new S3Exception(
+                    throw new IOException(new S3ProxyException(
                             S3ErrorCode.INVALID_REQUEST));
                 }
                 var expectedHash = checksumParts[1];
@@ -167,7 +167,7 @@ final class ChunkedInputStream extends FilterInputStream {
                 default -> throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
                 };
                 if (!expectedHash.equals(Base64.getEncoder().encodeToString(actualHash))) {
-                    throw new IOException(new S3Exception(S3ErrorCode.BAD_DIGEST));
+                    throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));
                 }
                 currentLength = 0;
             } else {
@@ -242,7 +242,7 @@ final class ChunkedInputStream extends FilterInputStream {
     private void verifyChunkSignature(byte[] data, @Nullable String signature)
             throws IOException {
         if (signature == null) {
-            throw new IOException(new S3Exception(
+            throw new IOException(new S3ProxyException(
                     S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
         }
         String chunkHash;
@@ -269,7 +269,7 @@ final class ChunkedInputStream extends FilterInputStream {
             throw new IOException(e);
         }
         if (!constantTimeEquals(expected, signature)) {
-            throw new IOException(new S3Exception(
+            throw new IOException(new S3ProxyException(
                     S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
         }
         previousSignature = signature;
@@ -297,7 +297,7 @@ final class ChunkedInputStream extends FilterInputStream {
         };
         if (!expectedHash.equals(
                 Base64.getEncoder().encodeToString(actualHash))) {
-            throw new IOException(new S3Exception(S3ErrorCode.BAD_DIGEST));
+            throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));
         }
     }
 

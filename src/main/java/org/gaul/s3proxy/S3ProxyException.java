@@ -24,37 +24,61 @@ import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.services.s3.model.S3Exception;
+
+/**
+ * An S3 error the proxy itself raises, e.g. refusing a malformed or
+ * unauthorized request.  Extends the SDK's S3Exception so frontend and
+ * backend errors flow through the one renderer, adding the ordered XML
+ * elements some error documents carry beside Code and Message, e.g.
+ * StringToSign on SignatureDoesNotMatch.
+ */
 @SuppressWarnings("serial")
-public final class S3Exception extends Exception {
-    private final S3ErrorCode error;
-    private final Map<String, String> elements;
+final class S3ProxyException extends S3Exception {
+    private final transient S3ErrorCode error;
+    private final transient Map<String, String> elements;
     private final String rawMessage;
 
-    S3Exception(S3ErrorCode error) {
+    S3ProxyException(S3ErrorCode error) {
         this(error, error.getMessage(), (Throwable) null, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, String message) {
+    S3ProxyException(S3ErrorCode error, String message) {
         this(error, message, (Throwable) null, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, @Nullable Throwable cause) {
+    S3ProxyException(S3ErrorCode error, @Nullable Throwable cause) {
         this(error, error.getMessage(), cause, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, String message, @Nullable Throwable cause) {
+    S3ProxyException(S3ErrorCode error, String message,
+            @Nullable Throwable cause) {
         this(error, message, cause, Map.of());
     }
 
-    S3Exception(S3ErrorCode error, String message, @Nullable Throwable cause,
-                Map<String, String> elements) {
-        super(requireNonNull(message), cause);
-        this.error = requireNonNull(error);
+    S3ProxyException(S3ErrorCode error, String message,
+            @Nullable Throwable cause, Map<String, String> elements) {
+        super(builder(error, requireNonNull(message), cause));
+        this.error = error;
         // Keep the caller's order: these become sibling XML elements, and a
         // reader looks for them in the order the error was written to tell.
         this.elements = Collections.unmodifiableMap(
                 new LinkedHashMap<>(elements));
         this.rawMessage = message;
+    }
+
+    private static S3Exception.Builder builder(S3ErrorCode error,
+            String message, @Nullable Throwable cause) {
+        S3Exception.Builder builder = S3Exception.builder();
+        builder.message(message);
+        builder.cause(cause);
+        builder.statusCode(error.getHttpStatusCode());
+        builder.awsErrorDetails(AwsErrorDetails.builder()
+                .errorCode(error.getErrorCode())
+                .errorMessage(message)
+                .build());
+        return builder;
     }
 
     S3ErrorCode getError() {
@@ -66,15 +90,10 @@ public final class S3Exception extends Exception {
     }
 
     /**
-     * The message on its own, for the Message element of an error response,
-     * where the elements travel beside it as elements of their own.
-     * {@link #getMessage} folds them in instead, for logs and stack traces
-     * that have only the one string to show.
+     * The message with the elements folded in, for logs and stack traces
+     * that have only the one string to show; the error document renders
+     * {@link AwsErrorDetails#errorMessage} and the elements separately.
      */
-    String getRawMessage() {
-        return rawMessage;
-    }
-
     @Override
     public String getMessage() {
         var builder = new StringBuilder().append(rawMessage);

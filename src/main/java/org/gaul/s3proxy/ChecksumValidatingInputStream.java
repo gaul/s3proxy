@@ -32,7 +32,7 @@ import com.google.common.hash.Hasher;
  * trailer, which {@link ChunkedInputStream} handles).  The checksum is
  * computed incrementally as the body is consumed and compared once the
  * declared content length is reached or end of stream is encountered,
- * whichever comes first; a mismatch throws {@link S3Exception} with
+ * whichever comes first; a mismatch throws {@link S3ProxyException} with
  * {@link S3ErrorCode#BAD_DIGEST}, or whichever code the caller names -- a
  * presigned URL pinning x-amz-content-sha256 reports its own.  Comparing at
  * the content-length boundary
@@ -112,7 +112,7 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
                 ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
                 hash.asBytes();
         if (!Arrays.equals(expected, actual)) {
-            throw new IOException(new S3Exception(errorCode));
+            throw new IOException(new S3ProxyException(errorCode));
         }
     }
 }

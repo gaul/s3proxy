@@ -424,17 +424,15 @@ public class S3ProxyHandler {
      * a complaint about it, is deliberately left to propagate to the
      * IOException handling that knows what it means.
      */
-    private <T> T readXmlBody(InputStream is, Class<T> type)
-            throws S3Exception {
+    private <T> T readXmlBody(InputStream is, Class<T> type) {
         try {
             return mapper.readValue(is, type);
         } catch (StreamReadException | DatabindException e) {
-            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L, e);
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L, e);
         }
     }
 
-    private <T> T readXmlBody(byte[] body, Class<T> type)
-            throws S3Exception {
+    private <T> T readXmlBody(byte[] body, Class<T> type) {
         return readXmlBody(new ByteArrayInputStream(body), type);
     }
 
@@ -496,7 +494,7 @@ public class S3ProxyHandler {
     public final void doHandle(HttpServletRequest baseRequest,
             HttpServletRequest request, HttpServletResponse response,
             InputStream is, @Nullable RequestContext ctx)
-            throws IOException, S3Exception {
+            throws IOException {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         String originalUri = request.getRequestURI();
@@ -584,7 +582,7 @@ public class S3ProxyHandler {
         if (!anonymousIdentity && !hasDateHeader && !hasXAmzDateHeader &&
                 request.getParameter("X-Amz-Date") == null &&
                 request.getParameter("Expires") == null) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                     "AWS authentication requires a valid Date or" +
                     " x-amz-date header");
         }
@@ -610,7 +608,7 @@ public class S3ProxyHandler {
                     authHeader = new S3AuthorizationHeader(headerAuthorization);
                     //whether v2 or v4 (normal header and query)
                 } catch (IllegalArgumentException iae) {
-                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+                    throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, iae);
                 }
             }
             if (authHeader == null) {
@@ -619,7 +617,7 @@ public class S3ProxyHandler {
                     String identity = request.getParameter("AWSAccessKeyId");
                     String signature = request.getParameter("Signature");
                     if (identity == null || signature == null) {
-                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                        throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                     }
                     headerAuthorization = "AWS " + identity + ":" + signature;
                     presignedUrl = true;
@@ -632,7 +630,7 @@ public class S3ProxyHandler {
                             "X-Amz-Signature");
                     if (credential == null || signedHeaders == null ||
                             signature == null) {
-                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                        throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                     }
                     headerAuthorization = "AWS4-HMAC-SHA256" +
                             " Credential=" + credential +
@@ -648,7 +646,7 @@ public class S3ProxyHandler {
                     authHeader = new S3AuthorizationHeader(headerAuthorization);
                     //whether v2 or v4 (normal header and query)
                 } catch (IllegalArgumentException iae) {
-                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+                    throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, iae);
                 }
             }
             requestIdentity = authHeader.getIdentity();
@@ -677,7 +675,7 @@ public class S3ProxyHandler {
                     authenticationType == AuthenticationType.AWS_V2_OR_V4)) {
                 finalAuthType = AuthenticationType.AWS_V4;
             } else if (authenticationType != AuthenticationType.NONE) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
 
             // An x-amz-date that is present but unparseable -- empty or
@@ -688,7 +686,7 @@ public class S3ProxyHandler {
             String xAmzDate = request.getHeader(AwsHttpHeaders.DATE);
             if (xAmzDate != null) { //format diff between v2 and v4
                 if (xAmzDate.isBlank()) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                             "AWS authentication requires a valid Date or" +
                             " x-amz-date header");
                 }
@@ -701,7 +699,7 @@ public class S3ProxyHandler {
                         dateSkew = parseIso8601(xAmzDate);
                     }
                 } catch (IllegalArgumentException iae) {
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                             "AWS authentication requires a valid Date or" +
                             " x-amz-date header", iae);
                 }
@@ -714,7 +712,7 @@ public class S3ProxyHandler {
                         dateSkew = parseIso8601(request.getHeader(
                                 HttpHeaders.DATE));
                     } catch (IllegalArgumentException iae2) {
-                        throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+                        throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, iae);
                     }
                 }
             } else {
@@ -733,7 +731,7 @@ public class S3ProxyHandler {
                             UNSUPPORTED_WRITE_PARAMETERS.contains(parameter))) {
                 logger.error("Unknown parameters {} with URI {}",
                         parameter, request.getRequestURI());
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 
@@ -752,7 +750,7 @@ public class S3ProxyHandler {
             if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
                 logger.error("Unknown header {} with URI {}",
                         headerName, request.getRequestURI());
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 
@@ -761,7 +759,7 @@ public class S3ProxyHandler {
                 path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
             if (grant == null) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
             // A presigned URL states when it stops working, and it stops
             // working here too.  The proxy cannot check the signature over
@@ -788,16 +786,16 @@ public class S3ProxyHandler {
                         request.getHeader(AwsHttpHeaders.TRAILER));
             }
         } else if (requestIdentity == null) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         } else {
             if (grant == null) {
-                throw new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
             // non-anonymous requests always parse an Authorization header
             requireNonNull(authHeader);
 
             String credential = grant.credential().orElseThrow(
-                    () -> new S3Exception(S3ErrorCode.INVALID_ACCESS_KEY_ID));
+                    () -> new S3ProxyException(S3ErrorCode.INVALID_ACCESS_KEY_ID));
             blobStore = grant.blobStore();
 
             checkPresignedExpiry(request);
@@ -806,13 +804,13 @@ public class S3ProxyHandler {
             case AWS_V2 -> {
                 switch (authenticationType) {
                 case AWS_V2, AWS_V2_OR_V4, NONE -> { }
-                default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                default -> throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
             }
             case AWS_V4 -> {
                 switch (authenticationType) {
                 case AWS_V4, AWS_V2_OR_V4, NONE -> { }
-                default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                default -> throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
             }
             case NONE -> { }
@@ -880,7 +878,7 @@ public class S3ProxyHandler {
                         // size ends up holding twice the body it keeps.
                         long declaredLength = request.getContentLengthLong();
                         if (declaredLength > v4MaxNonChunkedRequestSize) {
-                            throw new S3Exception(
+                            throw new S3ProxyException(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
                         }
                         if (declaredLength >= 0 &&
@@ -894,7 +892,7 @@ public class S3ProxyHandler {
                                     .readAllBytes();
                             if (payload.length ==
                                     v4MaxNonChunkedRequestSize + 1) {
-                                throw new S3Exception(
+                                throw new S3ProxyException(
                                         S3ErrorCode
                                         .MAX_MESSAGE_LENGTH_EXCEEDED);
                             }
@@ -907,7 +905,7 @@ public class S3ProxyHandler {
                         byte[] hash = md.digest(payload);
                         if (!BaseEncoding.base16().lowerCase().encode(hash)
                                 .equals(contentSha256)) {
-                            throw new S3Exception(
+                            throw new S3ProxyException(
                                     S3ErrorCode
                                     .X_AMZ_CONTENT_S_H_A_256_MISMATCH);
                         }
@@ -962,7 +960,7 @@ public class S3ProxyHandler {
                                 scope, trailer);
                     }
                 } catch (InvalidKeyException | NoSuchAlgorithmException e) {
-                    throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, e);
+                    throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, e);
                 }
             }
 
@@ -994,9 +992,9 @@ public class S3ProxyHandler {
             if (method.equals("PUT") &&
                     (path.length <= 2 || path[2].isEmpty()) &&
                     !"".equals(request.getParameter("acl")))  {
-                throw new S3Exception(S3ErrorCode.INVALID_BUCKET_NAME);
+                throw new S3ProxyException(S3ErrorCode.INVALID_BUCKET_NAME);
             } else {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
             }
         }
 
@@ -1016,7 +1014,7 @@ public class S3ProxyHandler {
                 // would remove the bucket itself.
                 if (request.getParameter("versioning") != null ||
                         request.getParameter("versions") != null) {
-                    throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                    throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
                 }
                 setOperation(ctx, S3Operation.DELETE_BUCKET);
                 handleContainerDelete(request, response, blobStore, path[1]);
@@ -1182,7 +1180,7 @@ public class S3ProxyHandler {
         setOperation(ctx, S3Operation.UNKNOWN);
         logger.error("Unknown method {} with URI {}",
                 method, request.getRequestURI());
-        throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
     private static void setOperation(@Nullable RequestContext ctx,
@@ -1205,10 +1203,10 @@ public class S3ProxyHandler {
      * here, and they are part of the query string it signs.
      */
     private static void checkNoResponseHeaderOverrides(
-            HttpServletRequest request) throws S3Exception {
+            HttpServletRequest request) {
         for (String parameter : RESPONSE_HEADER_OVERRIDES) {
             if (request.getParameter(parameter) != null) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                         "Request specific response headers cannot be used for" +
                         " anonymous GET requests.");
             }
@@ -1216,7 +1214,7 @@ public class S3ProxyHandler {
     }
 
     private static boolean checkPublicAccess(BlobStore blobStore,
-            String containerName, String blobName) throws S3Exception {
+            String containerName, String blobName) {
         String blobStoreType = getBlobStoreType(blobStore);
         try {
             if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
@@ -1228,16 +1226,16 @@ public class S3ProxyHandler {
                     blobName);
             return access == BlobAccess.PUBLIC_READ;
         } catch (NoSuchBucketException e) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, e);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
         } catch (NoSuchKeyException e) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, e);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, e);
         }
     }
 
     private void doHandleAnonymous(HttpServletRequest request,
             HttpServletResponse response, InputStream is, String uri,
             String[] path, BlobStore blobStore, @Nullable RequestContext ctx)
-            throws IOException, S3Exception {
+            throws IOException {
         String method = request.getMethod();
 
         if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
@@ -1250,7 +1248,7 @@ public class S3ProxyHandler {
         // be answered differently depending on who is asking.
         if (!uri.equals("/") &&
                 (path.length <= 1 || !isValidContainer(path[1]))) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
 
         if (method.equals("GET") || method.equals("HEAD")) {
@@ -1263,14 +1261,14 @@ public class S3ProxyHandler {
         case "GET" -> {
             if (uri.equals("/")) {
                 setOperation(ctx, S3Operation.LIST_BUCKETS);
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
                 ContainerAccess access = blobStore.getContainerAccess(
                         containerName);
                 if (access == ContainerAccess.PRIVATE) {
                     setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 if (request.getParameter("versioning") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_VERSIONING);
@@ -1292,7 +1290,7 @@ public class S3ProxyHandler {
                 String blobName = path[2];
                 if (!checkPublicAccess(blobStore, containerName, blobName)) {
                     setOperation(ctx, S3Operation.GET_OBJECT);
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.GET_OBJECT);
                 handleGetBlob(request, response, blobStore, containerName,
@@ -1307,18 +1305,18 @@ public class S3ProxyHandler {
                         containerName);
                 if (access == ContainerAccess.PRIVATE) {
                     setOperation(ctx, S3Operation.HEAD_BUCKET);
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.HEAD_BUCKET);
                 if (!blobStore.containerExists(containerName)) {
-                    throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+                    throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
                 }
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
                 if (!checkPublicAccess(blobStore, containerName, blobName)) {
                     setOperation(ctx, S3Operation.HEAD_OBJECT);
-                    throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.HEAD_OBJECT);
                 handleBlobMetadata(request, response, blobStore, containerName,
@@ -1336,7 +1334,7 @@ public class S3ProxyHandler {
         case "OPTIONS" -> {
             if (uri.equals("/")) {
                 setOperation(ctx, S3Operation.OPTIONS_OBJECT);
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             } else {
                 String containerName = path[1];
                 setOperation(ctx, S3Operation.OPTIONS_OBJECT);
@@ -1349,14 +1347,14 @@ public class S3ProxyHandler {
         setOperation(ctx, S3Operation.UNKNOWN);
         logger.error("Unknown method {} with URI {}",
                 method, request.getRequestURI());
-        throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+        throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
     private void handleGetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (!blobStore.containerExists(containerName)) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
         ContainerAccess access = blobStore.getContainerAccess(containerName);
 
@@ -1393,7 +1391,7 @@ public class S3ProxyHandler {
 
     private void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         ContainerAccess access;
 
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
@@ -1402,7 +1400,7 @@ public class S3ProxyHandler {
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
             access = ContainerAccess.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -1420,7 +1418,7 @@ public class S3ProxyHandler {
             } else if (accessString.equals("public-read")) {
                 access = ContainerAccess.PUBLIC_READ;
             } else {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 
@@ -1431,7 +1429,7 @@ public class S3ProxyHandler {
     private void handleGetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         // Resolves only the current object; ignoring a versionId would
         // answer with the wrong version's ACL.
         checkVersionId(request);
@@ -1470,7 +1468,7 @@ public class S3ProxyHandler {
     private void handleSetBlobAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         // Resolves only the current object; ignoring a versionId would
         // change the wrong version's ACL.
         checkVersionId(request);
@@ -1483,7 +1481,7 @@ public class S3ProxyHandler {
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
             access = BlobAccess.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -1501,7 +1499,7 @@ public class S3ProxyHandler {
             } else if (accessString.equals("public-read")) {
                 access = BlobAccess.PUBLIC_READ;
             } else {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 
@@ -1511,9 +1509,9 @@ public class S3ProxyHandler {
 
     /** Map XML ACLs to a canned policy if an exact transformation exists. */
     private static String mapXmlAclsToCannedPolicy(
-            AccessControlPolicy policy) throws S3Exception {
+            AccessControlPolicy policy) {
         if (!policy.owner().id().equals(FAKE_OWNER_ID)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
         boolean ownerFullControl = false;
@@ -1531,7 +1529,7 @@ public class S3ProxyHandler {
                         grant.permission().equals("READ")) {
                     allUsersRead = true;
                 } else {
-                    throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                    throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
                 }
             }
         }
@@ -1542,13 +1540,13 @@ public class S3ProxyHandler {
             }
             return "private";
         } else {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
     }
 
     private void handleContainerList(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore)
-            throws IOException, S3Exception {
+            throws IOException {
         // S3 lists buckets ordered by name; the backends promise no order of
         // their own, and paginating an unstable one would drop or repeat
         // buckets between pages.
@@ -1564,10 +1562,10 @@ public class S3ProxyHandler {
             try {
                 maxBuckets = Integer.parseInt(maxBucketsString);
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             if (maxBuckets < 1 || maxBuckets > MAX_BUCKETS) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
             }
         }
         // the token names the last bucket the previous page returned
@@ -1661,11 +1659,11 @@ public class S3ProxyHandler {
     }
 
     private static void handleBucketPolicy(BlobStore blobStore,
-            String containerName) throws S3Exception {
+            String containerName) {
         if (!blobStore.containerExists(containerName)) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
-        throw new S3Exception(S3ErrorCode.NO_SUCH_POLICY);
+        throw new S3ProxyException(S3ErrorCode.NO_SUCH_POLICY);
     }
 
     /**
@@ -1675,13 +1673,13 @@ public class S3ProxyHandler {
      */
     private void handleGetBucketVersioning(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         VersioningStatus status;
         if (blobStore.supportsVersioning()) {
             status = blobStore.getContainerVersioning(containerName);
         } else {
             if (!blobStore.containerExists(containerName)) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
             }
             status = null;
         }
@@ -1707,9 +1705,9 @@ public class S3ProxyHandler {
 
     private void handleSetBucketVersioning(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (!blobStore.supportsVersioning()) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Versioning is not supported.");
         }
 
@@ -1718,18 +1716,18 @@ public class S3ProxyHandler {
         byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
                 .readAllBytes();
         if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
         }
         VersioningConfigurationRequest vcr = readXmlBody(body,
                 VersioningConfigurationRequest.class);
         if (vcr.mfaDelete() != null) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "MFA delete is not supported.");
         }
         VersioningStatus status = vcr.status() == null ? null :
                 VersioningStatus.fromValue(vcr.status());
         if (status == null) {
-            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
         }
 
         blobStore.setContainerVersioning(containerName, status);
@@ -1738,9 +1736,9 @@ public class S3ProxyHandler {
 
     private void handleListObjectVersions(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (!blobStore.supportsVersioning()) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Versioning is not supported.");
         }
 
@@ -1769,10 +1767,10 @@ public class S3ProxyHandler {
             try {
                 maxKeys = Integer.parseInt(maxKeysString);
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             if (maxKeys < 0) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
             }
             if (maxKeys > 1000) {
                 maxKeys = 1000;
@@ -1892,11 +1890,11 @@ public class S3ProxyHandler {
 
     private void handleListMultipartUploads(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String container) throws IOException, S3Exception {
+            String container) throws IOException {
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null && !delimiter.isEmpty() &&
                 !delimiter.equals("/")) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
         String keyMarker = request.getParameter("key-marker");
         String uploadIdMarker = request.getParameter("upload-id-marker");
@@ -1907,10 +1905,10 @@ public class S3ProxyHandler {
             try {
                 maxUploads = Integer.parseInt(maxUploadsString);
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             if (maxUploads < 0) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
             }
             if (maxUploads > 1000) {
                 maxUploads = 1000;
@@ -2031,18 +2029,18 @@ public class S3ProxyHandler {
 
     private void handleContainerExists(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (!blobStore.containerExists(containerName)) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
         addCorsResponseHeader(request, response);
     }
 
     private void handleContainerCreate(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (containerName.isEmpty()) {
-            throw new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED);
+            throw new S3ProxyException(S3ErrorCode.METHOD_NOT_ALLOWED);
         }
 
         // Some clients send this header on every bucket they create, rclone
@@ -2054,7 +2052,7 @@ public class S3ProxyHandler {
         String objectLock = request.getHeader(
                 AwsHttpHeaders.BUCKET_OBJECT_LOCK_ENABLED);
         if (Boolean.parseBoolean(objectLock)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
         String contentLengthString = request.getHeader(
@@ -2064,10 +2062,10 @@ public class S3ProxyHandler {
             try {
                 contentLength = Long.parseLong(contentLengthString);
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             if (contentLength < 0) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
             }
         }
 
@@ -2102,7 +2100,7 @@ public class S3ProxyHandler {
 
         boolean created = blobStore.createContainer(containerName, options);
         if (!created) {
-            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
+            throw new S3ProxyException(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU.getMessage(),
                     null, Map.of("BucketName", containerName));
         }
@@ -2113,13 +2111,13 @@ public class S3ProxyHandler {
 
     private void handleContainerDelete(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (!blobStore.containerExists(containerName)) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
 
         if (!blobStore.deleteContainerIfEmpty(containerName)) {
-            throw new S3Exception(S3ErrorCode.BUCKET_NOT_EMPTY);
+            throw new S3ProxyException(S3ErrorCode.BUCKET_NOT_EMPTY);
         }
 
         addCorsResponseHeader(request, response);
@@ -2128,7 +2126,7 @@ public class S3ProxyHandler {
 
     private void handleBlobList(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         String blobStoreType = getBlobStoreType(blobStore);
         var optionsBuilder = ListContainerOptions.builder();
         String encodingType = request.getParameter("encoding-type");
@@ -2159,7 +2157,7 @@ public class S3ProxyHandler {
             marker = continuationToken != null ? continuationToken :
                     startAfter;
         } else {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
         if (marker != null) {
             if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
@@ -2181,10 +2179,10 @@ public class S3ProxyHandler {
             try {
                 maxKeys = Integer.parseInt(maxKeysString);
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             if (maxKeys < 0) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
             }
             if (maxKeys > 1000) {
                 maxKeys = 1000;
@@ -2361,14 +2359,14 @@ public class S3ProxyHandler {
     private void handleBlobRemove(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         // Only directory buckets delete conditionally.  Reject the condition
         // rather than honor the delete and discard it, which would report
         // success for a delete the caller asked not to happen.  The
         // x-amz-if-match-size and x-amz-if-match-last-modified-time forms
         // are already refused as unknown x-amz- headers.
         if (request.getHeader(HttpHeaders.IF_MATCH) != null) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
         if (blobStore.supportsVersioning()) {
             RemoveResult result = blobStore.removeBlob(containerName,
@@ -2394,7 +2392,7 @@ public class S3ProxyHandler {
      */
     @SuppressWarnings("deprecation")
     private static void validateMultiBlobRemoveChecksum(
-            HttpServletRequest request, byte[] body) throws S3Exception {
+            HttpServletRequest request, byte[] body) {
         String contentMD5 = request.getHeader(HttpHeaders.CONTENT_MD5);
         if (contentMD5 != null) {
             HashCode expected;
@@ -2402,13 +2400,13 @@ public class S3ProxyHandler {
                 expected = HashCode.fromBytes(
                         Base64.getDecoder().decode(contentMD5));
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
             }
             if (expected.bits() != MD5.bits()) {
-                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
             }
             if (!expected.equals(MD5.hashBytes(body))) {
-                throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
             }
             return;
         }
@@ -2425,13 +2423,13 @@ public class S3ProxyHandler {
                         Hashing.sha256(), /*bigEndianInt=*/ false)) {
             return;
         }
-        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+        throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                 "Missing required header for this request: Content-Md5");
     }
 
     private static boolean validateChecksumHeader(HttpServletRequest request,
             byte[] body, String header, HashFunction hashFunction,
-            boolean bigEndianInt) throws S3Exception {
+            boolean bigEndianInt) {
         String value = request.getHeader(header);
         if (value == null) {
             return false;
@@ -2440,14 +2438,14 @@ public class S3ProxyHandler {
         try {
             expected = Base64.getDecoder().decode(value);
         } catch (IllegalArgumentException iae) {
-            throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+            throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
         }
         HashCode hash = hashFunction.hashBytes(body);
         byte[] actual = bigEndianInt ?
                 java.nio.ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
                 hash.asBytes();
         if (!java.util.Arrays.equals(expected, actual)) {
-            throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+            throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
         }
         return true;
     }
@@ -2461,12 +2459,12 @@ public class S3ProxyHandler {
      */
     @Nullable
     private static FlexChecksum requestChecksumHeader(
-            HttpServletRequest request) throws S3Exception {
+            HttpServletRequest request) {
         FlexChecksum found = null;
         for (FlexChecksum candidate : FlexChecksum.values()) {
             if (request.getHeader(candidate.header()) != null) {
                 if (found != null) {
-                    throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                             "Expecting a single x-amz-checksum- header.");
                 }
                 found = candidate;
@@ -2480,8 +2478,7 @@ public class S3ProxyHandler {
      * checksum as the stream is consumed.
      */
     private static InputStream wrapChecksumValidator(InputStream is,
-            FlexChecksum checksum, String expectedBase64, long contentLength)
-            throws S3Exception {
+            FlexChecksum checksum, String expectedBase64, long contentLength) {
         return new ChecksumValidatingInputStream(is, checksum.hashFunction(),
                 checksum.decodeValue(expectedBase64), checksum.bigEndianInt(),
                 contentLength);
@@ -2490,24 +2487,24 @@ public class S3ProxyHandler {
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
             BlobStore blobStore, String containerName)
-            throws IOException, S3Exception {
+            throws IOException {
         // Bound the buffered body: a MultiObjectDelete is limited to 1000
         // keys, but the request is otherwise attacker-controlled, so read at
         // most one byte past the limit and reject rather than exhaust the heap.
         byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
                 .readAllBytes();
         if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
         }
         validateMultiBlobRemoveChecksum(request, body);
         DeleteMultipleObjectsRequest dmor = readXmlBody(
                 body, DeleteMultipleObjectsRequest.class);
         if (dmor.objects() == null) {
-            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
         }
 
         if (dmor.objects().size() > 1_000) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
 
         boolean supportsVersioning = blobStore.supportsVersioning();
@@ -2516,10 +2513,10 @@ public class S3ProxyHandler {
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects()) {
             if (Strings.isNullOrEmpty(s3Object.key())) {
-                throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+                throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
             }
             if (s3Object.hasCondition()) {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
             // On a versioning store even the literal "null" names a version
             // -- the one written while the bucket was unversioned -- so any
@@ -2527,7 +2524,7 @@ public class S3ProxyHandler {
             if (s3Object.versionId() != null && supportsVersioning) {
                 anyVersion = true;
             } else if (s3Object.hasVersion()) {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
             }
             blobNames.add(s3Object.key());
@@ -2629,13 +2626,13 @@ public class S3ProxyHandler {
     private void handleBlobMetadata(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
-            String blobName) throws IOException, S3Exception {
+            String blobName) throws IOException {
         BlobMetadata metadata = blobStore.supportsVersioning() ?
                 blobStore.blobMetadata(containerName, blobName,
                         request.getParameter("versionId")) :
                 blobStore.blobMetadata(containerName, blobName);
         if (metadata == null) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
         checkPartNumber(request, metadata);
 
@@ -2682,18 +2679,17 @@ public class S3ProxyHandler {
      * too.
      */
     private static void checkVersionId(HttpServletRequest request,
-            BlobStore blobStore) throws S3Exception {
+            BlobStore blobStore) {
         if (!blobStore.supportsVersioning()) {
             checkVersionId(request);
         }
     }
 
     /** Vet a versionId for an operation that cannot resolve one. */
-    private static void checkVersionId(HttpServletRequest request)
-            throws S3Exception {
+    private static void checkVersionId(HttpServletRequest request) {
         String versionId = request.getParameter("versionId");
         if (versionId != null && !versionId.equals("null")) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Versioning is not supported.");
         }
     }
@@ -2718,7 +2714,7 @@ public class S3ProxyHandler {
      * for every request -- UploadPart and UploadPartCopy use partNumber.
      */
     private static void checkPartNumber(HttpServletRequest request,
-            @Nullable BlobMetadata metadata) throws S3Exception {
+            @Nullable BlobMetadata metadata) {
         String value = request.getParameter("partNumber");
         if (value == null || metadata == null) {
             return;
@@ -2727,19 +2723,19 @@ public class S3ProxyHandler {
         try {
             partNumber = Integer.parseInt(value);
         } catch (NumberFormatException nfe) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
         }
         if (partNumber < 1 || partNumber > 10_000) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         if (eTagPartCount(metadata.eTag()) > 1) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Reading one part of a multipart object is not" +
                     " supported.");
         }
         if (partNumber > 1) {
             // one part, so anything past it does not exist
-            throw new S3Exception(S3ErrorCode.INVALID_PART);
+            throw new S3ProxyException(S3ErrorCode.INVALID_PART);
         }
     }
 
@@ -2750,8 +2746,7 @@ public class S3ProxyHandler {
      * the caller's copy is unchanged.
      */
     private static boolean checkConditionalHeaders(HttpServletRequest request,
-            HttpServletResponse response, BlobMetadata metadata)
-            throws S3Exception {
+            HttpServletResponse response, BlobMetadata metadata) {
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         long ifModifiedSince = request.getDateHeader(
@@ -2763,7 +2758,7 @@ public class S3ProxyHandler {
         if (eTag != null) {
             eTag = maybeQuoteETag(eTag);
             if (ifMatch != null && !ifMatch.equals(eTag)) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
             if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
@@ -2780,7 +2775,7 @@ public class S3ProxyHandler {
             }
             if (ifUnmodifiedSince != -1 && lastModified.compareTo(
                     new Date(ifUnmodifiedSince)) > 0) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
         return false;
@@ -2789,7 +2784,7 @@ public class S3ProxyHandler {
     private void handleGetObjectAttributes(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         // Resolves only the current object; ignoring a versionId would
         // answer with the wrong version's attributes.
         checkVersionId(request);
@@ -2798,7 +2793,7 @@ public class S3ProxyHandler {
         BlobMetadata metadata = blobStore.blobMetadata(containerName,
                 blobName);
         if (metadata == null) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
         if (checkConditionalHeaders(request, response, metadata)) {
             return;
@@ -2862,7 +2857,7 @@ public class S3ProxyHandler {
      * ignored, leaving their elements out of the response.
      */
     private static Set<String> requestedObjectAttributes(
-            HttpServletRequest request) throws S3Exception {
+            HttpServletRequest request) {
         var attributes = new HashSet<String>();
         for (String header : Collections.list(request.getHeaders(
                 AwsHttpHeaders.OBJECT_ATTRIBUTES))) {
@@ -2874,7 +2869,7 @@ public class S3ProxyHandler {
             }
         }
         if (attributes.isEmpty()) {
-            throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                     "The x-amz-object-attributes header must be specified.");
         }
         return attributes;
@@ -2906,24 +2901,24 @@ public class S3ProxyHandler {
     private void handleOptionsBlob(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore,
-            String containerName) throws IOException, S3Exception {
+            String containerName) throws IOException {
         if (!blobStore.containerExists(containerName)) {
             // Don't leak internal information, although authenticated
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
 
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
         if (Strings.isNullOrEmpty(corsOrigin)) {
-            throw new S3Exception(S3ErrorCode.INVALID_CORS_ORIGIN);
+            throw new S3ProxyException(S3ErrorCode.INVALID_CORS_ORIGIN);
         }
         if (!corsRules.isOriginAllowed(corsOrigin)) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
 
         String corsMethod = request.getHeader(
                 HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
         if (!corsRules.isMethodAllowed(corsMethod)) {
-            throw new S3Exception(S3ErrorCode.INVALID_CORS_METHOD);
+            throw new S3ProxyException(S3ErrorCode.INVALID_CORS_METHOD);
         }
 
         String corsHeaders = request.getHeader(
@@ -2933,7 +2928,7 @@ public class S3ProxyHandler {
                 response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
                         corsHeaders);
             } else {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
         }
 
@@ -2960,7 +2955,7 @@ public class S3ProxyHandler {
     private void handleGetBlob(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         if (request.getParameter("partNumber") != null) {
             // needs the ETag to tell a multipart object apart, and the body
             // must not be fetched only to be thrown away on the error path
@@ -3009,25 +3004,25 @@ public class S3ProxyHandler {
                 if (ranges[0].isEmpty()) {
                     long tail = Long.parseLong(ranges[1]);
                     if (tail < 0) {
-                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
                     optionsBuilder.tail(tail);
                 } else if (ranges[1].isEmpty()) {
                     long startAt = Long.parseLong(ranges[0]);
                     if (startAt < 0) {
-                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
                     optionsBuilder.startAt(startAt);
                 } else {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
                     if (start < 0 || end < start) {
-                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
                     optionsBuilder.range(start, end);
                 }
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
@@ -3035,7 +3030,7 @@ public class S3ProxyHandler {
         Blob blob = blobStore.getBlob(containerName, blobName,
                 optionsBuilder.build());
         if (blob == null) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
 
         response.setStatus(status);
@@ -3069,24 +3064,24 @@ public class S3ProxyHandler {
      */
     @Nullable
     private static String parseCopySourceVersionId(String rawCopySource,
-            BlobStore blobStore) throws S3Exception {
+            BlobStore blobStore) {
         int query = rawCopySource.indexOf('?');
         if (query == -1) {
             return null;
         }
         String queryString = rawCopySource.substring(query + 1);
         if (!queryString.startsWith("versionId=")) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         String versionId = URLDecoder.decode(
                 queryString.substring("versionId=".length()),
                 StandardCharsets.UTF_8);
         if (versionId.isEmpty()) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         if (!blobStore.supportsVersioning()) {
             if (!versionId.equals("null")) {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
             }
             return null;
@@ -3109,11 +3104,10 @@ public class S3ProxyHandler {
      * bucket it cannot address directly by copying out of it.
      */
     private void authorizeCopySource(@Nullable String requestIdentity,
-            String sourceContainerName, String sourceBlobName)
-            throws S3Exception {
+            String sourceContainerName, String sourceBlobName) {
         if (blobStoreLocator.locateBlobStore(requestIdentity,
                 sourceContainerName, sourceBlobName) == null) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
     }
 
@@ -3121,7 +3115,7 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             @Nullable String requestIdentity,
             String destContainerName, String destBlobName)
-            throws IOException, S3Exception {
+            throws IOException {
         String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         String sourceVersionId = parseCopySourceVersionId(rawCopySource,
                 blobStore);
@@ -3133,7 +3127,7 @@ public class S3ProxyHandler {
         }
         String[] path = copySourceHeader.split("/", 2);
         if (path.length != 2) {
-            throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST);
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
@@ -3149,7 +3143,7 @@ public class S3ProxyHandler {
                 sourceBlobName.equals(destBlobName) &&
                 sourceVersionId == null &&
                 !replaceMetadata) {
-            throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST);
         }
 
         CopyOptions.Builder options = CopyOptions.builder();
@@ -3163,7 +3157,7 @@ public class S3ProxyHandler {
             if ("public-read".equalsIgnoreCase(cannedAcl)) {
                 options.blobAccess(BlobAccess.PUBLIC_READ);
             } else if (CANNED_ACLS.contains(cannedAcl)) {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             } else {
                 response.sendError(HttpServletResponse.SC_BAD_REQUEST);
                 return;
@@ -3233,7 +3227,7 @@ public class S3ProxyHandler {
                     sourceContainerName, sourceBlobName,
                     destContainerName, destBlobName, options.build());
         } catch (NoSuchKeyException nske) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, nske);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, nske);
         }
 
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
@@ -3279,7 +3273,7 @@ public class S3ProxyHandler {
     private void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         // Flag headers present since HttpServletResponse.getHeader returns
         // null for empty headers values.
         String contentLengthString = null;
@@ -3307,10 +3301,10 @@ public class S3ProxyHandler {
                 contentMD5 = HashCode.fromBytes(
                         Base64.getDecoder().decode(contentMD5String));
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
             }
             if (contentMD5.bits() != MD5.bits()) {
-                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
             }
         }
 
@@ -3323,13 +3317,13 @@ public class S3ProxyHandler {
         try {
             contentLength = Long.parseLong(contentLengthString);
         } catch (NumberFormatException nfe) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
         }
         if (contentLength < 0) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         if (contentLength > maxSinglePartObjectSize) {
-            throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE);
+            throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_LARGE);
         }
         if (decodedContentLengthString != null) {
             is = ByteStreams.limit(is, contentLength);
@@ -3372,7 +3366,7 @@ public class S3ProxyHandler {
         if ((ifMatch != null || ifNoneMatch != null) &&
                 !supportsNativeConditionalWrites &&
                 !Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Conditional writes are not supported by this backend.");
         }
 
@@ -3387,7 +3381,7 @@ public class S3ProxyHandler {
         // Note: this makes the existence check non-atomic (HEAD then PUT).
         if (ifMatch != null && supportsNativeConditionalWrites) {
             if (!blobStore.blobExists(containerName, blobName)) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
             }
             if (ifMatch.equals("*")) {
                 ifMatch = null;
@@ -3409,7 +3403,7 @@ public class S3ProxyHandler {
         } else if (cannedAcl.equalsIgnoreCase("public-read")) {
             access = BlobAccess.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -3432,7 +3426,7 @@ public class S3ProxyHandler {
             try {
                 builder.storageClass(StorageClass.valueOf(storageClass));
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
+                throw new S3ProxyException(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
             }
         }
 
@@ -3502,7 +3496,7 @@ public class S3ProxyHandler {
     private void handlePostBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
             String containerName)
-            throws IOException, S3Exception {
+            throws IOException {
         String contentTypeHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
         if (contentTypeHeader == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
@@ -3580,7 +3574,7 @@ public class S3ProxyHandler {
                 FlexChecksum candidate = FlexChecksum.fromHeaderName(name);
                 if (candidate != null) {
                     if (checksum != null && checksum != candidate) {
-                        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                        throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                                 "Expecting a single x-amz-checksum- field.");
                     }
                     checksum = candidate;
@@ -3641,13 +3635,13 @@ public class S3ProxyHandler {
         // overwrite objects in every bucket the backend holds.  s3-tests marks
         // the three POSTs that expect otherwise.
         if (policy == null && signature == null && identity == null) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
         // Carrying some but not all of them is a form built wrong rather than
         // one that meant to go unsigned, and saying so beats reporting it as a
         // refusal the caller cannot act on.
         if (policy == null || signature == null) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Bucket POST must contain both 'policy' and a signature" +
                     " when it is authenticated.");
         }
@@ -3657,13 +3651,13 @@ public class S3ProxyHandler {
         boolean signatureVersion4;
         if (algorithm == null) {
             if (identity == null || signature == null) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
             signatureVersion4 = false;
             headerAuthorization = "AWS " + identity + ":" + signature;
         } else if (algorithm.equals("AWS4-HMAC-SHA256")) {
             if (identity == null || signature == null) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
             signatureVersion4 = true;
             headerAuthorization = "AWS4-HMAC-SHA256" +
@@ -3677,20 +3671,20 @@ public class S3ProxyHandler {
         try {
             authHeader = new S3AuthorizationHeader(headerAuthorization);
         } catch (IllegalArgumentException iae) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, iae);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, iae);
         }
 
         switch (authHeader.getAuthenticationType()) {
         case AWS_V2 -> {
             switch (authenticationType) {
             case AWS_V2, AWS_V2_OR_V4, NONE -> { }
-            default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            default -> throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
         }
         case AWS_V4 -> {
             switch (authenticationType) {
             case AWS_V4, AWS_V2_OR_V4, NONE -> { }
-            default -> throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            default -> throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
         }
         case NONE -> { }
@@ -3769,13 +3763,14 @@ public class S3ProxyHandler {
      * it claimed to be.  Both are the caller's own doing, and neither is the
      * 500 the unchecked exception would otherwise become.
      */
-    private static S3Exception multipartParseFailure(CompletionException ce) {
+    private static S3ProxyException multipartParseFailure(
+            CompletionException ce) {
         Throwable cause = ce.getCause();
         if (cause instanceof IllegalStateException) {
-            return new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED,
+            return new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED,
                     cause);
         }
-        return new S3Exception(S3ErrorCode.INVALID_REQUEST,
+        return new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                 "The body of your POST request is not well-formed" +
                 " multipart/form-data.", cause);
     }
@@ -3791,13 +3786,13 @@ public class S3ProxyHandler {
             @Nullable String contentType, Map<String, String> fields,
             byte[] payload, @Nullable FlexChecksum checksum,
             @Nullable String checksumValue)
-            throws IOException, S3Exception {
+            throws IOException {
         if (checksum != null && checksumValue != null) {
             byte[] expected = checksum.decodeValue(checksumValue);
             byte[] actual = checksum.rawDigest(
                     checksum.hashFunction().hashBytes(payload));
             if (!java.util.Arrays.equals(expected, actual)) {
-                throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
             }
         }
 
@@ -3890,14 +3885,14 @@ public class S3ProxyHandler {
     private void handleInitiateMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
-            throws IOException, S3Exception {
+            throws IOException {
         String checksumAlgorithm = request.getHeader(
                 AwsHttpHeaders.CHECKSUM_ALGORITHM);
         FlexChecksum mpuAlgorithm = null;
         if (checksumAlgorithm != null) {
             mpuAlgorithm = FlexChecksum.fromAlgorithmName(checksumAlgorithm);
             if (mpuAlgorithm == null) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                         "Checksum algorithm provided is unsupported.");
             }
         }
@@ -3906,7 +3901,7 @@ public class S3ProxyHandler {
         if (checksumType != null) {
             if (checksumType.equalsIgnoreCase("FULL_OBJECT")) {
                 if (mpuAlgorithm == null || !mpuAlgorithm.supportsFullObject()) {
-                    throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                             "The checksum type full_object is not supported" +
                             " for checksum algorithm " +
                             (mpuAlgorithm == null ? "null" :
@@ -3914,7 +3909,7 @@ public class S3ProxyHandler {
                 }
                 fullObject = true;
             } else if (!checksumType.equalsIgnoreCase("COMPOSITE")) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                         "Checksum type provided is unsupported.");
             }
         }
@@ -3932,7 +3927,7 @@ public class S3ProxyHandler {
             try {
                 builder.storageClass(StorageClass.valueOf(storageClass));
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
+                throw new S3ProxyException(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
             }
         }
 
@@ -3947,7 +3942,7 @@ public class S3ProxyHandler {
                 blobStoreType.equals("azureblob")) {
             BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
             if (metadata == null) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
             }
             ifMatch = null;
         }
@@ -3959,7 +3954,7 @@ public class S3ProxyHandler {
         } else if (cannedAcl.equalsIgnoreCase("public-read")) {
             access = BlobAccess.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
@@ -4018,7 +4013,7 @@ public class S3ProxyHandler {
     private void handleCompleteMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
             final BlobStore blobStore, String containerName, String blobName,
-            String uploadId) throws IOException, S3Exception {
+            String uploadId) throws IOException {
         // S3 rejects malformed checksum headers before considering their
         // meaning, even when the completion would fail for other reasons.
         validateChecksumHeaderValues(request);
@@ -4038,7 +4033,7 @@ public class S3ProxyHandler {
                     return;
                 }
                 // the stub is the only record that the upload exists
-                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     stubName);
@@ -4067,14 +4062,14 @@ public class S3ProxyHandler {
                         containerName, blobName, cmu)) {
                     return;
                 }
-                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, e);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD, e);
             }
             if (partsByListing.isEmpty()) {
                 if (respondAlreadyCompleted(request, response, blobStore,
                         containerName, blobName, cmu)) {
                     return;
                 }
-                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             if (cmu.parts() != null) {
                 // Sort by part number and deduplicate (last occurrence wins)
@@ -4084,7 +4079,7 @@ public class S3ProxyHandler {
                         requestParts = new TreeMap<>();
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
                     if (part.partNumber() < 1 || part.partNumber() > 10_000) {
-                        throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
+                        throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
                     requestParts.put(part.partNumber(), part);
@@ -4094,7 +4089,7 @@ public class S3ProxyHandler {
                     MultipartPart uploadedPart = partsByListing.get(
                             part.partNumber());
                     if (uploadedPart == null) {
-                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                        throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                     }
                     // Validate the client-supplied ETag against the uploaded
                     // part when the backend reports one (azureblob returns
@@ -4103,7 +4098,7 @@ public class S3ProxyHandler {
                     if (uploadedETag != null && !uploadedETag.isEmpty() &&
                             !equalsIgnoringSurroundingQuotes(
                                     uploadedETag, part.eTag())) {
-                        throw new S3Exception(S3ErrorCode.INVALID_PART);
+                        throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                     }
                     parts.add(uploadedPart);
                 }
@@ -4119,14 +4114,14 @@ public class S3ProxyHandler {
                         containerName, blobName, cmu)) {
                     return;
                 }
-                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, String> requestParts = new TreeMap<>();
             if (cmu.parts() != null) {
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
                     if (part.partNumber() < 1 || part.partNumber() > 10_000) {
-                        throw new S3Exception(S3ErrorCode.INVALID_PART_ORDER,
+                        throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
                     requestParts.put(part.partNumber(), part.eTag());
@@ -4137,18 +4132,18 @@ public class S3ProxyHandler {
                 var entry = it.next();
                 MultipartPart part = partsByListing.get(entry.getKey());
                 if (part == null) {
-                    throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                 }
                 long partSize = part.partSize();
                 if (it.hasNext() && partSize != -1 &&
                         (partSize < 5 * 1024 * 1024 || partSize <
                                 blobStore.getMinimumMultipartPartSize())) {
-                    throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL);
+                    throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
                 if (part.partETag() != null &&
                         !equalsIgnoringSurroundingQuotes(part.partETag(),
                                 entry.getValue())) {
-                    throw new S3Exception(S3ErrorCode.INVALID_PART);
+                    throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                 }
                 parts.add(new MultipartPart(entry.getKey(),
                         partSize, part.partETag(), part.lastModified()));
@@ -4157,7 +4152,7 @@ public class S3ProxyHandler {
 
         if (parts.isEmpty()) {
             // Amazon requires at least one part
-            throw new S3Exception(S3ErrorCode.MALFORMED_X_M_L);
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
         }
 
         // Hand the condition to the store, which resolves it as it publishes
@@ -4168,7 +4163,7 @@ public class S3ProxyHandler {
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         if (ifMatch != null || ifNoneMatch != null) {
             if (!Quirks.NATIVE_CONDITIONAL_COMPLETE.contains(blobStoreType)) {
-                throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED,
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Conditional writes are not supported by this" +
                         " backend.");
             }
@@ -4177,7 +4172,7 @@ public class S3ProxyHandler {
             // existence is established If-Match: * asks nothing more.
             if (ifMatch != null) {
                 if (!blobStore.blobExists(containerName, blobName)) {
-                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                    throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
                 }
                 if (ifMatch.equals("*")) {
                     ifMatch = null;
@@ -4398,7 +4393,7 @@ public class S3ProxyHandler {
      * 400 InvalidRequest.
      */
     private static void validateChecksumHeaderValues(
-            HttpServletRequest request) throws S3Exception {
+            HttpServletRequest request) {
         for (FlexChecksum checksum : FlexChecksum.values()) {
             String value = request.getHeader(checksum.header());
             if (value == null) {
@@ -4412,12 +4407,12 @@ public class S3ProxyHandler {
                 try {
                     count = Integer.parseInt(value.substring(dash + 1));
                 } catch (NumberFormatException nfe) {
-                    throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                             "Value for " + checksum.header() +
                             " header is invalid.", nfe, Map.of());
                 }
                 if (count < 1 || count > 10_000) {
-                    throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                             "Value for " + checksum.header() +
                             " header is invalid.");
                 }
@@ -4551,7 +4546,7 @@ public class S3ProxyHandler {
      */
     @Nullable
     private static FlexChecksum mpuChecksumAlgorithm(
-            CompleteMultipartUploadRequest cmu) throws S3Exception {
+            CompleteMultipartUploadRequest cmu) {
         if (cmu.parts() == null) {
             return null;
         }
@@ -4560,7 +4555,7 @@ public class S3ProxyHandler {
             for (FlexChecksum candidate : FlexChecksum.values()) {
                 if (candidate.value(part) != null) {
                     if (algorithm != null && algorithm != candidate) {
-                        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                        throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                                 "More than one checksum algorithm was" +
                                 " supplied for the parts.");
                     }
@@ -4657,8 +4652,7 @@ public class S3ProxyHandler {
     private static MpuChecksum computeMpuChecksum(HttpServletRequest request,
             CompleteMultipartUploadRequest cmu, FlexChecksum algorithm,
             @Nullable Map<Integer, PartChecksum> partChecksums,
-            Map<Integer, Long> partSizes, boolean fullObject)
-            throws S3Exception {
+            Map<Integer, Long> partSizes, boolean fullObject) {
         // Deduplicate by part number (last wins) and sort ascending so the
         // parts are folded together in canonical order.
         SortedMap<Integer, CompleteMultipartUploadRequest.Part> sorted =
@@ -4676,7 +4670,7 @@ public class S3ProxyHandler {
         for (var entry : sorted.entrySet()) {
             String value = algorithm.value(entry.getValue());
             if (value == null) {
-                throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                         "The upload was created using a " + algorithm.lower() +
                         " checksum. The complete request must include the" +
                         " checksum for each part. It was missing for part " +
@@ -4719,7 +4713,7 @@ public class S3ProxyHandler {
         String provided = request.getHeader(algorithm.header());
         if (provided != null && (fullObject || provided.indexOf('-') >= 0) &&
                 !provided.equals(computed)) {
-            throw new S3Exception(S3ErrorCode.BAD_DIGEST);
+            throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
         }
 
         return new MpuChecksum(algorithm, computed);
@@ -4870,17 +4864,17 @@ public class S3ProxyHandler {
          * not base64 of exactly this algorithm's digest length the way S3
          * does: 400 InvalidRequest rather than a digest mismatch.
          */
-        byte[] decodeValue(String value) throws S3Exception {
+        byte[] decodeValue(String value) {
             byte[] decoded;
             try {
                 decoded = Base64.getDecoder().decode(value);
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.BAD_DIGEST,
+                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST,
                         "Value for " + header + " header is invalid.", iae,
                         Map.of());
             }
             if (decoded.length != length) {
-                throw new S3Exception(S3ErrorCode.BAD_DIGEST,
+                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST,
                         "Value for " + header + " header is invalid.");
             }
             return decoded;
@@ -4920,12 +4914,12 @@ public class S3ProxyHandler {
     private void handleAbortMultipartUpload(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName,
-            String uploadId) throws IOException, S3Exception {
+            String uploadId) throws IOException {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             String stubName = multipartStubName(uploadId);
             if (!blobStore.blobExists(containerName, stubName)) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
 
             blobStore.removeBlob(containerName, stubName);
@@ -4940,7 +4934,7 @@ public class S3ProxyHandler {
         try {
             blobStore.abortMultipartUpload(mpu);
         } catch (NoSuchKeyException | NoSuchUploadException e) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, e);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD, e);
         }
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
@@ -4948,11 +4942,11 @@ public class S3ProxyHandler {
     private void handleListParts(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
-            throws IOException, S3Exception {
+            throws IOException {
         // support only the no-op zero case
         String partNumberMarker = request.getParameter("part-number-marker");
         if (partNumberMarker != null && !partNumberMarker.equals("0")) {
-            throw new S3Exception(S3ErrorCode.NOT_IMPLEMENTED);
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
         // TODO: how to reconstruct original mpu?
@@ -5031,7 +5025,7 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             @Nullable String requestIdentity,
             String containerName, String blobName, String uploadId)
-            throws IOException, S3Exception {
+            throws IOException {
         // TODO: duplicated from handlePutBlob
         String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         String sourceVersionId = parseCopySourceVersionId(rawCopySource,
@@ -5044,7 +5038,7 @@ public class S3ProxyHandler {
         }
         String[] path = copySourceHeader.split("/", 2);
         if (path.length != 2) {
-            throw new S3Exception(S3ErrorCode.INVALID_REQUEST);
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST);
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
@@ -5059,7 +5053,7 @@ public class S3ProxyHandler {
         if (range != null) {
             if (!range.startsWith("bytes=") || range.indexOf(',') != -1 ||
                 range.indexOf('-') == -1) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The x-amz-copy-source-range value must be of the form " +
                     "bytes=first-last where first and last are the " +
                     "zero-based offsets of the first and last bytes to copy");
@@ -5075,11 +5069,11 @@ public class S3ProxyHandler {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
                     if (end < start) {
-                        throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
                     expectedSize = end - start + 1;
                     if (expectedSize > MAX_MULTIPART_COPY_SIZE) {
-                        throw new S3Exception(S3ErrorCode.INVALID_REQUEST,
+                        throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                                 "The specified copy source is larger than" +
                                 " the maximum allowable size for a copy" +
                                 " source: " + MAX_MULTIPART_COPY_SIZE);
@@ -5087,7 +5081,7 @@ public class S3ProxyHandler {
                     optionsBuilder.range(start, end);
                 }
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The x-amz-copy-source-range value must be of the form " +
                     "bytes=first-last where first and last are the " +
                     "zero-based offsets of the first and last bytes to copy",
@@ -5097,20 +5091,20 @@ public class S3ProxyHandler {
 
         String partNumberString = request.getParameter("partNumber");
         if (partNumberString == null) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         int partNumber;
         try {
             partNumber = Integer.parseInt(partNumberString);
         } catch (NumberFormatException nfe) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
                     ", inclusive", nfe, Map.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
         if (partNumber < 1 || partNumber > 10_000) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
                     ", inclusive", (Throwable) null, Map.of(
                             "ArgumentName", "partNumber",
@@ -5133,11 +5127,11 @@ public class S3ProxyHandler {
                         blobStore.blobMetadata(sourceContainerName,
                                 sourceBlobName);
                 if (sourceMetadata == null) {
-                    throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                    throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
                 }
                 Long sourceSize = sourceMetadata.size();
                 if (sourceSize != null && sourceSize < expectedSize) {
-                    throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                    throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                 }
             }
             long nativeIfModifiedSince = request.getDateHeader(
@@ -5171,7 +5165,7 @@ public class S3ProxyHandler {
         Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 optionsBuilder.build());
         if (blob == null) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
 
         BlobMetadata blobMetadata = blob.getMetadata();
@@ -5181,7 +5175,7 @@ public class S3ProxyHandler {
             // HTTP GET allow overlong ranges but S3 CopyPart does not
             Long size = blobMetadata.size();
             if (expectedSize != -1 && size != null && size < expectedSize) {
-                throw new S3Exception(S3ErrorCode.INVALID_RANGE);
+                throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
             }
 
             String ifMatch = request.getHeader(
@@ -5195,24 +5189,24 @@ public class S3ProxyHandler {
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
                 if (ifMatch != null && !ifMatch.equals(eTag)) {
-                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
                 if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
-                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }
 
             if (lastModified != null) {
                 if (ifModifiedSince != -1 && lastModified.compareTo(
                         new Date(ifModifiedSince)) <= 0) {
-                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
                 if (ifUnmodifiedSince != -1 && lastModified.compareTo(
                         new Date(ifUnmodifiedSince)) > 0) {
-                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }
-        } catch (S3Exception se) {
+        } catch (S3ProxyException se) {
             // A precondition failure here would otherwise leak the source
             // payload's open backend stream; the happy-path try-with-resources
             // below closes it only once reached.
@@ -5279,7 +5273,7 @@ public class S3ProxyHandler {
     private void handleUploadPart(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
-            throws IOException, S3Exception {
+            throws IOException {
         // TODO: duplicated from handlePutBlob
         String contentLengthString = null;
         String decodedContentLengthString = null;
@@ -5306,10 +5300,10 @@ public class S3ProxyHandler {
                 contentMD5 = HashCode.fromBytes(
                         Base64.getDecoder().decode(contentMD5String));
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.INVALID_DIGEST, iae);
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
             }
             if (contentMD5.bits() != MD5.bits()) {
-                throw new S3Exception(S3ErrorCode.INVALID_DIGEST);
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
             }
         }
 
@@ -5322,10 +5316,10 @@ public class S3ProxyHandler {
         try {
             contentLength = Long.parseLong(contentLengthString);
         } catch (NumberFormatException nfe) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT, nfe);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
         }
         if (contentLength < 0) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         if (decodedContentLengthString != null) {
             is = ByteStreams.limit(is, contentLength);
@@ -5340,20 +5334,20 @@ public class S3ProxyHandler {
 
         String partNumberString = request.getParameter("partNumber");
         if (partNumberString == null) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT);
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         int partNumber;
         try {
             partNumber = Integer.parseInt(partNumberString);
         } catch (NumberFormatException nfe) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
                     ", inclusive", nfe, Map.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
         if (partNumber < 1 || partNumber > 10_000) {
-            throw new S3Exception(S3ErrorCode.INVALID_ARGUMENT,
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
                     ", inclusive", (Throwable) null, Map.of(
                             "ArgumentName", "partNumber",
@@ -5509,20 +5503,20 @@ public class S3ProxyHandler {
     }
 
     private void isTimeSkewed(
-            long date, boolean isPresigned) throws S3Exception  {
+            long date, boolean isPresigned) {
         if (date < 0) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
         long now = System.currentTimeMillis() / 1000;
         if (isPresigned) {
             if (now + maximumTimeSkew < date) {
                 logger.debug("request is not valid yet {} {}", date, now);
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
         } else {
             if (now + maximumTimeSkew < date || now - maximumTimeSkew > date) {
                 logger.debug("time skewed {} {}", date, now);
-                throw new S3Exception(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
+                throw new S3ProxyException(S3ErrorCode.REQUEST_TIME_TOO_SKEWED);
             }
         }
     }
@@ -5830,29 +5824,28 @@ public class S3ProxyHandler {
      * @param metadata the destination object, or null if it does not exist
      */
     private static void checkConditionalWrite(@Nullable BlobMetadata metadata,
-            @Nullable String ifMatch, @Nullable String ifNoneMatch)
-            throws S3Exception {
+            @Nullable String ifMatch, @Nullable String ifNoneMatch) {
         if (ifMatch != null) {
             if (metadata == null) {
-                throw new S3Exception(S3ErrorCode.NO_SUCH_KEY);
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
             }
             if (!ifMatch.equals("*")) {
                 String eTag = metadata.eTag();
                 if (eTag == null || !equalsIgnoringSurroundingQuotes(ifMatch,
                         maybeQuoteETag(eTag))) {
-                    throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                    throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }
         }
 
         if (ifNoneMatch != null && metadata != null) {
             if (ifNoneMatch.equals("*")) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
             String eTag = metadata.eTag();
             if (eTag != null && equalsIgnoringSurroundingQuotes(ifNoneMatch,
                     maybeQuoteETag(eTag))) {
-                throw new S3Exception(S3ErrorCode.PRECONDITION_FAILED);
+                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
     }
@@ -5872,17 +5865,17 @@ public class S3ProxyHandler {
      * S3 answers 411 to.
      */
     private byte[] readBodyOfUnknownLength(HttpServletRequest request,
-            InputStream is) throws IOException, S3Exception {
+            InputStream is) throws IOException {
         String transferEncoding = request.getHeader(
                 HttpHeaders.TRANSFER_ENCODING);
         if (transferEncoding == null ||
                 !transferEncoding.toLowerCase().contains("chunked")) {
-            throw new S3Exception(S3ErrorCode.MISSING_CONTENT_LENGTH);
+            throw new S3ProxyException(S3ErrorCode.MISSING_CONTENT_LENGTH);
         }
         byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
                 .readAllBytes();
         if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3Exception(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
         }
         return body;
     }
@@ -5966,23 +5959,22 @@ public class S3ProxyHandler {
      * without authorization -- so this bounds how long a URL works rather than
      * establishing who may use it.
      */
-    private static void checkPresignedExpiry(HttpServletRequest request)
-            throws S3Exception {
+    private static void checkPresignedExpiry(HttpServletRequest request) {
         String expiresString = request.getParameter("Expires");
         if (expiresString != null) { // v2 query
             long expires;
             try {
                 expires = Long.parseLong(expiresString);
             } catch (NumberFormatException nfe) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, nfe);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, nfe);
             }
             long nowSeconds = System.currentTimeMillis() / 1000;
             if (nowSeconds >= expires) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Request has expired");
             }
             if (expires - nowSeconds > TimeUnit.DAYS.toSeconds(365)) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
         }
 
@@ -5996,15 +5988,15 @@ public class S3ProxyHandler {
                 date = parseIso8601(dateString);
                 expires = Long.parseLong(expiresString);
             } catch (IllegalArgumentException iae) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED, iae);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, iae);
             }
             long nowSeconds = System.currentTimeMillis() / 1000;
             if (nowSeconds >= date + expires) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Request has expired");
             }
             if (expires > TimeUnit.DAYS.toSeconds(7)) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED);
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             }
         }
     }
@@ -6023,7 +6015,7 @@ public class S3ProxyHandler {
      * is secret: it is the caller's own request as the proxy parsed it, and
      * turning it into a signature still needs the credential.
      */
-    private static S3Exception signatureDoesNotMatch(
+    private static S3ProxyException signatureDoesNotMatch(
             HttpServletRequest request, S3AuthorizationHeader authHeader,
             AwsSignature.@Nullable SignatureDetail detail,
             boolean presignedUrl) {
@@ -6061,7 +6053,7 @@ public class S3ProxyHandler {
             message.append(" The request omits headers it declares as signed: ")
                     .append(String.join(", ", missing)).append('.');
         }
-        return new S3Exception(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH,
+        return new S3ProxyException(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH,
                 message.toString(), /*cause=*/ null, elements);
     }
 

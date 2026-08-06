@@ -98,7 +98,7 @@ final class PostPolicy {
      * the document is the caller's own and a malformed one is a mistake in
      * building the form rather than a refusal to serve it.
      */
-    static PostPolicy parse(byte[] base64) throws S3Exception {
+    static PostPolicy parse(byte[] base64) {
         byte[] decoded;
         try {
             decoded = Base64.getMimeDecoder().decode(base64);
@@ -199,23 +199,22 @@ final class PostPolicy {
      *     {@code bucket} taken from the request URI rather than the form
      * @param contentLength the length of the payload actually uploaded
      */
-    void evaluate(Map<String, String> fields, long contentLength)
-            throws S3Exception {
+    void evaluate(Map<String, String> fields, long contentLength) {
         if (Instant.now().isAfter(expiration)) {
-            throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                     "Invalid according to Policy: Policy expired.");
         }
 
         for (Condition condition : conditions) {
             String actual = fields.get(condition.field());
             if (actual == null) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Invalid according to Policy: Policy Condition" +
                         " failed: the form did not send " +
                         condition.field() + ".");
             }
             if (!condition.matches(actual)) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Invalid according to Policy: Policy Condition" +
                         " failed: [\"" +
                         (condition.startsWith() ? "starts-with" : "eq") +
@@ -236,7 +235,7 @@ final class PostPolicy {
                 }
             }
             if (!covered) {
-                throw new S3Exception(S3ErrorCode.ACCESS_DENIED,
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Invalid according to Policy: Extra input fields:" +
                         " " + field);
             }
@@ -245,12 +244,12 @@ final class PostPolicy {
         // Reported as a bad request rather than a refusal: the form was
         // entitled to upload, and only the size of what it sent is wrong.
         if (minLength != NO_LIMIT && contentLength < minLength) {
-            throw new S3Exception(S3ErrorCode.ENTITY_TOO_SMALL,
+            throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_SMALL,
                     "Your proposed upload is smaller than the minimum" +
                     " allowed size");
         }
         if (maxLength != NO_LIMIT && contentLength > maxLength) {
-            throw new S3Exception(S3ErrorCode.ENTITY_TOO_LARGE,
+            throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_LARGE,
                     "Your proposed upload exceeds the maximum allowed size");
         }
     }
@@ -267,7 +266,7 @@ final class PostPolicy {
         return false;
     }
 
-    private static long length(JsonNode node) throws S3Exception {
+    private static long length(JsonNode node) {
         long value;
         if (node.isIntegralNumber()) {
             value = node.longValue();
@@ -290,7 +289,7 @@ final class PostPolicy {
         return value;
     }
 
-    private static String stringValue(JsonNode node) throws S3Exception {
+    private static String stringValue(JsonNode node) {
         if (node == null || !node.isString()) {
             throw invalid("Invalid policy: expected a string", null);
         }
@@ -301,11 +300,11 @@ final class PostPolicy {
         return value.toLowerCase(Locale.ROOT);
     }
 
-    private static S3Exception invalid(String message,
+    private static S3ProxyException invalid(String message,
             @Nullable Throwable cause) {
         return cause == null ?
-                new S3Exception(S3ErrorCode.INVALID_POLICY_DOCUMENT, message) :
-                new S3Exception(S3ErrorCode.INVALID_POLICY_DOCUMENT, message,
+                new S3ProxyException(S3ErrorCode.INVALID_POLICY_DOCUMENT, message) :
+                new S3ProxyException(S3ErrorCode.INVALID_POLICY_DOCUMENT, message,
                         cause);
     }
 }
