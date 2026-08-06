@@ -19,6 +19,15 @@ fi
 S3PROXY_BIN="${PWD}/target/s3proxy"
 S3PROXY_PORT="${S3PROXY_PORT:-8081}"
 export S3TEST_CONF="${PWD}/src/test/resources/s3-tests.conf"
+# Answer every request's first attempt.  botocore treats BadDigest and 500
+# as transient and retries them with exponential backoff, so each test that
+# deliberately provokes one -- the checksum mismatches, the marked delimiter
+# listings -- slept through five attempts, about a minute of the lane in
+# total.  The proxy is local: nothing between the client and it is
+# transient, and every test asserts on an answer the first attempt already
+# carries.  tox passes these through via passenv.
+export AWS_MAX_ATTEMPTS=1
+export AWS_RETRY_MODE=standard
 TOX_TEST_ARGS=("$@")
 # JUnit XML names the tests that failed, where the console output leaves a
 # count and a scroll of output to search.  It is named after the config since
