@@ -48,6 +48,16 @@ public final class S3ProxyConstants {
             "s3proxy.credential";
     public static final String PROPERTY_IGNORE_UNKNOWN_HEADERS =
             "s3proxy.ignore-unknown-headers";
+    // How to handle the x-amz-server-side-encryption request header. When unset
+    // the default reflects what the backend can truthfully claim: sse-s3 on
+    // stores that encrypt at rest (or with encrypted-blobstore enabled), else
+    // reject. This property overrides that default:
+    //   reject  -- 501 NotImplemented
+    //   ignore  -- accept the PUT, drop the header, do not echo
+    //   sse-s3  -- accept AES256, echo it on PUT/HEAD/GET/copy/complete
+    // aws:kms and SSE-C are always rejected regardless of this setting.
+    public static final String PROPERTY_SERVER_SIDE_ENCRYPTION =
+            "s3proxy.server-side-encryption";
     public static final String PROPERTY_KEYSTORE_PATH =
             "s3proxy.keystore-path";
     public static final String PROPERTY_KEYSTORE_PASSWORD =

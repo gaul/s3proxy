@@ -281,6 +281,10 @@ public class S3ProxyHandler {
             AwsHttpHeaders.METADATA_DIRECTIVE,
             AwsHttpHeaders.OBJECT_ATTRIBUTES,
             AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
+            AwsHttpHeaders.SSE_CUSTOMER_ALGORITHM,
+            AwsHttpHeaders.SSE_CUSTOMER_KEY,
+            AwsHttpHeaders.SSE_CUSTOMER_KEY_MD5,
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.TRAILER,
             AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
@@ -338,6 +342,7 @@ public class S3ProxyHandler {
     private final long v4MaxNonChunkedRequestSize;
     private final int v4MaxChunkSize;
     private final boolean ignoreUnknownHeaders;
+    private final SseMode serverSideEncryption;
     private final CrossOriginResourceSharing corsRules;
     private final String servicePath;
     private final int maximumTimeSkew;
@@ -359,6 +364,35 @@ public class S3ProxyHandler {
             .expireAfterWrite(Duration.ofMinutes(10))
             .build();
 
+    /** Policy for the x-amz-server-side-encryption request header. */
+    enum SseMode {
+        /** 501 NotImplemented for any SSE header (default; prior behavior). */
+        REJECT,
+        /** Accept the PUT, drop the header, do not echo it back. */
+        IGNORE,
+        /** Accept AES256 and echo it (backend encrypts at rest). */
+        SSE_S3;
+
+        static SseMode parse(String value) {
+            if (value == null) {
+                return REJECT;
+            }
+            switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "ignore":
+                return IGNORE;
+            case "sse-s3":
+            case "aes256":
+                return SSE_S3;
+            case "reject":
+            case "":
+                return REJECT;
+            default:
+                throw new IllegalArgumentException(
+                        "invalid s3proxy.server-side-encryption: " + value);
+            }
+        }
+    }
+
     public S3ProxyHandler(final BlobStore blobStore,
             AuthenticationType authenticationType,
             @Nullable final String identity,
@@ -366,6 +400,7 @@ public class S3ProxyHandler {
             long maxSinglePartObjectSize, long v4MaxNonChunkedRequestSize,
             int v4MaxChunkSize,
             boolean ignoreUnknownHeaders,
+            SseMode serverSideEncryption,
             @Nullable CrossOriginResourceSharing corsRules,
             @Nullable final String servicePath, int maximumTimeSkew) {
         if (corsRules != null) {
@@ -411,6 +446,7 @@ public class S3ProxyHandler {
         this.v4MaxNonChunkedRequestSize = v4MaxNonChunkedRequestSize;
         this.v4MaxChunkSize = v4MaxChunkSize;
         this.ignoreUnknownHeaders = ignoreUnknownHeaders;
+        this.serverSideEncryption = serverSideEncryption;
         this.defaultBlobStore = blobStore;
         xmlOutputFactory.setProperty("javax.xml.stream.isRepairingNamespaces", false);
         this.servicePath = Strings.nullToEmpty(servicePath);
@@ -2867,6 +2903,7 @@ public class S3ProxyHandler {
         response.setStatus(HttpServletResponse.SC_OK);
         addMetadataToResponse(request, response, metadata,
                 /*partialContent=*/ false);
+        echoServerSideEncryptionIfConfigured(response);
         addCorsResponseHeader(request, response);
     }
 
@@ -3287,6 +3324,7 @@ public class S3ProxyHandler {
         addMetadataToResponse(request, response,
                 SdkResponses.toHead(blob.response()),
                 status == HttpServletResponse.SC_PARTIAL_CONTENT);
+        echoServerSideEncryptionIfConfigured(response);
 
         // TODO: handles only a single range due to blobstore API limitations
         String contentRange = blob.response().contentRange();
@@ -3489,6 +3527,7 @@ public class S3ProxyHandler {
         if (destVersionId != null) {
             response.addHeader(AwsHttpHeaders.VERSION_ID, destVersionId);
         }
+        echoServerSideEncryptionIfConfigured(response);
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -3517,10 +3556,57 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * Apply the configured s3proxy.server-side-encryption policy to a PUT.
+     * SSE-S3 (AES256) is handled per policy; SSE-KMS (aws:kms) and SSE-C
+     * (customer-provided keys) are ALWAYS rejected -- silently ignoring a
+     * customer key would falsely imply the object was encrypted with it.
+     */
+    private void applyServerSideEncryptionPolicy(HttpServletRequest request,
+            HttpServletResponse response) {
+        if (request.getHeader(AwsHttpHeaders.SSE_CUSTOMER_ALGORITHM) != null ||
+                request.getHeader(AwsHttpHeaders.SSE_CUSTOMER_KEY) != null) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+        String sse = request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION);
+        if (sse == null) {
+            return;
+        }
+        if (!sse.equalsIgnoreCase("AES256")) {
+            // aws:kms and any other mode need real key management.
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+        switch (serverSideEncryption) {
+        case IGNORE:
+            return;                       // accept, drop the header, no echo
+        case SSE_S3:
+            // Backend encrypts at rest; acknowledge on the PUT response. The
+            // matching echo on HEAD/GET is emitted by echoServerSideEncryptionIfConfigured.
+            response.addHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION, "AES256");
+            return;
+        case REJECT:
+        default:
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+        }
+    }
+
+    /**
+     * Echo x-amz-server-side-encryption: AES256 on read (HEAD/GET) when the
+     * proxy runs in sse-s3 mode. This mirrors real S3 with default bucket
+     * encryption -- which returns the header for every object -- and is
+     * truthful on the at-rest-encrypting backends sse-s3 is derived for.
+     */
+    private void echoServerSideEncryptionIfConfigured(HttpServletResponse response) {
+        if (serverSideEncryption == SseMode.SSE_S3) {
+            response.addHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION, "AES256");
+        }
+    }
+
     private void handlePutBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException {
+        applyServerSideEncryptionPolicy(request, response);
         // Flag headers present since HttpServletResponse.getHeader returns
         // null for empty headers values.
         String contentLengthString = null;
@@ -4557,6 +4643,7 @@ public class S3ProxyHandler {
             response.addHeader(AwsHttpHeaders.VERSION_ID,
                     completedResult.versionId());
         }
+        echoServerSideEncryptionIfConfigured(response);
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(XML_CONTENT_TYPE);

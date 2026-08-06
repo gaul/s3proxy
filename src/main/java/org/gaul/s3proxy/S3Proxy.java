@@ -152,7 +152,8 @@ public final class S3Proxy {
                 builder.maxSinglePartObjectSize,
                 builder.v4MaxNonChunkedRequestSize,
                 builder.v4MaxChunkSize,
-                builder.ignoreUnknownHeaders, builder.corsRules,
+                builder.ignoreUnknownHeaders, builder.serverSideEncryption,
+                builder.corsRules,
                 builder.servicePath, builder.maximumTimeSkew, metrics);
 
         var context = new ServletContextHandler();
@@ -218,6 +219,8 @@ public final class S3Proxy {
         private long v4MaxNonChunkedRequestSize = 128 * 1024 * 1024;
         private int v4MaxChunkSize = 16 * 1024 * 1024;
         private boolean ignoreUnknownHeaders;
+        private S3ProxyHandler.SseMode serverSideEncryption =
+                S3ProxyHandler.SseMode.REJECT;
         @Nullable private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
@@ -341,6 +344,30 @@ public final class S3Proxy {
             if (!Strings.isNullOrEmpty(ignoreUnknownHeaders)) {
                 builder.ignoreUnknownHeaders(Boolean.parseBoolean(
                         ignoreUnknownHeaders));
+            }
+
+            String serverSideEncryption = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_SERVER_SIDE_ENCRYPTION);
+            if (!Strings.isNullOrEmpty(serverSideEncryption)) {
+                // Explicit operator override always wins.
+                builder.serverSideEncryption(
+                        S3ProxyHandler.SseMode.parse(serverSideEncryption));
+            } else {
+                // Default reflects what the backend can TRUTHFULLY claim:
+                // acknowledge SSE-S3 only where objects really are encrypted at
+                // rest -- either a backend that always encrypts (S3/Azure/GCS)
+                // or when the proxy itself encrypts via EncryptedBlobStore --
+                // and reject otherwise rather than assert encryption that is
+                // not happening. Operators can override with the property above.
+                String provider = properties.getProperty("jclouds.provider");
+                boolean encryptedBlobStore = "true".equalsIgnoreCase(
+                        properties.getProperty(
+                            S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE));
+                boolean atRest = provider != null && Quirks
+                        .SERVER_SIDE_ENCRYPTION_AT_REST.contains(provider);
+                builder.serverSideEncryption(encryptedBlobStore || atRest ?
+                        S3ProxyHandler.SseMode.SSE_S3 :
+                        S3ProxyHandler.SseMode.REJECT);
             }
 
             String corsAllowAll = properties.getProperty(
@@ -493,6 +520,12 @@ public final class S3Proxy {
 
         public Builder ignoreUnknownHeaders(boolean ignoreUnknownHeaders) {
             this.ignoreUnknownHeaders = ignoreUnknownHeaders;
+            return this;
+        }
+
+        public Builder serverSideEncryption(
+                S3ProxyHandler.SseMode serverSideEncryption) {
+            this.serverSideEncryption = serverSideEncryption;
             return this;
         }
 

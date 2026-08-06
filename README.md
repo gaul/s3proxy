@@ -141,7 +141,13 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * hosting static websites
 * object lock, including legal hold and retention
 * object ownership controls
-* object server-side encryption, see [#402](https://github.com/gaul/s3proxy/issues/402)
+* object server-side encryption, see [#402](https://github.com/gaul/s3proxy/issues/402);
+  SSE-S3 (AES256) is accepted and echoed on PUT/HEAD/GET/copy/complete only when
+  objects are truly encrypted at rest -- a backend that always encrypts
+  (S3/Azure/GCS) or when `s3proxy.encrypted-blobstore` is enabled -- and rejected
+  otherwise, so the proxy never claims encryption it is not performing. Override
+  this default with `s3proxy.server-side-encryption` (`reject` | `ignore` |
+  `sse-s3`). SSE-KMS and SSE-C remain unsupported
 * object tagging
 * object versioning on backends other than aws-s3-sdk, see [#74](https://github.com/gaul/s3proxy/issues/74)
 * paginating ListParts with `part-number-marker`
