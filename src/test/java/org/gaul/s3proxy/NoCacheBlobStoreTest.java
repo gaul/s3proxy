@@ -19,51 +19,45 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
-import java.util.Date;
 
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+
 public final class NoCacheBlobStoreTest {
-    @Test
-    public void testResetCacheHeadersKeepRange() {
-        var options = GetOptions.builder().range(1, 5).build();
-        var optionsResult = NoCacheBlobStore.resetCacheHeaders(options);
-        assertThat(optionsResult.ranges()).isEqualTo(options.ranges());
+    private static GetObjectRequest.Builder request() {
+        return GetObjectRequest.builder().bucket("container").key("blob");
     }
 
     @Test
-    public void testResetCacheHeadersKeepTail() {
-        var options = GetOptions.builder()
-                .range(1, 5).tail(3).startAt(10).build();
-        var optionsResult = NoCacheBlobStore.resetCacheHeaders(options);
-        assertThat(optionsResult.ranges()).isEqualTo(options.ranges());
+    public void testResetCacheHeadersKeepRange() {
+        var request = request().range("bytes=1-5").build();
+        var result = NoCacheBlobStore.resetCacheHeaders(request);
+        assertThat(result.range()).isEqualTo(request.range());
     }
 
     @Test
     public void testResetCacheHeadersRangeDropCache() {
-        var options = GetOptions.builder()
-                .range(1, 5)
-                .tail(3)
-                .startAt(10)
-                .ifETagDoesntMatch("abc")
-                .ifModifiedSince(Date.from(Instant.EPOCH))
+        var request = request()
+                .range("bytes=1-5")
+                .ifNoneMatch("abc")
+                .ifModifiedSince(Instant.EPOCH)
                 .build();
-        var optionsResult = NoCacheBlobStore.resetCacheHeaders(options);
-        assertThat(optionsResult.ranges()).isEqualTo(options.ranges());
-        assertThat(optionsResult.ifNoneMatch()).isEqualTo(null);
-        assertThat(optionsResult.ifModifiedSince()).isEqualTo((Date) null);
+        var result = NoCacheBlobStore.resetCacheHeaders(request);
+        assertThat(result.range()).isEqualTo(request.range());
+        assertThat(result.ifNoneMatch()).isNull();
+        assertThat(result.ifModifiedSince()).isNull();
     }
 
     @Test
     public void testResetCacheHeadersNoRange() {
-        var options = GetOptions.builder()
-                .ifETagMatches("abc")
-                .ifUnmodifiedSince(Date.from(Instant.EPOCH))
+        var request = request()
+                .ifMatch("abc")
+                .ifUnmodifiedSince(Instant.EPOCH)
                 .build();
-        var optionsResult = NoCacheBlobStore.resetCacheHeaders(options);
-        assertThat(optionsResult.ranges()).isEqualTo(options.ranges());
-        assertThat(optionsResult.ifMatch()).isEqualTo(null);
-        assertThat(optionsResult.ifUnmodifiedSince()).isEqualTo((Date) null);
+        var result = NoCacheBlobStore.resetCacheHeaders(request);
+        assertThat(result.range()).isNull();
+        assertThat(result.ifMatch()).isNull();
+        assertThat(result.ifUnmodifiedSince()).isNull();
     }
 }

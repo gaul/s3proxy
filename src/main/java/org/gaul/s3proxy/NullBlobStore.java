@@ -33,11 +33,11 @@ import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -45,7 +45,9 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
@@ -64,8 +66,8 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
-        var blob = getBlob(container, name, GetOptions.NONE);
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        var blob = getBlob(request.bucket(), request.key());
         if (blob == null) {
             return null;
         }
@@ -78,18 +80,15 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public ResponseInputStream<GetObjectResponse> getBlob(String container,
-            String name, GetOptions options) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            GetObjectRequest request) {
         // Ranges apply to the virtual content, not the 8-byte length stub.
-        List<String> originalRanges = options.ranges();
+        var range = SdkRequests.parseRange(request.range());
         ResponseInputStream<GetObjectResponse> blob;
-        if (originalRanges.isEmpty()) {
-            blob = super.getBlob(container, name, options);
+        if (range == null) {
+            blob = super.getBlob(request);
         } else {
-            blob = super.getBlob(container, name, new GetOptions(List.of(),
-                    options.ifModifiedSince(), options.ifUnmodifiedSince(),
-                    options.ifMatch(), options.ifNoneMatch(),
-                    options.versionId()));
+            blob = super.getBlob(request.toBuilder().range(null).build());
         }
         if (blob == null) {
             return null;
@@ -104,21 +103,19 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         long fullLength = Longs.fromByteArray(array);
         long length = fullLength;
-        if (!originalRanges.isEmpty()) {
-            String[] parts = originalRanges.get(0).split("-", 2);
-            if (parts[0].isEmpty()) {
+        if (range != null) {
+            if (range.first() == null) {
                 // bytes=-N: last N bytes
-                length = Math.min(Long.parseLong(parts[1]), fullLength);
-            } else if (parts[1].isEmpty()) {
+                length = Math.min(requireNonNull(range.last()),
+                        fullLength);
+            } else if (range.last() == null) {
                 // bytes=A-: from offset to end
-                long offset = Long.parseLong(parts[0]);
-                length = Math.max(0, fullLength - offset);
+                length = Math.max(0, fullLength - range.first());
             } else {
                 // bytes=A-B
-                long offset = Long.parseLong(parts[0]);
-                long end = Long.parseLong(parts[1]);
                 length = Math.max(0,
-                        Math.min(end + 1, fullLength) - offset);
+                        Math.min(range.last() + 1, fullLength) -
+                                range.first());
             }
         }
 
@@ -245,7 +242,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         for (Part part : super.listMultipartUpload(mpu)) {
             // get real blob size from stub blob
             var blob = requireNonNull(getBlob(mpu.containerName(),
-                    mpu.id() + "-" + part.partNumber(), GetOptions.NONE));
+                    mpu.id() + "-" + part.partNumber()));
             long length = requireNonNull(blob.response().contentLength());
             builder.add(part.toBuilder().size(length).build());
         }

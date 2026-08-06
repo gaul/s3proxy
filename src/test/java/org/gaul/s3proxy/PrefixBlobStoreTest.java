@@ -31,7 +31,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
@@ -76,8 +75,7 @@ public final class PrefixBlobStoreTest {
         assertThat(blobStore.blobExists(containerName,
                 prefix + "object.txt")).isTrue();
 
-        var stored = prefixBlobStore.getBlob(containerName, "object.txt",
-                GetOptions.NONE);
+        var stored = prefixBlobStore.getBlob(containerName, "object.txt");
         assertThat(stored).isNotNull();
         try (InputStream expected = content.openStream();
              InputStream actual = stored) {

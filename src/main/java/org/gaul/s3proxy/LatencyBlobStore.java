@@ -40,7 +40,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -49,7 +48,9 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -205,17 +206,17 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         simulateLatency(OP_BLOB_METADATA);
-        return super.blobMetadata(container, name);
+        return super.blobMetadata(request);
     }
 
     @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String blobName, GetOptions getOptions) {
+            GetObjectRequest request) {
         simulateLatency(OP_GET_BLOB);
-        var blob = super.getBlob(containerName, blobName, getOptions);
+        var blob = super.getBlob(request);
         if (blob == null) {
             return null;
         }

@@ -104,7 +104,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -123,7 +122,9 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -2718,10 +2719,14 @@ public class S3ProxyHandler {
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException {
-        HeadObjectResponse metadata = blobStore.supportsVersioning() ?
-                blobStore.blobMetadata(containerName, blobName,
-                        request.getParameter("versionId")) :
-                blobStore.blobMetadata(containerName, blobName);
+        var headRequest = HeadObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName);
+        if (blobStore.supportsVersioning()) {
+            headRequest.versionId(request.getParameter("versionId"));
+        }
+        HeadObjectResponse metadata = blobStore.blobMetadata(
+                headRequest.build());
         if (metadata == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -3083,32 +3088,28 @@ public class S3ProxyHandler {
         }
 
         int status = HttpServletResponse.SC_OK;
-        var optionsBuilder = GetOptions.builder();
+        var getRequest = GetObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName);
 
         if (blobStore.supportsVersioning()) {
-            optionsBuilder.versionId(request.getParameter("versionId"));
+            getRequest.versionId(request.getParameter("versionId"));
         }
 
-        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
-        if (ifMatch != null) {
-            optionsBuilder.ifETagMatches(ifMatch);
-        }
-
-        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
-        if (ifNoneMatch != null) {
-            optionsBuilder.ifETagDoesntMatch(ifNoneMatch);
-        }
+        getRequest.ifMatch(request.getHeader(HttpHeaders.IF_MATCH));
+        getRequest.ifNoneMatch(request.getHeader(HttpHeaders.IF_NONE_MATCH));
 
         long ifModifiedSince = request.getDateHeader(
                 HttpHeaders.IF_MODIFIED_SINCE);
         if (ifModifiedSince != -1) {
-            optionsBuilder.ifModifiedSince(new Date(ifModifiedSince));
+            getRequest.ifModifiedSince(Instant.ofEpochMilli(ifModifiedSince));
         }
 
         long ifUnmodifiedSince = request.getDateHeader(
                 HttpHeaders.IF_UNMODIFIED_SINCE);
         if (ifUnmodifiedSince != -1) {
-            optionsBuilder.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
+            getRequest.ifUnmodifiedSince(
+                    Instant.ofEpochMilli(ifUnmodifiedSince));
         }
 
         String range = request.getHeader(HttpHeaders.RANGE);
@@ -3117,37 +3118,36 @@ public class S3ProxyHandler {
                 range.indexOf(',') == -1 &&
                 // ignore malformed ranges missing the hyphen
                 range.indexOf('-') != -1) {
-            range = range.substring("bytes=".length());
-            String[] ranges = range.split("-", 2);
+            String[] ranges = range.substring("bytes=".length())
+                    .split("-", 2);
             try {
                 if (ranges[0].isEmpty()) {
                     long tail = Long.parseLong(ranges[1]);
                     if (tail < 0) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
-                    optionsBuilder.tail(tail);
                 } else if (ranges[1].isEmpty()) {
                     long startAt = Long.parseLong(ranges[0]);
                     if (startAt < 0) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
-                    optionsBuilder.startAt(startAt);
                 } else {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
                     if (start < 0 || end < start) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
-                    optionsBuilder.range(start, end);
                 }
             } catch (NumberFormatException nfe) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
             }
+            // pass the validated single range through verbatim
+            getRequest.range(range);
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
         ResponseInputStream<GetObjectResponse> blob = blobStore.getBlob(
-                containerName, blobName, optionsBuilder.build());
+                getRequest.build());
         if (blob == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -4714,7 +4714,7 @@ public class S3ProxyHandler {
         for (int partNumber : partNumbers) {
             var blob = blobStore.getBlob(containerName,
                     AbstractNio2BlobStore.multipartPartName(uploadId,
-                            blobName, partNumber), GetOptions.NONE);
+                            blobName, partNumber));
             if (blob == null) {
                 // a missing part is rejected elsewhere; fall back to the
                 // client-asserted value
@@ -5172,8 +5172,10 @@ public class S3ProxyHandler {
         authorizeCopySource(requestIdentity, sourceContainerName,
                 sourceBlobName);
 
-        var optionsBuilder = GetOptions.builder();
-        optionsBuilder.versionId(sourceVersionId);
+        var getRequest = GetObjectRequest.builder()
+                .bucket(sourceContainerName)
+                .key(sourceBlobName)
+                .versionId(sourceVersionId);
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         String rawCopySourceRange = range;
         long expectedSize = -1;
@@ -5186,13 +5188,9 @@ public class S3ProxyHandler {
                     "zero-based offsets of the first and last bytes to copy");
             }
             try {
-                range = range.substring("bytes=".length());
-                String[] ranges = range.split("-", 2);
-                if (ranges[0].isEmpty()) {
-                    optionsBuilder.tail(Long.parseLong(ranges[1]));
-                } else if (ranges[1].isEmpty()) {
-                    optionsBuilder.startAt(Long.parseLong(ranges[0]));
-                } else {
+                String[] ranges = range.substring("bytes=".length())
+                        .split("-", 2);
+                if (!ranges[0].isEmpty() && !ranges[1].isEmpty()) {
                     long start = Long.parseLong(ranges[0]);
                     long end = Long.parseLong(ranges[1]);
                     if (end < start) {
@@ -5205,8 +5203,12 @@ public class S3ProxyHandler {
                                 " the maximum allowable size for a copy" +
                                 " source: " + MAX_MULTIPART_COPY_SIZE);
                     }
-                    optionsBuilder.range(start, end);
+                } else {
+                    // parse for validation only
+                    Long.parseLong(ranges[0].isEmpty() ?
+                            ranges[1] : ranges[0]);
                 }
+                getRequest.range(range);
             } catch (NumberFormatException nfe) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The x-amz-copy-source-range value must be of the form " +
@@ -5248,11 +5250,12 @@ public class S3ProxyHandler {
             // same InvalidRange semantics as the emulated path below, which
             // checks the size from getBlob's metadata.
             if (expectedSize != -1) {
-                HeadObjectResponse sourceMetadata = sourceVersionId != null ?
-                        blobStore.blobMetadata(sourceContainerName,
-                                sourceBlobName, sourceVersionId) :
-                        blobStore.blobMetadata(sourceContainerName,
-                                sourceBlobName);
+                HeadObjectResponse sourceMetadata = blobStore.blobMetadata(
+                        HeadObjectRequest.builder()
+                                .bucket(sourceContainerName)
+                                .key(sourceBlobName)
+                                .versionId(sourceVersionId)
+                                .build());
                 if (sourceMetadata == null) {
                     throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
                 }
@@ -5289,8 +5292,7 @@ public class S3ProxyHandler {
             }
         }
 
-        var blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
-                optionsBuilder.build());
+        var blob = blobStore.getBlob(getRequest.build());
         if (blob == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }

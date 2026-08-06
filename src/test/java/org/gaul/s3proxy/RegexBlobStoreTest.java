@@ -34,7 +34,6 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,15 +83,13 @@ public final class RegexBlobStoreTest {
                 containerName, targetBlobName);
 
         assertThat(blobMetadata.eTag()).isEqualTo(contentHash);
-        var got1 = regexBlobStore.getBlob(containerName, targetBlobName,
-                GetOptions.NONE);
+        var got1 = regexBlobStore.getBlob(containerName, targetBlobName);
         try (InputStream actual = got1;
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
 
-        var got2 = regexBlobStore.getBlob(containerName, initialBlobName,
-                GetOptions.NONE);
+        var got2 = regexBlobStore.getBlob(containerName, initialBlobName);
         try (InputStream actual = got2;
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);

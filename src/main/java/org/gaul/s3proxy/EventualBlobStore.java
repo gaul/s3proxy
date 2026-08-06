@@ -39,7 +39,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -136,8 +135,8 @@ final class EventualBlobStore extends ForwardingBlobStore {
         schedule(new Callable<@Nullable PutObjectResponse>() {
                 @Override
                 public @Nullable PutObjectResponse call() {
-                    var near = writeStore.getBlob(containerName, nearName,
-                            GetOptions.NONE);
+                    var near = writeStore.getBlob(containerName,
+                            nearName);
                     Blob nearBlob = near == null ? null :
                             Blob.from(nearName, near.response(), near);
                     if (nearBlob == null) {

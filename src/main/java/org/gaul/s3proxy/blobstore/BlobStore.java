@@ -30,7 +30,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -42,7 +41,9 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
@@ -114,32 +115,48 @@ public interface BlobStore extends AutoCloseable {
     CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options);
 
-    @Nullable
-    HeadObjectResponse blobMetadata(String container, String name);
-
     /**
-     * Reads the metadata of one version, or of the current version when
-     * {@code versionId} is null.  Returns null when the object does not
-     * exist; throws {@link S3Exceptions#noSuchKeyDeleteMarker} carrying the
-     * marker's version when the current "version" is a delete marker, and
-     * {@link S3Exceptions#noSuchVersion} when the named version does not
-     * exist.  Only meaningful on a store that {@link #supportsVersioning};
-     * the default implementation throws UnsupportedOperationException.
+     * Reads the metadata of the version the request names, or of the
+     * current version when its versionId is null.  Returns null when the
+     * object does not exist; throws {@link
+     * S3Exceptions#noSuchKeyDeleteMarker} carrying the marker's version
+     * when the current "version" is a delete marker, and {@link
+     * S3Exceptions#noSuchVersion} when the named version does not exist.
+     * A non-null versionId is only meaningful on a store that {@link
+     * #supportsVersioning}; the others throw
+     * UnsupportedOperationException.
      */
     @Nullable
-    default HeadObjectResponse blobMetadata(String container, String name,
-            @Nullable String versionId) {
-        throw new UnsupportedOperationException("versioning not supported");
+    HeadObjectResponse blobMetadata(HeadObjectRequest request);
+
+    /** Reads the current object's metadata. */
+    @Nullable
+    default HeadObjectResponse blobMetadata(String container, String name) {
+        return blobMetadata(HeadObjectRequest.builder()
+                .bucket(container)
+                .key(name)
+                .build());
     }
 
     /**
      * Reads one object: the response riding on its payload stream, or null
      * when the object does not exist.  The caller consumes and closes the
-     * stream.
+     * stream.  The request's range rides verbatim as the Range header
+     * form, e.g. bytes=0-9; a non-null versionId is only meaningful on a
+     * store that {@link #supportsVersioning}.
      */
     @Nullable
-    ResponseInputStream<GetObjectResponse> getBlob(String container,
-            String name, GetOptions options);
+    ResponseInputStream<GetObjectResponse> getBlob(GetObjectRequest request);
+
+    /** Reads the current object in full. */
+    @Nullable
+    default ResponseInputStream<GetObjectResponse> getBlob(String container,
+            String name) {
+        return getBlob(GetObjectRequest.builder()
+                .bucket(container)
+                .key(name)
+                .build());
+    }
 
     void removeBlob(String container, String name);
 
@@ -157,10 +174,10 @@ public interface BlobStore extends AutoCloseable {
 
     /**
      * Whether this store supports object versioning.  Only a store that
-     * reports true honors {@link GetOptions#versionId}, {@link
-     * CopyOptions#sourceVersionId}, the versioned blobMetadata and
-     * removeBlob overloads, and the operations below; the default
-     * implementations throw UnsupportedOperationException.
+     * reports true honors the read requests' versionId, {@link
+     * CopyOptions#sourceVersionId}, the versioned removeBlob overload, and
+     * the operations below; the default implementations throw
+     * UnsupportedOperationException.
      */
     default boolean supportsVersioning() {
         return false;

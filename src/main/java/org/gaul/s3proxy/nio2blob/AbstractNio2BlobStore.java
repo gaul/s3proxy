@@ -63,6 +63,7 @@ import com.google.common.primitives.Longs;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
@@ -71,7 +72,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -84,7 +84,9 @@ import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -443,12 +445,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Override
     @Nullable
     public final ResponseInputStream<GetObjectResponse> getBlob(
-            String container, String key, GetOptions options) {
-        if (options.versionId() != null) {
+            GetObjectRequest request) {
+        if (request.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        Blob blob = getBlobInternal(container, key, options,
+        Blob blob = getBlobInternal(request.bucket(), request.key(), request,
                 /*openStream=*/ true);
         if (blob == null) {
             return null;
@@ -461,7 +463,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Nullable
     private Blob getBlobInternal(String container, String key,
-            GetOptions options, boolean openStream) {
+            GetObjectRequest options, boolean openStream) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, key);
         logger.debug("Getting blob at: {}", path);
@@ -603,14 +605,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
             if (options.ifModifiedSince() != null) {
-                Date modifiedSince = options.ifModifiedSince();
+                Date modifiedSince = Date.from(options.ifModifiedSince());
                 if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
                     throw conditionFailed(304, eTag);
                 }
 
             }
             if (options.ifUnmodifiedSince() != null) {
-                Date unmodifiedSince = options.ifUnmodifiedSince();
+                Date unmodifiedSince = Date.from(options.ifUnmodifiedSince());
                 if (lastModifiedTime.after(unmodifiedSince)) {
                     throw conditionFailed(412, eTag);
                 }
@@ -638,29 +640,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     size = channel.size();
                     long offset = 0;
                     long last = size;
-                    boolean hasRange = !options.ranges().isEmpty();
-                    if (hasRange) {
-                        var range = options.ranges().get(0);
-                        if (!range.contains("-")) {
-                            throw S3Exceptions.fromStatusCode(416);
-                        }
+                    var range = SdkRequests.parseRange(options.range());
+                    boolean hasRange = range != null;
+                    if (range != null) {
                         // HTTP uses a closed interval while Java array indexing uses a
                         // half-open interval.
-                        try {
-                            if (range.startsWith("-")) {
-                                offset = last - Long.parseLong(range.substring(1));
-                                if (offset < 0) {
-                                    offset = 0;
-                                }
-                            } else if (range.endsWith("-")) {
-                                offset = Long.parseLong(range.substring(0, range.length() - 1));
-                            } else {
-                                String[] firstLast = range.split("\\-", 2);
-                                offset = Long.parseLong(firstLast[0]);
-                                last = Long.parseLong(firstLast[1]);
+                        if (range.first() == null) {
+                            offset = last - requireNonNull(range.last());
+                            if (offset < 0) {
+                                offset = 0;
                             }
-                        } catch (NumberFormatException nfe) {
-                            throw S3Exceptions.fromStatusCode(416, nfe);
+                        } else if (range.last() == null) {
+                            offset = range.first();
+                        } else {
+                            offset = range.first();
+                            last = range.last();
                         }
 
                         if (offset >= size || offset > last) {
@@ -926,7 +920,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     "versioning not supported");
         }
         var blob = getBlobInternal(fromContainer, fromName,
-                GetOptions.NONE, /*openStream=*/ true);
+                GetObjectRequest.builder()
+                        .bucket(fromContainer)
+                        .key(fromName)
+                        .build(),
+                /*openStream=*/ true);
         if (blob == null) {
             throw S3Exceptions.noSuchKey(fromContainer, fromName, "while copying");
         }
@@ -1059,9 +1057,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public final HeadObjectResponse blobMetadata(String container,
-            String key) {
-        Blob blob = getBlobInternal(container, key, GetOptions.NONE,
+    public final HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        if (request.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        String container = request.bucket();
+        String key = request.key();
+        Blob blob = getBlobInternal(container, key,
+                GetObjectRequest.builder().bucket(container).key(key).build(),
                 /*openStream=*/ false);
         if (blob == null) {
             return null;
@@ -1560,7 +1564,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
 
         private InputStream openPartStream(String name) throws IOException {
-            var blob = blobStore.getBlob(container, name, GetOptions.NONE);
+            var blob = blobStore.getBlob(container, name);
             if (blob == null) {
                 throw new IOException("Part disappeared: " +
                         container + "/" + name);

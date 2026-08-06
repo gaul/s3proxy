@@ -31,7 +31,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -43,7 +42,9 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
@@ -138,22 +139,15 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
-        return delegate().blobMetadata(container, name);
-    }
-
-    @Override
-    @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name,
-            @Nullable String versionId) {
-        return delegate().blobMetadata(container, name, versionId);
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        return delegate().blobMetadata(request);
     }
 
     @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String blobName, GetOptions getOptions) {
-        return delegate().getBlob(containerName, blobName, getOptions);
+            GetObjectRequest request) {
+        return delegate().getBlob(request);
     }
 
     @Override

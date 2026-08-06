@@ -56,7 +56,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -84,7 +83,9 @@ import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -539,9 +540,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public ResponseInputStream<GetObjectResponse> getBlob(String container,
-            String key, GetOptions options) {
-        Blob blob = getBlobCarrier(container, key, options);
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            GetObjectRequest request) {
+        Blob blob = getBlobCarrier(request.bucket(), request.key(), request);
         if (blob == null) {
             return null;
         }
@@ -553,7 +554,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Nullable
     private Blob getBlobCarrier(String container, String key,
-            GetOptions options) {
+            GetObjectRequest options) {
         if (options.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
@@ -570,10 +571,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // Disable okhttp's transparent gzip so a stored Content-Encoding header
         // survives instead of being stripped (and the body gunzipped).
         downloadOptions.header(HttpHeaders.ACCEPT_ENCODING, "identity");
-        boolean ranged = !options.ranges().isEmpty();
+        boolean ranged = options.range() != null;
         if (ranged) {
-            downloadOptions.header(HttpHeaders.RANGE,
-                    "bytes=" + options.ranges().get(0));
+            downloadOptions.header(HttpHeaders.RANGE, options.range());
         }
         if (options.ifMatch() != null) {
             downloadOptions.header(HttpHeaders.IF_MATCH, options.ifMatch());
@@ -584,11 +584,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         if (options.ifModifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_MODIFIED_SINCE,
-                    toHttpDate(options.ifModifiedSince()));
+                    toHttpDate(Date.from(options.ifModifiedSince())));
         }
         if (options.ifUnmodifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_UNMODIFIED_SINCE,
-                    toHttpDate(options.ifUnmodifiedSince()));
+                    toHttpDate(Date.from(options.ifUnmodifiedSince())));
         }
 
         DLPayload payload;
@@ -810,7 +810,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // always preserves the source metadata, so download the source
             // object and re-upload it with the replacement metadata instead.
             var blob = getBlobCarrier(fromContainer, fromName,
-                    GetOptions.NONE);
+                    GetObjectRequest.builder()
+                            .bucket(fromContainer)
+                            .key(fromName)
+                            .build());
             if (blob == null) {
                 throw S3Exceptions.noSuchKey(fromContainer, fromName,
                         "while copying");
@@ -897,7 +900,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        if (request.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        String container = request.bucket();
+        String key = request.key();
         var swift = objectStorage();
         SwiftObject object;
         try {
@@ -1113,7 +1122,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var swiftOptions = ObjectPutOptions.create();
         var manifestMetadata = new HashMap<String, String>();
         var marker = getBlobCarrier(container, mpuMetaKey(uploadId),
-                GetOptions.NONE);
+                GetObjectRequest.builder()
+                        .bucket(container)
+                        .key(mpuMetaKey(uploadId))
+                        .build());
         if (marker != null) {
             var contentMetadata = marker.getMetadata().contentMetadata();
             if (contentMetadata.contentType() != null) {
@@ -1255,7 +1267,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
             String uploadId = name.substring(MPU_PREFIX.length(),
                     name.length() - MPU_META_SUFFIX.length());
-            var marker = getBlobCarrier(container, name, GetOptions.NONE);
+            var marker = getBlobCarrier(container, name,
+                    GetObjectRequest.builder()
+                            .bucket(container)
+                            .key(name)
+                            .build());
             String blobName = null;
             if (marker != null) {
                 blobName = marker.getMetadata().userMetadata()

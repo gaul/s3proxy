@@ -36,7 +36,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -290,8 +289,7 @@ public final class PostObjectTest {
     }
 
     private String body(String blobName) throws Exception {
-        try (var stream = blobStore.getBlob(containerName, blobName,
-                GetOptions.NONE)) {
+        try (var stream = blobStore.getBlob(containerName, blobName)) {
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
     }

@@ -18,10 +18,10 @@ package org.gaul.s3proxy;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 /**
@@ -42,30 +42,22 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
     @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String name, GetOptions getOptions) {
-        return super.getBlob(containerName, name,
-                resetCacheHeaders(getOptions));
+            GetObjectRequest request) {
+        return super.getBlob(resetCacheHeaders(request));
     }
 
-    static GetOptions resetCacheHeaders(GetOptions options) {
-        if (options.ifMatch() != null || options.ifNoneMatch() != null ||
-            options.ifModifiedSince() != null ||  options.ifUnmodifiedSince() != null) {
-              // as there is no exposed method to reset just the cache headers, a copy is used
-            var builder = GetOptions.builder();
-            for (String range : options.ranges()) {
-                String[] ranges = range.split("-", 2);
-                if (ranges[0].isEmpty()) {
-                    builder.tail(Long.parseLong(ranges[1]));
-                } else if (ranges[1].isEmpty()) {
-                    builder.startAt(Long.parseLong(ranges[0]));
-                } else {
-                    builder.range(Long.parseLong(ranges[0]),
-                            Long.parseLong(ranges[1]));
-                }
-            }
-            return builder.build();
+    static GetObjectRequest resetCacheHeaders(GetObjectRequest request) {
+        if (request.ifMatch() != null || request.ifNoneMatch() != null ||
+                request.ifModifiedSince() != null ||
+                request.ifUnmodifiedSince() != null) {
+            return request.toBuilder()
+                    .ifMatch(null)
+                    .ifNoneMatch(null)
+                    .ifModifiedSince(null)
+                    .ifUnmodifiedSince(null)
+                    .build();
         }
-        return options;
+        return request;
     }
 
 }

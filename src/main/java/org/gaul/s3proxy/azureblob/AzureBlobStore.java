@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
@@ -82,6 +83,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
@@ -90,7 +92,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -103,7 +104,9 @@ import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -392,12 +395,14 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public ResponseInputStream<GetObjectResponse> getBlob(String container,
-            String key, GetOptions options) {
-        if (options.versionId() != null) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            GetObjectRequest request) {
+        if (request.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        String container = request.bucket();
+        String key = request.key();
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
         // Azure rejects the literal If-None-Match: * with 400
@@ -405,7 +410,7 @@ public final class AzureBlobStore implements BlobStore {
         // existing blob", so emulate the S3 semantics here: an existing blob
         // fails the precondition (412, which the frontend maps to 304 for
         // GET/HEAD) and a missing blob falls through to 404.
-        if ("*".equals(options.ifNoneMatch())) {
+        if ("*".equals(request.ifNoneMatch())) {
             try {
                 client.getProperties();
             } catch (BlobStorageException bse) {
@@ -414,14 +419,13 @@ public final class AzureBlobStore implements BlobStore {
             throw S3Exceptions.fromStatusCode(412);
         }
         BlobRange azureRange = null;
-        if (!options.ranges().isEmpty()) {
-            var ranges = options.ranges().get(0).split("-", 2);
-
-            if (ranges[0].isEmpty()) {
+        var range = SdkRequests.parseRange(request.range());
+        if (range != null) {
+            if (range.first() == null) {
                 // suffix range (bytes=-N): the last N bytes.  Azure has no
                 // native suffix range, so resolve it against the blob size.
                 // N greater than the size returns the whole blob, matching S3.
-                long tail = Long.parseLong(ranges[1]);
+                long tail = requireNonNull(range.last());
                 long blobSize;
                 try {
                     blobSize = client.getProperties().getBlobSize();
@@ -430,25 +434,23 @@ public final class AzureBlobStore implements BlobStore {
                 }
                 long count = Math.min(tail, blobSize);
                 azureRange = new BlobRange(blobSize - count, count);
-            } else if (ranges[1].isEmpty()) {
+            } else if (range.last() == null) {
                 // handle to read from an offset till the end
-                long offset = Long.parseLong(ranges[0]);
-                azureRange = new BlobRange(offset);
+                azureRange = new BlobRange(range.first());
             } else {
                 // handle to read from an offset
-                long offset = Long.parseLong(ranges[0]);
-                long end = Long.parseLong(ranges[1]);
-                long length = end - offset + 1;
+                long offset = range.first();
+                long length = range.last() - offset + 1;
                 azureRange = new BlobRange(offset, length);
             }
         }
         var conditions = new BlobRequestConditions()
-                .setIfMatch(backendCondition(options.ifMatch()))
+                .setIfMatch(backendCondition(request.ifMatch()))
                 .setIfModifiedSince(toOffsetDateTime(
-                        options.ifModifiedSince()))
-                .setIfNoneMatch(backendCondition(options.ifNoneMatch()))
+                        request.ifModifiedSince()))
+                .setIfNoneMatch(backendCondition(request.ifNoneMatch()))
                 .setIfUnmodifiedSince(toOffsetDateTime(
-                        options.ifUnmodifiedSince()));
+                        request.ifUnmodifiedSince()));
         BlobInputStream blobStream;
         try {
             blobStream = client.openInputStream(azureRange, conditions);
@@ -857,9 +859,14 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        if (request.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        String container = request.bucket();
         var client = blobServiceClient.getBlobContainerClient(container)
-                .getBlobClient(key);
+                .getBlobClient(request.key());
         BlobProperties properties;
         try {
             properties = client.getProperties();
@@ -1507,6 +1514,15 @@ public final class AzureBlobStore implements BlobStore {
             return null;
         }
         return date.toInstant().atOffset(ZoneOffset.UTC);
+    }
+
+    @Nullable
+    private static OffsetDateTime toOffsetDateTime(
+            @Nullable Instant instant) {
+        if (instant == null) {
+            return null;
+        }
+        return instant.atOffset(ZoneOffset.UTC);
     }
 
     private static Date toDate(OffsetDateTime time) {

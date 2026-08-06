@@ -25,7 +25,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,7 +77,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check getBlob
         userMetadata = userMetadataReplacerBlobStore.getBlob(
-                containerName, blobName, GetOptions.NONE)
+                containerName, blobName)
                 .response().metadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();
@@ -119,8 +118,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check getBlob reverses it
         var replaced = userMetadataReplacerBlobStore.getBlob(
-                containerName, toName,
-                        GetOptions.NONE).response().metadata();
+                containerName, toName).response().metadata();
         assertThat(replaced).isEqualTo(Map.of("my-key", "my-value-"));
     }
 
@@ -147,8 +145,7 @@ public final class UserMetadataReplacerBlobStoreTest {
                 .metadata()).isEqualTo(Map.of("my_key", "my_value_"));
 
         // getBlob reverses it
-        assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName,
-                GetOptions.NONE)
+        assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName)
                 .response().metadata())
                 .isEqualTo(Map.of("my-key", "my-value-"));
     }
@@ -178,7 +175,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // check getBlob
         userMetadata = userMetadataReplacerBlobStore.getBlob(
-                containerName, blobName, GetOptions.NONE)
+                containerName, blobName)
                 .response().metadata();
         assertThat(userMetadata).hasSize(1);
         entry = userMetadata.entrySet().iterator().next();

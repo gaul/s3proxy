@@ -30,9 +30,10 @@ import javax.crypto.spec.SecretKeySpec;
 import com.google.common.io.ByteStreams;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 
 public class Decryption {
@@ -68,12 +69,13 @@ public class Decryption {
         }
 
         // get the 64 byte of part padding from the end of the blob
-        var options = GetOptions.builder()
-            .range(metaSize - Constants.PADDING_BLOCK_SIZE,
-                metaSize - 1)
-            .build();
-        var blob = requireNonNull(
-            blobStore.getBlob(container, blobName, options));
+        var blob = requireNonNull(blobStore.getBlob(
+            GetObjectRequest.builder()
+                .bucket(container)
+                .key(blobName)
+                .range(SdkRequests.range(
+                    metaSize - Constants.PADDING_BLOCK_SIZE, metaSize - 1))
+                .build()));
 
         // read the padding structure
         PartPadding lastPartPadding = PartPadding.readPartPadding(blob);
@@ -107,9 +109,12 @@ public class Decryption {
                 long startAt = (metaSize - encryptedSize) -
                     Constants.PADDING_BLOCK_SIZE;
                 long endAt = metaSize - encryptedSize - 1;
-                options = GetOptions.builder().range(startAt, endAt).build();
-                blob = requireNonNull(blobStore.getBlob(container, blobName,
-                    options));
+                blob = requireNonNull(blobStore.getBlob(
+                    GetObjectRequest.builder()
+                        .bucket(container)
+                        .key(blobName)
+                        .range(SdkRequests.range(startAt, endAt))
+                        .build()));
 
                 part++;
 

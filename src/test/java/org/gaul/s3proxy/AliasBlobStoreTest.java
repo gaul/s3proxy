@@ -35,7 +35,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -117,8 +116,7 @@ public final class AliasBlobStoreTest {
         var blobMetadata = aliasBlobStore.blobMetadata(
                 aliasContainerName, blobName);
         assertThat(blobMetadata.eTag()).isEqualTo(contentMD5);
-        var got = aliasBlobStore.getBlob(aliasContainerName, blobName,
-                GetOptions.NONE);
+        var got = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = got;
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
@@ -145,8 +143,7 @@ public final class AliasBlobStoreTest {
         HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(
                 "\"%s-1\"".formatted(contentHash2));
-        var got = aliasBlobStore.getBlob(aliasContainerName, blobName,
-                GetOptions.NONE);
+        var got = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = got;
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);

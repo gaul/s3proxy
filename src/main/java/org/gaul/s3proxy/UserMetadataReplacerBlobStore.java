@@ -27,13 +27,14 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
@@ -75,8 +76,8 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
-        var blobMetadata = super.blobMetadata(container, name);
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        var blobMetadata = super.blobMetadata(request);
         if (blobMetadata == null) {
             return null;
         }
@@ -93,8 +94,8 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String name, GetOptions getOptions) {
-        var blob = super.getBlob(containerName, name, getOptions);
+            GetObjectRequest request) {
+        var blob = super.getBlob(request);
         if (blob == null) {
             return null;
         }

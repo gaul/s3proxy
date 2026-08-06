@@ -42,7 +42,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -57,7 +56,9 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
@@ -253,18 +254,13 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public synchronized HeadObjectResponse blobMetadata(String containerName,
-            String key) {
-        return blobMetadata(containerName, key, null);
-    }
-
-    @Override
-    @Nullable
-    public synchronized HeadObjectResponse blobMetadata(String containerName,
-            String key, @Nullable String versionId) {
+    public synchronized HeadObjectResponse blobMetadata(
+            HeadObjectRequest request) {
+        String containerName = request.bucket();
+        String key = request.key();
         var container = getContainer(containerName);
         var version = resolveVersionOrThrow(containerName, container, key,
-                versionId);
+                request.versionId());
         if (version == null) {
             return null;
         }
@@ -281,10 +277,11 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     @Override
     @Nullable
     public synchronized ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String key, GetOptions options) {
+            GetObjectRequest request) {
+        String containerName = request.bucket();
         var container = getContainer(containerName);
-        var version = resolveVersionOrThrow(containerName, container, key,
-                options.versionId());
+        var version = resolveVersionOrThrow(containerName, container,
+                request.key(), request.versionId());
         if (version == null) {
             return null;
         }

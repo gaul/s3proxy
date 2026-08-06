@@ -16,12 +16,15 @@
 
 package org.gaul.s3proxy.gcloudsdk;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
@@ -67,6 +70,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -74,7 +78,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -84,7 +87,9 @@ import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -317,12 +322,13 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
-            String container,
-            String key, GetOptions options) {
-        if (options.versionId() != null) {
+            GetObjectRequest request) {
+        if (request.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        String container = request.bucket();
+        String key = request.key();
         var gcsOptions = new java.util.ArrayList<BlobGetOption>();
 
         Blob gcsBlob;
@@ -348,23 +354,23 @@ public final class GCloudBlobStore implements BlobStore {
         // If-Modified-Since misses to 304 Not Modified.
         String eTag = gcsBlob.getEtag();
         Date lastModified = toDate(gcsBlob.getUpdateTimeOffsetDateTime());
-        enforceConditionalGet(options, eTag, lastModified);
+        enforceConditionalGet(request, eTag, lastModified);
 
         long blobSize = gcsBlob.getSize();
         Long rangeOffset = null;
         Long rangeEnd = null;
-        if (!options.ranges().isEmpty()) {
-            var ranges = options.ranges().get(0).split("-", 2);
-            if (ranges[0].isEmpty()) {
+        var range = SdkRequests.parseRange(request.range());
+        if (range != null) {
+            if (range.first() == null) {
                 // trailing range: last N bytes
-                long trailing = Long.parseLong(ranges[1]);
-                rangeOffset = Math.max(0, blobSize - trailing);
+                rangeOffset = Math.max(0,
+                        blobSize - requireNonNull(range.last()));
                 rangeEnd = blobSize - 1;
-            } else if (ranges[1].isEmpty()) {
-                rangeOffset = Long.parseLong(ranges[0]);
+            } else if (range.last() == null) {
+                rangeOffset = range.first();
             } else {
-                rangeOffset = Long.parseLong(ranges[0]);
-                rangeEnd = Long.parseLong(ranges[1]);
+                rangeOffset = range.first();
+                rangeEnd = range.last();
             }
             // A range starting at or past the end of the object is
             // unsatisfiable; S3 returns 416 InvalidRange.  Without this GCS
@@ -429,10 +435,10 @@ public final class GCloudBlobStore implements BlobStore {
     // against the object's metadata.  Every failure is reported as 412;
     // S3ProxyHandlerJetty maps GET/HEAD If-None-Match and If-Modified-Since
     // misses to 304 Not Modified.
-    private static void enforceConditionalGet(GetOptions options,
+    private static void enforceConditionalGet(GetObjectRequest request,
             @Nullable String eTag, @Nullable Date lastModified) {
-        String ifMatch = options.ifMatch();
-        String ifNoneMatch = options.ifNoneMatch();
+        String ifMatch = request.ifMatch();
+        String ifNoneMatch = request.ifNoneMatch();
         // The wildcard "*" matches any existing object rather than a literal
         // ETag.  The object exists here (getBlob already fetched it), so
         // If-Match: * always passes and If-None-Match: * always fails the
@@ -455,14 +461,14 @@ public final class GCloudBlobStore implements BlobStore {
         }
         if (lastModified != null) {
             Date modified = truncateToSecond(lastModified);
-            Date ifModifiedSince = options.ifModifiedSince();
+            Instant ifModifiedSince = request.ifModifiedSince();
             if (ifModifiedSince != null &&
-                    modified.compareTo(ifModifiedSince) <= 0) {
+                    modified.compareTo(Date.from(ifModifiedSince)) <= 0) {
                 throw preconditionFailed(eTag);
             }
-            Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+            Instant ifUnmodifiedSince = request.ifUnmodifiedSince();
             if (ifUnmodifiedSince != null &&
-                    modified.compareTo(ifUnmodifiedSince) > 0) {
+                    modified.compareTo(Date.from(ifUnmodifiedSince)) > 0) {
                 throw preconditionFailed(eTag);
             }
         }
@@ -709,10 +715,15 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        if (request.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        String container = request.bucket();
         Blob gcsBlob;
         try {
-            gcsBlob = storage.get(BlobId.of(container, key));
+            gcsBlob = storage.get(BlobId.of(container, request.key()));
         } catch (StorageException se) {
             if (se.getCode() == 404) {
                 return null;

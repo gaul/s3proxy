@@ -42,13 +42,13 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.gaul.s3proxy.crypto.Constants;
@@ -62,7 +62,9 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -227,11 +229,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             int parts = Integer.parseInt(matcher.group(1));
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
-        var options = GetOptions.builder()
-            .range(blobSize - Constants.PADDING_BLOCK_SIZE, blobSize - 1)
-            .build();
         var blob = requireNonNull(delegate().getBlob(
-                container, object.key(), options));
+                GetObjectRequest.builder()
+                        .bucket(container)
+                        .key(object.key())
+                        .range(SdkRequests.range(
+                                blobSize - Constants.PADDING_BLOCK_SIZE,
+                                blobSize - 1))
+                        .build()));
         try {
             PartPadding lastPartPadding =
                 PartPadding.readPartPadding(blob);
@@ -289,11 +294,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             int parts = Integer.parseInt(matcher.group(1));
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
-        var options = GetOptions.builder()
-            .range(blobSize - Constants.PADDING_BLOCK_SIZE, blobSize - 1)
-            .build();
         var blob = requireNonNull(delegate().getBlob(
-                container, storedName, options));
+                GetObjectRequest.builder()
+                        .bucket(container)
+                        .key(storedName)
+                        .range(SdkRequests.range(
+                                blobSize - Constants.PADDING_BLOCK_SIZE,
+                                blobSize - 1))
+                        .build()));
         try {
             int parts = PartPadding.readPartPadding(blob).getPart();
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
@@ -317,10 +325,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
-        String containerName, String blobName, GetOptions getOptions) {
+        GetObjectRequest request) {
 
         // adjust the blob name
-        blobName = blobNameWithSuffix(blobName);
+        String containerName = request.bucket();
+        String blobName = blobNameWithSuffix(request.key());
 
         // get the metadata to determine the blob size
         HeadObjectResponse meta = delegate().blobMetadata(containerName,
@@ -334,22 +343,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 long end = 0;
                 long length = -1;
 
-                if (getOptions.ranges().size() > 0) {
-                    // S3 doesn't allow multiple ranges
-                    String range = getOptions.ranges().get(0);
-                    String[] ranges = range.split("-", 2);
-
-                    if (ranges[0].isEmpty()) {
+                var range = SdkRequests.parseRange(request.range());
+                if (range != null) {
+                    if (range.first() == null) {
                         // handle to read from the end
-                        end = Long.parseLong(ranges[1]);
+                        end = requireNonNull(range.last());
                         length = end;
-                    } else if (ranges[1].isEmpty()) {
+                    } else if (range.last() == null) {
                         // handle to read from an offset till the end
-                        offset = Long.parseLong(ranges[0]);
+                        offset = range.first();
                     } else {
                         // handle to read from an offset
-                        offset = Long.parseLong(ranges[0]);
-                        end = Long.parseLong(ranges[1]);
+                        offset = range.first();
+                        end = range.last();
                         length = end - offset + 1;
                     }
                 }
@@ -358,9 +364,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 Decryption decryption = new Decryption(secretKey, delegate(),
                     meta, containerName, blobName, offset, length);
 
-                GetOptions delegateOptions = getOptions;
-                if (decryption.isEncrypted() &&
-                    getOptions.ranges().size() > 0) {
+                var delegateRequest = request.toBuilder()
+                        .key(blobName);
+                if (decryption.isEncrypted() && range != null) {
                     long startAt = decryption.getStartAt();
                     long endAt = decryption.getEncryptedSize();
 
@@ -372,17 +378,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                         endAt = decryption.calculateEndAt(end);
                     }
 
-                    // replace existing ranges with our single computed range
-                    delegateOptions = new GetOptions(
-                        List.of("%d-%d".formatted(startAt, endAt)),
-                        getOptions.ifModifiedSince(),
-                        getOptions.ifUnmodifiedSince(),
-                        getOptions.ifMatch(), getOptions.ifNoneMatch(),
-                        getOptions.versionId());
+                    // replace the caller's range with our single computed one
+                    delegateRequest.range(SdkRequests.range(startAt, endAt));
                 }
 
-                var blob = delegate().getBlob(containerName, blobName,
-                    delegateOptions);
+                var blob = delegate().getBlob(delegateRequest.build());
                 if (blob == null) {
                     return null;
                 }
@@ -399,7 +399,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
                 var responseBuilder = blob.response().toBuilder()
                         .contentLength(contentLength);
-                if (!getOptions.ranges().isEmpty()) {
+                if (range != null) {
                     long decryptedSize = decryption.getUnencryptedSize();
                     long startRange;
                     long endRange;
@@ -425,8 +425,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             } else {
                 // we suppose to return a unencrypted blob
                 // since no metadata was found
-                blobName = removeEncryptedSuffix(blobName);
-                return delegate().getBlob(containerName, blobName, getOptions);
+                return delegate().getBlob(request);
             }
 
         } catch (IOException e) {
@@ -616,9 +615,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
 
-        String stored = blobNameWithSuffix(container, name);
+        String container = request.bucket();
+        String stored = blobNameWithSuffix(container, request.key());
         HeadObjectResponse head = delegate().blobMetadata(container, stored);
         if (head != null &&
             // report the plaintext size only for an encrypted blob that is

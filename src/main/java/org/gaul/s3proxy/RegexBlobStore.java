@@ -38,7 +38,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -48,7 +47,9 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -153,15 +154,19 @@ public final class RegexBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
-        return super.blobMetadata(container, replaceBlobName(name));
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        return super.blobMetadata(request.toBuilder()
+                .key(replaceBlobName(request.key()))
+                .build());
     }
 
     @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String name, GetOptions getOptions) {
-        return super.getBlob(containerName, replaceBlobName(name), getOptions);
+            GetObjectRequest request) {
+        return super.getBlob(request.toBuilder()
+                .key(replaceBlobName(request.key()))
+                .build());
     }
 
     @Override

@@ -39,7 +39,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
@@ -49,7 +48,9 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -187,8 +188,10 @@ public final class AliasBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String name) {
-        return delegate().blobMetadata(getContainer(container), name);
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        return delegate().blobMetadata(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override
@@ -205,9 +208,10 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
-            String containerName, String blobName, GetOptions getOptions) {
-        return delegate().getBlob(getContainer(containerName), blobName,
-                getOptions);
+            GetObjectRequest request) {
+        return delegate().getBlob(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override

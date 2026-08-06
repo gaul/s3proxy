@@ -35,7 +35,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
@@ -90,12 +89,10 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
-        assertThat(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE))
+        assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
     }
 
     @Test
@@ -103,16 +100,13 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
-        assertThat(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE))
+        assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
         delay();
-        assertThat(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE))
+        assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
     }
 
@@ -126,8 +120,7 @@ public final class EventualBlobStoreTest {
         blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
     }
 
     @Test
@@ -139,12 +132,10 @@ public final class EventualBlobStoreTest {
         delay();
         eventualBlobStore.copyBlob(containerName, fromName, containerName,
                 toName, CopyOptions.NONE);
-        assertThat(eventualBlobStore.getBlob(containerName, toName,
-                GetOptions.NONE))
+        assertThat(eventualBlobStore.getBlob(containerName, toName))
                 .isNull();
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, toName,
-                GetOptions.NONE));
+        validateBlob(eventualBlobStore.getBlob(containerName, toName));
     }
 
     @Test
@@ -158,12 +149,10 @@ public final class EventualBlobStoreTest {
                 BYTE_SOURCE.size(), null);
         eventualBlobStore.completeMultipartUpload(mpu,
                 List.of(TestUtils.completedPart(1, part)));
-        assertThat(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE))
+        assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
-        validateBlob(eventualBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE));
+        validateBlob(eventualBlobStore.getBlob(containerName, blobName));
     }
 
     @Test

@@ -36,7 +36,6 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -191,7 +190,7 @@ public final class LatencyBlobStoreTest {
 
         long timeTaken = time(() -> {
             latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE);
-            consume(latencyBlobStore.getBlob(containerName, blobName, GetOptions.NONE));
+            consume(latencyBlobStore.getBlob(containerName, blobName));
         });
         assertThat(timeTaken).isGreaterThanOrEqualTo(3000L);
     }
@@ -215,7 +214,7 @@ public final class LatencyBlobStoreTest {
 
             List<Callable<Object>> tasks = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
-                tasks.add(Executors.callable(() -> consume(latencyBlobStore.getBlob(containerName, blobName, GetOptions.NONE))));
+                tasks.add(Executors.callable(() -> consume(latencyBlobStore.getBlob(containerName, blobName))));
             }
 
             final ExecutorService service = executorService;

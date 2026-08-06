@@ -32,13 +32,13 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 public final class NullBlobStoreTest {
@@ -71,8 +71,7 @@ public final class NullBlobStoreTest {
         nullBlobStore.putBlob(containerName, makeBlob(blobName),
                 PutOptions.NONE);
 
-        var blob = nullBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE);
+        var blob = nullBlobStore.getBlob(containerName, blobName);
         validateBlobMetadata(nullBlobStore.blobMetadata(containerName,
                 blobName));
 
@@ -108,27 +107,27 @@ public final class NullBlobStoreTest {
         long size = BYTE_SOURCE.size();
 
         // bytes=A-B
-        GetOptions explicit = GetOptions.builder().range(100, 199).build();
-        var explicitGet = nullBlobStore.getBlob(containerName, blobName,
-                explicit);
+        var explicitGet = nullBlobStore.getBlob(GetObjectRequest.builder()
+                .bucket(containerName).key(blobName)
+                .range("bytes=100-199").build());
         try (InputStream is = explicitGet) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(100);
         }
 
         // bytes=A-
-        GetOptions suffix = GetOptions.builder().startAt(500).build();
-        var suffixGet = nullBlobStore.getBlob(containerName, blobName,
-                suffix);
+        var suffixGet = nullBlobStore.getBlob(GetObjectRequest.builder()
+                .bucket(containerName).key(blobName)
+                .range("bytes=500-").build());
         try (InputStream is = suffixGet) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(size - 500);
         }
 
         // bytes=-N
-        GetOptions tail = GetOptions.builder().tail(128).build();
-        var tailGet = nullBlobStore.getBlob(containerName, blobName,
-                tail);
+        var tailGet = nullBlobStore.getBlob(GetObjectRequest.builder()
+                .bucket(containerName).key(blobName)
+                .range("bytes=-128").build());
         try (InputStream is = tailGet) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(128);
@@ -177,8 +176,7 @@ public final class NullBlobStoreTest {
         nullBlobStore.completeMultipartUpload(mpu,
                 TestUtils.completedParts(parts));
 
-        var newBlob = nullBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE);
+        var newBlob = nullBlobStore.getBlob(containerName, blobName);
         validateBlobMetadata(nullBlobStore.blobMetadata(
                 containerName, blobName));
 
@@ -231,8 +229,7 @@ public final class NullBlobStoreTest {
         nullBlobStore.completeMultipartUpload(mpu,
                 TestUtils.completedParts(parts));
 
-        var newBlob = nullBlobStore.getBlob(containerName, blobName,
-                GetOptions.NONE);
+        var newBlob = nullBlobStore.getBlob(containerName, blobName);
         assertThat(newBlob).isNotNull();
         try (InputStream actual = newBlob;
                 InputStream expected = byteSource.openStream()) {

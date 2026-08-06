@@ -41,7 +41,6 @@ import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -347,44 +346,21 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public ResponseInputStream<GetObjectResponse> getBlob(String container,
-            String key, GetOptions options) {
-        var requestBuilder = GetObjectRequest.builder()
-                .bucket(container)
-                .key(key);
-
-        if (options.versionId() != null) {
-            requestBuilder.versionId(options.versionId());
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            GetObjectRequest request) {
+        if (request.ifMatch() != null || request.ifNoneMatch() != null) {
+            request = request.toBuilder()
+                    .ifMatch(maybeStripETagQuotes(request.ifMatch()))
+                    .ifNoneMatch(maybeStripETagQuotes(request.ifNoneMatch()))
+                    .build();
         }
-
-        if (!options.ranges().isEmpty()) {
-            String rangeSpec = options.ranges().get(0);
-            requestBuilder.range("bytes=" + rangeSpec);
-        }
-
-        if (options.ifMatch() != null) {
-            requestBuilder.ifMatch(maybeStripETagQuotes(options.ifMatch()));
-        }
-        if (options.ifNoneMatch() != null) {
-            requestBuilder.ifNoneMatch(
-                    maybeStripETagQuotes(options.ifNoneMatch()));
-        }
-        if (options.ifModifiedSince() != null) {
-            requestBuilder.ifModifiedSince(
-                    options.ifModifiedSince().toInstant());
-        }
-        if (options.ifUnmodifiedSince() != null) {
-            requestBuilder.ifUnmodifiedSince(
-                    options.ifUnmodifiedSince().toInstant());
-        }
-
         try {
-            return s3Client.getObject(requestBuilder.build());
+            return s3Client.getObject(request);
         } catch (S3Exception e) {
             // 304, 405 on a delete marker read, NoSuchVersion and the rest
             // pass through verbatim; the response headers, e.g. ETag and
             // x-amz-delete-marker, ride on the exception.
-            throw propagate(e, container, key);
+            throw propagate(e, request.bucket(), request.key());
         }
     }
 
@@ -578,29 +554,16 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public HeadObjectResponse blobMetadata(String container, String key) {
-        return blobMetadata(container, key, /*versionId=*/ null);
-    }
-
-    @Override
-    @Nullable
-    public HeadObjectResponse blobMetadata(String container, String key,
-            @Nullable String versionId) {
-        var requestBuilder = HeadObjectRequest.builder()
-                .bucket(container)
-                .key(key);
-        if (versionId != null) {
-            requestBuilder.versionId(versionId);
-        }
+    public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         try {
-            return s3Client.headObject(requestBuilder.build());
+            return s3Client.headObject(request);
         } catch (NoSuchKeyException e) {
-            return nullOrDeleteMarker(container, key, e);
+            return nullOrDeleteMarker(request.bucket(), request.key(), e);
         } catch (NoSuchBucketException e) {
             throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
-                return nullOrDeleteMarker(container, key, e);
+                return nullOrDeleteMarker(request.bucket(), request.key(), e);
             }
             // 405 on a delete marker read passes through verbatim with
             // x-amz-delete-marker riding on the exception's headers.
