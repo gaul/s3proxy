@@ -20,7 +20,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Random;
 
-import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
 import org.junit.jupiter.api.Test;
@@ -45,11 +44,12 @@ public final class CrcCombineTest {
 
     @Test
     public void testCombineMatchesConcatenationCrc64Nvme() throws Exception {
-        HashFunction function = Crc64Nvme.INSTANCE;
         checkAgainstConcatenation(CRC64NVME_POLYNOMIAL, 64, bytes -> {
-            // Crc64Nvme hashes straight to big-endian wire order
+            var checksum = new Crc64Nvme();
+            checksum.update(bytes);
+            // the SDK answers in big-endian wire order
             long value = 0;
-            for (byte b : function.hashBytes(bytes).asBytes()) {
+            for (byte b : checksum.getChecksumBytes()) {
                 value = (value << Byte.SIZE) | (b & 0xffL);
             }
             return value;

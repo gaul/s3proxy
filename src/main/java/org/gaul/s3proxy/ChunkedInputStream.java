@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -29,12 +28,12 @@ import java.util.Base64;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-import com.google.common.hash.Hasher;
-import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.checksums.SdkChecksum;
 
 /**
  * Parse an AWS v4 signature chunked stream.  Reference:
@@ -49,7 +48,7 @@ final class ChunkedInputStream extends FilterInputStream {
     private int currentLength;
     @Nullable private String currentSignature;
     private final int maxChunkSize;
-    @Nullable private final Hasher hasher;
+    @Nullable private final SdkChecksum checksum;
     private final byte @Nullable [] signingKey;
     @Nullable private final String hmacAlgorithm;
     @Nullable private final String timestamp;
@@ -59,7 +58,7 @@ final class ChunkedInputStream extends FilterInputStream {
     ChunkedInputStream(InputStream is, int maxChunkSize) {
         super(is);
         this.maxChunkSize = maxChunkSize;
-        hasher = null;
+        checksum = null;
         signingKey = null;
         hmacAlgorithm = null;
         timestamp = null;
@@ -71,19 +70,9 @@ final class ChunkedInputStream extends FilterInputStream {
             @Nullable String trailer) {
         super(is);
         this.maxChunkSize = maxChunkSize;
-        if ("x-amz-checksum-crc32".equals(trailer)) {
-            hasher = Hashing.crc32().newHasher();
-        } else if ("x-amz-checksum-crc32c".equals(trailer)) {
-            hasher = Hashing.crc32c().newHasher();
-        } else if ("x-amz-checksum-sha1".equals(trailer)) {
-            hasher = Hashing.sha1().newHasher();
-        } else if ("x-amz-checksum-sha256".equals(trailer)) {
-            hasher = Hashing.sha256().newHasher();
-        } else if ("x-amz-checksum-crc64nvme".equals(trailer)) {
-            hasher = Crc64Nvme.INSTANCE.newHasher();
-        } else {
-            hasher = null;
-        }
+        var algorithm = trailer == null ? null :
+                S3ProxyHandler.FlexChecksum.fromHeaderName(trailer);
+        checksum = algorithm == null ? null : algorithm.newChecksum();
         signingKey = null;
         hmacAlgorithm = null;
         timestamp = null;
@@ -118,19 +107,9 @@ final class ChunkedInputStream extends FilterInputStream {
             String timestamp, String scope, @Nullable String trailer) {
         super(is);
         this.maxChunkSize = maxChunkSize;
-        if ("x-amz-checksum-crc32".equals(trailer)) {
-            hasher = Hashing.crc32().newHasher();
-        } else if ("x-amz-checksum-crc32c".equals(trailer)) {
-            hasher = Hashing.crc32c().newHasher();
-        } else if ("x-amz-checksum-sha1".equals(trailer)) {
-            hasher = Hashing.sha1().newHasher();
-        } else if ("x-amz-checksum-sha256".equals(trailer)) {
-            hasher = Hashing.sha256().newHasher();
-        } else if ("x-amz-checksum-crc64nvme".equals(trailer)) {
-            hasher = Crc64Nvme.INSTANCE.newHasher();
-        } else {
-            hasher = null;
-        }
+        var algorithm = trailer == null ? null :
+                S3ProxyHandler.FlexChecksum.fromHeaderName(trailer);
+        checksum = algorithm == null ? null : algorithm.newChecksum();
         this.signingKey = signingKey.clone();
         this.hmacAlgorithm = hmacAlgorithm;
         this.timestamp = timestamp;
@@ -147,7 +126,7 @@ final class ChunkedInputStream extends FilterInputStream {
             }
             String[] parts = line.split(";", 2);
             if (parts[0].startsWith("x-amz-checksum-")) {
-                if (hasher == null) {
+                if (checksum == null) {
                     throw new IOException("unexpected trailer: " + parts[0]);
                 }
                 String[] checksumParts = parts[0].split(":", 2);
@@ -160,12 +139,13 @@ final class ChunkedInputStream extends FilterInputStream {
                             S3ErrorCode.INVALID_REQUEST));
                 }
                 var expectedHash = checksumParts[1];
-                var actualHash = switch (checksumParts[0]) {
-                case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer.allocate(4).putInt(hasher.hash().asInt()).array(); // Use big-endian to match AWS
-                case "x-amz-checksum-sha1", "x-amz-checksum-sha256",
-                        "x-amz-checksum-crc64nvme" -> hasher.hash().asBytes();
-                default -> throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
-                };
+                if (S3ProxyHandler.FlexChecksum.fromHeaderName(
+                        checksumParts[0]) == null) {
+                    throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
+                }
+                // getChecksumBytes answers in AWS wire order for every
+                // algorithm, so the digest needs no reordering here.
+                var actualHash = checksum.getChecksumBytes();
                 if (!expectedHash.equals(Base64.getEncoder().encodeToString(actualHash))) {
                     throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));
                 }
@@ -187,8 +167,8 @@ final class ChunkedInputStream extends FilterInputStream {
             chunk = new byte[currentLength];
             currentIndex = 0;
             ByteStreams.readFully(in, chunk);
-            if (hasher != null) {
-                hasher.putBytes(chunk);
+            if (checksum != null) {
+                checksum.update(chunk);
             }
             if (signingKey != null) {
                 verifyChunkSignature(chunk, currentSignature);
@@ -197,13 +177,13 @@ final class ChunkedInputStream extends FilterInputStream {
                 // AWS aws-chunked sends trailing-headers AFTER the zero-
                 // length chunk, terminated by an empty line.  Drain and
                 // validate them before signaling EOF.
-                if (hasher != null) {
+                if (checksum != null) {
                     while (true) {
                         String trailerLine = readLine(in);
                         if (trailerLine.isEmpty()) {
                             break;
                         }
-                        validateTrailerHash(hasher, trailerLine);
+                        validateTrailerHash(checksum, trailerLine);
                     }
                 }
                 return -1;
@@ -280,21 +260,17 @@ final class ChunkedInputStream extends FilterInputStream {
      * hash against the running hasher.  Other trailer lines (e.g.
      * x-amz-trailer-signature) are ignored.
      */
-    @SuppressWarnings("deprecation")
-    private static void validateTrailerHash(Hasher hasher, String line)
+    private static void validateTrailerHash(SdkChecksum checksum, String line)
             throws IOException {
         String[] parts = line.split(":", 2);
         if (parts.length != 2 || !parts[0].startsWith("x-amz-checksum-")) {
             return;
         }
         String expectedHash = parts[1];
-        var actualHash = switch (parts[0]) {
-        case "x-amz-checksum-crc32", "x-amz-checksum-crc32c" -> ByteBuffer
-                .allocate(4).putInt(hasher.hash().asInt()).array();
-        case "x-amz-checksum-sha1", "x-amz-checksum-sha256",
-                "x-amz-checksum-crc64nvme" -> hasher.hash().asBytes();
-        default -> throw new IOException("unknown trailer: " + parts[0]);
-        };
+        if (S3ProxyHandler.FlexChecksum.fromHeaderName(parts[0]) == null) {
+            throw new IOException("unknown trailer: " + parts[0]);
+        }
+        var actualHash = checksum.getChecksumBytes();
         if (!expectedHash.equals(
                 Base64.getEncoder().encodeToString(actualHash))) {
             throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));

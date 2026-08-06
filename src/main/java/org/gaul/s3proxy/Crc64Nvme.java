@@ -17,28 +17,22 @@
 package org.gaul.s3proxy;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
 
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hasher;
+import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.checksums.SdkChecksum;
 
 /**
- * CRC-64/NVME, which S3 exposes as x-amz-checksum-crc64nvme.  Guava has no
- * such hash and its adapter from java.util.zip.Checksum is package-private,
- * so implement the small part of HashFunction the flexible checksum code
- * uses.
+ * CRC-64/NVME, which S3 exposes as x-amz-checksum-crc64nvme.  The SDK names
+ * this algorithm but computes it only through the optional aws-crt module,
+ * whose native libraries would dwarf the rest of the shaded jar, so supply
+ * it here and let {@link SdkChecksum} carry every other algorithm.
  *
  * <p>CRC-64/NVME is the reflected form of polynomial 0xad93d23594c93659 with
- * all-ones initial and final values.  Unlike Guava's 32-bit CRCs, whose
- * HashCode holds the value little-endian and needs reversing for the wire,
- * {@link Hasher#hash} here returns the digest already in the big-endian form
- * S3 base64-encodes, so {@code FlexChecksum} treats it as raw bytes.
+ * all-ones initial and final values.  {@link #getChecksumBytes} answers in
+ * the big-endian order S3 base64-encodes, as the SDK's own checksums do.
  */
-final class Crc64Nvme implements HashFunction {
-    static final Crc64Nvme INSTANCE = new Crc64Nvme();
-
+final class Crc64Nvme implements SdkChecksum {
     /** Bit-reversed 0xad93d23594c93659. */
     private static final long POLYNOMIAL = 0x9a6c9329ac4bc9b5L;
     private static final long[] TABLE = new long[256];
@@ -53,161 +47,39 @@ final class Crc64Nvme implements HashFunction {
         }
     }
 
-    private Crc64Nvme() {
+    private long crc = -1L;
+    /** The value {@link #reset} returns to, once {@link #mark} names one. */
+    private @Nullable Long marked;
+
+    @Override
+    public void update(int b) {
+        crc = TABLE[(int) ((crc ^ b) & 0xff)] ^ (crc >>> 8);
     }
 
     @Override
-    public int bits() {
-        return 64;
+    public void update(byte[] bytes, int off, int len) {
+        for (int i = 0; i < len; ++i) {
+            update(bytes[off + i]);
+        }
     }
 
     @Override
-    public Hasher newHasher() {
-        return new Crc64NvmeHasher();
+    public long getValue() {
+        return ~crc;
     }
 
     @Override
-    public Hasher newHasher(int expectedInputSize) {
-        return newHasher();
+    public void reset() {
+        crc = marked == null ? -1L : marked;
     }
 
     @Override
-    public HashCode hashInt(int input) {
-        return newHasher().putInt(input).hash();
+    public void mark(int readLimit) {
+        marked = crc;
     }
 
     @Override
-    public HashCode hashLong(long input) {
-        return newHasher().putLong(input).hash();
-    }
-
-    @Override
-    public HashCode hashBytes(byte[] input) {
-        return newHasher().putBytes(input).hash();
-    }
-
-    @Override
-    public HashCode hashBytes(byte[] input, int off, int len) {
-        return newHasher().putBytes(input, off, len).hash();
-    }
-
-    @Override
-    public HashCode hashBytes(ByteBuffer input) {
-        return newHasher().putBytes(input).hash();
-    }
-
-    @Override
-    public HashCode hashUnencodedChars(CharSequence input) {
-        return newHasher().putUnencodedChars(input).hash();
-    }
-
-    @Override
-    public HashCode hashString(CharSequence input, Charset charset) {
-        return newHasher().putString(input, charset).hash();
-    }
-
-    @Override
-    public <T> HashCode hashObject(T instance, Funnel<? super T> funnel) {
-        return newHasher().putObject(instance, funnel).hash();
-    }
-
-    @SuppressWarnings("deprecation")
-    private static final class Crc64NvmeHasher implements Hasher {
-        private long crc = -1L;
-
-        @Override
-        public Hasher putByte(byte b) {
-            crc = TABLE[(int) ((crc ^ b) & 0xff)] ^ (crc >>> 8);
-            return this;
-        }
-
-        @Override
-        public Hasher putBytes(byte[] bytes) {
-            return putBytes(bytes, 0, bytes.length);
-        }
-
-        @Override
-        public Hasher putBytes(byte[] bytes, int off, int len) {
-            for (int i = 0; i < len; ++i) {
-                putByte(bytes[off + i]);
-            }
-            return this;
-        }
-
-        @Override
-        public Hasher putBytes(ByteBuffer bytes) {
-            while (bytes.hasRemaining()) {
-                putByte(bytes.get());
-            }
-            return this;
-        }
-
-        @Override
-        public Hasher putShort(short s) {
-            putByte((byte) s);
-            return putByte((byte) (s >>> 8));
-        }
-
-        @Override
-        public Hasher putInt(int i) {
-            for (int shift = 0; shift < Integer.SIZE; shift += 8) {
-                putByte((byte) (i >>> shift));
-            }
-            return this;
-        }
-
-        @Override
-        public Hasher putLong(long l) {
-            for (int shift = 0; shift < Long.SIZE; shift += 8) {
-                putByte((byte) (l >>> shift));
-            }
-            return this;
-        }
-
-        @Override
-        public Hasher putFloat(float f) {
-            return putInt(Float.floatToRawIntBits(f));
-        }
-
-        @Override
-        public Hasher putDouble(double d) {
-            return putLong(Double.doubleToRawLongBits(d));
-        }
-
-        @Override
-        public Hasher putBoolean(boolean b) {
-            return putByte(b ? (byte) 1 : (byte) 0);
-        }
-
-        @Override
-        public Hasher putChar(char c) {
-            putByte((byte) c);
-            return putByte((byte) (c >>> 8));
-        }
-
-        @Override
-        public Hasher putUnencodedChars(CharSequence charSequence) {
-            for (int i = 0; i < charSequence.length(); ++i) {
-                putChar(charSequence.charAt(i));
-            }
-            return this;
-        }
-
-        @Override
-        public Hasher putString(CharSequence charSequence, Charset charset) {
-            return putBytes(charSequence.toString().getBytes(charset));
-        }
-
-        @Override
-        public <T> Hasher putObject(T instance, Funnel<? super T> funnel) {
-            funnel.funnel(instance, this);
-            return this;
-        }
-
-        @Override
-        public HashCode hash() {
-            return HashCode.fromBytes(
-                    ByteBuffer.allocate(Long.BYTES).putLong(~crc).array());
-        }
+    public byte[] getChecksumBytes() {
+        return ByteBuffer.allocate(Long.BYTES).putLong(getValue()).array();
     }
 }

@@ -57,6 +57,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -103,6 +104,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.checksums.DefaultChecksumAlgorithm;
+import software.amazon.awssdk.checksums.SdkChecksum;
+import software.amazon.awssdk.checksums.spi.ChecksumAlgorithm;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
@@ -996,10 +1000,10 @@ public class S3ProxyHandler {
             // buffering to check, unlike the header-authorized path above.
             String pinnedSha256 = AwsSignature.pinnedPayloadHash(baseRequest);
             if (pinnedSha256 != null) {
-                is = new ChecksumValidatingInputStream(is, Hashing.sha256(),
+                is = new ChecksumValidatingInputStream(is,
+                        FlexChecksum.SHA256.newChecksum(),
                         BaseEncoding.base16().lowerCase().decode(
                                 pinnedSha256.toLowerCase()),
-                        /*bigEndianInt=*/ false,
                         request.getContentLengthLong(),
                         S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH);
             }
@@ -2630,24 +2634,18 @@ public class S3ProxyHandler {
         // Match modern AWS SDKs that send a flexible checksum header in
         // place of Content-MD5.  Try each algorithm we recognise; the SDK
         // sends only one.
-        if (validateChecksumHeader(request, body, "x-amz-checksum-crc32",
-                Hashing.crc32(), /*bigEndianInt=*/ true) ||
-                validateChecksumHeader(request, body, "x-amz-checksum-crc32c",
-                        Hashing.crc32c(), /*bigEndianInt=*/ true) ||
-                validateChecksumHeader(request, body, "x-amz-checksum-sha1",
-                        Hashing.sha1(), /*bigEndianInt=*/ false) ||
-                validateChecksumHeader(request, body, "x-amz-checksum-sha256",
-                        Hashing.sha256(), /*bigEndianInt=*/ false)) {
-            return;
+        for (FlexChecksum checksum : FlexChecksum.values()) {
+            if (validateChecksumHeader(request, body, checksum)) {
+                return;
+            }
         }
         throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                 "Missing required header for this request: Content-Md5");
     }
 
     private static boolean validateChecksumHeader(HttpServletRequest request,
-            byte[] body, String header, HashFunction hashFunction,
-            boolean bigEndianInt) {
-        String value = request.getHeader(header);
+            byte[] body, FlexChecksum checksum) {
+        String value = request.getHeader(checksum.header());
         if (value == null) {
             return false;
         }
@@ -2657,11 +2655,9 @@ public class S3ProxyHandler {
         } catch (IllegalArgumentException iae) {
             throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
         }
-        HashCode hash = hashFunction.hashBytes(body);
-        byte[] actual = bigEndianInt ?
-                java.nio.ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
-                hash.asBytes();
-        if (!java.util.Arrays.equals(expected, actual)) {
+        SdkChecksum digest = checksum.newChecksum();
+        digest.update(body);
+        if (!java.util.Arrays.equals(expected, digest.getChecksumBytes())) {
             throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
         }
         return true;
@@ -2696,9 +2692,8 @@ public class S3ProxyHandler {
      */
     private static InputStream wrapChecksumValidator(InputStream is,
             FlexChecksum checksum, String expectedBase64, long contentLength) {
-        return new ChecksumValidatingInputStream(is, checksum.hashFunction(),
-                checksum.decodeValue(expectedBase64), checksum.bigEndianInt(),
-                contentLength);
+        return new ChecksumValidatingInputStream(is, checksum.newChecksum(),
+                checksum.decodeValue(expectedBase64), contentLength);
     }
 
     private void handleMultiBlobRemove(HttpServletRequest request,
@@ -4046,8 +4041,9 @@ public class S3ProxyHandler {
             throws IOException {
         if (checksum != null && checksumValue != null) {
             byte[] expected = checksum.decodeValue(checksumValue);
-            byte[] actual = checksum.rawDigest(
-                    checksum.hashFunction().hashBytes(payload));
+            SdkChecksum digest = checksum.newChecksum();
+            digest.update(payload);
+            byte[] actual = digest.getChecksumBytes();
             if (!java.util.Arrays.equals(expected, actual)) {
                 throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
             }
@@ -4887,7 +4883,7 @@ public class S3ProxyHandler {
                 // client-asserted value
                 continue;
             }
-            Hasher hasher = algorithm.hashFunction().newHasher();
+            SdkChecksum digest = algorithm.newChecksum();
             long length = 0;
             try (InputStream partIs = blob) {
                 byte[] buffer = new byte[16384];
@@ -4896,12 +4892,12 @@ public class S3ProxyHandler {
                     if (count == -1) {
                         break;
                     }
-                    hasher.putBytes(buffer, 0, count);
+                    digest.update(buffer, 0, count);
                     length += count;
                 }
             }
             digests.put(partNumber, new PartChecksum(
-                    algorithm.rawDigest(hasher.hash()), length));
+                    digest.getChecksumBytes(), length));
         }
         return digests;
     }
@@ -4958,7 +4954,7 @@ public class S3ProxyHandler {
         // a checksum-initiated upload include a per-part checksum for each
         // part.  A composite hashes the concatenated part digests; a full
         // object folds the part CRCs into the CRC of the whole.
-        Hasher hasher = algorithm.hashFunction().newHasher();
+        SdkChecksum composite = algorithm.newChecksum();
         byte[] combined = null;
         for (var entry : sorted.entrySet()) {
             String value = algorithm.value(entry.getValue());
@@ -4974,7 +4970,7 @@ public class S3ProxyHandler {
             byte[] digest = part != null ? part.digest() :
                     algorithm.decodeValue(value);
             if (!fullObject) {
-                hasher.putBytes(digest);
+                composite.update(digest);
                 continue;
             }
             long length = part != null ? part.length() :
@@ -4995,7 +4991,8 @@ public class S3ProxyHandler {
             }
             computed = algorithm.encodeRaw(combined);
         } else {
-            computed = algorithm.encode(hasher.hash()) + "-" + sorted.size();
+            computed = algorithm.encodeRaw(composite.getChecksumBytes()) +
+                    "-" + sorted.size();
         }
 
         // If the client asserted the expected checksum on the completion
@@ -5028,41 +5025,44 @@ public class S3ProxyHandler {
     private record PartChecksum(byte[] digest, long length) {
     }
 
-    @SuppressWarnings("deprecation")
-    private enum FlexChecksum {
-        CRC32("crc32", "ChecksumCRC32", AwsHttpHeaders.CHECKSUM_CRC32, 4, true,
-                Hashing.crc32(), 0xedb88320L),
+    // The suppliers are stateless singletons or method references; the
+    // accumulators they hand out are the mutable part.
+    @SuppressWarnings("ImmutableEnumChecker")
+    enum FlexChecksum {
+        CRC32("crc32", "ChecksumCRC32", AwsHttpHeaders.CHECKSUM_CRC32, 4,
+                sdk(DefaultChecksumAlgorithm.CRC32), 0xedb88320L),
         CRC32C("crc32c", "ChecksumCRC32C", AwsHttpHeaders.CHECKSUM_CRC32C, 4,
-                true, Hashing.crc32c(), 0x82f63b78L),
-        // Crc64Nvme already hashes to the big-endian wire form, unlike
-        // Guava's 32-bit CRCs, so it needs no further byte swapping.
+                sdk(DefaultChecksumAlgorithm.CRC32C), 0x82f63b78L),
+        // The SDK names CRC64NVME but computes it only through the optional
+        // aws-crt native module; Crc64Nvme supplies it instead.
         CRC64NVME("crc64nvme", "ChecksumCRC64NVME",
-                AwsHttpHeaders.CHECKSUM_CRC64NVME, 8, false,
-                Crc64Nvme.INSTANCE, 0x9a6c9329ac4bc9b5L),
-        SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20, false,
-                Hashing.sha1(), 0),
+                AwsHttpHeaders.CHECKSUM_CRC64NVME, 8,
+                Crc64Nvme::new, 0x9a6c9329ac4bc9b5L),
+        SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20,
+                sdk(DefaultChecksumAlgorithm.SHA1), 0),
         SHA256("sha256", "ChecksumSHA256", AwsHttpHeaders.CHECKSUM_SHA256, 32,
-                false, Hashing.sha256(), 0);
+                sdk(DefaultChecksumAlgorithm.SHA256), 0);
 
         private final String lower;
         private final String element;
         private final String header;
         private final int length;
-        private final boolean bigEndianInt;
-        private final HashFunction hashFunction;
+        private final Supplier<SdkChecksum> checksums;
         /** Reflected CRC polynomial, or zero for a hash that cannot combine. */
         private final long polynomial;
 
         FlexChecksum(String lower, String element, String header, int length,
-                boolean bigEndianInt, HashFunction hashFunction,
-                long polynomial) {
+                Supplier<SdkChecksum> checksums, long polynomial) {
             this.lower = lower;
             this.element = element;
             this.header = header;
             this.length = length;
-            this.bigEndianInt = bigEndianInt;
-            this.hashFunction = hashFunction;
+            this.checksums = checksums;
             this.polynomial = polynomial;
+        }
+
+        private static Supplier<SdkChecksum> sdk(ChecksumAlgorithm algorithm) {
+            return () -> SdkChecksum.forAlgorithm(algorithm);
         }
 
         /**
@@ -5111,12 +5111,13 @@ public class S3ProxyHandler {
             return header;
         }
 
-        boolean bigEndianInt() {
-            return bigEndianInt;
-        }
-
-        HashFunction hashFunction() {
-            return hashFunction;
+        /**
+         * A fresh accumulator for this algorithm.  Its getChecksumBytes
+         * answers in the wire byte order S3 base64-encodes, for the CRCs as
+         * well as the SHAs, so nothing downstream reorders bytes.
+         */
+        SdkChecksum newChecksum() {
+            return checksums.get();
         }
 
         String value(CompleteMultipartUploadRequest.Part part) {
@@ -5132,19 +5133,6 @@ public class S3ProxyHandler {
         /** User-metadata key persisting this checksum with the object. */
         String metadataKey() {
             return CHECKSUM_METADATA_PREFIX + lower;
-        }
-
-        /** The hash in AWS wire form (big-endian for the CRCs). */
-        byte[] rawDigest(HashCode hash) {
-            return bigEndianInt ?
-                    java.nio.ByteBuffer.allocate(4).putInt(hash.asInt())
-                            .array() :
-                    hash.asBytes();
-        }
-
-        /** Base64 of the hash in AWS wire form. */
-        String encode(HashCode hash) {
-            return Base64.getEncoder().encodeToString(rawDigest(hash));
         }
 
         /** Base64 of a digest already in AWS wire form. */

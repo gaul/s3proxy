@@ -19,12 +19,9 @@ package org.gaul.s3proxy;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hasher;
+import software.amazon.awssdk.checksums.SdkChecksum;
 
 /**
  * Validate an upload body against a precomputed AWS flexible checksum, sent
@@ -40,27 +37,23 @@ import com.google.common.hash.Hasher;
  * exactly the declared number of bytes and never read the trailing -1.
  */
 final class ChecksumValidatingInputStream extends FilterInputStream {
-    private final Hasher hasher;
+    private final SdkChecksum checksum;
     private final byte[] expected;
-    private final boolean bigEndianInt;
     private final long contentLength;
     private final S3ErrorCode errorCode;
     private long bytesRead;
     private boolean validated;
 
-    ChecksumValidatingInputStream(InputStream is, HashFunction hashFunction,
-            byte[] expected, boolean bigEndianInt, long contentLength) {
-        this(is, hashFunction, expected, bigEndianInt, contentLength,
-                S3ErrorCode.BAD_DIGEST);
+    ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
+            byte[] expected, long contentLength) {
+        this(is, checksum, expected, contentLength, S3ErrorCode.BAD_DIGEST);
     }
 
-    ChecksumValidatingInputStream(InputStream is, HashFunction hashFunction,
-            byte[] expected, boolean bigEndianInt, long contentLength,
-            S3ErrorCode errorCode) {
+    ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
+            byte[] expected, long contentLength, S3ErrorCode errorCode) {
         super(is);
-        this.hasher = hashFunction.newHasher();
+        this.checksum = checksum;
         this.expected = expected.clone();
-        this.bigEndianInt = bigEndianInt;
         this.contentLength = contentLength;
         this.errorCode = errorCode;
     }
@@ -71,7 +64,7 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
         if (b == -1) {
             validate();
         } else {
-            hasher.putByte((byte) b);
+            checksum.update(b);
             ++bytesRead;
             if (bytesRead >= contentLength) {
                 validate();
@@ -86,7 +79,7 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
         if (count == -1) {
             validate();
         } else {
-            hasher.putBytes(b, off, count);
+            checksum.update(b, off, count);
             bytesRead += count;
             if (bytesRead >= contentLength) {
                 validate();
@@ -107,11 +100,7 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
             return;
         }
         validated = true;
-        HashCode hash = hasher.hash();
-        byte[] actual = bigEndianInt ?
-                ByteBuffer.allocate(4).putInt(hash.asInt()).array() :
-                hash.asBytes();
-        if (!Arrays.equals(expected, actual)) {
+        if (!Arrays.equals(expected, checksum.getChecksumBytes())) {
             throw new IOException(new S3ProxyException(errorCode));
         }
     }
