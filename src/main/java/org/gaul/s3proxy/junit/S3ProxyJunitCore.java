@@ -127,7 +127,11 @@ public class S3ProxyJunitCore {
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.builder()
                 .blobStore(blobStore)
                 .awsAuthentication(builder.authType, accessKey, secretKey)
-                .ignoreUnknownHeaders(builder.ignoreUnknownHeaders);
+                .ignoreUnknownHeaders(builder.ignoreUnknownHeaders)
+                // A test's requests have completed by teardown, so skip the
+                // graceful drain; it waits two seconds for any keep-alive
+                // connection the test's client left open.
+                .stopTimeout(0);
 
         if (builder.secretStorePath != null ||
                 builder.secretStorePassword != null) {

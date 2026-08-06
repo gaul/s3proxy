@@ -42,6 +42,7 @@ public final class PresignedExpiryTest {
     @BeforeEach
     public void setUp() throws Exception {
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .blobStore(TestUtils.createTransientBlobStore())
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4, IDENTITY,
                         "credential")

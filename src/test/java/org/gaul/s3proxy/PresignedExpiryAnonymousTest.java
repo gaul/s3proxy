@@ -70,6 +70,7 @@ public final class PresignedExpiryAnonymousTest {
                 payload);
 
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .blobStore(blobStore)
                 .awsAuthentication(AuthenticationType.NONE, null, null)
                 .endpoint(URI.create("http://127.0.0.1:0"))

@@ -50,6 +50,7 @@ public final class S3ProxyMultiDeleteLimitTest {
 
         long limit = 1024;
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .v4MaxNonChunkedRequestSize(limit)
                 .blobStore(blobStore)

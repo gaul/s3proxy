@@ -66,6 +66,7 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
         };
 
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .blobStore(failing)
                 .build();

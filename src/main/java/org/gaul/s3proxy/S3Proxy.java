@@ -53,8 +53,9 @@ import org.jspecify.annotations.Nullable;
  * OpenStack Swift.
  */
 public final class S3Proxy {
-    // How long stop() waits for in-flight requests; SIGKILL usually arrives
-    // sooner (docker stop defaults to 10 seconds, Kubernetes to 30).
+    // Default for Builder.stopTimeout: how long stop() waits for in-flight
+    // requests; SIGKILL usually arrives sooner (docker stop defaults to
+    // 10 seconds, Kubernetes to 30).
     private static final long STOP_TIMEOUT_MS = 30_000;
 
     private final Server server;
@@ -198,7 +199,7 @@ public final class S3Proxy {
         // parser refuses never reaches S3ProxyHandler -- with an S3 error
         // document instead of Jetty's HTML page.
         server.setErrorHandler(new S3ErrorHandler());
-        server.setStopTimeout(STOP_TIMEOUT_MS);
+        server.setStopTimeout(builder.stopTimeout);
     }
 
     public static final class Builder {
@@ -224,6 +225,7 @@ public final class S3Proxy {
         private boolean metricsEnabled;
         private int metricsPort = -1;
         @Nullable private String metricsHost;
+        private long stopTimeout = STOP_TIMEOUT_MS;
 
         Builder() {
         }
@@ -503,6 +505,23 @@ public final class S3Proxy {
 
         public Builder jettyMaxThreads(int jettyMaxThreads) {
             this.jettyMaxThreads = jettyMaxThreads;
+            return this;
+        }
+
+        /**
+         * How many milliseconds {@link S3Proxy#stop} waits for in-flight
+         * requests to drain.  Zero stops immediately, aborting them and
+         * closing keep-alive connections without the grace Jetty otherwise
+         * allows them; test fixtures want this since their requests have
+         * completed by teardown, and an idle connection a client left open
+         * holds an otherwise instant stop for two seconds.
+         */
+        public Builder stopTimeout(long stopTimeout) {
+            if (stopTimeout < 0) {
+                throw new IllegalArgumentException(
+                        "must not be negative, was: " + stopTimeout);
+            }
+            this.stopTimeout = stopTimeout;
             return this;
         }
 

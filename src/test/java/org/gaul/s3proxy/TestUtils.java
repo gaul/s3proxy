@@ -320,6 +320,11 @@ final class TestUtils {
         S3Proxy.Builder s3ProxyBuilder = S3Proxy.Builder.fromProperties(
                 info.getProperties());
         s3ProxyBuilder.blobStore(info.blobStore);
+        // Tests' requests have completed by teardown, so skip the graceful
+        // drain; it waits two seconds for any keep-alive connection the
+        // test's client left open, once per test for the suites that start
+        // a proxy in setUp.
+        s3ProxyBuilder.stopTimeout(0);
         info.endpoint = s3ProxyBuilder.getEndpoint();
         info.secureEndpoint = s3ProxyBuilder.getSecureEndpoint();
         info.s3Identity = s3ProxyBuilder.getIdentity();

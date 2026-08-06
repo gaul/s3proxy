@@ -73,6 +73,7 @@ public final class AnonymousResponseHeaderTest {
                 ObjectCannedACL.PUBLIC_READ);
 
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .blobStore(blobStore)
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4,
                         "identity", "credential")

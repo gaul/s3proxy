@@ -48,6 +48,7 @@ public final class S3ProxyMetricsEndpointTest {
     private S3Proxy.Builder baseBuilder() {
         blobStore = TestUtils.createTransientBlobStore();
         return S3Proxy.builder()
+                .stopTimeout(0)
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .blobStore(blobStore);
     }

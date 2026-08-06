@@ -43,6 +43,7 @@ public final class TransferEncodingChunkedTest {
 
     private void startProxy(long maxRequestSize) throws Exception {
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .blobStore(TestUtils.createTransientBlobStore())
                 .v4MaxNonChunkedRequestSize(maxRequestSize)
                 .endpoint(URI.create("http://127.0.0.1:0"))

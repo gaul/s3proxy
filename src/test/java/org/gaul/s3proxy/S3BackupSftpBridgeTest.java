@@ -86,6 +86,7 @@ public final class S3BackupSftpBridgeTest {
                 hostKeyFingerprint(hostKeyProvider));
 
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4,
                         S3_IDENTITY, S3_CREDENTIAL)

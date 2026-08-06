@@ -46,6 +46,7 @@ public final class DefaultContentTypeTest {
     @BeforeEach
     public void setUp() throws Exception {
         s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
                 .blobStore(TestUtils.createTransientBlobStore())
                 .ignoreUnknownHeaders(true)
                 .endpoint(URI.create("http://127.0.0.1:0"))
