@@ -1597,7 +1597,11 @@ public class S3ProxyHandler {
         boolean ownerFullControl = false;
         boolean allUsersRead = false;
         boolean allUsersWrite = false;
-        if (policy.aclList() != null) {
+        // grants() is null when the document holds an empty
+        // <AccessControlList/>, which is how a client revokes every grant;
+        // answer NotImplemented like any other ACL without a canned
+        // spelling rather than 500, which the client retries with backoff.
+        if (policy.aclList() != null && policy.aclList().grants() != null) {
             for (AccessControlPolicy.AccessControlList.Grant grant :
                     policy.aclList().grants()) {
                 if (grant.grantee().type().equals("CanonicalUser") &&
