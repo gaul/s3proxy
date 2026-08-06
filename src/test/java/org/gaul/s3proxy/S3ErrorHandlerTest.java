@@ -79,6 +79,10 @@ public final class S3ErrorHandlerTest {
         assertThat(response).contains("<Code>InvalidURI</Code>");
         assertThat(response).contains(
                 "<Message>Couldn't parse the specified URI.</Message>");
+        // The connection closes rather than reading another request from
+        // bytes the parser already refused; send() also relies on the EOF
+        // instead of waiting out its socket timeout.
+        assertThat(response).contains("Connection: close");
     }
 
     /**

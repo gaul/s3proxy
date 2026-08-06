@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
@@ -81,6 +82,14 @@ final class S3ErrorHandler extends ErrorHandler {
         response.getHeaders().put(HttpHeader.CONTENT_TYPE,
                 "application/xml;charset=utf-8");
         response.getHeaders().put(AwsHttpHeaders.REQUEST_ID, requestId);
+        // The parser could not read the request, so bytes already on the
+        // wire may be misframed; close instead of reading another request
+        // from them, as S3 does.  Jetty closes on its own after some of
+        // these failures but keeps the connection after others, e.g., a URI
+        // compliance violation, and a client reading to EOF otherwise waits
+        // out its socket timeout.
+        response.getHeaders().put(HttpHeader.CONNECTION,
+                HttpHeaderValue.CLOSE.asString());
         // Jetty suppresses the body of a HEAD response when generating it.
         response.write(/*last=*/ true, ByteBuffer.wrap(xml), callback);
     }
