@@ -580,9 +580,11 @@ public class S3ProxyHandler {
 
         // when access information is not provided in request header,
         // treat it as anonymous, return all public accessible information
+        // -- or store it, where a bucket grants AllUsers WRITE
         if (!anonymousIdentity &&
                 (method.equals("GET") || method.equals("HEAD") ||
-                method.equals("POST") || method.equals("OPTIONS")) &&
+                method.equals("POST") || method.equals("OPTIONS") ||
+                method.equals("PUT") || method.equals("DELETE")) &&
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 // v2 or /v4
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
@@ -1235,7 +1237,8 @@ public class S3ProxyHandler {
             if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
                 BucketCannedACL access = blobStore.getContainerAccess(
                         containerName);
-                return access == BucketCannedACL.PUBLIC_READ;
+                return access == BucketCannedACL.PUBLIC_READ ||
+                        access == BucketCannedACL.PUBLIC_READ_WRITE;
             }
             ObjectCannedACL access = blobStore.getBlobAccess(containerName,
                     blobName);
@@ -1244,6 +1247,23 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
         } catch (NoSuchKeyException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, e);
+        }
+    }
+
+    /**
+     * Refuse an anonymous write unless the bucket grants AllUsers WRITE --
+     * the one grant S3 answers an unsigned write from.
+     */
+    private static void checkPublicWriteAccess(BlobStore blobStore,
+            String containerName) {
+        BucketCannedACL access;
+        try {
+            access = blobStore.getContainerAccess(containerName);
+        } catch (NoSuchBucketException e) {
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
+        }
+        if (access != BucketCannedACL.PUBLIC_READ_WRITE) {
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
     }
 
@@ -1342,9 +1362,42 @@ public class S3ProxyHandler {
         case "POST" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 setOperation(ctx, S3Operation.PUT_OBJECT);
-                handlePostBlob(request, response, is, path[1]);
+                handlePostBlob(request, response, is, blobStore, path[1]);
                 return;
             }
+        }
+        case "PUT" -> {
+            // Only a plain object write: bucket creation, ACLs, copies, and
+            // multipart parts stay authenticated, since bucket WRITE grants
+            // none of them.
+            if (path.length > 2 && !path[2].isEmpty() &&
+                    request.getParameter("uploadId") == null &&
+                    request.getParameter("acl") == null &&
+                    request.getHeader(AwsHttpHeaders.COPY_SOURCE) == null) {
+                String containerName = path[1];
+                String blobName = path[2];
+                setOperation(ctx, S3Operation.PUT_OBJECT);
+                checkPublicWriteAccess(blobStore, containerName);
+                handlePutBlob(request, response, is, blobStore, containerName,
+                        blobName);
+                return;
+            }
+            setOperation(ctx, S3Operation.PUT_OBJECT);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+        }
+        case "DELETE" -> {
+            if (path.length > 2 && !path[2].isEmpty() &&
+                    request.getParameter("uploadId") == null) {
+                String containerName = path[1];
+                String blobName = path[2];
+                setOperation(ctx, S3Operation.DELETE_OBJECT);
+                checkPublicWriteAccess(blobStore, containerName);
+                handleBlobRemove(request, response, blobStore, containerName,
+                        blobName);
+                return;
+            }
+            setOperation(ctx, S3Operation.DELETE_OBJECT);
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
         case "OPTIONS" -> {
             if (uri.equals("/")) {
@@ -1387,10 +1440,14 @@ public class S3ProxyHandler {
 
             xml.writeStartElement("AccessControlList");
 
-            // S3 lists the group grant ahead of the owner's, which clients
+            // S3 lists the group grants ahead of the owner's, which clients
             // rely on to tell the two apart without inspecting every grantee.
-            if (access == BucketCannedACL.PUBLIC_READ) {
-                writeAllUsersReadGrant(xml);
+            if (access == BucketCannedACL.PUBLIC_READ ||
+                    access == BucketCannedACL.PUBLIC_READ_WRITE) {
+                writeAllUsersGrant(xml, "READ");
+            }
+            if (access == BucketCannedACL.PUBLIC_READ_WRITE) {
+                writeAllUsersGrant(xml, "WRITE");
             }
 
             writeOwnerFullControlGrant(xml);
@@ -1414,6 +1471,8 @@ public class S3ProxyHandler {
             access = BucketCannedACL.PRIVATE;
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
             access = BucketCannedACL.PUBLIC_READ;
+        } else if ("public-read-write".equalsIgnoreCase(cannedAcl)) {
+            access = BucketCannedACL.PUBLIC_READ_WRITE;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
@@ -1432,6 +1491,8 @@ public class S3ProxyHandler {
                 access = BucketCannedACL.PRIVATE;
             } else if (accessString.equals("public-read")) {
                 access = BucketCannedACL.PUBLIC_READ;
+            } else if (accessString.equals("public-read-write")) {
+                access = BucketCannedACL.PUBLIC_READ_WRITE;
             } else {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
@@ -1466,7 +1527,7 @@ public class S3ProxyHandler {
             xml.writeStartElement("AccessControlList");
 
             if (access == ObjectCannedACL.PUBLIC_READ) {
-                writeAllUsersReadGrant(xml);
+                writeAllUsersGrant(xml, "READ");
             }
 
             writeOwnerFullControlGrant(xml);
@@ -1531,6 +1592,7 @@ public class S3ProxyHandler {
 
         boolean ownerFullControl = false;
         boolean allUsersRead = false;
+        boolean allUsersWrite = false;
         if (policy.aclList() != null) {
             for (AccessControlPolicy.AccessControlList.Grant grant :
                     policy.aclList().grants()) {
@@ -1543,6 +1605,11 @@ public class S3ProxyHandler {
                                 "groups/global/AllUsers") &&
                         grant.permission().equals("READ")) {
                     allUsersRead = true;
+                } else if (grant.grantee().type().equals("Group") &&
+                        grant.grantee().uri().equals("http://acs.amazonaws.com/" +
+                                "groups/global/AllUsers") &&
+                        grant.permission().equals("WRITE")) {
+                    allUsersWrite = true;
                 } else {
                     throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
                 }
@@ -1550,6 +1617,13 @@ public class S3ProxyHandler {
         }
 
         if (ownerFullControl) {
+            if (allUsersRead && allUsersWrite) {
+                return "public-read-write";
+            }
+            if (allUsersWrite) {
+                // no canned ACL says write-without-read
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+            }
             if (allUsersRead) {
                 return "public-read";
             }
@@ -2188,9 +2262,10 @@ public class S3ProxyHandler {
         String acl = request.getHeader(AwsHttpHeaders.ACL);
         var createRequest = CreateBucketRequest.builder()
                 .bucket(containerName);
-        if ("public-read".equalsIgnoreCase(acl) ||
-                "public-read-write".equalsIgnoreCase(acl)) {
+        if ("public-read".equalsIgnoreCase(acl)) {
             createRequest.acl(BucketCannedACL.PUBLIC_READ);
+        } else if ("public-read-write".equalsIgnoreCase(acl)) {
+            createRequest.acl(BucketCannedACL.PUBLIC_READ_WRITE);
         }
 
         boolean created = blobStore.createContainer(createRequest.build());
@@ -3673,7 +3748,7 @@ public class S3ProxyHandler {
 
     private void handlePostBlob(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
-            String containerName)
+            BlobStore anonymousBlobStore, String containerName)
             throws IOException {
         String contentTypeHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
         if (contentTypeHeader == null) {
@@ -3801,19 +3876,16 @@ public class S3ProxyHandler {
         }
 
         // A POST carries no Authorization header -- doHandle routes a request
-        // without one here -- so the policy is the only thing that can say the
-        // caller may write.  A form carrying none is refused, where S3 answers
-        // it from the bucket's own permissions and uploads when those grant
-        // AllUsers WRITE.  S3Proxy has nowhere to keep such a grant:
-        // CreateBucket drops the write half of public-read-write, PutBucketAcl
-        // answers NotImplemented for it, and the anonymous path implements no
-        // PUT or DELETE at all -- so a bucket anyone may write to is not a
-        // thing this proxy can be told about, and honouring a form that
-        // assumes one would let anyone who can reach the proxy create and
-        // overwrite objects in every bucket the backend holds.  s3-tests marks
-        // the three POSTs that expect otherwise.
+        // without one here -- so either the policy or the bucket's own
+        // permissions must say the caller may write.  A form carrying no
+        // policy is answered as S3 answers it: the upload proceeds only when
+        // the bucket grants AllUsers WRITE, and is refused otherwise.
         if (policy == null && signature == null && identity == null) {
-            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+            checkPublicWriteAccess(anonymousBlobStore, containerName);
+            finishPostBlob(request, response, anonymousBlobStore,
+                    containerName, blobName, contentType, fields, payload,
+                    checksum, checksumValue);
+            return;
         }
         // Carrying some but not all of them is a form built wrong rather than
         // one that meant to go unsigned, and saying so beats reporting it as a
@@ -5965,8 +6037,8 @@ public class S3ProxyHandler {
         xml.writeEndElement();
     }
 
-    private static void writeAllUsersReadGrant(XMLStreamWriter xml)
-            throws XMLStreamException {
+    private static void writeAllUsersGrant(XMLStreamWriter xml,
+            String permission) throws XMLStreamException {
         xml.writeStartElement("Grant");
 
         xml.writeStartElement("Grantee");
@@ -5978,7 +6050,7 @@ public class S3ProxyHandler {
 
         xml.writeEndElement();
 
-        writeSimpleElement(xml, "Permission", "READ");
+        writeSimpleElement(xml, "Permission", permission);
 
         xml.writeEndElement();
     }

@@ -66,6 +66,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -2363,6 +2364,84 @@ public final class AwsSdkTest {
                     .isEqualTo(BucketCannedACL.PUBLIC_READ);
         } finally {
             blobStore.deleteContainer(publicContainer);
+        }
+    }
+
+    @Test
+    public void testCreateContainerPublicReadWrite() throws Exception {
+        assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
+        String publicContainer = createRandomContainerName();
+        blobStore.createContainer(CreateBucketRequest.builder()
+                .bucket(publicContainer)
+                .acl(BucketCannedACL.PUBLIC_READ_WRITE)
+                .build());
+        try {
+            assertThat(blobStore.getContainerAccess(publicContainer))
+                    .isEqualTo(BucketCannedACL.PUBLIC_READ_WRITE);
+        } finally {
+            blobStore.deleteContainer(publicContainer);
+        }
+    }
+
+    @Test
+    public void testPublicReadWriteBucketAnonymousWrite() throws Exception {
+        assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
+
+        client.putBucketAcl(b -> b.bucket(containerName)
+                .acl(BucketCannedACL.PUBLIC_READ_WRITE));
+
+        var grants = client.getBucketAcl(b -> b.bucket(containerName))
+                .grants();
+        assertThat(grants).anyMatch(grant ->
+                grant.permission() == Permission.READ &&
+                ALL_USERS_GROUP.equals(grant.grantee().uri()));
+        assertThat(grants).anyMatch(grant ->
+                grant.permission() == Permission.WRITE &&
+                ALL_USERS_GROUP.equals(grant.grantee().uri()));
+
+        try (S3Client anonymousClient = buildClient(
+                AnonymousCredentialsProvider.create())) {
+            anonymousClient.putObject(
+                    b -> b.bucket(containerName).key("anonymous-blob"),
+                    RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                            BYTE_SOURCE.size()));
+            assertThat(blobStore.blobExists(containerName, "anonymous-blob"))
+                    .isTrue();
+
+            anonymousClient.deleteObject(
+                    b -> b.bucket(containerName).key("anonymous-blob"));
+            assertThat(blobStore.blobExists(containerName, "anonymous-blob"))
+                    .isFalse();
+        }
+    }
+
+    @Test
+    public void testPublicReadBucketRefusesAnonymousWrite() throws Exception {
+        // The write half is granted by public-read-write alone; a merely
+        // readable bucket must go on refusing anonymous writes.
+        client.putBucketAcl(b -> b.bucket(containerName)
+                .acl(BucketCannedACL.PUBLIC_READ));
+
+        try (S3Client anonymousClient = buildClient(
+                AnonymousCredentialsProvider.create())) {
+            try {
+                anonymousClient.putObject(
+                        b -> b.bucket(containerName).key("anonymous-blob"),
+                        RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                                BYTE_SOURCE.size()));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(403);
+            }
+            try {
+                anonymousClient.deleteObject(
+                        b -> b.bucket(containerName).key("anonymous-blob"));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(403);
+            }
+            assertThat(blobStore.blobExists(containerName, "anonymous-blob"))
+                    .isFalse();
         }
     }
 

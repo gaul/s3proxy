@@ -429,8 +429,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             var response = s3Client.getBucketAcl(GetBucketAclRequest.builder()
                     .bucket(container)
                     .build());
-            boolean isPublic = hasPublicRead(response.grants());
-            return isPublic ?
+            if (hasAllUsersGrant(response.grants(), Permission.WRITE)) {
+                return BucketCannedACL.PUBLIC_READ_WRITE;
+            }
+            return hasAllUsersGrant(response.grants(), Permission.READ) ?
                     BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
         } catch (NoSuchBucketException e) {
             throw e;
@@ -505,7 +507,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .bucket(container)
                     .key(key)
                     .build());
-            return hasPublicRead(response.grants()) ?
+            return hasAllUsersGrant(response.grants(), Permission.READ) ?
                     ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
@@ -515,9 +517,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
     }
 
-    private static boolean hasPublicRead(List<Grant> grants) {
+    private static boolean hasAllUsersGrant(List<Grant> grants,
+            Permission permission) {
         for (Grant grant : grants) {
-            if (grant.permission() == Permission.READ || grant.permission() == Permission.FULL_CONTROL) {
+            if (grant.permission() == permission ||
+                    grant.permission() == Permission.FULL_CONTROL) {
                 if (grant.grantee().type() == Type.GROUP &&
                         "http://acs.amazonaws.com/groups/global/AllUsers".equals(grant.grantee().uri())) {
                     return true;

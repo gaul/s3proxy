@@ -39,6 +39,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+
 /**
  * A browser cannot set headers on a form submission, so everything a PUT says
  * in headers a POST says in form fields instead -- where the object goes, what
@@ -91,10 +93,8 @@ public final class PostObjectTest {
     }
 
     /**
-     * A form carrying no credential at all is refused.  The POST itself is
-     * unauthenticated -- a browser form sends no Authorization header -- so
-     * the policy is the only thing that can say the caller may write, and
-     * S3Proxy cannot express a bucket that anyone may write to.
+     * A form carrying no credential at all is answered from the bucket's
+     * own permissions, as S3 answers it: a private bucket refuses.
      */
     @Test
     public void testUnsignedPostIsDenied() throws Exception {
@@ -102,6 +102,17 @@ public final class PostObjectTest {
                 "key", "foo.txt", "Content-Type", "text/plain");
         assertThat(response.statusCode()).isEqualTo(403);
         assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
+    /** ... and a bucket granting AllUsers WRITE uploads it. */
+    @Test
+    public void testUnsignedPostToPublicReadWriteBucket() throws Exception {
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        HttpResponse<String> response = postUnsigned(
+                "key", "foo.txt", "Content-Type", "text/plain");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isTrue();
     }
 
     /** The browser has nowhere to show a body, so the form picks a status. */

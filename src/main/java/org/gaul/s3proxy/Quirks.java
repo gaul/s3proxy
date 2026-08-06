@@ -120,6 +120,18 @@ final class Quirks {
             "azureblob"
     );
 
+    /**
+     * Blobstores that cannot grant anonymous writes.  Azure public access is
+     * read-only by definition and Swift write ACLs cannot name a referrer,
+     * so both refuse public-read-write; the GCS emulator's legacy-ACL
+     * handling is too lossy to test the grant against.
+     */
+    static final Set<String> NO_PUBLIC_WRITE_ACCESS = Set.of(
+            "azureblob",
+            "google-cloud-storage",
+            "openstack-swift"
+    );
+
     private Quirks() {
         throw new AssertionError("Intentionally unimplemented");
     }

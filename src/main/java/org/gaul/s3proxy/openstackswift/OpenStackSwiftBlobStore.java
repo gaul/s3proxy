@@ -386,6 +386,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     public boolean createContainer(CreateBucketRequest request) {
+        if (request.acl() == BucketCannedACL.PUBLIC_READ_WRITE) {
+            throw new UnsupportedOperationException(
+                    "anonymous write access unsupported in Swift");
+        }
         String container = request.bucket();
         var swift = objectStorage();
         CreateUpdateContainerOptions swiftOptions = null;
@@ -1031,6 +1035,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     public void setContainerAccess(String container, BucketCannedACL access) {
+        if (access == BucketCannedACL.PUBLIC_READ_WRITE) {
+            // Swift write ACLs name users, not referrers; anonymous write is
+            // not expressible, so refuse rather than grant only the read half.
+            throw new UnsupportedOperationException(
+                    "anonymous write access unsupported in Swift");
+        }
         var options = CreateUpdateContainerOptions.create();
         if (access == BucketCannedACL.PUBLIC_READ) {
             options.accessAnybodyRead();

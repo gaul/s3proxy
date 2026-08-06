@@ -335,6 +335,10 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public boolean createContainer(CreateBucketRequest request) {
+        if (request.acl() == BucketCannedACL.PUBLIC_READ_WRITE) {
+            throw new UnsupportedOperationException(
+                    "anonymous write access unsupported in Azure");
+        }
         String container = request.bucket();
         var azureOptions = new BlobContainerCreateOptions();
         if (request.acl() == BucketCannedACL.PUBLIC_READ) {
@@ -912,6 +916,12 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public void setContainerAccess(String container, BucketCannedACL access) {
+        if (access == BucketCannedACL.PUBLIC_READ_WRITE) {
+            // Azure public access is read-only by definition; refuse rather
+            // than silently granting less than the caller asked for.
+            throw new UnsupportedOperationException(
+                    "anonymous write access unsupported in Azure");
+        }
         var client = blobServiceClient.getBlobContainerClient(container);
         var publicAccess = access == BucketCannedACL.PUBLIC_READ ?
                 PublicAccessType.CONTAINER : null;

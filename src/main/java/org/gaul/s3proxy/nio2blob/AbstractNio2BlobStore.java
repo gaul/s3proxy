@@ -437,7 +437,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
 
-        setContainerAccess(container, request.acl() == BucketCannedACL.PUBLIC_READ ? BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE);
+        BucketCannedACL acl = request.acl();
+        setContainerAccess(container,
+                acl == BucketCannedACL.PUBLIC_READ ||
+                acl == BucketCannedACL.PUBLIC_READ_WRITE ?
+                acl : BucketCannedACL.PRIVATE);
 
         return true;
     }
@@ -1201,6 +1205,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+        if (permissions.contains(PosixFilePermission.OTHERS_READ) &&
+                permissions.contains(PosixFilePermission.OTHERS_WRITE)) {
+            return BucketCannedACL.PUBLIC_READ_WRITE;
+        }
         return permissions.contains(PosixFilePermission.OTHERS_READ) ?
                 BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
     }
@@ -1211,10 +1219,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
-            if (access == BucketCannedACL.PRIVATE) {
-                permissions.remove(PosixFilePermission.OTHERS_READ);
+            if (access == BucketCannedACL.PUBLIC_READ_WRITE) {
+                permissions.add(PosixFilePermission.OTHERS_READ);
+                permissions.add(PosixFilePermission.OTHERS_WRITE);
             } else if (access == BucketCannedACL.PUBLIC_READ) {
                 permissions.add(PosixFilePermission.OTHERS_READ);
+                permissions.remove(PosixFilePermission.OTHERS_WRITE);
+            } else {
+                permissions.remove(PosixFilePermission.OTHERS_READ);
+                permissions.remove(PosixFilePermission.OTHERS_WRITE);
             }
             Files.setPosixFilePermissions(path, permissions);
         } catch (UnsupportedOperationException uoe) {

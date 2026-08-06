@@ -280,16 +280,21 @@ public final class GCloudBlobStore implements BlobStore {
     public boolean createContainer(CreateBucketRequest request) {
         String container = request.bucket();
         boolean publicRead = request.acl() == BucketCannedACL.PUBLIC_READ;
+        boolean publicReadWrite =
+                request.acl() == BucketCannedACL.PUBLIC_READ_WRITE;
         try {
             var bucketInfo = BucketInfo.newBuilder(container).build();
-            if (publicRead && atomicBucketAcl) {
+            if ((publicRead || publicReadWrite) && atomicBucketAcl) {
                 storage.create(bucketInfo, Storage.BucketTargetOption
-                        .predefinedAcl(Storage.PredefinedAcl.PUBLIC_READ));
+                        .predefinedAcl(publicReadWrite ?
+                                Storage.PredefinedAcl.PUBLIC_READ_WRITE :
+                                Storage.PredefinedAcl.PUBLIC_READ));
             } else {
                 storage.create(bucketInfo);
-                if (publicRead) {
+                if (publicRead || publicReadWrite) {
                     storage.createAcl(container,
-                            Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
+                            Acl.of(Acl.User.ofAllUsers(), publicReadWrite ?
+                                    Acl.Role.WRITER : Acl.Role.READER));
                 }
             }
             return true;
@@ -769,7 +774,9 @@ public final class GCloudBlobStore implements BlobStore {
             var acls = bucket.listAcls();
             for (var acl : acls) {
                 if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
-                    return BucketCannedACL.PUBLIC_READ;
+                    return acl.getRole() == Acl.Role.READER ?
+                            BucketCannedACL.PUBLIC_READ :
+                            BucketCannedACL.PUBLIC_READ_WRITE;
                 }
             }
         } catch (StorageException se) {
@@ -787,7 +794,10 @@ public final class GCloudBlobStore implements BlobStore {
     public void setContainerAccess(String container,
             BucketCannedACL access) {
         try {
-            if (access == BucketCannedACL.PUBLIC_READ) {
+            if (access == BucketCannedACL.PUBLIC_READ_WRITE) {
+                storage.createAcl(container,
+                        Acl.of(Acl.User.ofAllUsers(), Acl.Role.WRITER));
+            } else if (access == BucketCannedACL.PUBLIC_READ) {
                 storage.createAcl(container,
                         Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
             } else {
