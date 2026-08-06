@@ -78,10 +78,10 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     /** The version id every unversioned write carries, as on S3. */
     private static final String NULL_VERSION_ID = "null";
 
+    private static final AtomicLong LAST_MILLIS = new AtomicLong();
+
     private final SortedMap<String, Container> containers = new TreeMap<>();
     private final AtomicLong versionCounter = new AtomicLong();
-
-    private static final AtomicLong LAST_MILLIS = new AtomicLong();
 
     /**
      * A strictly increasing timestamp: the frontend interleaves versions

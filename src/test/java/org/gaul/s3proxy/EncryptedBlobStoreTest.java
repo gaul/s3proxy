@@ -533,8 +533,9 @@ public final class EncryptedBlobStoreTest {
 
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
-                        encryptedBlobStore.putBlob(containerName, makeBlobWithContentType(blobName,
-                content.length(), is, contentType), PutOptions.NONE);
+            encryptedBlobStore.putBlob(containerName,
+                makeBlobWithContentType(blobName, content.length(), is,
+                    contentType), PutOptions.NONE);
 
             var blob = encryptedBlobStore.getBlob(containerName, blobName,
                     GetOptions.NONE);

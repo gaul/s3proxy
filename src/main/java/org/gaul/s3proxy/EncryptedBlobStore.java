@@ -244,15 +244,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return blobName.endsWith(Constants.S3_ENC_SUFFIX);
     }
 
-    private BlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
-        if (isEncrypted(blobMeta.name())) {
-            return blobMeta.toBuilder()
-                    .name(removeEncryptedSuffix(blobMeta.name()))
-                    .build();
-        }
-        return blobMeta;
-    }
-
     private BlobMetadata setEncryptedSuffix(BlobMetadata blobMeta) {
         if (blobMeta.name() != null && !isEncrypted(blobMeta.name())) {
             return blobMeta.toBuilder()
@@ -265,6 +256,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     private String removeEncryptedSuffix(String blobName) {
         return blobName.substring(0,
             blobName.length() - Constants.S3_ENC_SUFFIX.length());
+    }
+
+    private BlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
+        if (isEncrypted(blobMeta.name())) {
+            return blobMeta.toBuilder()
+                    .name(removeEncryptedSuffix(blobMeta.name()))
+                    .build();
+        }
+        return blobMeta;
     }
 
     /**

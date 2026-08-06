@@ -70,7 +70,8 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateBlobGetBlob() throws Exception {
         String blobName = createRandomBlobName();
-                nullBlobStore.putBlob(containerName, makeBlob(blobName), PutOptions.NONE);
+        nullBlobStore.putBlob(containerName, makeBlob(blobName),
+                PutOptions.NONE);
 
         var blob = nullBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE);

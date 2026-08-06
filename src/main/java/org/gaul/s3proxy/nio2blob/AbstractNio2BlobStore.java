@@ -166,27 +166,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .build();
     }
 
-    /**
-     * One listing entry in lexicographic paging order: an object, or a
-     * common prefix when {@code object} is null.  Prefixes interleave with
-     * keys for paging exactly as S3 orders the combined document.
-     */
-    private record ListEntry(String name, @Nullable S3Object object)
-            implements Comparable<ListEntry> {
-        static ListEntry prefix(String name) {
-            return new ListEntry(name, null);
-        }
-
-        static ListEntry object(S3Object object) {
-            return new ListEntry(object.key(), object);
-        }
-
-        @Override
-        public int compareTo(ListEntry other) {
-            return name.compareTo(other.name);
-        }
-    }
-
     @Override
     public final ListObjectsV2Response list(String container,
             ListContainerOptions options) {
@@ -282,6 +261,27 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             logger.error("unexpected exception", ioe);
             throw new RuntimeException(ioe);
+        }
+    }
+
+    /**
+     * One listing entry in lexicographic paging order: an object, or a
+     * common prefix when {@code object} is null.  Prefixes interleave with
+     * keys for paging exactly as S3 orders the combined document.
+     */
+    private record ListEntry(String name, @Nullable S3Object object)
+            implements Comparable<ListEntry> {
+        static ListEntry prefix(String name) {
+            return new ListEntry(name, null);
+        }
+
+        static ListEntry object(S3Object object) {
+            return new ListEntry(object.key(), object);
+        }
+
+        @Override
+        public int compareTo(ListEntry other) {
+            return name.compareTo(other.name);
         }
     }
 
