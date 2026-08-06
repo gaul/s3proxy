@@ -24,7 +24,6 @@ import java.util.List;
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
@@ -60,8 +59,8 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
         // point where the response has already been committed with 200.
         BlobStore failing = new ForwardingBlobStore(blobStore) {
             @Override
-            public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-                    List<MultipartPart> parts) {
+            public CompleteMultipartUploadResponse completeMultipartUpload(
+                    MultipartUpload mpu, List<CompletedPart> parts) {
                 throw new RuntimeException("simulated late backend failure");
             }
         };

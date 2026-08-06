@@ -21,7 +21,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -31,7 +30,6 @@ import com.google.common.net.MediaType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -161,22 +159,23 @@ public final class NullBlobStoreTest {
                 0, nullBlobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
                 nullBlobStore.getMinimumMultipartPartSize(), 1);
-        MultipartPart part1 = nullBlobStore.uploadMultipartPart(mpu, 1,
+        var part1 = nullBlobStore.uploadMultipartPart(mpu, 1,
                 byteSource1.openStream(), byteSource1.size(), null);
-        MultipartPart part2 = nullBlobStore.uploadMultipartPart(mpu, 2,
+        var part2 = nullBlobStore.uploadMultipartPart(mpu, 2,
                 byteSource2.openStream(), byteSource2.size(), null);
 
-        List<MultipartPart> parts = nullBlobStore.listMultipartUpload(mpu);
+        var parts = nullBlobStore.listMultipartUpload(mpu);
         assertThat(parts.get(0).partNumber()).isEqualTo(1);
-        assertThat(parts.get(0).partSize()).isEqualTo(byteSource1.size());
-        assertThat(parts.get(0).partETag()).isEqualTo(part1.partETag());
+        assertThat(parts.get(0).size()).isEqualTo(byteSource1.size());
+        assertThat(parts.get(0).eTag()).isEqualTo(part1.eTag());
         assertThat(parts.get(1).partNumber()).isEqualTo(2);
-        assertThat(parts.get(1).partSize()).isEqualTo(byteSource2.size());
-        assertThat(parts.get(1).partETag()).isEqualTo(part2.partETag());
+        assertThat(parts.get(1).size()).isEqualTo(byteSource2.size());
+        assertThat(parts.get(1).eTag()).isEqualTo(part2.eTag());
 
         assertThat(nullBlobStore.listMultipartUpload(mpu)).hasSize(2);
 
-        nullBlobStore.completeMultipartUpload(mpu, parts);
+        nullBlobStore.completeMultipartUpload(mpu,
+                TestUtils.completedParts(parts));
 
         var newBlob = nullBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE);
@@ -219,7 +218,7 @@ public final class NullBlobStoreTest {
                 byteSource1.openStream(), byteSource1.size(), null);
         nullBlobStore.uploadMultipartPart(initiated, 2,
                 byteSource2.openStream(), byteSource2.size(), null);
-        List<MultipartPart> parts = nullBlobStore.listMultipartUpload(
+        var parts = nullBlobStore.listMultipartUpload(
                 initiated);
 
         // Rebuild the MPU the way the handler does: correct blobName, but
@@ -229,7 +228,8 @@ public final class NullBlobStoreTest {
         MultipartUpload mpu = new MultipartUpload(containerName, blobName,
                 initiated.id(), stubMetadata, PutOptions.NONE);
 
-        nullBlobStore.completeMultipartUpload(mpu, parts);
+        nullBlobStore.completeMultipartUpload(mpu,
+                TestUtils.completedParts(parts));
 
         var newBlob = nullBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE);

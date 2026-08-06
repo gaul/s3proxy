@@ -88,7 +88,8 @@ public final class TierBlobStoreTest {
                 content.size(), null);
 
         var parts = tierBlobStore.listMultipartUpload(mpu);
-        tierBlobStore.completeMultipartUpload(mpu, parts);
+        tierBlobStore.completeMultipartUpload(mpu,
+                TestUtils.completedParts(parts));
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
@@ -107,7 +108,8 @@ public final class TierBlobStoreTest {
                 content.size(), null);
 
         var parts = blobStore.listMultipartUpload(mpu);
-        blobStore.completeMultipartUpload(mpu, parts);
+        blobStore.completeMultipartUpload(mpu,
+                TestUtils.completedParts(parts));
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.STANDARD);

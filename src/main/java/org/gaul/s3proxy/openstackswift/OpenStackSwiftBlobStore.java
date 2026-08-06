@@ -53,7 +53,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -83,16 +82,19 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * BlobStore backed by the OpenStack Swift object store via openstack4j.
@@ -1055,7 +1057,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         var segment = Blob.builder(mpuSegmentKey(mpu.id(), partNumber))
@@ -1065,12 +1067,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .build();
         String eTag = putBlob(mpu.containerName(), segment, PutOptions.NONE)
                 .eTag();
-        return new MultipartPart(partNumber, contentLength, eTag,
-                /*lastModified=*/ null);
+        return SdkResponses.uploadedPart(eTag);
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         var swift = objectStorage();
         String prefix = mpuSegmentPrefix(mpu.id());
         String metaKey = mpuMetaKey(mpu.id());
@@ -1081,7 +1082,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         } catch (ResponseException re) {
             throw translate(re, mpu.containerName(), /*key=*/ null);
         }
-        var parts = new ArrayList<MultipartPart>();
+        var parts = new ArrayList<Part>();
         for (var object : objects) {
             String name = object.getName();
             if (name == null || name.equals(metaKey)) {
@@ -1093,16 +1094,17 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             } catch (NumberFormatException nfe) {
                 continue;
             }
-            parts.add(new MultipartPart(partNumber, object.getSizeInBytes(),
-                    object.getETag(), object.getLastModified()));
+            parts.add(SdkResponses.part(partNumber,
+                    object.getSizeInBytes(), object.getETag(),
+                    object.getLastModified()));
         }
-        parts.sort(Comparator.comparingInt(MultipartPart::partNumber));
+        parts.sort(Comparator.comparingInt(Part::partNumber));
         return parts;
     }
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<MultipartPart> parts) {
+            List<CompletedPart> parts) {
         var swift = objectStorage();
         String container = mpu.containerName();
         String uploadId = mpu.id();
@@ -1130,22 +1132,22 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
 
         var sorted = new ArrayList<>(parts);
-        sorted.sort(Comparator.comparingInt(MultipartPart::partNumber));
+        sorted.sort(Comparator.comparingInt(CompletedPart::partNumber));
 
-        // The caller's MultipartPart values may not match the stored
+        // The caller's part values may not match the stored
         // segments: EncryptedBlobStore reports plaintext part sizes while
         // the segments hold padded ciphertext.  Swift validates every
         // manifest entry's etag and size against its segment, so resolve
         // each referenced part number against the stored segments, and
         // reject parts that were never uploaded (or whose upload was
         // aborted) like S3's InvalidPart.
-        var segmentsByPartNumber = new HashMap<Integer, MultipartPart>();
+        var segmentsByPartNumber = new HashMap<Integer, Part>();
         for (var segment : listMultipartUpload(mpu)) {
             segmentsByPartNumber.put(segment.partNumber(), segment);
         }
-        var resolved = new ArrayList<MultipartPart>(sorted.size());
+        var resolved = new ArrayList<Part>(sorted.size());
         for (var part : sorted) {
-            MultipartPart segment = segmentsByPartNumber.get(
+            Part segment = segmentsByPartNumber.get(
                     part.partNumber());
             if (segment == null) {
                 throw S3Exceptions.fromStatusCode(400);
@@ -1165,8 +1167,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             entry.put("path",
                     container + "/" + mpuSegmentKey(uploadId,
                             part.partNumber()));
-            entry.put("etag", part.partETag());
-            entry.put("size_bytes", part.partSize());
+            entry.put("etag", part.eTag());
+            entry.put("size_bytes", part.size());
             manifest.add(entry);
         }
         byte[] manifestJson;
@@ -1234,7 +1236,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
         var swift = objectStorage();
         List<? extends SwiftObject> objects;
         try {
@@ -1243,7 +1246,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
         }
-        var uploads = new ArrayList<MultipartUpload>();
+        var uploads = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
         for (var object : objects) {
             String name = object.getName();
             if (name == null || !name.endsWith(MPU_META_SUFFIX)) {
@@ -1257,11 +1261,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 blobName = marker.getMetadata().userMetadata()
                         .get(MPU_KEY_METADATA);
             }
-            // A marker missing its key metadata yields an empty Key rather
-            // than propagating null through MultipartUpload.blobName.
-            uploads.add(new MultipartUpload(container,
-                    blobName != null ? blobName : "", uploadId,
-                    /*blobMetadata=*/ null, /*putOptions=*/ null));
+            // A marker missing its key metadata yields an empty Key.
+            uploads.add(SdkResponses.upload(
+                    blobName != null ? blobName : "", uploadId));
         }
         return uploads;
     }
@@ -1291,11 +1293,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * can fall back to the manifest ETag.
      */
     @Nullable
-    private static String multipartETag(List<MultipartPart> parts) {
+    private static String multipartETag(List<Part> parts) {
         try {
             var md = MessageDigest.getInstance("MD5");
             for (var part : parts) {
-                String eTag = part.partETag();
+                String eTag = part.eTag();
                 if (eTag == null) {
                     return null;
                 }

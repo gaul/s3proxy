@@ -71,7 +71,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -83,15 +82,19 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
@@ -932,7 +935,7 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<MultipartPart> parts) {
+            List<CompletedPart> parts) {
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 
@@ -1124,7 +1127,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         if (partNumber < 1 || partNumber > 10_000) {
@@ -1166,7 +1169,7 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         String eTag = BaseEncoding.base16().lowerCase().encode(md5Hash);
-        return new MultipartPart(partNumber, contentLength, eTag, null);
+        return SdkResponses.uploadedPart(eTag);
     }
 
     @Override
@@ -1175,7 +1178,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartPart copyMultipartPart(MultipartUpload mpu,
+    public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
             @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
@@ -1228,8 +1231,8 @@ public final class GCloudBlobStore implements BlobStore {
             var result = storage.copy(copyRequest).getResult();
             // Match uploadMultipartPart's hex MD5 part ETag;
             // listMultipartUpload reads the same value back from GCS.
-            return new MultipartPart(partNumber, result.getSize(),
-                    result.getMd5ToHexString(), null);
+            return SdkResponses.copiedPart(result.getMd5ToHexString(),
+                    /*lastModified=*/ null, /*copySourceVersionId=*/ null);
         } catch (StorageException se) {
             throw translate(se, sourceContainer, sourceName);
         }
@@ -1253,7 +1256,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         String uploadKey = mpu.id();
         if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
             throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
@@ -1263,7 +1266,7 @@ public final class GCloudBlobStore implements BlobStore {
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
         String prefix = STUB_BLOB_PREFIX + nonce + "/part_";
 
-        var parts = ImmutableList.<MultipartPart>builder();
+        var parts = ImmutableList.<Part>builder();
         var page = storage.list(mpu.containerName(),
                 BlobListOption.prefix(prefix));
         for (Blob blob : page.iterateAll()) {
@@ -1279,15 +1282,17 @@ public final class GCloudBlobStore implements BlobStore {
             // Report the part's hex MD5 as its ETag (matching
             // uploadMultipartPart) so CompleteMultipartUpload can validate the
             // client-supplied part ETags.
-            parts.add(new MultipartPart(partNumber, blob.getSize(),
+            parts.add(SdkResponses.part(partNumber, blob.getSize(),
                     blob.getMd5ToHexString(), null));
         }
         return parts.build();
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
-        var builder = ImmutableList.<MultipartUpload>builder();
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
+        var builder = ImmutableList.<software.amazon.awssdk.services.s3
+                .model.MultipartUpload>builder();
         var page = storage.list(container,
                 BlobListOption.prefix(STUB_BLOB_PREFIX));
         for (Blob blob : page.iterateAll()) {
@@ -1302,8 +1307,7 @@ public final class GCloudBlobStore implements BlobStore {
                 continue;
             }
             String targetBlobName = metadata.get(TARGET_BLOB_NAME_KEY);
-            builder.add(new MultipartUpload(container, targetBlobName,
-                    name, null, null));
+            builder.add(SdkResponses.upload(targetBlobName, name));
         }
         return builder.build();
     }

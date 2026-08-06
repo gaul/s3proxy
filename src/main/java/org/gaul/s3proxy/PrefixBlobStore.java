@@ -34,7 +34,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -45,12 +44,15 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * Middleware that scopes a virtual bucket to a fixed backend prefix.
@@ -301,13 +303,13 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<MultipartPart> parts) {
+            List<CompletedPart> parts) {
         return super.completeMultipartUpload(
                 toDelegateMultipartUpload(mpu), parts);
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         return super.uploadMultipartPart(
@@ -316,20 +318,23 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         return super.listMultipartUpload(toDelegateMultipartUpload(mpu));
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
-        List<MultipartUpload> uploads =
-                super.listMultipartUploads(container);
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
+        var uploads = super.listMultipartUploads(container);
         if (!hasPrefix(container)) {
             return uploads;
         }
-        var builder = ImmutableList.<MultipartUpload>builder();
-        for (MultipartUpload upload : uploads) {
-            builder.add(toClientMultipartUpload(upload));
+        var builder = ImmutableList.<software.amazon.awssdk.services.s3
+                .model.MultipartUpload>builder();
+        for (var upload : uploads) {
+            builder.add(upload.toBuilder()
+                    .key(trimPrefix(container, upload.key()))
+                    .build());
         }
         return builder.build();
     }

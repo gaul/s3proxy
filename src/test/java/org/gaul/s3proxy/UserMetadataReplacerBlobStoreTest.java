@@ -166,7 +166,7 @@ public final class UserMetadataReplacerBlobStoreTest {
         var part = userMetadataReplacerBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
         userMetadataReplacerBlobStore.completeMultipartUpload(
-                mpu, List.of(part));
+                mpu, List.of(TestUtils.completedPart(1, part)));
 
         // check underlying blobStore
         var userMetadata = blobStore.blobMetadata(containerName, blobName)

@@ -36,7 +36,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -45,11 +44,14 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 final class NullBlobStore extends ForwardingBlobStore {
     private NullBlobStore(BlobStore blobStore) {
@@ -164,10 +166,14 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
-            final List<MultipartPart> parts) {
+            final List<CompletedPart> parts) {
         long length = 0;
-        for (MultipartPart part : parts) {
-            length += part.partSize();
+        var sizeByPart = new java.util.HashMap<Integer, Long>();
+        for (Part listed : listMultipartUpload(mpu)) {
+            sizeByPart.put(listed.partNumber(), listed.size());
+        }
+        for (CompletedPart part : parts) {
+            length += requireNonNull(sizeByPart.get(part.partNumber()));
             super.removeBlob(mpu.containerName(), mpu.id() + "-" +
                     part.partNumber());
         }
@@ -189,15 +195,19 @@ final class NullBlobStore extends ForwardingBlobStore {
                 mpu.containerName(), metadata,
                 putOptions != null ? putOptions : PutOptions.NONE);
 
-        MultipartPart part = super.uploadMultipartPart(mpu2, 1,
+        var part = super.uploadMultipartPart(mpu2, 1,
                 new ByteArrayInputStream(array), array.length, null);
 
-        return super.completeMultipartUpload(mpu2, List.of(part));
+        return super.completeMultipartUpload(mpu2, List.of(
+                CompletedPart.builder()
+                        .partNumber(1)
+                        .eTag(part.eTag())
+                        .build()));
     }
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
-        for (MultipartPart part : super.listMultipartUpload(mpu)) {
+        for (Part part : super.listMultipartUpload(mpu)) {
             super.removeBlob(mpu.containerName(), mpu.id() + "-" +
                     part.partNumber());
         }
@@ -206,7 +216,7 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         long length;
@@ -225,22 +235,19 @@ final class NullBlobStore extends ForwardingBlobStore {
                 .build();
         super.putBlob(mpu.containerName(), blob, PutOptions.NONE);
 
-        MultipartPart part = super.uploadMultipartPart(mpu, partNumber,
+        return super.uploadMultipartPart(mpu, partNumber,
                 new ByteArrayInputStream(array), array.length, null);
-        return new MultipartPart(part.partNumber(), length, part.partETag(),
-                part.lastModified());
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
-        var builder = ImmutableList.<MultipartPart>builder();
-        for (MultipartPart part : super.listMultipartUpload(mpu)) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
+        var builder = ImmutableList.<Part>builder();
+        for (Part part : super.listMultipartUpload(mpu)) {
             // get real blob size from stub blob
             var blob = requireNonNull(getBlob(mpu.containerName(),
                     mpu.id() + "-" + part.partNumber(), GetOptions.NONE));
             long length = requireNonNull(blob.response().contentLength());
-            builder.add(new MultipartPart(part.partNumber(), length,
-                    part.partETag(), part.lastModified()));
+            builder.add(part.toBuilder().size(length).build());
         }
         return builder.build();
     }

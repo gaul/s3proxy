@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Properties;
 
 import com.google.common.collect.ImmutableBiMap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
@@ -34,7 +33,6 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -138,13 +136,11 @@ public final class AliasBlobStoreTest {
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 aliasContainerName, blob.getMetadata(), PutOptions.NONE);
         assertThat(mpu.containerName()).isEqualTo(aliasContainerName);
-        MultipartPart part = aliasBlobStore.uploadMultipartPart(
+        var part = aliasBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
-        assertThat(part.partETag()).isEqualTo(contentHash.toString());
-        var parts = new ImmutableList.Builder<MultipartPart>();
-        parts.add(part);
+        assertThat(part.eTag()).isEqualTo(contentHash.toString());
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
-                parts.build()).eTag();
+                List.of(TestUtils.completedPart(1, part))).eTag();
         @SuppressWarnings("deprecation")
         HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(
@@ -185,21 +181,20 @@ public final class AliasBlobStoreTest {
         Blob blob = Blob.builder(blobName).build();
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 aliasContainerName, blob.getMetadata(), PutOptions.NONE);
-        MultipartPart part = aliasBlobStore.uploadMultipartPart(
+        aliasBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
 
-        List<MultipartPart> parts = aliasBlobStore.listMultipartUpload(mpu);
+        var parts = aliasBlobStore.listMultipartUpload(mpu);
         assertThat(parts).hasSize(1);
         assertThat(parts.get(0).partNumber()).isEqualTo(1);
 
-        List<MultipartUpload> uploads = aliasBlobStore.listMultipartUploads(
+        var uploads = aliasBlobStore.listMultipartUploads(
                 aliasContainerName);
         assertThat(uploads).hasSize(1);
-        assertThat(uploads.get(0).containerName()).isEqualTo(
-                aliasContainerName);
-        assertThat(uploads.get(0).id()).isEqualTo(mpu.id());
+        assertThat(uploads.get(0).uploadId()).isEqualTo(mpu.id());
 
-        aliasBlobStore.completeMultipartUpload(mpu, ImmutableList.of(part));
+        aliasBlobStore.completeMultipartUpload(mpu,
+                TestUtils.completedParts(parts));
     }
 
     @Test

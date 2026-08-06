@@ -46,7 +46,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -61,13 +60,16 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class EncryptedBlobStore extends ForwardingBlobStore {
@@ -522,16 +524,17 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
-        List<MultipartUpload> filtered = new ArrayList<>();
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
+        var filtered = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
         // filter the list uploads by removing the .s3enc suffix
-        for (MultipartUpload mpu :
-                delegate().listMultipartUploads(container)) {
-            String blobName = mpu.blobName();
+        for (var mpu : delegate().listMultipartUploads(container)) {
+            String blobName = mpu.key();
             if (isEncrypted(blobName)) {
-                filtered.add(new MultipartUpload(mpu.containerName(),
-                    removeEncryptedSuffix(blobName), mpu.id(),
-                    mpu.blobMetadata(), mpu.putOptions()));
+                filtered.add(mpu.toBuilder()
+                        .key(removeEncryptedSuffix(blobName))
+                        .build());
             } else {
                 filtered.add(mpu);
             }
@@ -540,18 +543,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         mpu = filterMultipartUpload(mpu);
-        List<MultipartPart> parts = delegate().listMultipartUpload(mpu);
-        List<MultipartPart> filteredParts = new ArrayList<>();
+        List<Part> parts = delegate().listMultipartUpload(mpu);
+        List<Part> filteredParts = new ArrayList<>();
 
         // fix wrong multipart size due to the part padding
-        for (MultipartPart part : parts) {
-            MultipartPart newPart = new MultipartPart(
+        for (Part part : parts) {
+            Part newPart = SdkResponses.part(
                 part.partNumber(),
-                part.partSize() - Constants.PADDING_BLOCK_SIZE,
-                part.partETag(),
-                part.lastModified()
+                part.size() - Constants.PADDING_BLOCK_SIZE,
+                part.eTag(),
+                part.lastModified() == null ? null :
+                        java.util.Date.from(part.lastModified())
             );
             filteredParts.add(newPart);
         }
@@ -559,7 +563,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
         int partNumber, InputStream is, long contentLength,
         @Nullable HashCode contentMD5) {
 
@@ -593,8 +597,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-        List<MultipartPart> parts) {
+    public CompleteMultipartUploadResponse completeMultipartUpload(
+        MultipartUpload mpu, List<CompletedPart> parts) {
 
         return delegate().completeMultipartUpload(filterMultipartUpload(mpu),
             parts);

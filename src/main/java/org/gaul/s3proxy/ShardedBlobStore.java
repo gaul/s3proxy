@@ -51,7 +51,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -63,14 +62,17 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * This class implements the ability to split objects destined for specified
@@ -552,8 +554,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-                                          List<MultipartPart> parts) {
+    public CompleteMultipartUploadResponse completeMultipartUpload(
+            MultipartUpload mpu, List<CompletedPart> parts) {
         if (!this.buckets.containsKey(mpu.containerName())) {
             return this.delegate().completeMultipartUpload(mpu, parts);
         }
@@ -561,7 +563,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         if (!this.buckets.containsKey(mpu.containerName())) {
@@ -573,7 +575,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         if (!this.buckets.containsKey(mpu.containerName())) {
             return this.delegate().listMultipartUpload(mpu);
         }
@@ -581,7 +583,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
         if (!this.buckets.containsKey(container)) {
             return this.delegate().listMultipartUploads(container);
         }

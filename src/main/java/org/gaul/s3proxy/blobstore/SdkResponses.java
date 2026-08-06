@@ -29,13 +29,18 @@ import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
+import software.amazon.awssdk.services.s3.model.CopyPartResult;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.ObjectStorageClass;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * Factories for the SDK responses backends fabricate when their service
@@ -100,6 +105,47 @@ public final class SdkResponses {
                 .metadata(response.metadata())
                 .storageClass(response.storageClassAsString())
                 .versionId(response.versionId())
+                .build();
+    }
+
+    /** A listed part, converting the legacy Date form. */
+    public static Part part(int partNumber, @Nullable Long size,
+            @Nullable String eTag, @Nullable Date lastModified) {
+        return Part.builder()
+                .partNumber(partNumber)
+                .size(size)
+                .eTag(eTag)
+                .lastModified(lastModified == null ? null :
+                        lastModified.toInstant())
+                .build();
+    }
+
+    /** A response carrying only the uploaded part's ETag. */
+    public static UploadPartResponse uploadedPart(@Nullable String eTag) {
+        return UploadPartResponse.builder()
+                .eTag(eTag)
+                .build();
+    }
+
+    /** A server-side part copy's result. */
+    public static UploadPartCopyResponse copiedPart(@Nullable String eTag,
+            @Nullable Date lastModified,
+            @Nullable String copySourceVersionId) {
+        return UploadPartCopyResponse.builder()
+                .copyPartResult(CopyPartResult.builder()
+                        .eTag(eTag)
+                        .lastModified(lastModified == null ? null :
+                                lastModified.toInstant())
+                        .build())
+                .copySourceVersionId(copySourceVersionId)
+                .build();
+    }
+
+    /** A listed in-progress multipart upload. */
+    public static MultipartUpload upload(String key, String uploadId) {
+        return MultipartUpload.builder()
+                .key(key)
+                .uploadId(uploadId)
                 .build();
     }
 

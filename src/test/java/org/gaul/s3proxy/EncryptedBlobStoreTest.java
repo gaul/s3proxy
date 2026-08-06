@@ -40,7 +40,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -130,7 +129,8 @@ public final class EncryptedBlobStoreTest {
         }
 
         encryptedBlobStore.completeMultipartUpload(mpu,
-            encryptedBlobStore.listMultipartUpload(mpu));
+            TestUtils.completedParts(
+                encryptedBlobStore.listMultipartUpload(mpu)));
         return blobName;
     }
 
@@ -375,16 +375,17 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.uploadMultipartPart(mpu, 3,
             new ByteArrayInputStream(bytes3), bytes3.length, null);
 
-        List<MultipartPart> parts = encryptedBlobStore.listMultipartUpload(mpu);
+        var parts = encryptedBlobStore.listMultipartUpload(mpu);
 
         int index = 0;
-        for (MultipartPart part : parts) {
+        for (var part : parts) {
             assertThat((long) contentParts[index].length()).isEqualTo(
-                part.partSize());
+                part.size());
             index++;
         }
 
-        encryptedBlobStore.completeMultipartUpload(mpu, parts);
+        encryptedBlobStore.completeMultipartUpload(mpu,
+            TestUtils.completedParts(parts));
 
         var blobs = encryptedBlobStore.list(containerName,
                 ListContainerOptions.NONE);
@@ -411,10 +412,10 @@ public final class EncryptedBlobStoreTest {
 
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
             containerName, blobMetadata, PutOptions.NONE);
-        List<MultipartPart> parts = new ArrayList<>();
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-        parts.add(encryptedBlobStore.uploadMultipartPart(mpu, 1,
-            new ByteArrayInputStream(bytes), bytes.length, null));
+        var uploaded = encryptedBlobStore.uploadMultipartPart(mpu, 1,
+            new ByteArrayInputStream(bytes), bytes.length, null);
+        var parts = List.of(TestUtils.completedPart(1, uploaded));
 
         encryptedBlobStore.abortMultipartUpload(mpu);
 
@@ -676,14 +677,15 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.uploadMultipartPart(mpu, 3,
             new ByteArrayInputStream(bytes3), bytes3.length, null);
 
-        List<MultipartUpload> mpus =
+        var mpus =
             encryptedBlobStore.listMultipartUploads(containerName);
         assertThat(mpus.size()).isEqualTo(1);
 
-        List<MultipartPart> parts = encryptedBlobStore.listMultipartUpload(mpu);
-        assertThat(mpus.get(0).id()).isEqualTo(mpu.id());
+        var parts = encryptedBlobStore.listMultipartUpload(mpu);
+        assertThat(mpus.get(0).uploadId()).isEqualTo(mpu.id());
 
-        encryptedBlobStore.completeMultipartUpload(mpu, parts);
+        encryptedBlobStore.completeMultipartUpload(mpu,
+            TestUtils.completedParts(parts));
         var blob = encryptedBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE);
 

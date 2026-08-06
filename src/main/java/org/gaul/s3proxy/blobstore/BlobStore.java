@@ -27,7 +27,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -40,6 +39,7 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -48,8 +48,11 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /** Synchronous access to a BlobStore such as Amazon S3. */
 public interface BlobStore extends AutoCloseable {
@@ -198,8 +201,8 @@ public interface BlobStore extends AutoCloseable {
 
     void abortMultipartUpload(MultipartUpload mpu);
 
-    CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<MultipartPart> parts);
+    CompleteMultipartUploadResponse completeMultipartUpload(
+            MultipartUpload mpu, List<CompletedPart> parts);
 
     /**
      * Uploads a part of a multipart upload, consuming and closing
@@ -208,8 +211,9 @@ public interface BlobStore extends AutoCloseable {
      * @param contentMD5 MD5 of the part content, used for integrity
      *        validation where the backend supports it
      */
-    MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber,
-            InputStream is, long contentLength, @Nullable HashCode contentMD5);
+    UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
+            int partNumber, InputStream is, long contentLength,
+            @Nullable HashCode contentMD5);
 
     /**
      * Whether {@link #copyMultipartPart} copies server-side on the backend.
@@ -235,7 +239,7 @@ public interface BlobStore extends AutoCloseable {
      *        backend enforces its own validation and the copy-source
      *        conditions
      */
-    default MultipartPart copyMultipartPart(MultipartUpload mpu,
+    default UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
             @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
@@ -245,9 +249,10 @@ public interface BlobStore extends AutoCloseable {
                 "backend does not support server-side part copies");
     }
 
-    List<MultipartPart> listMultipartUpload(MultipartUpload mpu);
+    List<Part> listMultipartUpload(MultipartUpload mpu);
 
-    List<MultipartUpload> listMultipartUploads(String container);
+    List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container);
 
     long getMinimumMultipartPartSize();
 }

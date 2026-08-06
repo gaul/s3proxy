@@ -44,6 +44,31 @@ final class TestUtils {
         throw new AssertionError("intentionally unimplemented");
     }
 
+    /** The complete-request view of listed or uploaded parts. */
+    static java.util.List<software.amazon.awssdk.services.s3.model
+            .CompletedPart> completedParts(
+            java.util.List<software.amazon.awssdk.services.s3.model
+                    .Part> parts) {
+        return parts.stream()
+                .map(part -> software.amazon.awssdk.services.s3.model
+                        .CompletedPart.builder()
+                        .partNumber(part.partNumber())
+                        .eTag(part.eTag())
+                        .build())
+                .toList();
+    }
+
+    static software.amazon.awssdk.services.s3.model.CompletedPart
+            completedPart(int partNumber,
+            software.amazon.awssdk.services.s3.model
+                    .UploadPartResponse part) {
+        return software.amazon.awssdk.services.s3.model.CompletedPart
+                .builder()
+                .partNumber(partNumber)
+                .eTag(part.eTag())
+                .build();
+    }
+
     static ByteSource randomByteSource() {
         return randomByteSource(0);
     }

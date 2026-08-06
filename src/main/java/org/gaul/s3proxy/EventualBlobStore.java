@@ -36,7 +36,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -48,8 +47,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * This class is a BlobStore wrapper which emulates eventual consistency
@@ -209,7 +210,7 @@ final class EventualBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
-            final List<MultipartPart> parts) {
+            final List<CompletedPart> parts) {
         schedule(new Callable<CompleteMultipartUploadResponse>() {
                 @Override
                 public CompleteMultipartUploadResponse call() {
@@ -220,12 +221,11 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
-        MultipartPart part = delegate().uploadMultipartPart(mpu, partNumber,
+        return delegate().uploadMultipartPart(mpu, partNumber,
                 is, contentLength, contentMD5);
-        return part;
     }
 
     @SuppressWarnings("FutureReturnValueIgnored")

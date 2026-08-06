@@ -38,7 +38,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -105,7 +104,9 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import software.amazon.awssdk.services.s3.model.VersioningConfiguration;
 
 public final class AwsS3SdkBlobStore implements BlobStore {
@@ -827,15 +828,9 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<MultipartPart> parts) {
-        var sortedParts = sortAndValidateParts(parts);
-        var completedParts = sortedParts.stream()
-                .map(part -> CompletedPart.builder()
-                        .partNumber(part.partNumber())
-                        .eTag(part.partETag())
-                        .build())
-                .toList();
+    public CompleteMultipartUploadResponse completeMultipartUpload(
+            MultipartUpload mpu, List<CompletedPart> parts) {
+        var completedParts = sortAndValidateParts(parts);
 
         var requestBuilder = CompleteMultipartUploadRequest.builder()
                 .bucket(mpu.containerName())
@@ -862,20 +857,17 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         try (is) {
-            var response = s3Client.uploadPart(UploadPartRequest.builder()
+            return s3Client.uploadPart(UploadPartRequest.builder()
                     .bucket(mpu.containerName())
                     .key(mpu.blobName())
                     .uploadId(mpu.id())
                     .partNumber(partNumber)
                     .build(),
                     RequestBody.fromInputStream(is, contentLength));
-
-            return new MultipartPart(partNumber, contentLength,
-                    response.eTag(), null);
         } catch (IOException e) {
             throw new RuntimeException("Failed to upload part", e);
         } catch (S3Exception e) {
@@ -889,7 +881,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartPart copyMultipartPart(MultipartUpload mpu,
+    public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
             int partNumber, String sourceContainer, String sourceName,
             @Nullable String sourceVersionId,
             @Nullable String copySourceRange, @Nullable String ifMatch,
@@ -921,20 +913,16 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             builder.copySourceIfUnmodifiedSince(ifUnmodifiedSince.toInstant());
         }
         try {
-            var response = s3Client.uploadPartCopy(builder.build());
-            var result = response.copyPartResult();
-            return new MultipartPart(partNumber, /*partSize=*/ -1,
-                    result.eTag(), Date.from(result.lastModified()),
-                    response.copySourceVersionId());
+            return s3Client.uploadPartCopy(builder.build());
         } catch (S3Exception e) {
             throw propagate(e, sourceContainer, sourceName);
         }
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         try {
-            var parts = ImmutableList.<MultipartPart>builder();
+            var parts = ImmutableList.<Part>builder();
             Integer partNumberMarker = null;
 
             do {
@@ -945,12 +933,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                         .partNumberMarker(partNumberMarker)
                         .build());
 
-                for (Part part : response.parts()) {
-                    parts.add(new MultipartPart(part.partNumber(),
-                            part.size(),
-                            part.eTag(),
-                            toDate(part.lastModified())));
-                }
+                parts.addAll(response.parts());
 
                 partNumberMarker = response.isTruncated() ?
                         response.nextPartNumberMarker() : null;
@@ -966,9 +949,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
         try {
-            var builder = ImmutableList.<MultipartUpload>builder();
+            var builder = ImmutableList.<software.amazon.awssdk.services.s3
+                    .model.MultipartUpload>builder();
             String keyMarker = null;
             String uploadIdMarker = null;
 
@@ -980,12 +965,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                                 .uploadIdMarker(uploadIdMarker)
                                 .build());
 
-                for (var upload : response.uploads()) {
-                    builder.add(new MultipartUpload(container,
-                            upload.key(),
-                            upload.uploadId(),
-                            null, null));
-                }
+                builder.addAll(response.uploads());
 
                 if (response.isTruncated()) {
                     keyMarker = response.nextKeyMarker();
@@ -1007,17 +987,17 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         return 5L * 1024 * 1024;
     }
 
-    private static List<MultipartPart> sortAndValidateParts(
-            List<MultipartPart> parts) {
+    private static List<CompletedPart> sortAndValidateParts(
+            List<CompletedPart> parts) {
         if (parts == null || parts.isEmpty()) {
             throw new IllegalArgumentException(
                     "At least one multipart part is required");
         }
         var sortedParts = parts.stream()
-                .sorted(Comparator.comparingInt(MultipartPart::partNumber))
+                .sorted(Comparator.comparingInt(CompletedPart::partNumber))
                 .toList();
         int previousPartNumber = 0;
-        for (MultipartPart part : sortedParts) {
+        for (CompletedPart part : sortedParts) {
             int partNumber = part.partNumber();
             if (partNumber <= 0) {
                 throw new IllegalArgumentException(

@@ -27,7 +27,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -37,9 +36,11 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /** This class is a BlobStore wrapper which prevents mutating operations. */
 final class ReadOnlyBlobStore extends ForwardingBlobStore {
@@ -133,12 +134,12 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
-            final List<MultipartPart> parts) {
+            final List<CompletedPart> parts) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         throw new UnsupportedOperationException("read-only BlobStore");

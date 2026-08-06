@@ -37,7 +37,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -48,12 +47,15 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class LatencyBlobStore extends ForwardingBlobStore {
     private static final Pattern PROPERTIES_LATENCY_RE = Pattern.compile(
@@ -258,25 +260,26 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, List<CompletedPart> parts) {
         simulateLatency(OP_MULTIPART_MESSAGE);
         return super.completeMultipartUpload(mpu, parts);
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
         simulateLatency(OP_UPLOAD_PART);
         return super.uploadMultipartPart(mpu, partNumber, new ThrottledInputStream(is, getSpeed(OP_UPLOAD_PART)), contentLength, contentMD5);
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         simulateLatency(OP_LIST_MULTIPART);
         return super.listMultipartUpload(mpu);
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
         simulateLatency(OP_LIST_MULTIPART);
         return super.listMultipartUploads(container);
     }

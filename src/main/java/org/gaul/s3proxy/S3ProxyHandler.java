@@ -101,7 +101,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -120,6 +119,7 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -131,9 +131,12 @@ import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationFeature;
@@ -1998,30 +2001,33 @@ public class S3ProxyHandler {
         String encodingType = request.getParameter("encoding-type");
         String prefix = request.getParameter("prefix");
 
-        List<MultipartUpload> uploads = blobStore.listMultipartUploads(
+        var uploads = blobStore.listMultipartUploads(
                 container);
 
-        List<MultipartUpload> filtered = uploads.stream()
-                .filter(u -> prefix == null || u.blobName().startsWith(prefix))
+        var filtered = uploads.stream()
+                .filter(u -> prefix == null || u.key().startsWith(prefix))
                 .filter(u -> {
                     if (keyMarker == null) {
                         return true;
                     }
-                    int cmp = u.blobName().compareTo(keyMarker);
+                    int cmp = u.key().compareTo(keyMarker);
                     if (cmp > 0) {
                         return true;
                     }
                     if (cmp == 0 && uploadIdMarker != null) {
-                        return u.id().compareTo(uploadIdMarker) > 0;
+                        return u.uploadId().compareTo(uploadIdMarker) > 0;
                     }
                     return false;
                 })
-                .sorted(Comparator.comparing(MultipartUpload::blobName)
-                        .thenComparing(MultipartUpload::id))
+                .sorted(Comparator.comparing(
+                        software.amazon.awssdk.services.s3.model
+                                .MultipartUpload::key)
+                        .thenComparing(software.amazon.awssdk.services.s3
+                                .model.MultipartUpload::uploadId))
                 .collect(Collectors.toList());
 
         boolean isTruncated = filtered.size() > maxUploads;
-        List<MultipartUpload> page = isTruncated ?
+        var page = isTruncated ?
                 filtered.subList(0, maxUploads) :
                 filtered;
 
@@ -2049,10 +2055,11 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "UploadIdMarker", uploadIdMarker);
             }
             if (isTruncated && !page.isEmpty()) {
-                MultipartUpload last = page.get(page.size() - 1);
+                var last = page.get(page.size() - 1);
                 writeSimpleElement(xml, "NextKeyMarker", encodeBlob(
-                        encodingType, last.blobName()));
-                writeSimpleElement(xml, "NextUploadIdMarker", last.id());
+                        encodingType, last.key()));
+                writeSimpleElement(xml, "NextUploadIdMarker",
+                        last.uploadId());
             } else {
                 xml.writeEmptyElement("NextKeyMarker");
                 xml.writeEmptyElement("NextUploadIdMarker");
@@ -2079,12 +2086,12 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "EncodingType", encodingType);
             }
 
-            for (MultipartUpload upload : page) {
+            for (var upload : page) {
                 xml.writeStartElement("Upload");
 
                 writeSimpleElement(xml, "Key", encodeBlob(
-                        encodingType, upload.blobName()));
-                writeSimpleElement(xml, "UploadId", upload.id());
+                        encodingType, upload.key()));
+                writeSimpleElement(xml, "UploadId", upload.uploadId());
                 writeInitiatorStanza(xml);
                 writeOwnerStanza(xml);
                 // TODO: bogus value
@@ -4159,11 +4166,12 @@ public class S3ProxyHandler {
         final MultipartUpload mpu = new MultipartUpload(containerName,
                 blobName, uploadId, metadata, options);
 
-        final List<MultipartPart> parts = new ArrayList<>();
+        final List<CompletedPart> parts = new ArrayList<>();
+        var listedPartSizes = new HashMap<Integer, Long>();
         String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob") ||
                 blobStoreType.equals("google-cloud-storage")) {
-            Map<Integer, MultipartPart> partsByListing;
+            Map<Integer, Part> partsByListing;
             try {
                 partsByListing =
                     blobStore.listMultipartUpload(mpu).stream().collect(
@@ -4200,7 +4208,7 @@ public class S3ProxyHandler {
                 }
                 for (CompleteMultipartUploadRequest.Part part :
                         requestParts.values()) {
-                    MultipartPart uploadedPart = partsByListing.get(
+                    Part uploadedPart = partsByListing.get(
                             part.partNumber());
                     if (uploadedPart == null) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_PART);
@@ -4208,13 +4216,18 @@ public class S3ProxyHandler {
                     // Validate the client-supplied ETag against the uploaded
                     // part when the backend reports one (azureblob returns
                     // an empty ETag and is left unvalidated).
-                    String uploadedETag = uploadedPart.partETag();
+                    String uploadedETag = uploadedPart.eTag();
                     if (uploadedETag != null && !uploadedETag.isEmpty() &&
                             !equalsIgnoringSurroundingQuotes(
                                     uploadedETag, part.eTag())) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                     }
-                    parts.add(uploadedPart);
+                    listedPartSizes.put(uploadedPart.partNumber(),
+                            uploadedPart.size());
+                    parts.add(CompletedPart.builder()
+                            .partNumber(uploadedPart.partNumber())
+                            .eTag(uploadedPart.eTag())
+                            .build());
                 }
             }
         } else {
@@ -4244,23 +4257,26 @@ public class S3ProxyHandler {
 
             for (var it = requestParts.entrySet().iterator(); it.hasNext();) {
                 var entry = it.next();
-                MultipartPart part = partsByListing.get(entry.getKey());
+                Part part = partsByListing.get(entry.getKey());
                 if (part == null) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                 }
-                long partSize = part.partSize();
-                if (it.hasNext() && partSize != -1 &&
+                Long partSize = part.size();
+                if (it.hasNext() && partSize != null && partSize != -1 &&
                         (partSize < 5 * 1024 * 1024 || partSize <
                                 blobStore.getMinimumMultipartPartSize())) {
                     throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_SMALL);
                 }
-                if (part.partETag() != null &&
-                        !equalsIgnoringSurroundingQuotes(part.partETag(),
+                if (part.eTag() != null &&
+                        !equalsIgnoringSurroundingQuotes(part.eTag(),
                                 entry.getValue())) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                 }
-                parts.add(new MultipartPart(entry.getKey(),
-                        partSize, part.partETag(), part.lastModified()));
+                listedPartSizes.put(entry.getKey(), partSize);
+                parts.add(CompletedPart.builder()
+                        .partNumber(entry.getKey())
+                        .eTag(part.eTag())
+                        .build());
             }
         }
 
@@ -4321,12 +4337,8 @@ public class S3ProxyHandler {
                     hashMultipartPartContents(blobStore, containerName,
                             blobName, uploadId, mpuAlgorithm, cmu) :
                     null;
-            var partSizes = new HashMap<Integer, Long>();
-            for (MultipartPart part : parts) {
-                partSizes.put(part.partNumber(), part.partSize());
-            }
             mpuChecksum = computeMpuChecksum(request, cmu, mpuAlgorithm,
-                    partChecksums, partSizes,
+                    partChecksums, listedPartSizes,
                     fullObjectUpload(metadata, request, mpuAlgorithm));
         }
 
@@ -5070,7 +5082,7 @@ public class S3ProxyHandler {
                 blobName, uploadId, createFakeBlobMetadata(),
                 PutOptions.NONE);
 
-        List<MultipartPart> parts = blobStore.listMultipartUpload(mpu);
+        List<Part> parts = blobStore.listMultipartUpload(mpu);
 
         String encodingType = request.getParameter("encoding-type");
 
@@ -5107,25 +5119,24 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "MaxParts", "1000");
             writeSimpleElement(xml, "IsTruncated", "false");
 
-            for (MultipartPart part : parts) {
+            for (Part part : parts) {
                 xml.writeStartElement("Part");
 
                 writeSimpleElement(xml, "PartNumber", String.valueOf(
                         part.partNumber()));
 
-                Date lastModified = part.lastModified();
-                if (lastModified != null) {
+                if (part.lastModified() != null) {
                     writeSimpleElement(xml, "LastModified",
-                            formatDate(lastModified));
+                            formatDate(Date.from(part.lastModified())));
                 }
 
-                String eTag = part.partETag();
+                String eTag = part.eTag();
                 if (eTag != null) {
                     writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
                 writeSimpleElement(xml, "Size", String.valueOf(
-                        part.partSize()));
+                        part.size()));
 
                 xml.writeEndElement();
             }
@@ -5254,7 +5265,7 @@ public class S3ProxyHandler {
                     AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
             long nativeIfUnmodifiedSince = request.getDateHeader(
                     AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
-            MultipartPart part;
+            UploadPartCopyResponse part;
             try {
                 part = blobStore.copyMultipartPart(mpu, partNumber,
                         sourceContainerName, sourceBlobName, sourceVersionId,
@@ -5338,18 +5349,18 @@ public class S3ProxyHandler {
         long contentLength = requireNonNull(blobMetadata.contentLength());
 
         try (InputStream is = blob) {
-            MultipartPart part = blobStore.uploadMultipartPart(mpu,
+            UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
                     partNumber, is, contentLength, null);
-            eTag = part.partETag();
+            eTag = part.eTag();
         }
 
         writeCopyPartResponse(request, response,
-                new MultipartPart(partNumber, contentLength, eTag,
-                        lastModified, blobMetadata.versionId()));
+                SdkResponses.copiedPart(eTag, lastModified,
+                        blobMetadata.versionId()));
     }
 
     private void writeCopyPartResponse(HttpServletRequest request,
-            HttpServletResponse response, MultipartPart part)
+            HttpServletResponse response, UploadPartCopyResponse part)
             throws IOException {
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -5366,12 +5377,12 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            Date lastModified = part.lastModified();
-            if (lastModified != null) {
+            var result = part.copyPartResult();
+            if (result != null && result.lastModified() != null) {
                 writeSimpleElement(xml, "LastModified",
-                        formatDate(lastModified));
+                        formatDate(Date.from(result.lastModified())));
             }
-            String eTag = part.partETag();
+            String eTag = result == null ? null : result.eTag();
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
@@ -5480,12 +5491,12 @@ public class S3ProxyHandler {
         MultipartUpload mpu = new MultipartUpload(containerName,
                 blobName, uploadId, blobMetadata, PutOptions.NONE);
 
-        MultipartPart part = blobStore.uploadMultipartPart(mpu, partNumber,
-                is, contentLength, contentMD5);
+        UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
+                partNumber, is, contentLength, contentMD5);
 
-        if (part.partETag() != null) {
+        if (part.eTag() != null) {
             response.addHeader(HttpHeaders.ETAG,
-                    maybeQuoteETag(part.partETag()));
+                    maybeQuoteETag(part.eTag()));
         }
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);

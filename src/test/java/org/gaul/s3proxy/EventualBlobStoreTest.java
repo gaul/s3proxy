@@ -32,7 +32,6 @@ import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -154,10 +153,11 @@ public final class EventualBlobStoreTest {
         Blob blob = makeBlob(blobName);
         MultipartUpload mpu = eventualBlobStore.initiateMultipartUpload(
                 containerName, blob.getMetadata(), PutOptions.NONE);
-        MultipartPart part = eventualBlobStore.uploadMultipartPart(mpu,
+        var part = eventualBlobStore.uploadMultipartPart(mpu,
                 /*partNumber=*/ 1, BYTE_SOURCE.openStream(),
                 BYTE_SOURCE.size(), null);
-        eventualBlobStore.completeMultipartUpload(mpu, List.of(part));
+        eventualBlobStore.completeMultipartUpload(mpu,
+                List.of(TestUtils.completedPart(1, part)));
         assertThat(eventualBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE))
                 .isNull();

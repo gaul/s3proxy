@@ -68,7 +68,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -83,15 +82,18 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
@@ -1243,7 +1245,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+    public final CompleteMultipartUploadResponse completeMultipartUpload(
+            MultipartUpload mpu, List<CompletedPart> parts) {
         var partNames = ImmutableList.<String>builder();
         long contentLength = 0;
         var md5Hasher = md5.newHasher();
@@ -1351,7 +1354,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
+    public final UploadPartResponse uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
         var partName = multipartPartName(mpu.id(), mpu.blobName(), partNumber);
         var blob = Blob.builder(partName)
                 .payload(is)
@@ -1362,14 +1365,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 /*parts=*/ null);
         var metadata = requireNonNull(
                 blobMetadata(mpu.containerName(), partName));
-        return new MultipartPart(partNumber, contentLength, partETag,
-                metadata.lastModified() == null ? null :
-                        Date.from(metadata.lastModified()));
+        return SdkResponses.uploadedPart(partETag);
     }
 
     @Override
-    public final List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
-        var parts = ImmutableList.<MultipartPart>builder();
+    public final List<Part> listMultipartUpload(MultipartUpload mpu) {
+        var parts = ImmutableList.<Part>builder();
         var partPrefix = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-";
         var options = ListContainerOptions.builder()
                 .prefix(partPrefix).build();
@@ -1387,8 +1388,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     continue;
                 }
                 long partSize = requireNonNull(sm.size());
-                parts.add(new MultipartPart(partNumber, partSize, sm.eTag(),
-                        Date.from(sm.lastModified())));
+                parts.add(SdkResponses.part(partNumber, partSize,
+                        sm.eTag(), Date.from(sm.lastModified())));
             }
             if (pageSet.contents().isEmpty() ||
                     pageSet.nextContinuationToken() == null) {
@@ -1401,8 +1402,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final List<MultipartUpload> listMultipartUploads(String container) {
-        var mpus = ImmutableList.<MultipartUpload>builder();
+    public final List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
+        var mpus = ImmutableList.<software.amazon.awssdk.services.s3
+                .model.MultipartUpload>builder();
         var options = ListContainerOptions.builder()
                 .prefix(MULTIPART_PREFIX).build();
         while (true) {
@@ -1416,7 +1419,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 int index = blobName.lastIndexOf('-');
                 blobName = blobName.substring(0, index);
 
-                mpus.add(new MultipartUpload(container, blobName, uploadId, null, null));
+                mpus.add(SdkResponses.upload(blobName, uploadId));
             }
             if (pageSet.contents().isEmpty() ||
                     pageSet.nextContinuationToken() == null) {

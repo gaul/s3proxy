@@ -36,7 +36,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -48,12 +47,15 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * This class implements a middleware to alias buckets to a different name.
@@ -249,13 +251,13 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
-                                          final List<MultipartPart> parts) {
+    public CompleteMultipartUploadResponse completeMultipartUpload(
+            final MultipartUpload mpu, final List<CompletedPart> parts) {
         return delegate().completeMultipartUpload(getDelegateMpu(mpu), parts);
     }
 
     @Override
-    public MultipartPart uploadMultipartPart(MultipartUpload mpu,
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength,
             @Nullable HashCode contentMD5) {
         return delegate().uploadMultipartPart(getDelegateMpu(mpu), partNumber,
@@ -263,19 +265,16 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
+    public List<Part> listMultipartUpload(MultipartUpload mpu) {
         return delegate().listMultipartUpload(getDelegateMpu(mpu));
     }
 
     @Override
-    public List<MultipartUpload> listMultipartUploads(String container) {
-        List<MultipartUpload> uploads =
-                delegate().listMultipartUploads(getContainer(container));
-        var builder = new ImmutableList.Builder<MultipartUpload>();
-        for (MultipartUpload mpu : uploads) {
-            builder.add(getClientMpu(mpu));
-        }
-        return builder.build();
+    public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            listMultipartUploads(String container) {
+        // The listing names only keys and upload ids; the container alias
+        // applies to the request, not the entries.
+        return delegate().listMultipartUploads(getContainer(container));
     }
     // Disable versioning: the alias mapping does not extend to the
     // versioned operations.

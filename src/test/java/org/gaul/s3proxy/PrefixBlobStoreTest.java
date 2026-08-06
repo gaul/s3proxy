@@ -29,7 +29,6 @@ import com.google.common.io.ByteSource;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -133,9 +132,10 @@ public final class PrefixBlobStoreTest {
         assertThat(mpu.containerName()).isEqualTo(containerName);
         assertThat(mpu.blobName()).isEqualTo("archive.bin");
 
-        MultipartPart part = prefixBlobStore.uploadMultipartPart(
+        var part = prefixBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
-        prefixBlobStore.completeMultipartUpload(mpu, List.of(part));
+        prefixBlobStore.completeMultipartUpload(mpu,
+                List.of(TestUtils.completedPart(1, part)));
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "archive.bin")).isTrue();
@@ -148,10 +148,10 @@ public final class PrefixBlobStoreTest {
                 containerName, blob.getMetadata(), PutOptions.NONE);
 
         try {
-            List<MultipartUpload> uploads =
+            var uploads =
                     prefixBlobStore.listMultipartUploads(containerName);
             assertThat(uploads).hasSize(1);
-            assertThat(uploads.get(0).blobName()).isEqualTo("pending.bin");
+            assertThat(uploads.get(0).key()).isEqualTo("pending.bin");
         } finally {
             prefixBlobStore.abortMultipartUpload(mpu);
         }
