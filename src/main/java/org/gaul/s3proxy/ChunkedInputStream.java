@@ -43,9 +43,16 @@ final class ChunkedInputStream extends FilterInputStream {
     private static final int MAX_LINE_LENGTH = 4096;
     private static final String EMPTY_SHA256 =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    /** Grow-only scratch holding the current chunk's first currentLength
+     * bytes; clients send uniform chunk sizes, so reuse avoids an
+     * allocation per chunk. */
     private byte[] chunk = new byte[0];
     private int currentIndex;
     private int currentLength;
+    /** Created on the first chunk and reused; digest() and doFinal() reset
+     * them. */
+    @Nullable private MessageDigest sha256;
+    @Nullable private Mac mac;
     @Nullable private String currentSignature;
     private final int maxChunkSize;
     @Nullable private final SdkChecksum checksum;
@@ -164,14 +171,16 @@ final class ChunkedInputStream extends FilterInputStream {
             } else {
                 currentSignature = null;
             }
-            chunk = new byte[currentLength];
+            if (chunk.length < currentLength) {
+                chunk = new byte[currentLength];
+            }
             currentIndex = 0;
-            ByteStreams.readFully(in, chunk);
+            ByteStreams.readFully(in, chunk, 0, currentLength);
             if (checksum != null) {
-                checksum.update(chunk);
+                checksum.update(chunk, 0, currentLength);
             }
             if (signingKey != null) {
-                verifyChunkSignature(chunk, currentSignature);
+                verifyChunkSignature(chunk, currentLength, currentSignature);
             }
             if (currentLength == 0) {
                 // AWS aws-chunked sends trailing-headers AFTER the zero-
@@ -219,16 +228,19 @@ final class ChunkedInputStream extends FilterInputStream {
         return total;
     }
 
-    private void verifyChunkSignature(byte[] data, @Nullable String signature)
-            throws IOException {
+    private void verifyChunkSignature(byte[] data, int len,
+            @Nullable String signature) throws IOException {
         if (signature == null) {
             throw new IOException(new S3ProxyException(
                     S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
         }
         String chunkHash;
         try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            chunkHash = HexFormat.of().formatHex(md.digest(data));
+            if (sha256 == null) {
+                sha256 = MessageDigest.getInstance("SHA-256");
+            }
+            sha256.update(data, 0, len);
+            chunkHash = HexFormat.of().formatHex(sha256.digest());
         } catch (NoSuchAlgorithmException e) {
             throw new IOException(e);
         }
@@ -240,8 +252,11 @@ final class ChunkedInputStream extends FilterInputStream {
                 chunkHash;
         String expected;
         try {
-            Mac mac = Mac.getInstance(hmacAlgorithm);
-            mac.init(new SecretKeySpec(signingKey, hmacAlgorithm));
+            if (mac == null) {
+                Mac newMac = Mac.getInstance(hmacAlgorithm);
+                newMac.init(new SecretKeySpec(signingKey, hmacAlgorithm));
+                mac = newMac;
+            }
             expected = HexFormat.of().formatHex(
                     mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8)));
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
