@@ -156,8 +156,14 @@ final class TestUtils {
         @Override
         public synchronized int read(byte[] b, int off, int len)
                 throws IOException {
+            if (closed) {
+                throw new IOException("Stream already closed");
+            }
+            // Same byte sequence as read(), one nextInt per byte, without
+            // dispatching each byte through it; this stream generates every
+            // uploaded payload and was the suite's largest CPU consumer.
             for (int i = 0; i < len; ++i) {
-                b[off + i] = (byte) read();
+                b[off + i] = (byte) (random.nextInt() & 0xff);
             }
             return len;
         }
