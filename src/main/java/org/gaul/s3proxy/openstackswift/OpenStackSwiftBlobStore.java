@@ -742,7 +742,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         var userMetadata = metadata.userMetadata();
         if (userMetadata != null && !userMetadata.isEmpty()) {
-            swiftOptions.metadata(userMetadata);
+            swiftOptions.metadata(encodeMetadata(userMetadata));
         }
         String etag;
         try (var is = blob.getPayload()) {
@@ -989,9 +989,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 // S3 metadata keys are case-insensitive and returned
                 // lowercase; Swift's HTTP layer canonicalizes them
                 // (key1 -> Key1).
-                String key = name.substring(
+                String key = decodeMetadataName(name.substring(
                         SwiftHeaders.OBJECT_METADATA_PREFIX.length())
-                        .toLowerCase(Locale.ROOT);
+                        .toLowerCase(Locale.ROOT));
                 if (key.equals(MPU_ETAG_METADATA)) {
                     mpuETag = entry.getValue();
                 } else {
@@ -1233,7 +1233,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             manifestMetadata.put(MPU_ETAG_METADATA, mpuETag);
         }
         if (!manifestMetadata.isEmpty()) {
-            swiftOptions.metadata(manifestMetadata);
+            swiftOptions.metadata(encodeMetadata(manifestMetadata));
         }
 
         String sloETag;
@@ -1461,6 +1461,52 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
         }
         return encoded.toString();
+    }
+
+    /**
+     * Escapes an underscore in a metadata name so Swift can store it.
+     *
+     * <p>S3 allows an underscore in a user-metadata name; Swift cannot see one.
+     * WSGI, following CGI, folds both {@code '-'} and {@code '_'} in a header
+     * name to {@code '_'} when it builds the environment key, leaving
+     * {@code X-Object-Meta-a_b} and {@code X-Object-Meta-a-b} indistinguishable,
+     * so Swift drops the ambiguous one outright -- silently, and along with
+     * whatever it carried.  Percent-encoding the underscore gets it past that,
+     * the same escape {@link #encodeName} already applies to object names.
+     *
+     * <p>Swift's own s3api middleware escapes it as {@code "=5F"} instead,
+     * which we read but do not write: {@code '='} is not one of the characters
+     * RFC 7230 allows in a header name, so while eventlet accepts it, a
+     * stricter HTTP server does not -- Go's rejects the whole request with a
+     * 400, which is what the openstackswift test emulator is built on.  Writing
+     * {@code "%5F"} keeps both ends happy, at the cost that s3api reports a
+     * name s3proxy wrote as {@code a%5Fb} rather than {@code a_b}.
+     */
+    private static String encodeMetadataName(String name) {
+        return name.replace("_", "%5F");
+    }
+
+    /**
+     * Reverses {@link #encodeMetadataName} on an already-lowercased name, and
+     * decodes s3api's spelling too so its objects read back correctly here.
+     */
+    private static String decodeMetadataName(String name) {
+        return name.replace("%5f", "_").replace("=5f", "_");
+    }
+
+    /**
+     * Applies {@link #encodeMetadataName} to every name in a metadata map.
+     * Two names can encode alike -- "a_b" and a literal "a%5Fb" both become
+     * "a%5Fb" -- so the map tolerates a collision and keeps the last, as Swift
+     * would for two headers of one name, rather than failing the request.
+     */
+    private static Map<String, String> encodeMetadata(
+            Map<String, String> metadata) {
+        var encoded = new LinkedHashMap<String, String>(metadata.size());
+        for (var entry : metadata.entrySet()) {
+            encoded.put(encodeMetadataName(entry.getKey()), entry.getValue());
+        }
+        return encoded;
     }
 
     /**

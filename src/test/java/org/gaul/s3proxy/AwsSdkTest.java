@@ -2066,6 +2066,34 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testBlobMetadataUnderscore() throws Exception {
+        // S3 allows an underscore in a user-metadata name, but a backend
+        // reached over HTTP may not see one: WSGI, and CGI before it, fold
+        // '-' and '_' in a header name together, so OpenStack Swift drops
+        // any name that contains one rather than guess which was meant.
+        // Losing metadata that way is silent, so assert it survives.
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String blobName = "blob-underscore-metadata";
+        // A plain name rides along as a control, but no dashed one: Azure
+        // takes a metadata name only if it is a valid C# identifier, so a
+        // dash there is a separate limitation from the underscore here.
+        var userMetadata = Map.of(
+                "under_score", "value1",
+                "two_under_scores", "value2",
+                "plain", "value3");
+
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                        .metadata(userMetadata),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
+
+        HeadObjectResponse metadata = client.headObject(
+                b -> b.bucket(containerName).key(blobName));
+        assertThat(metadata.metadata()).isEqualTo(userMetadata);
+    }
+
+    @Test
     public void testBlobRemove() throws Exception {
         String blobName = "blob";
         putBlob(containerName, blobName, BYTE_SOURCE);
