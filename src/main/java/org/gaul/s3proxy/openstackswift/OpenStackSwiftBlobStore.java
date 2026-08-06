@@ -1622,12 +1622,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * the same escape {@link #encodeName} already applies to object names.
      *
      * <p>Swift's own s3api middleware escapes it as {@code "=5F"} instead,
-     * which we read but do not write: {@code '='} is not one of the characters
-     * RFC 7230 allows in a header name, so while eventlet accepts it, a
-     * stricter HTTP server does not -- Go's rejects the whole request with a
-     * 400, which is what the openstackswift test emulator is built on.  Writing
-     * {@code "%5F"} keeps both ends happy, at the cost that s3api reports a
-     * name s3proxy wrote as {@code a%5Fb} rather than {@code a_b}.
+     * which this reads but deliberately does not write.  RFC 7230 builds a
+     * header name out of tchar, which admits {@code '%'} and not {@code '='},
+     * so {@code X-Object-Meta-a=5Fb} is not a well formed name at all: eventlet
+     * takes it, which is how s3api gets away with the spelling, but nothing
+     * obliges the next hop to -- a proxy, a load balancer, or Swift itself
+     * under a stricter WSGI server may refuse the request outright.  Go's
+     * parser does, with a 400, which is how this came to light.
+     *
+     * <p>What writing {@code "%5F"} costs is only that s3api shows a name
+     * s3proxy wrote as {@code a%5Fb} rather than {@code a_b}.  Reading is
+     * unaffected either way round, so an object s3api wrote still comes back
+     * whole.  Do not trade a conformant request for that.
      */
     private static String encodeMetadataName(String name) {
         return name.replace("_", "%5F");
