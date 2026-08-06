@@ -117,6 +117,12 @@ public final class GCloudBlobStore implements BlobStore {
             BlobWriteOption.md5Match();
     // GCS compose supports up to 32 source objects
     private static final int MAX_COMPOSE_PARTS = 32;
+    // The chunk an upload buffers, which the SDK defaults to 15 MiB and
+    // allocates twice: once as the ByteBuffer it reads the payload into and
+    // again as the write channel's own array.
+    private static final int MAX_UPLOAD_CHUNK_SIZE = 15 * 1024 * 1024;
+    // The unit GCS accepts a resumable chunk in, and the SDK's rounding unit.
+    private static final int UPLOAD_CHUNK_UNIT = 256 * 1024;
 
     private final Storage storage;
     private final boolean atomicBucketAcl;
@@ -512,6 +518,25 @@ public final class GCloudBlobStore implements BlobStore {
         return eTag;
     }
 
+    /**
+     * Chunks an upload to the payload it carries.  The SDK otherwise buffers
+     * its 15 MiB default whatever the object weighs, so a one byte write costs
+     * 30 MiB of allocation, and a server admitting many concurrent writes
+     * holds that per write.  The chunk exceeds the payload rather than
+     * matching it: the write channel flushes a chunk the moment it fills, so
+     * an exact fit would send the payload and then a second request to
+     * finalize it.  Uploads at or above the default keep it and so still cost
+     * the requests they cost before.
+     */
+    private static int uploadChunkSize(@Nullable Long contentLength) {
+        if (contentLength == null || contentLength >= MAX_UPLOAD_CHUNK_SIZE) {
+            return MAX_UPLOAD_CHUNK_SIZE;
+        }
+        long units = contentLength / UPLOAD_CHUNK_UNIT + 1;
+        return (int) Math.min(MAX_UPLOAD_CHUNK_SIZE,
+                units * UPLOAD_CHUNK_UNIT);
+    }
+
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
@@ -589,6 +614,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         try (var is = payload) {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
+                    uploadChunkSize(request.contentLength()),
                     writeOptions.toArray(new BlobWriteOption[0]));
             return SdkResponses.putResponse(gcsBlob.getEtag());
         } catch (StorageException se) {
@@ -1166,7 +1192,8 @@ public final class GCloudBlobStore implements BlobStore {
         try (var his = new HashingInputStream(MD5, is)) {
             var partInfo = BlobInfo.newBuilder(
                     BlobId.of(mpu.containerName(), partBlobName)).build();
-            storage.createFrom(partInfo, his);
+            storage.createFrom(partInfo, his,
+                    uploadChunkSize(contentLength));
 
             md5Hash = his.hash().asBytes();
 
