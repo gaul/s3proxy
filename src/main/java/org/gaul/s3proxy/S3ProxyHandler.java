@@ -136,6 +136,7 @@ import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
@@ -2766,7 +2767,13 @@ public class S3ProxyHandler {
                     }
                     results.add(new DeletedObjectResult(s3Object.key(),
                             s3Object.versionId(), null,
-                            S3ErrorCode.NO_SUCH_VERSION));
+                            S3Error.builder()
+                                    .key(s3Object.key())
+                                    .versionId(s3Object.versionId())
+                                    .code("NoSuchVersion")
+                                    .message("The specified version does" +
+                                            " not exist.")
+                                    .build()));
                 }
             }
         } else {
@@ -2785,16 +2792,16 @@ public class S3ProxyHandler {
 
             if (results != null) {
                 for (DeletedObjectResult result : results) {
-                    S3ErrorCode error = result.error();
+                    S3Error error = result.error();
                     if (error != null) {
                         xml.writeStartElement("Error");
-                        writeSimpleElement(xml, "Key", result.key());
-                        String versionId = result.requestedVersionId();
-                        if (versionId != null) {
-                            writeSimpleElement(xml, "VersionId", versionId);
+                        writeSimpleElement(xml, "Key", error.key());
+                        if (error.versionId() != null) {
+                            writeSimpleElement(xml, "VersionId",
+                                    error.versionId());
                         }
-                        writeSimpleElement(xml, "Code", error.getErrorCode());
-                        writeSimpleElement(xml, "Message", error.getMessage());
+                        writeSimpleElement(xml, "Code", error.code());
+                        writeSimpleElement(xml, "Message", error.message());
                         xml.writeEndElement();
                     } else if (!dmor.quiet()) {
                         xml.writeStartElement("Deleted");
@@ -2839,7 +2846,7 @@ public class S3ProxyHandler {
     private record DeletedObjectResult(String key,
             @Nullable String requestedVersionId,
             @Nullable DeleteObjectResponse result,
-            @Nullable S3ErrorCode error) {
+            @Nullable S3Error error) {
     }
 
     private void handleBlobMetadata(HttpServletRequest request,

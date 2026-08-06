@@ -92,8 +92,6 @@ public enum S3ErrorCode {
     NO_SUCH_POLICY(HttpServletResponse.SC_NOT_FOUND,
             "The specified bucket does not have a bucket policy."),
     NO_SUCH_UPLOAD(HttpServletResponse.SC_NOT_FOUND, "Not Found"),
-    NO_SUCH_VERSION(HttpServletResponse.SC_NOT_FOUND,
-            "The specified version does not exist."),
     NOT_IMPLEMENTED(HttpServletResponse.SC_NOT_IMPLEMENTED,
             "A header you provided implies functionality that is not" +
             " implemented."),
