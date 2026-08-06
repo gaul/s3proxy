@@ -36,7 +36,6 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
@@ -95,6 +94,24 @@ public final class ServerSideEncryptionTest {
                 RequestBody.fromString("hello sse"));
     }
 
+    /** The server-side-encryption value the proxy reports for KEY on HEAD. */
+    private ServerSideEncryption headSse() {
+        return client.headObject(b -> b.bucket(CONTAINER).key(KEY))
+                .serverSideEncryption();
+    }
+
+    /** Assert that PUT with the given SSE mode is refused with 501. */
+    private void assertPutRejectedWith501(ServerSideEncryption sse) {
+        assertThatThrownBy(() -> putWithSse(sse))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(501));
+    }
+
+    private static void assertParses(String value,
+            S3ProxyHandler.SseMode expected) {
+        assertThat(S3ProxyHandler.SseMode.parse(value)).isEqualTo(expected);
+    }
+
     @Test
     public void testSseS3AcceptedAndEchoedOnPutHeadGet() throws Exception {
         launch("s3proxy-sse-s3.conf");
@@ -103,10 +120,7 @@ public final class ServerSideEncryptionTest {
         assertThat(put.serverSideEncryption())
                 .isEqualTo(ServerSideEncryption.AES256);
 
-        HeadObjectResponse head = client.headObject(
-                b -> b.bucket(CONTAINER).key(KEY));
-        assertThat(head.serverSideEncryption())
-                .isEqualTo(ServerSideEncryption.AES256);
+        assertThat(headSse()).isEqualTo(ServerSideEncryption.AES256);
 
         GetObjectResponse get = client.getObjectAsBytes(
                 b -> b.bucket(CONTAINER).key(KEY)).response();
@@ -154,9 +168,7 @@ public final class ServerSideEncryptionTest {
     @Test
     public void testSseS3RejectsKms() throws Exception {
         launch("s3proxy-sse-s3.conf");
-        assertThatThrownBy(() -> putWithSse(ServerSideEncryption.AWS_KMS))
-                .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(501));
+        assertPutRejectedWith501(ServerSideEncryption.AWS_KMS);
     }
 
     @Test
@@ -165,18 +177,13 @@ public final class ServerSideEncryptionTest {
 
         PutObjectResponse put = putWithSse(ServerSideEncryption.AES256);
         assertThat(put.serverSideEncryption()).isNull();
-
-        HeadObjectResponse head = client.headObject(
-                b -> b.bucket(CONTAINER).key(KEY));
-        assertThat(head.serverSideEncryption()).isNull();
+        assertThat(headSse()).isNull();
     }
 
     @Test
     public void testRejectReturnsNotImplemented() throws Exception {
         launch("s3proxy-sse-reject.conf");
-        assertThatThrownBy(() -> putWithSse(ServerSideEncryption.AES256))
-                .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(501));
+        assertPutRejectedWith501(ServerSideEncryption.AES256);
     }
 
     @Test
@@ -184,9 +191,7 @@ public final class ServerSideEncryptionTest {
         // s3proxy.conf: transient backend, no SSE property, no encryption ->
         // the derived default must be reject (never claim encryption).
         launch("s3proxy.conf");
-        assertThatThrownBy(() -> putWithSse(ServerSideEncryption.AES256))
-                .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(501));
+        assertPutRejectedWith501(ServerSideEncryption.AES256);
     }
 
     @Test
@@ -197,26 +202,17 @@ public final class ServerSideEncryptionTest {
         PutObjectResponse put = putWithSse(ServerSideEncryption.AES256);
         assertThat(put.serverSideEncryption())
                 .isEqualTo(ServerSideEncryption.AES256);
-        HeadObjectResponse head = client.headObject(
-                b -> b.bucket(CONTAINER).key(KEY));
-        assertThat(head.serverSideEncryption())
-                .isEqualTo(ServerSideEncryption.AES256);
+        assertThat(headSse()).isEqualTo(ServerSideEncryption.AES256);
     }
 
     @Test
     public void testSseModeParse() {
-        assertThat(S3ProxyHandler.SseMode.parse("sse-s3"))
-                .isEqualTo(S3ProxyHandler.SseMode.SSE_S3);
-        assertThat(S3ProxyHandler.SseMode.parse("aes256"))
-                .isEqualTo(S3ProxyHandler.SseMode.SSE_S3);
-        assertThat(S3ProxyHandler.SseMode.parse("ignore"))
-                .isEqualTo(S3ProxyHandler.SseMode.IGNORE);
-        assertThat(S3ProxyHandler.SseMode.parse("reject"))
-                .isEqualTo(S3ProxyHandler.SseMode.REJECT);
-        assertThat(S3ProxyHandler.SseMode.parse(""))
-                .isEqualTo(S3ProxyHandler.SseMode.REJECT);
-        assertThat(S3ProxyHandler.SseMode.parse(null))
-                .isEqualTo(S3ProxyHandler.SseMode.REJECT);
+        assertParses("sse-s3", S3ProxyHandler.SseMode.SSE_S3);
+        assertParses("aes256", S3ProxyHandler.SseMode.SSE_S3);
+        assertParses("ignore", S3ProxyHandler.SseMode.IGNORE);
+        assertParses("reject", S3ProxyHandler.SseMode.REJECT);
+        assertParses("", S3ProxyHandler.SseMode.REJECT);
+        assertParses(null, S3ProxyHandler.SseMode.REJECT);
         assertThatThrownBy(() -> S3ProxyHandler.SseMode.parse("bogus"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
