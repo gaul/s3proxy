@@ -2233,8 +2233,13 @@ public class S3ProxyHandler {
         boolean isListV2 = false;
         String marker;
         String listType = request.getParameter("list-type");
-        String continuationToken = request.getParameter("continuation-token");
-        String startAfter = request.getParameter("start-after");
+        // S3 treats an empty continuation-token or start-after as absent
+        // rather than refusing it; a native store would reject the empty
+        // string as a malformed token.
+        String continuationToken = Strings.emptyToNull(
+                request.getParameter("continuation-token"));
+        String startAfter = Strings.emptyToNull(
+                request.getParameter("start-after"));
         if (listType == null) {
             marker = request.getParameter("marker");
         } else if (listType.equals("2")) {
@@ -2368,8 +2373,11 @@ public class S3ProxyHandler {
                 if (continuationToken == null) {
                     xml.writeEmptyElement("ContinuationToken");
                 } else {
-                    writeSimpleElement(xml, "ContinuationToken", encodeBlob(
-                            encodingType, continuationToken));
+                    // A token is opaque: encoding-type applies to the
+                    // key-shaped fields only, and a client does not decode
+                    // this one.
+                    writeSimpleElement(xml, "ContinuationToken",
+                            continuationToken);
                 }
                 if (startAfter == null) {
                     xml.writeEmptyElement("StartAfter");
@@ -2391,9 +2399,15 @@ public class S3ProxyHandler {
             String nextMarker = nextToken;
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
-                writeSimpleElement(xml,
-                        isListV2 ? "NextContinuationToken" : "NextMarker",
-                        encodeBlob(encodingType, nextMarker));
+                if (isListV2) {
+                    // opaque, so never encoding-type encoded: a client sends
+                    // it back exactly as written
+                    writeSimpleElement(xml, "NextContinuationToken",
+                            nextMarker);
+                } else {
+                    writeSimpleElement(xml, "NextMarker",
+                            encodeBlob(encodingType, nextMarker));
+                }
                 if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
                     // A caller may page with the last key it was given rather
                     // than the marker, which S3 allows and which a store with
