@@ -96,6 +96,7 @@ import org.eclipse.jetty.util.Promise;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -114,6 +115,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
@@ -121,6 +123,8 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -2707,7 +2711,7 @@ public class S3ProxyHandler {
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException {
-        BlobMetadata metadata = blobStore.supportsVersioning() ?
+        HeadObjectResponse metadata = blobStore.supportsVersioning() ?
                 blobStore.blobMetadata(containerName, blobName,
                         request.getParameter("versionId")) :
                 blobStore.blobMetadata(containerName, blobName);
@@ -2724,6 +2728,34 @@ public class S3ProxyHandler {
         addMetadataToResponse(request, response, metadata,
                 /*partialContent=*/ false);
         addCorsResponseHeader(request, response);
+    }
+
+    /**
+     * The multipart carrier's view of a HEAD result.  MultipartUpload still
+     * hauls request-shaped BlobMetadata from initiate to complete, and a
+     * response names no key, so the caller supplies the one it asked about.
+     */
+    @Nullable
+    private static BlobMetadata toCarrierMetadata(String name,
+            @Nullable HeadObjectResponse head) {
+        if (head == null) {
+            return null;
+        }
+        return BlobMetadata.builder()
+                .name(name)
+                .userMetadata(head.metadata())
+                .eTag(head.eTag())
+                .lastModified(head.lastModified() == null ? null :
+                        Date.from(head.lastModified()))
+                .contentMetadata(ContentMetadata.builder()
+                        .cacheControl(head.cacheControl())
+                        .contentDisposition(head.contentDisposition())
+                        .contentEncoding(head.contentEncoding())
+                        .contentLanguage(head.contentLanguage())
+                        .contentLength(head.contentLength())
+                        .contentType(head.contentType())
+                        .build())
+                .build();
     }
 
     /** The part count a composite ETag encodes, or 1 when it is not one. */
@@ -2794,7 +2826,7 @@ public class S3ProxyHandler {
      * for every request -- UploadPart and UploadPartCopy use partNumber.
      */
     private static void checkPartNumber(HttpServletRequest request,
-            @Nullable BlobMetadata metadata) {
+            @Nullable HeadObjectResponse metadata) {
         String value = request.getParameter("partNumber");
         if (value == null || metadata == null) {
             return;
@@ -2826,7 +2858,7 @@ public class S3ProxyHandler {
      * the caller's copy is unchanged.
      */
     private static boolean checkConditionalHeaders(HttpServletRequest request,
-            HttpServletResponse response, BlobMetadata metadata) {
+            HttpServletResponse response, HeadObjectResponse metadata) {
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         long ifModifiedSince = request.getDateHeader(
@@ -2846,7 +2878,8 @@ public class S3ProxyHandler {
             }
         }
 
-        Date lastModified = metadata.lastModified();
+        Date lastModified = metadata.lastModified() == null ? null :
+                Date.from(metadata.lastModified());
         if (lastModified != null) {
             if (ifModifiedSince != -1 && lastModified.compareTo(
                     new Date(ifModifiedSince)) <= 0) {
@@ -2870,7 +2903,7 @@ public class S3ProxyHandler {
         checkVersionId(request);
         Set<String> attributes = requestedObjectAttributes(request);
 
-        BlobMetadata metadata = blobStore.blobMetadata(containerName,
+        HeadObjectResponse metadata = blobStore.blobMetadata(containerName,
                 blobName);
         if (metadata == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
@@ -2879,10 +2912,10 @@ public class S3ProxyHandler {
             return;
         }
 
-        Date lastModified = metadata.lastModified();
+        var lastModified = metadata.lastModified();
         if (lastModified != null) {
             response.addDateHeader(HttpHeaders.LAST_MODIFIED,
-                    lastModified.getTime());
+                    lastModified.toEpochMilli());
         }
 
         response.setStatus(HttpServletResponse.SC_OK);
@@ -2912,13 +2945,12 @@ public class S3ProxyHandler {
             // not uploaded in parts.
 
             if (attributes.contains("StorageClass")) {
-                StorageClass storageClass = metadata.storageClass();
+                String storageClass = metadata.storageClassAsString();
                 writeSimpleElement(xml, "StorageClass", storageClass == null ?
-                        StorageClass.STANDARD.toString() :
-                        storageClass.toString());
+                        StorageClass.STANDARD.toString() : storageClass);
             }
 
-            Long size = metadata.size();
+            Long size = metadata.contentLength();
             if (attributes.contains("ObjectSize") && size != null) {
                 writeSimpleElement(xml, "ObjectSize", String.valueOf(size));
             }
@@ -2962,8 +2994,8 @@ public class S3ProxyHandler {
      * checksum get no element at all, as on S3.
      */
     private static void writeChecksumStanza(XMLStreamWriter xml,
-            BlobMetadata metadata) throws XMLStreamException {
-        for (var entry : metadata.userMetadata().entrySet()) {
+            HeadObjectResponse metadata) throws XMLStreamException {
+        for (var entry : metadata.metadata().entrySet()) {
             FlexChecksum checksum = FlexChecksum.fromMetadataKey(
                     entry.getKey());
             if (checksum == null) {
@@ -3107,8 +3139,8 @@ public class S3ProxyHandler {
             status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
-        Blob blob = blobStore.getBlob(containerName, blobName,
-                optionsBuilder.build());
+        ResponseInputStream<GetObjectResponse> blob = blobStore.getBlob(
+                containerName, blobName, optionsBuilder.build());
         if (blob == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
@@ -3117,17 +3149,18 @@ public class S3ProxyHandler {
 
         addCorsResponseHeader(request, response);
 
-        addMetadataToResponse(request, response, blob.getMetadata(),
+        addMetadataToResponse(request, response,
+                SdkResponses.toHead(blob.response()),
                 status == HttpServletResponse.SC_PARTIAL_CONTENT);
 
         // TODO: handles only a single range due to blobstore API limitations
-        String contentRange = blob.getContentRange();
+        String contentRange = blob.response().contentRange();
         if (contentRange != null) {
             response.addHeader(HttpHeaders.CONTENT_RANGE, contentRange);
             response.addHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
         }
 
-        try (InputStream is = requireNonNull(blob.getPayload());
+        try (InputStream is = blob;
              OutputStream os = response.getOutputStream()) {
             is.transferTo(os);
             os.flush();
@@ -3310,8 +3343,8 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, nske);
         }
 
-        BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
-                destBlobName);
+        HeadObjectResponse blobMetadata = blobStore.blobMetadata(
+                destContainerName, destBlobName);
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
         String copySourceVersionId = copyResult.copySourceVersionId();
@@ -3335,7 +3368,7 @@ public class S3ProxyHandler {
                     blobMetadata.lastModified();
             if (lastModified != null) {
                 writeSimpleElement(xml, "LastModified",
-                        formatDate(lastModified));
+                        formatDate(Date.from(lastModified)));
             }
 
             String eTag = copyResult.copyObjectResult() == null ?
@@ -4021,8 +4054,7 @@ public class S3ProxyHandler {
         // Note: this is a non-atomic operation (HEAD then PUT).
         if (ifMatch != null && ifMatch.equals("*") &&
                 blobStoreType.equals("azureblob")) {
-            BlobMetadata metadata = blobStore.blobMetadata(containerName, blobName);
-            if (metadata == null) {
+            if (blobStore.blobMetadata(containerName, blobName) == null) {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
             }
             ifMatch = null;
@@ -4107,7 +4139,8 @@ public class S3ProxyHandler {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             String stubName = multipartStubName(uploadId);
-            metadata = blobStore.blobMetadata(containerName, stubName);
+            metadata = toCarrierMetadata(stubName,
+                    blobStore.blobMetadata(containerName, stubName));
             if (metadata == null) {
                 if (respondAlreadyCompleted(request, response, blobStore,
                         containerName, blobName, cmu)) {
@@ -4555,7 +4588,7 @@ public class S3ProxyHandler {
         if (expected == null) {
             return false;
         }
-        BlobMetadata metadata = blobStore.blobMetadata(containerName,
+        HeadObjectResponse metadata = blobStore.blobMetadata(containerName,
                 blobName);
         if (metadata == null || metadata.eTag() == null ||
                 !equalsIgnoringSurroundingQuotes(expected, metadata.eTag())) {
@@ -4567,7 +4600,7 @@ public class S3ProxyHandler {
         // request's own value the way the first completion did.
         FlexChecksum checksum = null;
         String checksumValue = null;
-        for (var entry : metadata.userMetadata().entrySet()) {
+        for (var entry : metadata.metadata().entrySet()) {
             if (startsWithIgnoreCase(entry.getKey(),
                     CHECKSUM_METADATA_PREFIX)) {
                 FlexChecksum candidate = FlexChecksum.fromMetadataKey(
@@ -4667,7 +4700,7 @@ public class S3ProxyHandler {
             partNumbers.add(part.partNumber());
         }
         for (int partNumber : partNumbers) {
-            Blob blob = blobStore.getBlob(containerName,
+            var blob = blobStore.getBlob(containerName,
                     AbstractNio2BlobStore.multipartPartName(uploadId,
                             blobName, partNumber), GetOptions.NONE);
             if (blob == null) {
@@ -4677,7 +4710,7 @@ public class S3ProxyHandler {
             }
             Hasher hasher = algorithm.hashFunction().newHasher();
             long length = 0;
-            try (InputStream partIs = requireNonNull(blob.getPayload())) {
+            try (InputStream partIs = blob) {
                 byte[] buffer = new byte[16384];
                 while (true) {
                     int count = partIs.read(buffer);
@@ -5204,7 +5237,7 @@ public class S3ProxyHandler {
             // same InvalidRange semantics as the emulated path below, which
             // checks the size from getBlob's metadata.
             if (expectedSize != -1) {
-                BlobMetadata sourceMetadata = sourceVersionId != null ?
+                HeadObjectResponse sourceMetadata = sourceVersionId != null ?
                         blobStore.blobMetadata(sourceContainerName,
                                 sourceBlobName, sourceVersionId) :
                         blobStore.blobMetadata(sourceContainerName,
@@ -5212,7 +5245,7 @@ public class S3ProxyHandler {
                 if (sourceMetadata == null) {
                     throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
                 }
-                Long sourceSize = sourceMetadata.size();
+                Long sourceSize = sourceMetadata.contentLength();
                 if (sourceSize != null && sourceSize < expectedSize) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                 }
@@ -5245,18 +5278,19 @@ public class S3ProxyHandler {
             }
         }
 
-        Blob blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
+        var blob = blobStore.getBlob(sourceContainerName, sourceBlobName,
                 optionsBuilder.build());
         if (blob == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
 
-        BlobMetadata blobMetadata = blob.getMetadata();
+        GetObjectResponse blobMetadata = blob.response();
         String eTag = blobMetadata.eTag();
-        Date lastModified = blobMetadata.lastModified();
+        Date lastModified = blobMetadata.lastModified() == null ? null :
+                Date.from(blobMetadata.lastModified());
         try {
             // HTTP GET allow overlong ranges but S3 CopyPart does not
-            Long size = blobMetadata.size();
+            Long size = blobMetadata.contentLength();
             if (expectedSize != -1 && size != null && size < expectedSize) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
             }
@@ -5294,20 +5328,16 @@ public class S3ProxyHandler {
             // payload's open backend stream; the happy-path try-with-resources
             // below closes it only once reached.
             try {
-                InputStream payload = blob.getPayload();
-                if (payload != null) {
-                    payload.close();
-                }
+                blob.close();
             } catch (IOException ioe) {
                 // The stream is being abandoned; ignore close failures.
             }
             throw se;
         }
 
-        long contentLength = requireNonNull(
-                blobMetadata.contentMetadata().contentLength());
+        long contentLength = requireNonNull(blobMetadata.contentLength());
 
-        try (InputStream is = requireNonNull(blob.getPayload())) {
+        try (InputStream is = blob) {
             MultipartPart part = blobStore.uploadMultipartPart(mpu,
                     partNumber, is, contentLength, null);
             eTag = part.partETag();
@@ -5441,8 +5471,9 @@ public class S3ProxyHandler {
         BlobMetadata blobMetadata;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            blobMetadata = blobStore.blobMetadata(containerName,
-                    multipartStubName(uploadId));
+            String stubName = multipartStubName(uploadId);
+            blobMetadata = toCarrierMetadata(stubName,
+                    blobStore.blobMetadata(containerName, stubName));
         } else {
             blobMetadata = createFakeBlobMetadata();
         }
@@ -5476,25 +5507,24 @@ public class S3ProxyHandler {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private static void addMetadataToResponse(HttpServletRequest request,
             HttpServletResponse response,
-            BlobMetadata metadata,
+            HeadObjectResponse metadata,
             boolean partialContent) {
-        ContentMetadata contentMetadata =
-                metadata.contentMetadata();
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CACHE_CONTROL, "response-cache-control",
-                contentMetadata.cacheControl());
+                metadata.cacheControl());
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_ENCODING, "response-content-encoding",
-                contentMetadata.contentEncoding());
+                metadata.contentEncoding());
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_LANGUAGE, "response-content-language",
-                contentMetadata.contentLanguage());
+                metadata.contentLanguage());
         addResponseHeaderWithOverride(request, response,
                 HttpHeaders.CONTENT_DISPOSITION, "response-content-disposition",
-                contentMetadata.contentDisposition());
-        Long contentLength = contentMetadata.contentLength();
+                metadata.contentDisposition());
+        Long contentLength = metadata.contentLength();
         if (contentLength != null) {
             response.addHeader(HttpHeaders.CONTENT_LENGTH,
                     contentLength.toString());
@@ -5502,7 +5532,7 @@ public class S3ProxyHandler {
         String overrideContentType = request.getParameter(
                 "response-content-type");
         String contentType = overrideContentType != null ?
-                overrideContentType : contentMetadata.contentType();
+                overrideContentType : metadata.contentType();
         // S3 names a type for every object, so one a backend reports none for
         // -- written around S3Proxy, or by a client of a backend that does not
         // require one -- answers with the default rather than with no
@@ -5517,28 +5547,28 @@ public class S3ProxyHandler {
         if (overrideExpires != null) {
             response.addHeader(HttpHeaders.EXPIRES, overrideExpires);
         } else {
-            Date expires = contentMetadata.expires();
+            var expires = metadata.expires();
             if (expires != null) {
-                response.addDateHeader(HttpHeaders.EXPIRES, expires.getTime());
+                response.addDateHeader(HttpHeaders.EXPIRES,
+                        expires.toEpochMilli());
             }
         }
-        Date lastModified = metadata.lastModified();
+        var lastModified = metadata.lastModified();
         if (lastModified != null) {
             response.addDateHeader(HttpHeaders.LAST_MODIFIED,
-                    lastModified.getTime());
+                    lastModified.toEpochMilli());
         }
         String versionId = metadata.versionId();
         if (versionId != null) {
             response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
         }
-        StorageClass storageClass = metadata.storageClass();
+        String storageClass = metadata.storageClassAsString();
         if (storageClass != null) {
-            response.addHeader(AwsHttpHeaders.STORAGE_CLASS,
-                    storageClass.toString());
+            response.addHeader(AwsHttpHeaders.STORAGE_CLASS, storageClass);
         }
         FlexChecksum storedChecksum = null;
         String storedChecksumValue = null;
-        for (var entry : metadata.userMetadata().entrySet()) {
+        for (var entry : metadata.metadata().entrySet()) {
             String key = entry.getKey();
             if (startsWithIgnoreCase(key, CHECKSUM_METADATA_PREFIX)) {
                 FlexChecksum candidate = FlexChecksum.fromMetadataKey(key);
@@ -5906,7 +5936,8 @@ public class S3ProxyHandler {
      *
      * @param metadata the destination object, or null if it does not exist
      */
-    private static void checkConditionalWrite(@Nullable BlobMetadata metadata,
+    private static void checkConditionalWrite(
+            @Nullable HeadObjectResponse metadata,
             @Nullable String ifMatch, @Nullable String ifNoneMatch) {
         if (ifMatch != null) {
             if (metadata == null) {

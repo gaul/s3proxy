@@ -80,9 +80,12 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -310,7 +313,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public org.gaul.s3proxy.blobstore.domain.@Nullable Blob getBlob(
+    public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
             String container,
             String key, GetOptions options) {
         if (options.versionId() != null) {
@@ -394,9 +397,8 @@ public final class GCloudBlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
 
-        var builder = org.gaul.s3proxy.blobstore.domain.Blob.builder(key)
-                .userMetadata(sanitizeUserMetadata(gcsBlob.getMetadata()))
-                .payload(is)
+        var builder = GetObjectResponse.builder()
+                .metadata(sanitizeUserMetadata(gcsBlob.getMetadata()))
                 .cacheControl(gcsBlob.getCacheControl())
                 .contentDisposition(gcsBlob.getContentDisposition())
                 .contentEncoding(gcsBlob.getContentEncoding())
@@ -404,15 +406,18 @@ public final class GCloudBlobStore implements BlobStore {
                 .contentLength(contentLength)
                 .contentType(gcsBlob.getContentType())
                 .eTag(gcsBlob.getEtag())
-                .storageClass(fromGcsStorageClass(gcsBlob.getStorageClass()))
-                .lastModified(toDate(gcsBlob.getUpdateTimeOffsetDateTime()));
+                .storageClass(
+                        fromGcsStorageClass(gcsBlob.getStorageClass())
+                                .toString())
+                .lastModified(toInstant(
+                        gcsBlob.getUpdateTimeOffsetDateTime()));
         if (rangeOffset != null) {
             long end = rangeEnd != null ? rangeEnd :
                     blobSize - 1;
             builder.contentRange(
                     "bytes " + rangeOffset + "-" + end + "/" + blobSize);
         }
-        return builder.build();
+        return SdkResponses.getResponse(builder.build(), is);
     }
 
     // Enforce S3 conditional-GET headers (If-Match / If-None-Match /
@@ -701,7 +706,7 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(String container, String key) {
         Blob gcsBlob;
         try {
             gcsBlob = storage.get(BlobId.of(container, key));
@@ -714,13 +719,21 @@ public final class GCloudBlobStore implements BlobStore {
         if (gcsBlob == null) {
             return null;
         }
-        return new BlobMetadata(key,
-                sanitizeUserMetadata(gcsBlob.getMetadata()),
-                gcsBlob.getEtag(),
-                toDate(gcsBlob.getUpdateTimeOffsetDateTime()),
-                fromGcsStorageClass(gcsBlob.getStorageClass()),
-                container,
-                toContentMetadata(gcsBlob));
+        return HeadObjectResponse.builder()
+                .metadata(sanitizeUserMetadata(gcsBlob.getMetadata()))
+                .eTag(gcsBlob.getEtag())
+                .lastModified(toInstant(
+                        gcsBlob.getUpdateTimeOffsetDateTime()))
+                .storageClass(
+                        fromGcsStorageClass(gcsBlob.getStorageClass())
+                                .toString())
+                .cacheControl(gcsBlob.getCacheControl())
+                .contentDisposition(gcsBlob.getContentDisposition())
+                .contentEncoding(gcsBlob.getContentEncoding())
+                .contentLanguage(gcsBlob.getContentLanguage())
+                .contentLength(gcsBlob.getSize())
+                .contentType(gcsBlob.getContentType())
+                .build();
     }
 
 
@@ -1359,6 +1372,11 @@ public final class GCloudBlobStore implements BlobStore {
             com.google.cloud.storage.StorageClass.NEARLINE;
         default -> com.google.cloud.storage.StorageClass.STANDARD;
         };
+    }
+
+    private static java.time.@Nullable Instant toInstant(
+            java.time.@Nullable OffsetDateTime dateTime) {
+        return dateTime == null ? null : dateTime.toInstant();
     }
 
     private static StorageClass fromGcsStorageClass(

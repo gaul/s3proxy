@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableMap;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -30,7 +31,10 @@ import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
@@ -71,7 +75,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(String container, String name) {
         var blobMetadata = super.blobMetadata(container, name);
         if (blobMetadata == null) {
             return null;
@@ -79,30 +83,32 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
 
         var metadata = ImmutableMap.<String, String>builder();
         // TODO: duplication
-        for (var entry : blobMetadata.userMetadata().entrySet()) {
+        for (var entry : blobMetadata.metadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
-        return blobMetadata.toBuilder().userMetadata(metadata.build()).build();
+        return blobMetadata.toBuilder().metadata(metadata.build()).build();
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String containerName, String name,
-            GetOptions getOptions) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String name, GetOptions getOptions) {
         var blob = super.getBlob(containerName, name, getOptions);
         if (blob == null) {
             return null;
         }
 
         var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blob.getMetadata().userMetadata().entrySet()) {
+        for (var entry : blob.response().metadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
         }
-        return blob.toBuilder()
-                .userMetadata(metadata.build())
-                .build();
+        return SdkResponses.getResponse(
+                blob.response().toBuilder()
+                        .metadata(metadata.build())
+                        .build(),
+                blob);
     }
 
     @Override

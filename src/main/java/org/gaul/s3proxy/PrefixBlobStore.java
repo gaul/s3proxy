@@ -42,9 +42,12 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -116,26 +119,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             return name.substring(prefix.length());
         }
         return name;
-    }
-
-    @Nullable
-    private BlobMetadata trimBlobMetadata(String container,
-            @Nullable BlobMetadata metadata) {
-        if (metadata == null || !hasPrefix(container)) {
-            return metadata;
-        }
-        return metadata.toBuilder()
-                .name(trimPrefix(container, metadata.name()))
-                .build();
-    }
-
-    @Nullable
-    private Blob trimBlob(String container, @Nullable Blob blob) {
-        if (blob == null || !hasPrefix(container)) {
-            return blob;
-        }
-        return blob.toBuilder().name(
-                trimPrefix(container, blob.getMetadata().name())).build();
     }
 
     private MultipartUpload toDelegateMultipartUpload(MultipartUpload upload) {
@@ -225,18 +208,16 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
-        return trimBlobMetadata(container,
-                super.blobMetadata(container, addPrefix(container, name)));
+    public HeadObjectResponse blobMetadata(String container, String name) {
+        return super.blobMetadata(container, addPrefix(container, name));
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String containerName, String blobName,
-                        GetOptions getOptions) {
-        return trimBlob(containerName,
-                super.getBlob(containerName, addPrefix(containerName,
-                        blobName), getOptions));
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String blobName, GetOptions getOptions) {
+        return super.getBlob(containerName,
+                addPrefix(containerName, blobName), getOptions);
     }
 
     @Override

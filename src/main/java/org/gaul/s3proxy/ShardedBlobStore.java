@@ -60,9 +60,12 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -205,11 +208,11 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 bucket, Hashing.consistentHash(hash, bucket.shards));
     }
 
-    private void checkSuperBlock(BlobMetadata blob,
+    private void checkSuperBlock(HeadObjectResponse blob,
                                  Map<String, String> expectedMeta,
                                  String container) {
         Map<String, String> currentSuperblockMeta =
-                blob.userMetadata();
+                blob.metadata();
         for (var entry : expectedMeta.entrySet()) {
             String current = currentSuperblockMeta.get(entry.getKey());
             String expected = entry.getValue();
@@ -261,7 +264,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         Map<String, String> superblockMeta = this.createSuperblockMeta(bucket);
         // Fetch only the superblock metadata: getBlob would open a payload
         // stream that checkSuperBlock never reads, leaking the connection.
-        BlobMetadata existingSuperblock = null;
+        HeadObjectResponse existingSuperblock = null;
         try {
             existingSuperblock = this.delegate().blobMetadata(
                     ShardedBlobStore.getShardContainer(bucket, 0),
@@ -476,15 +479,15 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(String container, String name) {
         return this.delegate().blobMetadata(this.getShard(container, name),
                 name);
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String containerName, String blobName,
-                        GetOptions getOptions) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String blobName, GetOptions getOptions) {
         return this.delegate()
                 .getBlob(this.getShard(containerName, blobName), blobName,
                         getOptions);

@@ -33,7 +33,6 @@ import com.google.common.io.ByteSource;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -81,20 +80,20 @@ public final class RegexBlobStoreTest {
                 PutOptions.NONE).eTag();
         assertThat(eTag).isEqualTo(contentHash);
 
-        BlobMetadata blobMetadata = regexBlobStore.blobMetadata(
+        var blobMetadata = regexBlobStore.blobMetadata(
                 containerName, targetBlobName);
 
         assertThat(blobMetadata.eTag()).isEqualTo(contentHash);
-        blob = regexBlobStore.getBlob(containerName, targetBlobName,
+        var got1 = regexBlobStore.getBlob(containerName, targetBlobName,
                 GetOptions.NONE);
-        try (InputStream actual = blob.getPayload();
+        try (InputStream actual = got1;
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
 
-        blob = regexBlobStore.getBlob(containerName, initialBlobName,
+        var got2 = regexBlobStore.getBlob(containerName, initialBlobName,
                 GetOptions.NONE);
-        try (InputStream actual = blob.getPayload();
+        try (InputStream actual = got2;
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }

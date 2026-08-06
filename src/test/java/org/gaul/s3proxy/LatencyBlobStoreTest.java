@@ -248,8 +248,11 @@ public final class LatencyBlobStoreTest {
         return System.currentTimeMillis() - startTime;
     }
 
-    private static void consume(Blob blob) {
-        try (InputStream stream = blob.getPayload()) {
+    private static void consume(
+            software.amazon.awssdk.core.ResponseInputStream<
+                    software.amazon.awssdk.services.s3.model
+                            .GetObjectResponse> blob) {
+        try (InputStream stream = blob) {
             stream.readAllBytes();
         } catch (IOException ioe) {
             // Ignore

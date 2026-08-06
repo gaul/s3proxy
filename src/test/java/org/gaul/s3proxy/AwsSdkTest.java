@@ -2293,8 +2293,8 @@ public final class AwsSdkTest {
         // "/" round-trips as its own distinct 0-byte object with the metadata.
         var meta = blobStore.blobMetadata(containerName, "/");
         assertThat(meta).isNotNull();
-        assertThat(meta.contentMetadata().contentLength()).isEqualTo(0L);
-        assertThat(meta.userMetadata()).containsEntry("mode", "16832");
+        assertThat(meta.contentLength()).isEqualTo(0L);
+        assertThat(meta.metadata()).containsEntry("mode", "16832");
 
         // The reserved backing store is hidden: "/" is not enumerated.
         ListObjectsV2Response list = client.listObjectsV2(

@@ -31,7 +31,6 @@ import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -249,11 +248,14 @@ public final class EventualBlobStoreTest {
                 .build();
     }
 
-    private static void validateBlob(Blob blob) throws IOException {
+    private static void validateBlob(
+            software.amazon.awssdk.core.ResponseInputStream<
+                    software.amazon.awssdk.services.s3.model
+                            .GetObjectResponse> blob)
+            throws IOException {
         assertThat(blob).isNotNull();
 
-        ContentMetadata contentMetadata =
-                blob.getMetadata().contentMetadata();
+        var contentMetadata = blob.response();
         assertThat(contentMetadata.contentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
         assertThat(contentMetadata.contentEncoding())
@@ -263,10 +265,10 @@ public final class EventualBlobStoreTest {
         assertThat(contentMetadata.contentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
-        assertThat(blob.getMetadata().userMetadata())
+        assertThat(blob.response().metadata())
                 .isEqualTo(Map.of("key", "value"));
 
-        try (InputStream actual = blob.getPayload();
+        try (InputStream actual = blob;
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }

@@ -19,13 +19,18 @@ package org.gaul.s3proxy.blobstore;
 import java.util.Collection;
 import java.util.Date;
 
+import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectStorageClass;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -39,6 +44,63 @@ import software.amazon.awssdk.services.s3.model.StorageClass;
  */
 public final class SdkResponses {
     private SdkResponses() {
+    }
+
+    /**
+     * The response view of a request-shaped metadata carrier, for backends
+     * that assemble one internally before answering a read.
+     */
+    @SuppressWarnings("deprecation")
+    public static GetObjectResponse toGetResponse(BlobMetadata metadata,
+            @Nullable String contentRange) {
+        var contentMetadata = metadata.contentMetadata();
+        return GetObjectResponse.builder()
+                .metadata(metadata.userMetadata())
+                .cacheControl(contentMetadata.cacheControl())
+                .contentDisposition(contentMetadata.contentDisposition())
+                .contentEncoding(contentMetadata.contentEncoding())
+                .contentLanguage(contentMetadata.contentLanguage())
+                .contentLength(contentMetadata.contentLength())
+                .contentType(contentMetadata.contentType())
+                .expires(contentMetadata.expires() == null ? null :
+                        contentMetadata.expires().toInstant())
+                .eTag(metadata.eTag())
+                .lastModified(metadata.lastModified() == null ? null :
+                        metadata.lastModified().toInstant())
+                .storageClass(metadata.storageClass() == null ? null :
+                        metadata.storageClass().toString())
+                .versionId(metadata.versionId())
+                .contentRange(contentRange)
+                .build();
+    }
+
+    /** A GET result: the response riding on its payload stream. */
+    public static ResponseInputStream<GetObjectResponse> getResponse(
+            GetObjectResponse response, java.io.InputStream stream) {
+        return new ResponseInputStream<>(response,
+                AbortableInputStream.create(stream));
+    }
+
+    /**
+     * The HEAD view of a GET response, for backends and frontend paths that
+     * derive one from the other; the accessors match field for field.
+     */
+    @SuppressWarnings("deprecation")
+    public static HeadObjectResponse toHead(GetObjectResponse response) {
+        return HeadObjectResponse.builder()
+                .cacheControl(response.cacheControl())
+                .contentDisposition(response.contentDisposition())
+                .contentEncoding(response.contentEncoding())
+                .contentLanguage(response.contentLanguage())
+                .contentLength(response.contentLength())
+                .contentType(response.contentType())
+                .eTag(response.eTag())
+                .expires(response.expires())
+                .lastModified(response.lastModified())
+                .metadata(response.metadata())
+                .storageClass(response.storageClassAsString())
+                .versionId(response.versionId())
+                .build();
     }
 
     /** A listed bucket, converting the legacy Date form. */

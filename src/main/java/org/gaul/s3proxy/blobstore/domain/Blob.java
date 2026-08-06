@@ -67,6 +67,29 @@ public final class Blob {
         return contentRange;
     }
 
+    /**
+     * The request-side view of a read object, for callers that re-put what
+     * they fetched, e.g. replication and copy emulation.
+     */
+    public static Blob from(String name,
+            software.amazon.awssdk.services.s3.model.GetObjectResponse
+                    response,
+            java.io.InputStream payload) {
+        return builder(name)
+                .payload(payload)
+                .userMetadata(response.metadata())
+                .cacheControl(response.cacheControl())
+                .contentDisposition(response.contentDisposition())
+                .contentEncoding(response.contentEncoding())
+                .contentLanguage(response.contentLanguage())
+                .contentLength(response.contentLength())
+                .contentType(response.contentType())
+                .eTag(response.eTag())
+                .lastModified(response.lastModified() == null ? null :
+                        java.util.Date.from(response.lastModified()))
+                .build();
+    }
+
     public static Builder builder(String name) {
         return new Builder(name);
     }

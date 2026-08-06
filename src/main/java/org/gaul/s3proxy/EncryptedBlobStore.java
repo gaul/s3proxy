@@ -42,6 +42,7 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -57,9 +58,12 @@ import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -165,31 +169,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
     }
 
-    @Nullable
-    private Blob decryptBlob(Decryption decryption, @Nullable Blob blob) {
-        try {
-            // handle blob does not exist
-            if (blob == null) {
-                return null;
-            }
-
-            // open the streams and pass them through the decryption
-            InputStream isRaw = requireNonNull(blob.getPayload());
-            InputStream is = decryption.openStream(isRaw);
-
-            // adjust the content length if the blob is encrypted
-            long contentLength = requireNonNull(
-                blob.getMetadata().contentMetadata().contentLength());
-            if (decryption.isEncrypted()) {
-                contentLength = decryption.getContentLength();
-            }
-
-            return cipheredBlob(blob, is, contentLength, false);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
     // filter the list by showing the unencrypted blob size
     private ListBucketsResponse filteredBuckets(ListBucketsResponse page) {
         var builder = ImmutableList.<Bucket>builder();
@@ -253,7 +232,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 container, object.key(), options));
         try {
             PartPadding lastPartPadding =
-                PartPadding.readPartPaddingFromBlob(blob);
+                PartPadding.readPartPadding(blob);
             int parts = lastPartPadding.getPart();
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         } catch (IOException ioe) {
@@ -261,12 +240,17 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
     }
 
-    private boolean isEncrypted(BlobMetadata blobMeta) {
-        return isEncrypted(blobMeta.name());
-    }
-
     private boolean isEncrypted(String blobName) {
         return blobName.endsWith(Constants.S3_ENC_SUFFIX);
+    }
+
+    private BlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
+        if (isEncrypted(blobMeta.name())) {
+            return blobMeta.toBuilder()
+                    .name(removeEncryptedSuffix(blobMeta.name()))
+                    .build();
+        }
+        return blobMeta;
     }
 
     private BlobMetadata setEncryptedSuffix(BlobMetadata blobMeta) {
@@ -283,65 +267,38 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             blobName.length() - Constants.S3_ENC_SUFFIX.length());
     }
 
-    private BlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
-        if (isEncrypted(blobMeta.name())) {
-            return blobMeta.toBuilder()
-                    .name(removeEncryptedSuffix(blobMeta.name()))
-                    .build();
+    /**
+     * The plaintext size of an encrypted object's HEAD: the stored size
+     * less the padding, counted from the parts metadata, the eTag's part
+     * suffix or, failing both, by reading the final part padding.
+     */
+    private long plaintextHeadSize(String container, String storedName,
+            HeadObjectResponse head) {
+        long blobSize = requireNonNull(head.contentLength());
+        String partsMetadata = head.metadata().get(
+                Constants.METADATA_ENCRYPTION_PARTS);
+        if (partsMetadata != null) {
+            int parts = Integer.parseInt(partsMetadata);
+            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
-        return blobMeta;
-    }
-
-    private BlobMetadata calculateBlobSize(BlobMetadata blobMeta) {
-        BlobMetadata mbm = removeEncryptedSuffix(blobMeta);
-        long blobSize = requireNonNull(blobMeta.size());
-
-        // we are using on non-s3 backends like azure or gcp a metadata key to
-        // calculate the part padding sizes that needs to be removed
-        if (mbm.userMetadata()
-            .containsKey(Constants.METADATA_ENCRYPTION_PARTS)) {
-            int parts = Integer.parseInt(
-                mbm.userMetadata().get(Constants.METADATA_ENCRYPTION_PARTS));
-            int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-            long size = blobSize - partPaddingSizes;
-            mbm = mbm.toBuilder()
-                    .contentLength(size)
-                    .build();
-        } else {
-            // on s3 backends like aws or minio we rely on the eTag suffix
-            Matcher matcher =
-                Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(blobMeta.eTag());
-            if (matcher.find()) {
-                int parts = Integer.parseInt(matcher.group(1));
-                int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-                long size = blobSize - partPaddingSizes;
-                mbm = mbm.toBuilder()
-                        .contentLength(size)
-                        .build();
-            } else {
-                // if there is also no eTag suffix then get the number of parts from last padding
-                var options = GetOptions.builder()
-                    .range(blobSize - Constants.PADDING_BLOCK_SIZE,
-                            blobSize - 1)
-                    .build();
-                var name = blobNameWithSuffix(blobMeta.name());
-                var blob = requireNonNull(delegate().getBlob(
-                        requireNonNull(blobMeta.container()), name, options));
-                try {
-                    PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
-                    int parts = lastPartPadding.getPart();
-                    int partPaddingSizes = Constants.PADDING_BLOCK_SIZE * parts;
-                    long size = blobMeta.size() - partPaddingSizes;
-                    mbm = mbm.toBuilder()
-                            .contentLength(size)
-                            .build();
-                } catch (IOException e) {
-                    throw new UncheckedIOException("Failed to read part-padding from encrypted blob", e);
-                }
-            }
+        Matcher matcher = Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(
+                requireNonNull(head.eTag()));
+        if (matcher.find()) {
+            int parts = Integer.parseInt(matcher.group(1));
+            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
-
-        return mbm;
+        var options = GetOptions.builder()
+            .range(blobSize - Constants.PADDING_BLOCK_SIZE, blobSize - 1)
+            .build();
+        var blob = requireNonNull(delegate().getBlob(
+                container, storedName, options));
+        try {
+            int parts = PartPadding.readPartPadding(blob).getPart();
+            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                "Failed to read part-padding from encrypted blob", e);
+        }
     }
 
     private String blobNameWithSuffix(String container, String name) {
@@ -357,15 +314,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
-    public Blob getBlob(String containerName, String blobName,
-        GetOptions getOptions) {
+    public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
+        String containerName, String blobName, GetOptions getOptions) {
 
         // adjust the blob name
         blobName = blobNameWithSuffix(blobName);
 
         // get the metadata to determine the blob size
-        BlobMetadata meta = delegate().blobMetadata(containerName, blobName);
+        HeadObjectResponse meta = delegate().blobMetadata(containerName,
+                blobName);
 
         try {
             // we have a blob that ends with .s3enc
@@ -396,8 +353,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
 
                 // init decryption
-                Decryption decryption =
-                    new Decryption(secretKey, delegate(), meta, offset, length);
+                Decryption decryption = new Decryption(secretKey, delegate(),
+                    meta, containerName, blobName, offset, length);
 
                 GetOptions delegateOptions = getOptions;
                 if (decryption.isEncrypted() &&
@@ -422,12 +379,24 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                         getOptions.versionId());
                 }
 
-                Blob blob = delegate().getBlob(containerName, blobName,
+                var blob = delegate().getBlob(containerName, blobName,
                     delegateOptions);
-                Blob decryptedBlob = decryptBlob(decryption, blob);
-                if (decryptedBlob == null) {
+                if (blob == null) {
                     return null;
                 }
+
+                // open the streams and pass them through the decryption
+                InputStream is = decryption.openStream(blob);
+
+                // adjust the content length if the blob is encrypted
+                long contentLength = requireNonNull(
+                    blob.response().contentLength());
+                if (decryption.isEncrypted()) {
+                    contentLength = decryption.getContentLength();
+                }
+
+                var responseBuilder = blob.response().toBuilder()
+                        .contentLength(contentLength);
                 if (!getOptions.ranges().isEmpty()) {
                     long decryptedSize = decryption.getUnencryptedSize();
                     long startRange;
@@ -447,12 +416,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                         startRange = offset;
                         endRange = Math.min(end, decryptedSize - 1);
                     }
-                    decryptedBlob = decryptedBlob.toBuilder()
-                            .contentRange("bytes " + startRange + "-" +
-                                    endRange + "/" + decryptedSize)
-                            .build();
+                    responseBuilder.contentRange("bytes " + startRange + "-" +
+                            endRange + "/" + decryptedSize);
                 }
-                return decryptedBlob;
+                return SdkResponses.getResponse(responseBuilder.build(), is);
             } else {
                 // we suppose to return a unencrypted blob
                 // since no metadata was found
@@ -645,21 +612,21 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(String container, String name) {
 
-        name = blobNameWithSuffix(container, name);
-        BlobMetadata blobMetadata = delegate().blobMetadata(container, name);
-        if (blobMetadata != null) {
-            // only remove the -s3enc suffix
-            // if the blob is encrypted and not a multipart stub
-            if (isEncrypted(blobMetadata) &&
-                !blobMetadata.userMetadata()
-                    .containsKey(Constants.METADATA_IS_ENCRYPTED_MULTIPART)) {
-                blobMetadata = removeEncryptedSuffix(blobMetadata);
-                blobMetadata = calculateBlobSize(blobMetadata);
-            }
+        String stored = blobNameWithSuffix(container, name);
+        HeadObjectResponse head = delegate().blobMetadata(container, stored);
+        if (head != null &&
+            // report the plaintext size only for an encrypted blob that is
+            // not a multipart stub
+            isEncrypted(stored) &&
+            !head.metadata().containsKey(
+                Constants.METADATA_IS_ENCRYPTED_MULTIPART)) {
+            head = head.toBuilder()
+                    .contentLength(plaintextHeadSize(container, stored, head))
+                    .build();
         }
-        return blobMetadata;
+        return head;
     }
     // Disable versioning: versioned reads would return ciphertext and
     // suffixed names.

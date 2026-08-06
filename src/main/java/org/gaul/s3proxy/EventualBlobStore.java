@@ -135,8 +135,10 @@ final class EventualBlobStore extends ForwardingBlobStore {
         schedule(new Callable<@Nullable PutObjectResponse>() {
                 @Override
                 public @Nullable PutObjectResponse call() {
-                    Blob nearBlob = writeStore.getBlob(containerName, nearName,
+                    var near = writeStore.getBlob(containerName, nearName,
                             GetOptions.NONE);
+                    Blob nearBlob = near == null ? null :
+                            Blob.from(nearName, near.response(), near);
                     if (nearBlob == null) {
                         // a racing removeBlob already deleted the near blob;
                         // the far copy will converge via its scheduled removal

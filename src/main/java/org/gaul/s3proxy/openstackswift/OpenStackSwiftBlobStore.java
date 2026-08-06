@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.openstackswift;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,7 +46,6 @@ import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -78,10 +79,13 @@ import org.openstack4j.model.storage.object.options.ObjectLocation;
 import org.openstack4j.model.storage.object.options.ObjectPutOptions;
 import org.openstack4j.openstack.OSFactory;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -533,7 +537,21 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public Blob getBlob(String container, String key, GetOptions options) {
+    public ResponseInputStream<GetObjectResponse> getBlob(String container,
+            String key, GetOptions options) {
+        Blob blob = getBlobCarrier(container, key, options);
+        if (blob == null) {
+            return null;
+        }
+        return SdkResponses.getResponse(
+                SdkResponses.toGetResponse(blob.getMetadata(),
+                        blob.getContentRange()),
+                requireNonNull(blob.getPayload()));
+    }
+
+    @Nullable
+    private Blob getBlobCarrier(String container, String key,
+            GetOptions options) {
         if (options.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
@@ -736,7 +754,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 ifModifiedSince == null && ifUnmodifiedSince == null) {
             return;
         }
-        BlobMetadata metadata = blobMetadata(container, name);
+        HeadObjectResponse metadata = blobMetadata(container, name);
         if (metadata == null) {
             throw S3Exceptions.noSuchKey(container, name, "while copying");
         }
@@ -751,7 +769,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 throw preconditionFailed();
             }
         }
-        Date lastModified = metadata.lastModified();
+        Date lastModified = metadata.lastModified() == null ? null :
+                Date.from(metadata.lastModified());
         if (lastModified != null) {
             if (ifModifiedSince != null &&
                     lastModified.compareTo(ifModifiedSince) <= 0) {
@@ -788,7 +807,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // S3 CopyObject with metadata directive REPLACE.  Swift's COPY
             // always preserves the source metadata, so download the source
             // object and re-upload it with the replacement metadata instead.
-            var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
+            var blob = getBlobCarrier(fromContainer, fromName,
+                    GetOptions.NONE);
             if (blob == null) {
                 throw S3Exceptions.noSuchKey(fromContainer, fromName,
                         "while copying");
@@ -875,7 +895,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(String container, String key) {
         var swift = objectStorage();
         SwiftObject object;
         try {
@@ -889,18 +909,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (object == null) {
             return null;
         }
-        var contentMetadata = ContentMetadata.builder()
-                .contentLength(object.getSizeInBytes())
-                .contentType(object.getMimeType())
-                .build();
         var headers = object.getMetadata();
         var objectMetadata = ObjectMetadata.from(
                 headers == null ? Map.of() : headers);
-        return new BlobMetadata(key,
-                objectMetadata.userMetadata(),
-                objectMetadata.eTagOr(object.getETag()),
-                object.getLastModified(), StorageClass.STANDARD, container,
-                contentMetadata);
+        return HeadObjectResponse.builder()
+                .metadata(objectMetadata.userMetadata())
+                .eTag(objectMetadata.eTagOr(object.getETag()))
+                .lastModified(object.getLastModified() == null ? null :
+                        object.getLastModified().toInstant())
+                .storageClass(StorageClass.STANDARD.toString())
+                .contentLength(object.getSizeInBytes())
+                .contentType(object.getMimeType())
+                .build();
     }
 
     /**
@@ -1090,7 +1110,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // Restore the target metadata saved by initiateMultipartUpload.
         var swiftOptions = ObjectPutOptions.create();
         var manifestMetadata = new HashMap<String, String>();
-        var marker = getBlob(container, mpuMetaKey(uploadId), GetOptions.NONE);
+        var marker = getBlobCarrier(container, mpuMetaKey(uploadId),
+                GetOptions.NONE);
         if (marker != null) {
             var contentMetadata = marker.getMetadata().contentMetadata();
             if (contentMetadata.contentType() != null) {
@@ -1230,7 +1251,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
             String uploadId = name.substring(MPU_PREFIX.length(),
                     name.length() - MPU_META_SUFFIX.length());
-            var marker = getBlob(container, name, GetOptions.NONE);
+            var marker = getBlobCarrier(container, name, GetOptions.NONE);
             String blobName = null;
             if (marker != null) {
                 blobName = marker.getMetadata().userMetadata()

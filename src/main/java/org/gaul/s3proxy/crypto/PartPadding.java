@@ -16,16 +16,14 @@
 
 package org.gaul.s3proxy.crypto;
 
-import static java.util.Objects.requireNonNull;
-
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import javax.crypto.spec.IvParameterSpec;
 
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,9 +44,9 @@ public final class PartPadding {
         this.size = size;
     }
 
-    public static PartPadding readPartPaddingFromBlob(Blob blob)
+    public static PartPadding readPartPadding(InputStream stream)
             throws IOException {
-        try (var is = requireNonNull(blob.getPayload())) {
+        try (var is = stream) {
             byte[] paddingBytes = is.readAllBytes();
             ByteBuffer bb = ByteBuffer.wrap(paddingBytes);
 

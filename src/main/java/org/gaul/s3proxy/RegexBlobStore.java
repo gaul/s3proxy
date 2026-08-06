@@ -45,8 +45,11 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
@@ -148,14 +151,14 @@ public final class RegexBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(String container, String name) {
         return super.blobMetadata(container, replaceBlobName(name));
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String containerName, String name,
-            GetOptions getOptions) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String name, GetOptions getOptions) {
         return super.getBlob(containerName, replaceBlobName(name), getOptions);
     }
 

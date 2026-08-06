@@ -22,6 +22,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -32,6 +33,7 @@ import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
@@ -41,7 +43,10 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -57,20 +62,25 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
-        Blob blob = getBlob(container, name, GetOptions.NONE);
+    public HeadObjectResponse blobMetadata(String container, String name) {
+        var blob = getBlob(container, name, GetOptions.NONE);
         if (blob == null) {
             return null;
         }
-        return blob.getMetadata();
+        try (blob) {
+            return SdkResponses.toHead(blob.response());
+        } catch (IOException ioe) {
+            throw new UncheckedIOException(ioe);
+        }
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String container, String name, GetOptions options) {
+    public ResponseInputStream<GetObjectResponse> getBlob(String container,
+            String name, GetOptions options) {
         // Ranges apply to the virtual content, not the 8-byte length stub.
         List<String> originalRanges = options.ranges();
-        Blob blob;
+        ResponseInputStream<GetObjectResponse> blob;
         if (originalRanges.isEmpty()) {
             blob = super.getBlob(container, name, options);
         } else {
@@ -84,7 +94,7 @@ final class NullBlobStore extends ForwardingBlobStore {
         }
 
         byte[] array;
-        try (InputStream is = requireNonNull(blob.getPayload())) {
+        try (InputStream is = blob) {
             array = is.readAllBytes();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -110,11 +120,15 @@ final class NullBlobStore extends ForwardingBlobStore {
             }
         }
 
-        return blob.toBuilder()
-                .payload(new NullByteSource().slice(0, length))
-                .contentLength(length)
-                .contentMD5(null)
-                .build();
+        try {
+            return SdkResponses.getResponse(
+                    blob.response().toBuilder()
+                            .contentLength(length)
+                            .build(),
+                    new NullByteSource().slice(0, length).openStream());
+        } catch (IOException ioe) {
+            throw new UncheckedIOException(ioe);
+        }
     }
 
     @Override
@@ -222,10 +236,9 @@ final class NullBlobStore extends ForwardingBlobStore {
         var builder = ImmutableList.<MultipartPart>builder();
         for (MultipartPart part : super.listMultipartUpload(mpu)) {
             // get real blob size from stub blob
-            Blob blob = requireNonNull(getBlob(mpu.containerName(),
+            var blob = requireNonNull(getBlob(mpu.containerName(),
                     mpu.id() + "-" + part.partNumber(), GetOptions.NONE));
-            long length = requireNonNull(blob.getMetadata().contentMetadata()
-                    .contentLength());
+            long length = requireNonNull(blob.response().contentLength());
             builder.add(new MultipartPart(part.partNumber(), length,
                     part.partETag(), part.lastModified()));
         }

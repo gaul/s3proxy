@@ -33,7 +33,6 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
@@ -50,6 +49,7 @@ import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -57,6 +57,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -249,14 +251,14 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public synchronized BlobMetadata blobMetadata(String containerName,
+    public synchronized HeadObjectResponse blobMetadata(String containerName,
             String key) {
         return blobMetadata(containerName, key, null);
     }
 
     @Override
     @Nullable
-    public synchronized BlobMetadata blobMetadata(String containerName,
+    public synchronized HeadObjectResponse blobMetadata(String containerName,
             String key, @Nullable String versionId) {
         var container = getContainer(containerName);
         var version = resolveVersionOrThrow(containerName, container, key,
@@ -264,30 +266,35 @@ final class InMemoryVersionedBlobStore implements BlobStore {
         if (version == null) {
             return null;
         }
-        return toBlobMetadata(containerName, key, version, container);
+        return HeadObjectResponse.builder()
+                .eTag(version.eTag())
+                .lastModified(version.lastModified().toInstant())
+                .contentLength((long) version.content().length)
+                .contentType(version.contentType())
+                .versionId(container.status == null ? null :
+                        version.versionId())
+                .build();
     }
 
     @Override
     @Nullable
-    public synchronized Blob getBlob(String containerName, String key,
-            GetOptions options) {
+    public synchronized ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String key, GetOptions options) {
         var container = getContainer(containerName);
         var version = resolveVersionOrThrow(containerName, container, key,
                 options.versionId());
         if (version == null) {
             return null;
         }
-        var builder = Blob.builder(key)
-                .payload(new ByteArrayInputStream(version.content()))
-                .contentLength(version.content().length)
-                .contentType(version.contentType())
-                .eTag(version.eTag())
-                .lastModified(version.lastModified())
-                .container(containerName);
-        if (container.status != null) {
-            builder.versionId(version.versionId());
-        }
-        return builder.build();
+        return SdkResponses.getResponse(GetObjectResponse.builder()
+                        .contentLength((long) version.content().length)
+                        .contentType(version.contentType())
+                        .eTag(version.eTag())
+                        .lastModified(version.lastModified().toInstant())
+                        .versionId(container.status == null ? null :
+                                version.versionId())
+                        .build(),
+                new ByteArrayInputStream(version.content()));
     }
 
     @Override
@@ -585,18 +592,6 @@ final class InMemoryVersionedBlobStore implements BlobStore {
             }
         }
         return null;
-    }
-
-    private static BlobMetadata toBlobMetadata(String containerName,
-            String key, Version version, Container container) {
-        return new BlobMetadata(key, Map.of(),
-                version.eTag(), version.lastModified(),
-                StorageClass.STANDARD, containerName,
-                ContentMetadata.builder()
-                        .contentLength((long) version.content().length)
-                        .contentType(version.contentType())
-                        .build(),
-                container.status == null ? null : version.versionId());
     }
 
     private static byte[] readPayload(Blob blob) {

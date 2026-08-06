@@ -31,7 +31,6 @@ import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -52,6 +51,7 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -79,6 +79,7 @@ import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -345,7 +346,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public Blob getBlob(String container, String key, GetOptions options) {
+    public ResponseInputStream<GetObjectResponse> getBlob(String container,
+            String key, GetOptions options) {
         var requestBuilder = GetObjectRequest.builder()
                 .bucket(container)
                 .key(key);
@@ -376,42 +378,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
 
         try {
-            var responseStream = s3Client.getObject(requestBuilder.build());
-            var response = responseStream.response();
-
-            // The SDK deprecated expires() in favor of expiresString() but
-            // the blobstore API models Expires as a Date, so use the SDK's
-            // parsed value.
-            @SuppressWarnings("deprecation")
-            var expires = response.expires() == null ?
-                    null : Date.from(response.expires());
-            var builder = Blob.builder(key)
-                    .userMetadata(response.metadata())
-                    .payload(responseStream)
-                    .cacheControl(response.cacheControl())
-                    .contentDisposition(response.contentDisposition())
-                    .contentEncoding(response.contentEncoding())
-                    .contentLanguage(response.contentLanguage())
-                    .contentLength(response.contentLength())
-                    .contentType(response.contentType())
-                    .expires(expires);
-
-            if (response.contentRange() != null) {
-                builder.contentRange(response.contentRange());
-            }
-
-            builder.eTag(response.eTag());
-            if (response.lastModified() != null) {
-                builder.lastModified(Date.from(response.lastModified()));
-            }
-            // Carry the storage class so GET reports x-amz-storage-class
-            // consistently with HEAD (blobMetadata) instead of defaulting to
-            // STANDARD for GLACIER/IA objects.
-            builder.storageClass(orStandard(response.storageClassAsString()));
-
-            builder.versionId(response.versionId());
-
-            return builder.build();
+            return s3Client.getObject(requestBuilder.build());
         } catch (S3Exception e) {
             // 304, 405 on a delete marker read, NoSuchVersion and the rest
             // pass through verbatim; the response headers, e.g. ETag and
@@ -610,13 +577,13 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(String container, String key) {
         return blobMetadata(container, key, /*versionId=*/ null);
     }
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String key,
+    public HeadObjectResponse blobMetadata(String container, String key,
             @Nullable String versionId) {
         var requestBuilder = HeadObjectRequest.builder()
                 .bucket(container)
@@ -625,16 +592,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             requestBuilder.versionId(versionId);
         }
         try {
-            HeadObjectResponse response = s3Client.headObject(
-                    requestBuilder.build());
-
-            return new BlobMetadata(key,
-                    response.metadata(), response.eTag(),
-                    toDate(response.lastModified()),
-                    orStandard(response.storageClassAsString()),
-                    container,
-                    toContentMetadata(response),
-                    response.versionId());
+            return s3Client.headObject(requestBuilder.build());
         } catch (NoSuchKeyException e) {
             return nullOrDeleteMarker(container, key, e);
         } catch (NoSuchBucketException e) {
@@ -1095,31 +1053,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 StorageClass.STANDARD : parsed;
     }
 
-    private static org.gaul.s3proxy.blobstore.ContentMetadata toContentMetadata(
-            HeadObjectResponse response) {
-        // The SDK deprecated expires() in favor of expiresString() but the
-        // blobstore API models Expires as a Date, so use the SDK's parsed
-        // value.
-        @SuppressWarnings("deprecation")
-        var expires = response.expires() == null ?
-                null : Date.from(response.expires());
-        return org.gaul.s3proxy.blobstore.ContentMetadata.builder()
-                .cacheControl(response.cacheControl())
-                .contentDisposition(response.contentDisposition())
-                .contentEncoding(response.contentEncoding())
-                .contentLanguage(response.contentLanguage())
-                .contentLength(response.contentLength())
-                .contentType(response.contentType())
-                .expires(expires)
-                .build();
-    }
-
     /**
      * Answers the blobMetadata contract for a 404: an absent object is
      * null, while a delete marker or missing version still throws.
      */
     @Nullable
-    private static BlobMetadata nullOrDeleteMarker(String container,
+    private static HeadObjectResponse nullOrDeleteMarker(String container,
             String key, S3Exception e) {
         if ("NoSuchVersion".equals(S3Exceptions.errorCode(e))) {
             throw e;
@@ -1218,7 +1157,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
      */
     private void validateConditionalPut(String container, String blobName,
             @Nullable String ifMatch, @Nullable String ifNoneMatch) {
-        BlobMetadata metadata = blobMetadata(container, blobName);
+        HeadObjectResponse metadata = blobMetadata(container, blobName);
 
         if (ifMatch != null) {
             validateIfMatch(container, blobName, ifMatch, metadata);
@@ -1230,7 +1169,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     private void validateIfMatch(String container, String blobName,
-            String ifMatch, @Nullable BlobMetadata metadata) {
+            String ifMatch, @Nullable HeadObjectResponse metadata) {
         if ("*".equals(ifMatch)) {
             if (metadata == null) {
                 throw preconditionFailed();
@@ -1251,7 +1190,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     private void validateIfNoneMatch(String ifNoneMatch,
-            @Nullable BlobMetadata metadata) {
+            @Nullable HeadObjectResponse metadata) {
         if ("*".equals(ifNoneMatch)) {
             if (metadata != null) {
                 throw preconditionFailed();

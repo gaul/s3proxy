@@ -32,6 +32,7 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -45,8 +46,11 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -199,20 +203,22 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(String container, String name) {
         simulateLatency(OP_BLOB_METADATA);
         return super.blobMetadata(container, name);
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String containerName, String blobName, GetOptions getOptions) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String blobName, GetOptions getOptions) {
         simulateLatency(OP_GET_BLOB);
-        Blob blob = super.getBlob(containerName, blobName, getOptions);
+        var blob = super.getBlob(containerName, blobName, getOptions);
         if (blob == null) {
             return null;
         }
-        return replaceStream(blob, new ThrottledInputStream(requireNonNull(blob.getPayload()), getSpeed(OP_GET_BLOB)));
+        return SdkResponses.getResponse(blob.response(),
+                new ThrottledInputStream(blob, getSpeed(OP_GET_BLOB)));
     }
 
     @Override

@@ -29,7 +29,6 @@ import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
@@ -71,14 +70,15 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateBlobGetBlob() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+                nullBlobStore.putBlob(containerName, makeBlob(blobName), PutOptions.NONE);
 
-        blob = nullBlobStore.getBlob(containerName, blobName, GetOptions.NONE);
-        validateBlobMetadata(blob.getMetadata());
+        var blob = nullBlobStore.getBlob(containerName, blobName,
+                GetOptions.NONE);
+        validateBlobMetadata(nullBlobStore.blobMetadata(containerName,
+                blobName));
 
         // content differs, only compare length
-        try (InputStream actual = blob.getPayload();
+        try (InputStream actual = blob;
                 InputStream expected = BYTE_SOURCE.openStream()) {
             long actualLength = actual.transferTo(
                     OutputStream.nullOutputStream());
@@ -110,24 +110,27 @@ public final class NullBlobStoreTest {
 
         // bytes=A-B
         GetOptions explicit = GetOptions.builder().range(100, 199).build();
-        blob = nullBlobStore.getBlob(containerName, blobName, explicit);
-        try (InputStream is = blob.getPayload()) {
+        var explicitGet = nullBlobStore.getBlob(containerName, blobName,
+                explicit);
+        try (InputStream is = explicitGet) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(100);
         }
 
         // bytes=A-
         GetOptions suffix = GetOptions.builder().startAt(500).build();
-        blob = nullBlobStore.getBlob(containerName, blobName, suffix);
-        try (InputStream is = blob.getPayload()) {
+        var suffixGet = nullBlobStore.getBlob(containerName, blobName,
+                suffix);
+        try (InputStream is = suffixGet) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(size - 500);
         }
 
         // bytes=-N
         GetOptions tail = GetOptions.builder().tail(128).build();
-        blob = nullBlobStore.getBlob(containerName, blobName, tail);
-        try (InputStream is = blob.getPayload()) {
+        var tailGet = nullBlobStore.getBlob(containerName, blobName,
+                tail);
+        try (InputStream is = tailGet) {
             assertThat(is.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(128);
         }
@@ -138,7 +141,7 @@ public final class NullBlobStoreTest {
         String blobName = createRandomBlobName();
         Blob blob = makeBlob(blobName);
         nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
-        BlobMetadata metadata = nullBlobStore.blobMetadata(containerName,
+        var metadata = nullBlobStore.blobMetadata(containerName,
                 blobName);
         validateBlobMetadata(metadata);
     }
@@ -174,12 +177,13 @@ public final class NullBlobStoreTest {
 
         nullBlobStore.completeMultipartUpload(mpu, parts);
 
-        Blob newBlob = nullBlobStore.getBlob(containerName, blobName,
+        var newBlob = nullBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE);
-        validateBlobMetadata(newBlob.getMetadata());
+        validateBlobMetadata(nullBlobStore.blobMetadata(
+                containerName, blobName));
 
         // content differs, only compare length
-        try (InputStream actual = newBlob.getPayload();
+        try (InputStream actual = newBlob;
                 InputStream expected = byteSource.openStream()) {
             long actualLength = actual.transferTo(
                     OutputStream.nullOutputStream());
@@ -226,10 +230,10 @@ public final class NullBlobStoreTest {
 
         nullBlobStore.completeMultipartUpload(mpu, parts);
 
-        Blob newBlob = nullBlobStore.getBlob(containerName, blobName,
+        var newBlob = nullBlobStore.getBlob(containerName, blobName,
                 GetOptions.NONE);
         assertThat(newBlob).isNotNull();
-        try (InputStream actual = newBlob.getPayload();
+        try (InputStream actual = newBlob;
                 InputStream expected = byteSource.openStream()) {
             assertThat(actual.transferTo(OutputStream.nullOutputStream()))
                     .isEqualTo(expected.transferTo(
@@ -261,11 +265,11 @@ public final class NullBlobStoreTest {
                 .build();
     }
 
-    private static void validateBlobMetadata(BlobMetadata metadata)
+    private static void validateBlobMetadata(software.amazon.awssdk.services.s3.model.HeadObjectResponse metadata)
             throws IOException {
         assertThat(metadata).isNotNull();
 
-        ContentMetadata contentMetadata = metadata.contentMetadata();
+        var contentMetadata = metadata;
         assertThat(contentMetadata.contentDisposition())
                 .isEqualTo("attachment; filename=foo.mp4");
         assertThat(contentMetadata.contentEncoding())
@@ -273,7 +277,7 @@ public final class NullBlobStoreTest {
         assertThat(contentMetadata.contentType())
                 .isEqualTo(MediaType.MP4_AUDIO.toString());
 
-        assertThat(metadata.userMetadata())
+        assertThat(metadata.metadata())
                 .isEqualTo(Map.of("key", "value"));
     }
 }

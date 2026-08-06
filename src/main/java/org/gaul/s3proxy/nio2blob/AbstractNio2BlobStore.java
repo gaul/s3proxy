@@ -79,10 +79,13 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -437,13 +440,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public final Blob getBlob(String container, String key,
-            GetOptions options) {
+    public final ResponseInputStream<GetObjectResponse> getBlob(
+            String container, String key, GetOptions options) {
         if (options.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        return getBlobInternal(container, key, options, /*openStream=*/ true);
+        Blob blob = getBlobInternal(container, key, options,
+                /*openStream=*/ true);
+        if (blob == null) {
+            return null;
+        }
+        return SdkResponses.getResponse(
+                SdkResponses.toGetResponse(blob.getMetadata(),
+                        blob.getContentRange()),
+                requireNonNull(blob.getPayload()));
     }
 
     @Nullable
@@ -912,7 +923,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
+        var blob = getBlobInternal(fromContainer, fromName,
+                GetOptions.NONE, /*openStream=*/ true);
         if (blob == null) {
             throw S3Exceptions.noSuchKey(fromContainer, fromName, "while copying");
         }
@@ -1045,7 +1057,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public final BlobMetadata blobMetadata(String container, String key) {
+    public final HeadObjectResponse blobMetadata(String container,
+            String key) {
         Blob blob = getBlobInternal(container, key, GetOptions.NONE,
                 /*openStream=*/ false);
         if (blob == null) {
@@ -1057,7 +1070,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             lowerCaseUserMetadata.put(entry.getKey().toLowerCase(),
                     entry.getValue());
         }
-        return in.toBuilder().userMetadata(lowerCaseUserMetadata).build();
+        return SdkResponses.toHead(SdkResponses.toGetResponse(
+                in.toBuilder().userMetadata(lowerCaseUserMetadata).build(),
+                /*contentRange=*/ null));
     }
 
     @Override
@@ -1229,20 +1244,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
-        var metas = ImmutableList.<BlobMetadata>builder();
+        var partNames = ImmutableList.<String>builder();
         long contentLength = 0;
         var md5Hasher = md5.newHasher();
 
         for (var part : parts) {
-            var meta = blobMetadata(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
+            var partName = multipartPartName(mpu.id(), mpu.blobName(),
+                    part.partNumber());
+            var meta = blobMetadata(mpu.containerName(), partName);
             if (meta == null) {
                 // S3 returns InvalidPart (400) when the manifest references
                 // a part that was never uploaded.
                 throw returnResponseException(400);
             }
-            contentLength += requireNonNull(
-                    meta.contentMetadata().contentLength());
-            metas.add(meta);
+            contentLength += requireNonNull(meta.contentLength());
+            partNames.add(partName);
             if (meta.eTag() != null) {
                 var eTag = meta.eTag();
                 if (eTag.startsWith("\"") && eTag.endsWith("\"") &&
@@ -1254,7 +1270,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         var mpuETag = "\"" + md5Hasher.hash() + "-" + parts.size() + "\"";
         var blobBuilder = Blob.builder(mpu.blobName())
-                .payload(new MultiBlobInputStream(this, metas.build()))
+                .payload(new MultiBlobInputStream(this, mpu.containerName(),
+                        partNames.build()))
                 .contentLength(contentLength)
                 .eTag(mpuETag);
         var mpuBlobMetadata = mpu.blobMetadata();
@@ -1345,7 +1362,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 /*parts=*/ null);
         var metadata = requireNonNull(
                 blobMetadata(mpu.containerName(), partName));
-        return new MultipartPart(partNumber, contentLength, partETag, metadata.lastModified());
+        return new MultipartPart(partNumber, contentLength, partETag,
+                metadata.lastModified() == null ? null :
+                        Date.from(metadata.lastModified()));
     }
 
     @Override
@@ -1483,11 +1502,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     private static final class MultiBlobInputStream extends InputStream {
         private final BlobStore blobStore;
-        private final Iterator<BlobMetadata> metas;
+        private final String container;
+        private final Iterator<String> metas;
         @Nullable private InputStream current;
 
-        MultiBlobInputStream(BlobStore blobStore, List<BlobMetadata> metas) {
+        MultiBlobInputStream(BlobStore blobStore, String container,
+                List<String> metas) {
             this.blobStore = blobStore;
+            this.container = container;
             this.metas = metas.iterator();
         }
 
@@ -1534,14 +1556,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
         }
 
-        private InputStream openPartStream(BlobMetadata meta) throws IOException {
-            Blob blob = blobStore.getBlob(requireNonNull(meta.container()),
-                    meta.name(), GetOptions.NONE);
+        private InputStream openPartStream(String name) throws IOException {
+            var blob = blobStore.getBlob(container, name, GetOptions.NONE);
             if (blob == null) {
                 throw new IOException("Part disappeared: " +
-                        meta.container() + "/" + meta.name());
+                        container + "/" + name);
             }
-            return requireNonNull(blob.getPayload());
+            return blob;
         }
 
         @Override

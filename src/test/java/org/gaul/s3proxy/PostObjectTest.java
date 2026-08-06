@@ -182,7 +182,7 @@ public final class PostObjectTest {
                 "key", "foo.txt", "x-amz-meta-foo", "barclamp");
         assertThat(response.statusCode()).isEqualTo(204);
         assertThat(blobStore.blobMetadata(containerName, "foo.txt")
-                .userMetadata()).containsEntry("foo", "barclamp");
+                .metadata()).containsEntry("foo", "barclamp");
     }
 
     /** A signed policy the form satisfies. */
@@ -291,7 +291,7 @@ public final class PostObjectTest {
 
     private String body(String blobName) throws Exception {
         try (var stream = blobStore.getBlob(containerName, blobName,
-                GetOptions.NONE).getPayload()) {
+                GetOptions.NONE)) {
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
     }

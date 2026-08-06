@@ -98,10 +98,13 @@ import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -386,7 +389,8 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public Blob getBlob(String container, String key, GetOptions options) {
+    public ResponseInputStream<GetObjectResponse> getBlob(String container,
+            String key, GetOptions options) {
         if (options.versionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
@@ -474,24 +478,6 @@ public final class AzureBlobStore implements BlobStore {
                         properties.getBlobSize() - azureRange.getOffset());
             }
         }
-        var builder = Blob.builder(key)
-                .userMetadata(properties.getMetadata())
-                .payload(blobStream)
-                .cacheControl(properties.getCacheControl())
-                .contentDisposition(properties.getContentDisposition())
-                .contentEncoding(properties.getContentEncoding())
-                .contentLanguage(properties.getContentLanguage())
-                .contentLength(contentLength)
-                .contentType(properties.getContentType())
-                .expires(expires != null ? toDate(expires) : null)
-                .eTag(reportETag(properties.getETag()))
-                .lastModified(toDate(properties.getLastModified()));
-        if (azureRange != null) {
-            builder.contentRange(
-                    "bytes " + azureRange.getOffset() +
-                    "-" + (azureRange.getOffset() + contentLength - 1) +
-                    "/" + properties.getBlobSize());
-        }
         // Carry the access tier so GET reports x-amz-storage-class
         // consistently with HEAD (blobMetadata).  Get Blob does not always
         // return the tier that Get Blob Properties does (e.g. the emulator
@@ -500,8 +486,26 @@ public final class AzureBlobStore implements BlobStore {
         if (accessTier == null) {
             accessTier = client.getProperties().getAccessTier();
         }
-        builder.storageClass(fromAccessTier(accessTier));
-        return builder.build();
+        var builder = GetObjectResponse.builder()
+                .metadata(properties.getMetadata())
+                .cacheControl(properties.getCacheControl())
+                .contentDisposition(properties.getContentDisposition())
+                .contentEncoding(properties.getContentEncoding())
+                .contentLanguage(properties.getContentLanguage())
+                .contentLength(contentLength)
+                .contentType(properties.getContentType())
+                .expires(expires == null ? null : expires.toInstant())
+                .eTag(reportETag(properties.getETag()))
+                .lastModified(properties.getLastModified() == null ? null :
+                        properties.getLastModified().toInstant())
+                .storageClass(fromAccessTier(accessTier).toString());
+        if (azureRange != null) {
+            builder.contentRange(
+                    "bytes " + azureRange.getOffset() +
+                    "-" + (azureRange.getOffset() + contentLength - 1) +
+                    "/" + properties.getBlobSize());
+        }
+        return SdkResponses.getResponse(builder.build(), blobStream);
     }
 
     @Override
@@ -850,7 +854,7 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String key) {
+    public HeadObjectResponse blobMetadata(String container, String key) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
         BlobProperties properties;
@@ -862,13 +866,22 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, container, /*key=*/ null);
         }
-        return new BlobMetadata(key,
-                properties.getMetadata(),
-                reportETag(properties.getETag()),
-                toDate(properties.getLastModified()),
-                fromAccessTier(properties.getAccessTier()),
-                container,
-                toContentMetadata(properties));
+        return HeadObjectResponse.builder()
+                .metadata(properties.getMetadata())
+                .eTag(reportETag(properties.getETag()))
+                .lastModified(properties.getLastModified() == null ? null :
+                        properties.getLastModified().toInstant())
+                .storageClass(fromAccessTier(
+                        properties.getAccessTier()).toString())
+                .cacheControl(properties.getCacheControl())
+                .contentDisposition(properties.getContentDisposition())
+                .contentEncoding(properties.getContentEncoding())
+                .contentLanguage(properties.getContentLanguage())
+                .contentLength(properties.getBlobSize())
+                .contentType(properties.getContentType())
+                .expires(properties.getExpiresOn() == null ? null :
+                        properties.getExpiresOn().toInstant())
+                .build();
     }
 
     @Override

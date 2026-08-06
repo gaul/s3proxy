@@ -38,10 +38,13 @@ import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -133,21 +136,21 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name) {
+    public HeadObjectResponse blobMetadata(String container, String name) {
         return delegate().blobMetadata(container, name);
     }
 
     @Override
     @Nullable
-    public BlobMetadata blobMetadata(String container, String name,
+    public HeadObjectResponse blobMetadata(String container, String name,
             @Nullable String versionId) {
         return delegate().blobMetadata(container, name, versionId);
     }
 
     @Override
     @Nullable
-    public Blob getBlob(String containerName, String blobName,
-            GetOptions getOptions) {
+    public ResponseInputStream<GetObjectResponse> getBlob(
+            String containerName, String blobName, GetOptions getOptions) {
         return delegate().getBlob(containerName, blobName, getOptions);
     }
 

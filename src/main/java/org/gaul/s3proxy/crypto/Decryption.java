@@ -30,10 +30,10 @@ import javax.crypto.spec.SecretKeySpec;
 import com.google.common.io.ByteStreams;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 
 public class Decryption {
     private final SecretKey encryptionKey;
@@ -49,7 +49,7 @@ public class Decryption {
     private boolean isEncrypted;
 
     public Decryption(SecretKeySpec key, BlobStore blobStore,
-        @Nullable BlobMetadata meta,
+        @Nullable HeadObjectResponse meta, String container, String blobName,
         long offset, long length) throws IOException {
         encryptionKey = key;
         outputLength = length;
@@ -60,24 +60,23 @@ public class Decryption {
         // to exactly one 64-byte padding block, so a 64-byte blob is still a
         // (zero-length) encrypted object; the delimiter check below rejects a
         // genuinely unencrypted 64-byte blob.
-        Long metaSize = meta == null ? null : meta.size();
+        Long metaSize = meta == null ? null : meta.contentLength();
         if (meta == null || metaSize == null ||
             metaSize < Constants.PADDING_BLOCK_SIZE) {
             blobIsNotEncrypted(offset);
             return;
         }
-        String container = requireNonNull(meta.container());
 
         // get the 64 byte of part padding from the end of the blob
         var options = GetOptions.builder()
             .range(metaSize - Constants.PADDING_BLOCK_SIZE,
                 metaSize - 1)
             .build();
-        Blob blob = requireNonNull(
-            blobStore.getBlob(container, meta.name(), options));
+        var blob = requireNonNull(
+            blobStore.getBlob(container, blobName, options));
 
         // read the padding structure
-        PartPadding lastPartPadding = PartPadding.readPartPaddingFromBlob(blob);
+        PartPadding lastPartPadding = PartPadding.readPartPadding(blob);
         if (!Arrays.equals(
             lastPartPadding.getDelimiter().getBytes(StandardCharsets.UTF_8),
             Constants.DELIMITER)) {
@@ -109,14 +108,14 @@ public class Decryption {
                     Constants.PADDING_BLOCK_SIZE;
                 long endAt = metaSize - encryptedSize - 1;
                 options = GetOptions.builder().range(startAt, endAt).build();
-                blob = requireNonNull(blobStore.getBlob(container, meta.name(),
+                blob = requireNonNull(blobStore.getBlob(container, blobName,
                     options));
 
                 part++;
 
                 // read the padding structure
                 PartPadding partPadding =
-                    PartPadding.readPartPaddingFromBlob(blob);
+                    PartPadding.readPartPadding(blob);
 
                 // add the part to the list
                 this.partList.put(part, partPadding);

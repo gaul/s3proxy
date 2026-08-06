@@ -88,8 +88,7 @@ public final class SftpBlobStoreTest {
                     .build(), PutOptions.NONE);
 
             try (InputStream input = blobStore.getBlob(bucket, key,
-                    GetOptions.NONE)
-                    .getPayload()) {
+                    GetOptions.NONE)) {
                 assertThat(new String(input.readAllBytes(),
                         StandardCharsets.UTF_8)).isEqualTo("value");
             }

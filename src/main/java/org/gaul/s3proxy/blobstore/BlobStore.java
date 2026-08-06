@@ -37,10 +37,13 @@ import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -109,7 +112,7 @@ public interface BlobStore extends AutoCloseable {
             String toContainer, String toName, CopyOptions options);
 
     @Nullable
-    BlobMetadata blobMetadata(String container, String name);
+    HeadObjectResponse blobMetadata(String container, String name);
 
     /**
      * Reads the metadata of one version, or of the current version when
@@ -121,13 +124,19 @@ public interface BlobStore extends AutoCloseable {
      * the default implementation throws UnsupportedOperationException.
      */
     @Nullable
-    default BlobMetadata blobMetadata(String container, String name,
+    default HeadObjectResponse blobMetadata(String container, String name,
             @Nullable String versionId) {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
+    /**
+     * Reads one object: the response riding on its payload stream, or null
+     * when the object does not exist.  The caller consumes and closes the
+     * stream.
+     */
     @Nullable
-    Blob getBlob(String container, String name, GetOptions options);
+    ResponseInputStream<GetObjectResponse> getBlob(String container,
+            String name, GetOptions options);
 
     void removeBlob(String container, String name);
 

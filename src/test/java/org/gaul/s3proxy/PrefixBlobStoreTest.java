@@ -77,12 +77,11 @@ public final class PrefixBlobStoreTest {
         assertThat(blobStore.blobExists(containerName,
                 prefix + "object.txt")).isTrue();
 
-        Blob stored = prefixBlobStore.getBlob(containerName, "object.txt",
+        var stored = prefixBlobStore.getBlob(containerName, "object.txt",
                 GetOptions.NONE);
         assertThat(stored).isNotNull();
-        assertThat(stored.getMetadata().name()).isEqualTo("object.txt");
         try (InputStream expected = content.openStream();
-             InputStream actual = stored.getPayload()) {
+             InputStream actual = stored) {
             assertThat(actual).hasSameContentAs(expected);
         }
     }
