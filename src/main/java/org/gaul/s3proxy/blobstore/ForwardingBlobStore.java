@@ -28,15 +28,11 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.RemoveResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.VersionPage;
-import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -44,6 +40,12 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 public abstract class ForwardingBlobStore extends ForwardingObject
         implements BlobStore {
@@ -117,13 +119,13 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public PutResult putBlob(String containerName, Blob blob,
+    public PutObjectResponse putBlob(String containerName, Blob blob,
             PutOptions putOptions) {
         return delegate().putBlob(containerName, blob, putOptions);
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         return delegate().copyBlob(fromContainer, fromName, toContainer,
                 toName, options);
@@ -155,7 +157,7 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public RemoveResult removeBlob(String container, String name,
+    public DeleteObjectResponse removeBlob(String container, String name,
             @Nullable String versionId) {
         return delegate().removeBlob(container, name, versionId);
     }
@@ -167,13 +169,13 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     @Nullable
-    public VersioningStatus getContainerVersioning(String container) {
+    public BucketVersioningStatus getContainerVersioning(String container) {
         return delegate().getContainerVersioning(container);
     }
 
     @Override
     public void setContainerVersioning(String container,
-            VersioningStatus status) {
+            BucketVersioningStatus status) {
         delegate().setContainerVersioning(container, status);
     }
 
@@ -212,7 +214,7 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         return delegate().completeMultipartUpload(mpu, parts);
     }

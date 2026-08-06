@@ -40,18 +40,13 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.RemoveResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
 import org.gaul.s3proxy.blobstore.domain.VersionPage;
-import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -59,6 +54,14 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResult;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 /**
  * A minimal in-memory BlobStore with S3 versioning semantics, standing in
@@ -81,7 +84,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     private static final class Container {
         // newest version first for every key
         private final SortedMap<String, List<Version>> keys = new TreeMap<>();
-        private @Nullable VersioningStatus status;
+        private @Nullable BucketVersioningStatus status;
     }
 
     private synchronized Container getContainer(String containerName) {
@@ -168,19 +171,19 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public synchronized VersioningStatus getContainerVersioning(
+    public synchronized BucketVersioningStatus getContainerVersioning(
             String containerName) {
         return getContainer(containerName).status;
     }
 
     @Override
     public synchronized void setContainerVersioning(String containerName,
-            VersioningStatus status) {
+            BucketVersioningStatus status) {
         getContainer(containerName).status = status;
     }
 
     @Override
-    public synchronized PutResult putBlob(String containerName, Blob blob,
+    public synchronized PutObjectResponse putBlob(String containerName, Blob blob,
             PutOptions options) {
         var container = getContainer(containerName);
         var key = blob.getMetadata().name();
@@ -192,12 +195,15 @@ final class InMemoryVersionedBlobStore implements BlobStore {
                 blob.getMetadata().contentMetadata().contentType(), eTag,
                 new Date());
         insertVersion(container, key, version);
-        return new PutResult(eTag,
-                container.status == null ? null : version.versionId());
+        return PutObjectResponse.builder()
+                .eTag(eTag)
+                .versionId(container.status == null ? null :
+                        version.versionId())
+                .build();
     }
 
     @Override
-    public synchronized CopyResult copyBlob(String fromContainer,
+    public synchronized CopyObjectResponse copyBlob(String fromContainer,
             String fromName, String toContainer, String toName,
             CopyOptions options) {
         var source = getContainer(fromContainer);
@@ -214,9 +220,15 @@ final class InMemoryVersionedBlobStore implements BlobStore {
                 sourceVersion.contentType(), sourceVersion.eTag(),
                 new Date());
         insertVersion(dest, toName, destVersion);
-        return new CopyResult(destVersion.eTag(),
-                dest.status == null ? null : destVersion.versionId(),
-                source.status == null ? null : sourceVersion.versionId());
+        return CopyObjectResponse.builder()
+                .copyObjectResult(CopyObjectResult.builder()
+                        .eTag(destVersion.eTag())
+                        .build())
+                .versionId(dest.status == null ? null :
+                        destVersion.versionId())
+                .copySourceVersionId(source.status == null ? null :
+                        sourceVersion.versionId())
+                .build();
     }
 
     @Override
@@ -268,7 +280,8 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public synchronized RemoveResult removeBlob(String containerName,
+    public synchronized DeleteObjectResponse removeBlob(
+            String containerName,
             String key, @Nullable String versionId) {
         var container = getContainer(containerName);
         var versions = container.keys.get(key);
@@ -286,8 +299,10 @@ final class InMemoryVersionedBlobStore implements BlobStore {
                     if (versions.isEmpty()) {
                         container.keys.remove(key);
                     }
-                    return new RemoveResult(versionId,
-                            version.deleteMarker());
+                    return DeleteObjectResponse.builder()
+                            .versionId(versionId)
+                            .deleteMarker(version.deleteMarker())
+                            .build();
                 }
             }
             throw S3Exceptions.noSuchVersion(containerName, key, versionId,
@@ -297,14 +312,17 @@ final class InMemoryVersionedBlobStore implements BlobStore {
         if (container.status == null) {
             // unversioned: remove the data
             container.keys.remove(key);
-            return RemoveResult.NONE;
+            return DeleteObjectResponse.builder().build();
         }
 
         // versioned: leave the versions alone and put a marker on top
         var marker = new Version(mintVersionId(container),
                 /*deleteMarker=*/ true, new byte[0], null, "", new Date());
         insertVersion(container, key, marker);
-        return new RemoveResult(marker.versionId(), /*deleteMarker=*/ true);
+        return DeleteObjectResponse.builder()
+                .versionId(marker.versionId())
+                .deleteMarker(true)
+                .build();
     }
 
     @Override
@@ -407,7 +425,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         throw new UnsupportedOperationException("multipart not supported");
     }
@@ -440,7 +458,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
      * lexicographic and numeric order agree.
      */
     private String mintVersionId(Container container) {
-        return container.status == VersioningStatus.ENABLED ?
+        return container.status == BucketVersioningStatus.ENABLED ?
                 "v%016d".formatted(versionCounter.incrementAndGet()) :
                 NULL_VERSION_ID;
     }

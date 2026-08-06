@@ -27,17 +27,19 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.RemoveResult;
-import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /** This class is a BlobStore wrapper which prevents mutating operations. */
 final class ReadOnlyBlobStore extends ForwardingBlobStore {
@@ -77,7 +79,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(final String containerName, Blob blob,
+    public PutObjectResponse putBlob(final String containerName, Blob blob,
             final PutOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
@@ -88,7 +90,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public RemoveResult removeBlob(final String containerName,
+    public DeleteObjectResponse removeBlob(final String containerName,
             final String blobName, final @Nullable String versionId) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
@@ -101,7 +103,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public void setContainerVersioning(final String containerName,
-            final VersioningStatus status) {
+            final BucketVersioningStatus status) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
@@ -112,7 +114,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(final String fromContainer, final String fromName,
+    public CopyObjectResponse copyBlob(final String fromContainer, final String fromName,
             final String toContainer, final String toName,
             final CopyOptions options) {
         throw new UnsupportedOperationException("read-only BlobStore");
@@ -130,7 +132,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(final MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
             final List<MultipartPart> parts) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }

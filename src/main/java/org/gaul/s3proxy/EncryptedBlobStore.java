@@ -46,11 +46,9 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -61,6 +59,10 @@ import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class EncryptedBlobStore extends ForwardingBlobStore {
@@ -439,14 +441,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(String containerName, Blob blob,
+    public PutObjectResponse putBlob(String containerName, Blob blob,
         PutOptions putOptions) {
         return delegate().putBlob(containerName,
             encryptBlob(blob), putOptions);
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
         String toContainer, String toName, CopyOptions options) {
 
         // if we copy an encrypted blob
@@ -602,7 +604,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
         List<MultipartPart> parts) {
 
         return delegate().completeMultipartUpload(filterMultipartUpload(mpu),

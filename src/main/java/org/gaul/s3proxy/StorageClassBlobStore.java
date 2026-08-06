@@ -23,9 +23,10 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
+
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 /**
  * This class implements a middleware to set the storage class when creating
@@ -62,7 +63,7 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(String containerName, Blob blob,
+    public PutObjectResponse putBlob(String containerName, Blob blob,
             PutOptions options) {
         var newBlob = replaceStorageClass(blob);
         return delegate().putBlob(containerName, newBlob, options);

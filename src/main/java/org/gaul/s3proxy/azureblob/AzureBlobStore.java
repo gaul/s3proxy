@@ -83,17 +83,15 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
@@ -105,6 +103,10 @@ import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 public final class AzureBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
@@ -508,7 +510,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult putBlob(String container, Blob blob,
+    public PutObjectResponse putBlob(String container, Blob blob,
             PutOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(blob.getMetadata().name())
@@ -558,7 +560,7 @@ public final class AzureBlobStore implements BlobStore {
                         .setMetadata(metadata)
                         .setTier(tier)
                         .setRequestConditions(requestConditions);
-                return new PutResult(reportETag(
+                return SdkResponses.putResponse(reportETag(
                         client.uploadWithResponse(uploadOptions,
                                 /*timeout=*/ null, /*context=*/ null)
                         .getValue().getETag()));
@@ -581,7 +583,7 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             // TODO: racy
-            return new PutResult(reportETag(blobServiceClient
+            return SdkResponses.putResponse(reportETag(blobServiceClient
                     .getBlobContainerClient(container)
                     .getBlobClient(blob.getMetadata().name())
                     .getProperties()
@@ -675,7 +677,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         if (options.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
@@ -785,7 +787,7 @@ public final class AzureBlobStore implements BlobStore {
                 client.setMetadata(userMetadata);
             }
 
-            return new CopyResult(reportETag(
+            return SdkResponses.copyResponse(reportETag(
                     response.getValue().getETag()));
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
@@ -829,7 +831,7 @@ public final class AzureBlobStore implements BlobStore {
                 if (contentMetadata != null) {
                     client.setHttpHeaders(headers);
                 }
-                return new CopyResult(reportETag(
+                return SdkResponses.copyResponse(reportETag(
                         client.getProperties().getETag()));
             } catch (BlobStorageException bse2) {
                 throw translate(bse2, fromContainer, fromName);
@@ -1055,7 +1057,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -1165,7 +1167,7 @@ public final class AzureBlobStore implements BlobStore {
             stubBlobClient.delete();
 
             String finalETag = reportETag(response.getValue().getETag());
-            return new PutResult(finalETag);
+            return SdkResponses.completeResponse(finalETag);
         } catch (BlobStorageException bse) {
             var errorCode = bse.getErrorCode();
             if (errorCode.equals(BlobErrorCode.BLOB_NOT_FOUND) ||

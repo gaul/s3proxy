@@ -20,12 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class TierBlobStoreTest {

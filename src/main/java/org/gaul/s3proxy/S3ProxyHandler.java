@@ -100,17 +100,12 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.RemoveResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
 import org.gaul.s3proxy.blobstore.domain.VersionPage;
-import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -123,9 +118,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationFeature;
@@ -1674,7 +1675,7 @@ public class S3ProxyHandler {
     private void handleGetBucketVersioning(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException {
-        VersioningStatus status;
+        BucketVersioningStatus status;
         if (blobStore.supportsVersioning()) {
             status = blobStore.getContainerVersioning(containerName);
         } else {
@@ -1694,7 +1695,7 @@ public class S3ProxyHandler {
             xml.writeStartElement("VersioningConfiguration");
             xml.writeDefaultNamespace(AWS_XMLNS);
             if (status != null) {
-                writeSimpleElement(xml, "Status", status.value());
+                writeSimpleElement(xml, "Status", status.toString());
             }
             xml.writeEndElement();
             xml.flush();
@@ -1724,9 +1725,10 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "MFA delete is not supported.");
         }
-        VersioningStatus status = vcr.status() == null ? null :
-                VersioningStatus.fromValue(vcr.status());
-        if (status == null) {
+        BucketVersioningStatus status = vcr.status() == null ? null :
+                BucketVersioningStatus.fromValue(vcr.status());
+        if (status == null ||
+                status == BucketVersioningStatus.UNKNOWN_TO_SDK_VERSION) {
             throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
         }
 
@@ -2369,13 +2371,14 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
         if (blobStore.supportsVersioning()) {
-            RemoveResult result = blobStore.removeBlob(containerName,
-                    blobName, request.getParameter("versionId"));
+            DeleteObjectResponse result = blobStore.removeBlob(
+                    containerName, blobName,
+                    request.getParameter("versionId"));
             String versionId = result.versionId();
             if (versionId != null) {
                 response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
             }
-            if (result.deleteMarker()) {
+            if (Boolean.TRUE.equals(result.deleteMarker())) {
                 response.addHeader(AwsHttpHeaders.DELETE_MARKER, "true");
             }
         } else {
@@ -2539,8 +2542,9 @@ public class S3ProxyHandler {
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
                 try {
-                    RemoveResult result = blobStore.removeBlob(containerName,
-                            s3Object.key(), s3Object.versionId());
+                    DeleteObjectResponse result = blobStore.removeBlob(
+                            containerName, s3Object.key(),
+                            s3Object.versionId());
                     results.add(new DeletedObjectResult(s3Object.key(),
                             s3Object.versionId(), result, null));
                 } catch (AwsServiceException e) {
@@ -2586,8 +2590,9 @@ public class S3ProxyHandler {
                         if (versionId != null) {
                             writeSimpleElement(xml, "VersionId", versionId);
                         }
-                        RemoveResult removed = result.result();
-                        if (removed != null && removed.deleteMarker()) {
+                        DeleteObjectResponse removed = result.result();
+                        if (removed != null &&
+                                Boolean.TRUE.equals(removed.deleteMarker())) {
                             writeSimpleElement(xml, "DeleteMarker", "true");
                             String markerVersionId = removed.versionId();
                             if (markerVersionId != null) {
@@ -2620,7 +2625,8 @@ public class S3ProxyHandler {
     /** One key's outcome in a versioned DeleteObjects. */
     private record DeletedObjectResult(String key,
             @Nullable String requestedVersionId,
-            @Nullable RemoveResult result, @Nullable S3ErrorCode error) {
+            @Nullable DeleteObjectResponse result,
+            @Nullable S3ErrorCode error) {
     }
 
     private void handleBlobMetadata(HttpServletRequest request,
@@ -3221,7 +3227,7 @@ public class S3ProxyHandler {
             options.userMetadata(userMetadata.build());
         }
 
-        CopyResult copyResult;
+        CopyObjectResponse copyResult;
         try {
             copyResult = blobStore.copyBlob(
                     sourceContainerName, sourceBlobName,
@@ -3258,7 +3264,8 @@ public class S3ProxyHandler {
                         formatDate(lastModified));
             }
 
-            String eTag = copyResult.eTag();
+            String eTag = copyResult.copyObjectResult() == null ?
+                    null : copyResult.copyObjectResult().eTag();
             if (eTag != null) {
                 writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
             }
@@ -3436,7 +3443,7 @@ public class S3ProxyHandler {
             builder = builder.contentMD5(contentMD5);
         }
 
-        PutResult result = blobStore.putBlob(containerName, builder.build(),
+        PutObjectResponse result = blobStore.putBlob(containerName, builder.build(),
                 options);
 
         addCorsResponseHeader(request, response);
@@ -3814,7 +3821,7 @@ public class S3ProxyHandler {
         if (!userMetadata.isEmpty()) {
             builder.userMetadata(userMetadata);
         }
-        PutResult result = blobStore.putBlob(containerName, builder.build(),
+        PutObjectResponse result = blobStore.putBlob(containerName, builder.build(),
                 PutOptions.NONE);
 
         addCorsResponseHeader(request, response);
@@ -4251,7 +4258,7 @@ public class S3ProxyHandler {
         // less than answering 412 where S3 answers 412.  A versioning store
         // completes synchronously for the same reason: the version it mints
         // is a response header, unsendable once the prolog is out.
-        PutResult syncResult = null;
+        CompleteMultipartUploadResponse syncResult = null;
         if (completeIfMatch != null || completeIfNoneMatch != null ||
                 blobStore.supportsVersioning()) {
             syncResult = blobStore.completeMultipartUpload(completeMpu, parts);
@@ -4260,7 +4267,8 @@ public class S3ProxyHandler {
                         multipartStubName(uploadId));
             }
         }
-        final PutResult completedResult = syncResult;
+        final CompleteMultipartUploadResponse completedResult =
+                syncResult;
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -4281,7 +4289,8 @@ public class S3ProxyHandler {
 
             // Launch async thread to allow main thread to emit newlines to
             // the client while completeMultipartUpload processes.
-            final var result = new AtomicReference<@Nullable PutResult>(
+            final var result =
+                    new AtomicReference<@Nullable CompleteMultipartUploadResponse>(
                     completedResult);
             final AtomicReference<RuntimeException> exception =
                     new AtomicReference<>();
@@ -4360,7 +4369,7 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "Bucket", containerName);
             writeSimpleElement(xml, "Key", blobName);
 
-            PutResult completed = result.get();
+            CompleteMultipartUploadResponse completed = result.get();
             String completedETag = completed == null ? null : completed.eTag();
             if (completedETag != null) {
                 writeSimpleElement(xml, "ETag",

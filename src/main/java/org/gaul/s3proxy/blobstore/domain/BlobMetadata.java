@@ -28,6 +28,8 @@ import com.google.common.collect.ImmutableMap;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.StorageClass;
+
 /**
  * Immutable metadata for a {@link Blob} or for non-container list entries
  * ({@link StorageType#FOLDER} / {@link StorageType#RELATIVE_PATH}). Use

@@ -42,18 +42,13 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.RemoveResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
 import org.gaul.s3proxy.blobstore.domain.VersionPage;
-import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -79,15 +74,18 @@ import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -111,8 +109,10 @@ import software.amazon.awssdk.services.s3.model.PutBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
@@ -240,7 +240,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             for (S3Object obj : response.contents()) {
                 set.add(new BlobMetadata(StorageType.BLOB, obj.key(),
                         Map.of(), obj.eTag(), toDate(obj.lastModified()),
-                        fromAwsObjectStorageClass(obj.storageClass()),
+                        orStandard(obj.storageClassAsString()),
                         /*container=*/ null,
                         ContentMetadata.builder()
                                 .contentLength(obj.size())
@@ -439,7 +439,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             // Carry the storage class so GET reports x-amz-storage-class
             // consistently with HEAD (blobMetadata) instead of defaulting to
             // STANDARD for GLACIER/IA objects.
-            builder.storageClass(fromAwsStorageClass(response.storageClass()));
+            builder.storageClass(orStandard(response.storageClassAsString()));
 
             builder.versionId(response.versionId());
 
@@ -453,7 +453,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult putBlob(String container, Blob blob,
+    public PutObjectResponse putBlob(String container, Blob blob,
             PutOptions options) {
         var contentMetadata = blob.getMetadata().contentMetadata();
         var requestBuilder = PutObjectRequest.builder()
@@ -498,7 +498,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         if (blob.getMetadata().storageClass() != null &&
                 blob.getMetadata().storageClass() != StorageClass.STANDARD) {
             requestBuilder.storageClass(
-                    toAwsStorageClass(blob.getMetadata().storageClass()));
+                    blob.getMetadata().storageClass());
         }
 
         String ifMatch = options != null ? options.ifMatch() : null;
@@ -525,9 +525,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 // Mimic S3 behavior: Reject unknown length instead of crashing memory
                 throw new IllegalArgumentException("Content-Length is required for S3 putBlob");
             } else {
-                var response = s3Client.putObject(requestBuilder.build(),
+                return s3Client.putObject(requestBuilder.build(),
                         RequestBody.fromInputStream(is, contentLength));
-                return new PutResult(response.eTag(), response.versionId());
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to read blob payload", e);
@@ -537,7 +536,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         var requestBuilder = CopyObjectRequest.builder()
                 .sourceBucket(fromContainer)
@@ -602,9 +601,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
 
         try {
-            var response = s3Client.copyObject(requestBuilder.build());
-            return new CopyResult(response.copyObjectResult().eTag(),
-                    response.versionId(), response.copySourceVersionId());
+            return s3Client.copyObject(requestBuilder.build());
         } catch (S3Exception e) {
             throw propagate(e, fromContainer, fromName);
         }
@@ -620,7 +617,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public RemoveResult removeBlob(String container, String key,
+    public DeleteObjectResponse removeBlob(String container, String key,
             @Nullable String versionId) {
         var requestBuilder = DeleteObjectRequest.builder()
                 .bucket(container)
@@ -629,17 +626,15 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             requestBuilder.versionId(versionId);
         }
         try {
-            var response = s3Client.deleteObject(requestBuilder.build());
-            return new RemoveResult(response.versionId(),
-                    Boolean.TRUE.equals(response.deleteMarker()));
+            return s3Client.deleteObject(requestBuilder.build());
         } catch (NoSuchKeyException e) {
             // Delete is idempotent; an absent key is not an error.
-            return RemoveResult.NONE;
+            return DeleteObjectResponse.builder().build();
         } catch (NoSuchBucketException e) {
             throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404 && versionId == null) {
-                return RemoveResult.NONE;
+                return DeleteObjectResponse.builder().build();
             }
             throw propagate(e, container, key);
         }
@@ -668,7 +663,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             return new BlobMetadata(StorageType.BLOB, key,
                     response.metadata(), response.eTag(),
                     toDate(response.lastModified()),
-                    fromAwsStorageClass(response.storageClass()),
+                    orStandard(response.storageClassAsString()),
                     container,
                     toContentMetadata(response),
                     response.versionId());
@@ -726,19 +721,13 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     @Nullable
-    public VersioningStatus getContainerVersioning(String container) {
+    public BucketVersioningStatus getContainerVersioning(String container) {
         try {
             var response = s3Client.getBucketVersioning(
                     GetBucketVersioningRequest.builder()
                             .bucket(container)
                             .build());
-            var status = response.status();
-            if (status == BucketVersioningStatus.ENABLED) {
-                return VersioningStatus.ENABLED;
-            } else if (status == BucketVersioningStatus.SUSPENDED) {
-                return VersioningStatus.SUSPENDED;
-            }
-            return null;
+            return response.status();
         } catch (S3Exception e) {
             throw propagate(e, container, null);
         }
@@ -746,15 +735,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public void setContainerVersioning(String container,
-            VersioningStatus status) {
-        var awsStatus = status == VersioningStatus.ENABLED ?
-                BucketVersioningStatus.ENABLED :
-                BucketVersioningStatus.SUSPENDED;
+            BucketVersioningStatus status) {
         try {
             s3Client.putBucketVersioning(PutBucketVersioningRequest.builder()
                     .bucket(container)
                     .versioningConfiguration(VersioningConfiguration.builder()
-                            .status(awsStatus)
+                            .status(status)
                             .build())
                     .build());
         } catch (S3Exception e) {
@@ -930,7 +916,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         if (blobMetadata.storageClass() != null &&
                 blobMetadata.storageClass() != StorageClass.STANDARD) {
             requestBuilder.storageClass(
-                    toAwsStorageClass(blobMetadata.storageClass()));
+                    blobMetadata.storageClass());
         }
 
         try {
@@ -959,7 +945,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         var sortedParts = sortAndValidateParts(parts);
         var completedParts = sortedParts.stream()
@@ -986,9 +972,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
 
         try {
-            var response = s3Client.completeMultipartUpload(
+            return s3Client.completeMultipartUpload(
                     requestBuilder.build());
-            return new PutResult(response.eTag(), response.versionId());
         } catch (S3Exception e) {
             throw propagate(e, mpu.containerName(), mpu.blobName());
         }
@@ -1173,36 +1158,17 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         return Date.from(instant);
     }
 
-    private static software.amazon.awssdk.services.s3.model.StorageClass
-            toAwsStorageClass(StorageClass storageClass) {
-        return software.amazon.awssdk.services.s3.model.StorageClass.valueOf(
-                storageClass.name());
-    }
-
-    private static StorageClass fromAwsStorageClass(
-            software.amazon.awssdk.services.s3.model.@Nullable StorageClass
-                    storageClass) {
+    /**
+     * The listed or reported storage class, defaulting an absent or novel
+     * one to STANDARD as the S3 listing schema does.
+     */
+    private static StorageClass orStandard(@Nullable String storageClass) {
         if (storageClass == null) {
             return StorageClass.STANDARD;
         }
-        try {
-            return StorageClass.valueOf(storageClass.name());
-        } catch (IllegalArgumentException e) {
-            return StorageClass.STANDARD;
-        }
-    }
-
-    private static StorageClass fromAwsObjectStorageClass(
-            software.amazon.awssdk.services.s3.model.@Nullable
-                    ObjectStorageClass storageClass) {
-        if (storageClass == null) {
-            return StorageClass.STANDARD;
-        }
-        try {
-            return StorageClass.valueOf(storageClass.name());
-        } catch (IllegalArgumentException e) {
-            return StorageClass.STANDARD;
-        }
+        StorageClass parsed = StorageClass.fromValue(storageClass);
+        return parsed == StorageClass.UNKNOWN_TO_SDK_VERSION ?
+                StorageClass.STANDARD : parsed;
     }
 
     private static VersionMetadata toVersionMetadata(ObjectVersion version) {

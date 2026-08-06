@@ -52,11 +52,9 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -65,7 +63,10 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
  * This class implements the ability to split objects destined for specified
@@ -454,7 +455,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(final String containerName, Blob blob,
+    public PutObjectResponse putBlob(final String containerName, Blob blob,
                           final PutOptions putOptions) {
         return this.delegate().putBlob(
                 this.getShard(containerName, blob.getMetadata().name()),
@@ -462,7 +463,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
                            String toContainer, String toName,
                            CopyOptions options) {
         String srcShard = this.getShard(fromContainer, fromName);
@@ -546,7 +547,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
                                           List<MultipartPart> parts) {
         if (!this.buckets.containsKey(mpu.containerName())) {
             return this.delegate().completeMultipartUpload(mpu, parts);

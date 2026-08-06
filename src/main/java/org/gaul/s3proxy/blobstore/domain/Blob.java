@@ -32,6 +32,8 @@ import com.google.common.io.ByteSource;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.StorageClass;
+
 /**
  * Immutable value type for an HTTP Blob service. Use {@link #builder} to
  * construct a fresh {@link Blob} or {@link #toBuilder} to derive a new one

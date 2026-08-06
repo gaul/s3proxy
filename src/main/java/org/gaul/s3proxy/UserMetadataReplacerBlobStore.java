@@ -24,13 +24,14 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
  * BlobStore which maps user metadata keys and values using character
@@ -56,7 +57,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(String containerName, Blob blob,
+    public PutObjectResponse putBlob(String containerName, Blob blob,
             PutOptions putOptions) {
         var metadata = ImmutableMap.<String, String>builder();
         for (var entry : blob.getMetadata().userMetadata().entrySet()) {
@@ -105,7 +106,7 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         var userMetadata = options.userMetadata();
         if (userMetadata != null) {

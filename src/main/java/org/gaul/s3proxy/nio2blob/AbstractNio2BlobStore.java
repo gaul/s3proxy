@@ -62,17 +62,15 @@ import com.google.common.primitives.Longs;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
@@ -84,7 +82,11 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
@@ -693,9 +695,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final PutResult putBlob(String container, Blob blob,
+    public final PutObjectResponse putBlob(String container, Blob blob,
             PutOptions options) {
-        return new PutResult(putBlob(container, blob, options,
+        return SdkResponses.putResponse(putBlob(container, blob,
+                options,
                 /*parts=*/ null));
     }
 
@@ -873,7 +876,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final CopyResult copyBlob(String fromContainer, String fromName,
+    public final CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         if (options.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
@@ -952,7 +955,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
-            return new CopyResult(putBlob(toContainer, builder.build(),
+            return SdkResponses.copyResponse(putBlob(toContainer,
+                    builder.build(),
                     PutOptions.builder().blobAccess(options.blobAccess())
                             .build(),
                     /*parts=*/ null));
@@ -1194,7 +1198,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final PutResult completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
+    public final CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
         var metas = ImmutableList.<BlobMetadata>builder();
         long contentLength = 0;
         var md5Hasher = md5.newHasher();
@@ -1296,7 +1300,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             setBlobAccess(mpu.containerName(), mpu.blobName(), mpuPutOptions.blobAccess());
         }
 
-        return new PutResult(mpuETag);
+        return SdkResponses.completeResponse(mpuETag);
     }
 
     @Override

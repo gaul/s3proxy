@@ -26,7 +26,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +37,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
@@ -60,7 +60,7 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
         // point where the response has already been committed with 200.
         BlobStore failing = new ForwardingBlobStore(blobStore) {
             @Override
-            public PutResult completeMultipartUpload(MultipartUpload mpu,
+            public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
                     List<MultipartPart> parts) {
                 throw new RuntimeException("simulated late backend failure");
             }

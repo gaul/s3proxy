@@ -20,6 +20,8 @@ import java.util.Date;
 
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.StorageClass;
+
 /**
  * One entry of a version listing: an object version or a delete marker.
  * The versionId is the literal "null" for versions written while the bucket

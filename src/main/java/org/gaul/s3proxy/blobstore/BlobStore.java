@@ -27,15 +27,11 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.RemoveResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.VersionPage;
-import org.gaul.s3proxy.blobstore.domain.VersioningStatus;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -44,7 +40,12 @@ import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /** Synchronous access to a BlobStore such as Amazon S3. */
 public interface BlobStore extends AutoCloseable {
@@ -99,9 +100,9 @@ public interface BlobStore extends AutoCloseable {
 
     boolean blobExists(String container, String name);
 
-    PutResult putBlob(String container, Blob blob, PutOptions options);
+    PutObjectResponse putBlob(String container, Blob blob, PutOptions options);
 
-    CopyResult copyBlob(String fromContainer, String fromName,
+    CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options);
 
     @Nullable
@@ -134,7 +135,7 @@ public interface BlobStore extends AutoCloseable {
      * on a store that {@link #supportsVersioning}; the default
      * implementation throws UnsupportedOperationException.
      */
-    default RemoveResult removeBlob(String container, String name,
+    default DeleteObjectResponse removeBlob(String container, String name,
             @Nullable String versionId) {
         throw new UnsupportedOperationException("versioning not supported");
     }
@@ -155,12 +156,12 @@ public interface BlobStore extends AutoCloseable {
      * never been versioned.
      */
     @Nullable
-    default VersioningStatus getContainerVersioning(String container) {
+    default BucketVersioningStatus getContainerVersioning(String container) {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
     default void setContainerVersioning(String container,
-            VersioningStatus status) {
+            BucketVersioningStatus status) {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
@@ -185,7 +186,7 @@ public interface BlobStore extends AutoCloseable {
 
     void abortMultipartUpload(MultipartUpload mpu);
 
-    PutResult completeMultipartUpload(MultipartUpload mpu,
+    CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts);
 
     /**

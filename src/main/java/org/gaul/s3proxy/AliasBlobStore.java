@@ -37,11 +37,9 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
@@ -49,6 +47,10 @@ import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
  * This class implements a middleware to alias buckets to a different name.
@@ -203,7 +205,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(final String containerName, Blob blob,
+    public PutObjectResponse putBlob(final String containerName, Blob blob,
                           final PutOptions options) {
         return delegate().putBlob(getContainer(containerName), blob,
                 options);
@@ -221,7 +223,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(final String fromContainer, final String fromName,
+    public CopyObjectResponse copyBlob(final String fromContainer, final String fromName,
                            final String toContainer, final String toName,
                            final CopyOptions options) {
         return delegate().copyBlob(getContainer(fromContainer), fromName,
@@ -243,7 +245,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(final MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
                                           final List<MultipartPart> parts) {
         return delegate().completeMultipartUpload(getDelegateMpu(mpu), parts);
     }

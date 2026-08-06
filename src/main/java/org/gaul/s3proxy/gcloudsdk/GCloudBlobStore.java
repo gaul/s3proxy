@@ -68,16 +68,14 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
-import org.gaul.s3proxy.blobstore.domain.StorageClass;
 import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
@@ -87,7 +85,11 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
@@ -479,7 +481,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult putBlob(String container,
+    public PutObjectResponse putBlob(String container,
             org.gaul.s3proxy.blobstore.domain.Blob blob, PutOptions options) {
         var contentMetadata = blob.getMetadata().contentMetadata();
         var blobInfo = BlobInfo.newBuilder(
@@ -560,7 +562,7 @@ public final class GCloudBlobStore implements BlobStore {
         try (var is = blob.getPayload()) {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
                     writeOptions.toArray(new BlobWriteOption[0]));
-            return new PutResult(gcsBlob.getEtag());
+            return SdkResponses.putResponse(gcsBlob.getEtag());
         } catch (StorageException se) {
             // GCS has no dedicated error code for a checksum mismatch: it
             // reports the md5Match validation we requested as a generic 400
@@ -576,7 +578,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(String fromContainer, String fromName,
+    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
             String toContainer, String toName, CopyOptions options) {
         if (options.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
@@ -638,7 +640,7 @@ public final class GCloudBlobStore implements BlobStore {
                     .setTarget(targetBuilder.build(), targetOptions)
                     .build();
             var result = storage.copy(copyRequest);
-            return new CopyResult(result.getResult().getEtag());
+            return SdkResponses.copyResponse(result.getResult().getEtag());
         } catch (StorageException se) {
             throw translate(se, fromContainer, fromName);
         }
@@ -921,7 +923,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             List<MultipartPart> parts) {
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -1022,7 +1024,8 @@ public final class GCloudBlobStore implements BlobStore {
             // Clean up
             storage.delete(source);
             storage.delete(BlobId.of(mpu.containerName(), uploadKey));
-            return new PutResult(result.getResult().getEtag());
+            return SdkResponses.completeResponse(
+                    result.getResult().getEtag());
         }
 
         // GCS compose supports up to 32 parts.
@@ -1064,7 +1067,7 @@ public final class GCloudBlobStore implements BlobStore {
         }
         storage.delete(BlobId.of(mpu.containerName(), uploadKey));
 
-        return new PutResult(eTag);
+        return SdkResponses.completeResponse(eTag);
     }
 
     /**

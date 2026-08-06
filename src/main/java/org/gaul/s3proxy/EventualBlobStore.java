@@ -32,13 +32,12 @@ import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.CopyResult;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PutResult;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -47,6 +46,10 @@ import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
  * This class is a BlobStore wrapper which emulates eventual consistency
@@ -124,14 +127,14 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult putBlob(final String containerName, Blob blob,
+    public PutObjectResponse putBlob(final String containerName, Blob blob,
             final PutOptions options) {
         final String nearName = blob.getMetadata().name();
-        PutResult nearResult = writeStore.putBlob(containerName, blob,
+        PutObjectResponse nearResult = writeStore.putBlob(containerName, blob,
                 options);
-        schedule(new Callable<@Nullable PutResult>() {
+        schedule(new Callable<@Nullable PutObjectResponse>() {
                 @Override
-                public @Nullable PutResult call() {
+                public @Nullable PutObjectResponse call() {
                     Blob nearBlob = writeStore.getBlob(containerName, nearName,
                             GetOptions.NONE);
                     if (nearBlob == null) {
@@ -174,14 +177,14 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyResult copyBlob(final String fromContainer, final String fromName,
+    public CopyObjectResponse copyBlob(final String fromContainer, final String fromName,
             final String toContainer, final String toName,
             final CopyOptions options) {
-        CopyResult nearResult = writeStore.copyBlob(fromContainer,
+        CopyObjectResponse nearResult = writeStore.copyBlob(fromContainer,
                 fromName, toContainer, toName, options);
-        schedule(new Callable<CopyResult>() {
+        schedule(new Callable<CopyObjectResponse>() {
                 @Override
-                public CopyResult call() {
+                public CopyObjectResponse call() {
                     return delegate().copyBlob(fromContainer, fromName,
                             toContainer, toName, options);
                 }
@@ -203,15 +206,15 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutResult completeMultipartUpload(final MultipartUpload mpu,
+    public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
             final List<MultipartPart> parts) {
-        schedule(new Callable<PutResult>() {
+        schedule(new Callable<CompleteMultipartUploadResponse>() {
                 @Override
-                public PutResult call() {
+                public CompleteMultipartUploadResponse call() {
                     return delegate().completeMultipartUpload(mpu, parts);
                 }
             });
-        return new PutResult("");  // TODO: fake ETag
+        return SdkResponses.completeResponse("");  // TODO: fake ETag
     }
 
     @Override

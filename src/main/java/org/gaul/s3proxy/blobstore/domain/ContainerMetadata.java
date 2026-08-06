@@ -22,6 +22,8 @@ import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.StorageClass;
+
 /** Immutable metadata for a top-level container. */
 public record ContainerMetadata(String name, @Nullable Date creationDate)
         implements StorageMetadata {

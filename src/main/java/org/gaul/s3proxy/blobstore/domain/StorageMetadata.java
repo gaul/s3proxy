@@ -22,6 +22,8 @@ import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.StorageClass;
+
 /**
  * Identifies containers, files, etc. Permits exactly
  * {@link ContainerMetadata} and {@link BlobMetadata}.
