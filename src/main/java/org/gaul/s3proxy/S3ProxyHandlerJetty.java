@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
@@ -29,14 +30,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.VersionNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 
 /** Jetty-specific handler for S3 requests. */
 final class S3ProxyHandlerJetty extends HttpServlet {
@@ -81,64 +80,6 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         try (InputStream is = request.getInputStream()) {
 
             handler.doHandle(request, request, response, is, ctx);
-        } catch (ContainerNotFoundException cnfe) {
-            S3ErrorCode code = S3ErrorCode.NO_SUCH_BUCKET;
-            handler.sendSimpleErrorResponse(request, response, code,
-                    code.getMessage(), Map.of());
-            return;
-        } catch (HttpResponseException hre) {
-            HttpResponse hr = hre.getResponse();
-            String eTag = hr.eTag();
-            if (eTag != null) {
-                response.setHeader(HttpHeaders.ETAG, eTag);
-            }
-            // e.g. x-amz-delete-marker and x-amz-version-id riding on a
-            // versioned backend's refusal to read a delete marker
-            hr.headers().forEach(response::setHeader);
-
-            int status = hr.statusCode();
-            switch (status) {
-            case 412 -> {
-                // Backends report any conditional-header failure as 412.
-                // Per the S3/HTTP spec, GET/HEAD with If-None-Match (or
-                // If-Modified-Since) failing maps to 304 Not Modified, not
-                // 412.  Disambiguate by inspecting the original request.
-                String method = request.getMethod();
-                boolean notModified =
-                        ("GET".equals(method) || "HEAD".equals(method)) &&
-                        request.getHeader(HttpHeaders.IF_MATCH) == null &&
-                        request.getDateHeader(
-                                HttpHeaders.IF_UNMODIFIED_SINCE) == -1 &&
-                        (request.getHeader(HttpHeaders.IF_NONE_MATCH) != null ||
-                         request.getDateHeader(
-                                 HttpHeaders.IF_MODIFIED_SINCE) != -1);
-                if (notModified) {
-                    response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
-                } else {
-                    sendS3Exception(request, response,
-                            new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
-                }
-            }
-            case 416 -> sendS3Exception(request, response,
-                    new S3Exception(S3ErrorCode.INVALID_RANGE));
-            case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
-                sendS3Exception(request, response,
-                        new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED));
-            // Swift returns 422 Unprocessable Entity
-            case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendS3Exception(
-                    request, response,
-                    new S3Exception(S3ErrorCode.BAD_DIGEST));
-            // Backends report authorization failures as 403; surface a proper
-            // AccessDenied error document rather than a bare 403 status.
-            case HttpServletResponse.SC_FORBIDDEN -> sendS3Exception(
-                    request, response,
-                    new S3Exception(S3ErrorCode.ACCESS_DENIED));
-            default -> {
-                logger.debug("HttpResponseException:", hre);
-                response.setStatus(status);
-            }
-            }
-            return;
         } catch (IllegalArgumentException iae) {
             logger.debug("IllegalArgumentException:", iae);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
@@ -167,23 +108,8 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                 return;
             }
             throw ioe;
-        } catch (KeyNotFoundException knfe) {
-            // The "missing" object may be a delete marker, which answers
-            // NoSuchKey but says so in headers.
-            String deleteMarkerVersionId = knfe.deleteMarkerVersionId();
-            if (deleteMarkerVersionId != null) {
-                response.setHeader(AwsHttpHeaders.DELETE_MARKER, "true");
-                response.setHeader(AwsHttpHeaders.VERSION_ID,
-                        deleteMarkerVersionId);
-            }
-            S3ErrorCode code = S3ErrorCode.NO_SUCH_KEY;
-            handler.sendSimpleErrorResponse(request, response, code,
-                    code.getMessage(), Map.of());
-            return;
-        } catch (VersionNotFoundException vnfe) {
-            S3ErrorCode code = S3ErrorCode.NO_SUCH_VERSION;
-            handler.sendSimpleErrorResponse(request, response, code,
-                    code.getMessage(), Map.of());
+        } catch (AwsServiceException ase) {
+            handleAwsServiceException(request, response, ase);
             return;
         } catch (S3Exception se) {
             sendS3Exception(request, response, se);
@@ -219,6 +145,82 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             }
         } finally {
             recordMetrics(request, response, ctx, startNanos);
+        }
+    }
+
+    /**
+     * Renders a backend error.  These arrive as AWS SDK exceptions: the
+     * aws-s3-sdk backend rethrows its service's errors verbatim while the
+     * other backends fabricate S3-shaped ones via {@link S3Exceptions}.
+     * The S3 error code the exception carries renders as-is; one carrying
+     * none, only a status, maps to an error document by status.
+     */
+    private void handleAwsServiceException(HttpServletRequest request,
+            HttpServletResponse response, AwsServiceException ase)
+            throws IOException {
+        // e.g. the ETag a 304 Not Modified echoes, or x-amz-delete-marker
+        // and x-amz-version-id riding on a versioned backend's refusal to
+        // read a delete marker
+        var backendResponse = S3Exceptions.httpResponse(ase);
+        if (backendResponse != null) {
+            for (String header : List.of(HttpHeaders.ETAG,
+                    AwsHttpHeaders.DELETE_MARKER, AwsHttpHeaders.VERSION_ID,
+                    HttpHeaders.ALLOW)) {
+                backendResponse.firstMatchingHeader(header).ifPresent(
+                        value -> response.setHeader(header, value));
+            }
+        }
+
+        String code = S3Exceptions.errorCode(ase);
+        if (code != null) {
+            String message = ase.awsErrorDetails().errorMessage();
+            handler.sendSimpleErrorResponse(request, response, code,
+                    ase.statusCode(), message == null ? "" : message,
+                    Map.of());
+            return;
+        }
+
+        int status = ase.statusCode();
+        switch (status) {
+        case 412 -> {
+            // Backends report any conditional-header failure as 412.
+            // Per the S3/HTTP spec, GET/HEAD with If-None-Match (or
+            // If-Modified-Since) failing maps to 304 Not Modified, not
+            // 412.  Disambiguate by inspecting the original request.
+            String method = request.getMethod();
+            boolean notModified =
+                    ("GET".equals(method) || "HEAD".equals(method)) &&
+                    request.getHeader(HttpHeaders.IF_MATCH) == null &&
+                    request.getDateHeader(
+                            HttpHeaders.IF_UNMODIFIED_SINCE) == -1 &&
+                    (request.getHeader(HttpHeaders.IF_NONE_MATCH) != null ||
+                     request.getDateHeader(
+                             HttpHeaders.IF_MODIFIED_SINCE) != -1);
+            if (notModified) {
+                response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+            } else {
+                sendS3Exception(request, response,
+                        new S3Exception(S3ErrorCode.PRECONDITION_FAILED));
+            }
+        }
+        case 416 -> sendS3Exception(request, response,
+                new S3Exception(S3ErrorCode.INVALID_RANGE));
+        case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
+            sendS3Exception(request, response,
+                    new S3Exception(S3ErrorCode.METHOD_NOT_ALLOWED));
+        // Swift returns 422 Unprocessable Entity
+        case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendS3Exception(
+                request, response,
+                new S3Exception(S3ErrorCode.BAD_DIGEST));
+        // Backends report authorization failures as 403; surface a proper
+        // AccessDenied error document rather than a bare 403 status.
+        case HttpServletResponse.SC_FORBIDDEN -> sendS3Exception(
+                request, response,
+                new S3Exception(S3ErrorCode.ACCESS_DENIED));
+        default -> {
+            logger.debug("AwsServiceException:", ase);
+            response.setStatus(status);
+        }
         }
     }
 

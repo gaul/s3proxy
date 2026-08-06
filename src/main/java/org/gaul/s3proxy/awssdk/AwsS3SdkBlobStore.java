@@ -29,21 +29,14 @@ import java.util.Set;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
-import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.VersionNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -72,7 +65,6 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -213,7 +205,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             }
             return new PageSet<StorageMetadata>(set.build(), null);
         } catch (S3Exception e) {
-            throw translate(e, null, null);
+            throw propagate(e, null, null);
         }
     }
 
@@ -275,10 +267,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             }
 
             return new PageSet<StorageMetadata>(set.build(), nextMarker);
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -295,7 +285,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             if (e.statusCode() == 404) {
                 return false;
             }
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -320,21 +310,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             s3Client.createBucket(requestBuilder.build());
             return true;
         } catch (S3Exception e) {
-            if (e.statusCode() == 409) {
-                String errorCode = e.awsErrorDetails() != null ?
-                        e.awsErrorDetails().errorCode() :
-                        null;
-                if ("BucketAlreadyOwnedByYou".equals(errorCode)) {
-                    // Idempotent success - bucket exists and caller owns it
-                    return false;
-                }
-                if ("BucketAlreadyExists".equals(errorCode)) {
-                    // Bucket exists but is owned by someone else
-                    throw new BucketAlreadyExistsException(
-                            "Bucket already exists: " + container, e);
-                }
+            if ("BucketAlreadyOwnedByYou".equals(S3Exceptions.errorCode(e))) {
+                // Idempotent success - bucket exists and caller owns it
+                return false;
             }
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -346,10 +326,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             s3Client.deleteBucket(DeleteBucketRequest.builder()
                     .bucket(container)
                     .build());
-        } catch (NoSuchBucketException | ContainerNotFoundException e) {
+        } catch (NoSuchBucketException e) {
             // Already deleted, ignore
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -464,24 +444,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             builder.versionId(response.versionId());
 
             return builder.build();
-        } catch (NoSuchKeyException e) {
-            throw keyNotFoundOrDeleteMarker(container, key, e);
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            if (e.statusCode() == 304) {
-                String eTag = e.awsErrorDetails().sdkHttpResponse()
-                        .firstMatchingHeader(HttpHeaders.ETAG).orElse(null);
-                throw new HttpResponseException(
-                        new HttpResponse(304, eTag), e);
-            }
-            if (e.statusCode() == 405) {
-                // Reading a delete marker by its version answers 405 with
-                // x-amz-delete-marker; carry the headers through.
-                throw new HttpResponseException(new HttpResponse(405, null,
-                        versioningHeaders(e)), e);
-            }
-            throw translate(e, container, key);
+            // 304, 405 on a delete marker read, NoSuchVersion and the rest
+            // pass through verbatim; the response headers, e.g. ETag and
+            // x-amz-delete-marker, ride on the exception.
+            throw propagate(e, container, key);
         }
     }
 
@@ -565,7 +532,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         } catch (IOException e) {
             throw new RuntimeException("Failed to read blob payload", e);
         } catch (S3Exception e) {
-            throw translate(e, container, blob.getMetadata().name());
+            throw propagate(e, container, blob.getMetadata().name());
         }
     }
 
@@ -638,12 +605,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             var response = s3Client.copyObject(requestBuilder.build());
             return new CopyResult(response.copyObjectResult().eTag(),
                     response.versionId(), response.copySourceVersionId());
-        } catch (NoSuchKeyException e) {
-            throw keyNotFoundOrDeleteMarker(fromContainer, fromName, e);
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(fromContainer, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, fromContainer, fromName);
+            throw propagate(e, fromContainer, fromName);
         }
     }
 
@@ -651,7 +614,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     public void removeBlob(String container, String key) {
         try {
             removeBlob(container, key, /*versionId=*/ null);
-        } catch (ContainerNotFoundException e) {
+        } catch (NoSuchBucketException e) {
             // Ignore - delete is idempotent
         }
     }
@@ -673,12 +636,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             // Delete is idempotent; an absent key is not an error.
             return RemoveResult.NONE;
         } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
+            throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404 && versionId == null) {
                 return RemoveResult.NONE;
             }
-            throw translate(e, container, key);
+            throw propagate(e, container, key);
         }
     }
 
@@ -712,18 +675,14 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         } catch (NoSuchKeyException e) {
             return nullOrDeleteMarker(container, key, e);
         } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
+            throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
                 return nullOrDeleteMarker(container, key, e);
             }
-            if (e.statusCode() == 405) {
-                // Reading a delete marker by its version answers 405 with
-                // x-amz-delete-marker; carry the headers through.
-                throw new HttpResponseException(new HttpResponse(405, null,
-                        versioningHeaders(e)), e);
-            }
-            throw translate(e, container, key);
+            // 405 on a delete marker read passes through verbatim with
+            // x-amz-delete-marker riding on the exception's headers.
+            throw e;
         }
     }
 
@@ -737,10 +696,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             return isPublic ?
                     ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE;
         } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
+            throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
-                throw new ContainerNotFoundException(container, e.getMessage());
+                throw propagate(e, container, null);
             }
             return ContainerAccess.PRIVATE;
         }
@@ -755,10 +714,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .bucket(container)
                     .acl(acl)
                     .build());
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -782,10 +739,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 return VersioningStatus.SUSPENDED;
             }
             return null;
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -802,10 +757,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                             .status(awsStatus)
                             .build())
                     .build());
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -876,10 +829,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
             return new VersionPage(versions.build(), commonPrefixes.build(),
                     nextKeyMarker, nextVersionIdMarker);
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -892,10 +843,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .build());
             return hasPublicRead(response.grants()) ?
                     BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE;
-        } catch (NoSuchKeyException e) {
-            throw new KeyNotFoundException(container, key, e.getMessage());
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
                 throw translateAclNotFound(container, key, e);
@@ -918,18 +865,13 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     private RuntimeException translateAclNotFound(String container, String key,
             S3Exception e) {
-        AwsErrorDetails details = e.awsErrorDetails();
-        String errorCode = details != null ? details.errorCode() : null;
-        if ("NoSuchKey".equals(errorCode) || "NotFound".equals(errorCode)) {
-            return new KeyNotFoundException(container, key, e.getMessage());
+        String errorCode = S3Exceptions.errorCode(e);
+        if ("NoSuchBucket".equals(errorCode) || key == null) {
+            return e instanceof NoSuchBucketException ? e :
+                    S3Exceptions.noSuchBucket(container, e.getMessage());
         }
-        if ("NoSuchBucket".equals(errorCode)) {
-            return new ContainerNotFoundException(container, e.getMessage());
-        }
-        if (key != null) {
-            return new KeyNotFoundException(container, key, e.getMessage());
-        }
-        return new ContainerNotFoundException(container, e.getMessage());
+        return e instanceof NoSuchKeyException ? e :
+                S3Exceptions.noSuchKey(container, key, e.getMessage());
     }
 
     @Override
@@ -942,12 +884,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .key(key)
                     .acl(acl)
                     .build());
-        } catch (NoSuchKeyException e) {
-            throw new KeyNotFoundException(container, key, e.getMessage());
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, key);
+            throw propagate(e, container, key);
         }
     }
 
@@ -1000,10 +938,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     requestBuilder.build());
             return new MultipartUpload(container, blobMetadata.name(),
                     response.uploadId(), blobMetadata, options);
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, blobMetadata.name());
+            throw propagate(e, container, blobMetadata.name());
         }
     }
 
@@ -1015,16 +951,10 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .key(mpu.blobName())
                     .uploadId(mpu.id())
                     .build());
-        } catch (NoSuchKeyException e) {
-            throw new KeyNotFoundException(mpu.containerName(), mpu.blobName(),
-                    "Multipart upload not found: " + mpu.id());
         } catch (S3Exception e) {
-            if (e.statusCode() == 404) {
-                throw new KeyNotFoundException(mpu.containerName(),
-                        mpu.blobName(),
-                        "Multipart upload not found: " + mpu.id());
-            }
-            throw e;
+            // an unknown upload id surfaces as NoSuchUploadException, which
+            // the frontend remaps to NoSuchUpload
+            throw propagate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -1060,7 +990,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     requestBuilder.build());
             return new PutResult(response.eTag(), response.versionId());
         } catch (S3Exception e) {
-            throw translate(e, mpu.containerName(), mpu.blobName());
+            throw propagate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -1082,7 +1012,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         } catch (IOException e) {
             throw new RuntimeException("Failed to upload part", e);
         } catch (S3Exception e) {
-            throw translate(e, mpu.containerName(), mpu.blobName());
+            throw propagate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -1130,7 +1060,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     result.eTag(), Date.from(result.lastModified()),
                     response.copySourceVersionId());
         } catch (S3Exception e) {
-            throw translate(e, sourceContainer, sourceName);
+            throw propagate(e, sourceContainer, sourceName);
         }
     }
 
@@ -1164,7 +1094,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             if (e.statusCode() == 404) {
                 return List.of();
             }
-            throw translate(e, mpu.containerName(), mpu.blobName());
+            throw propagate(e, mpu.containerName(), mpu.blobName());
         }
     }
 
@@ -1199,10 +1129,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             } while (keyMarker != null);
 
             return builder.build();
-        } catch (NoSuchBucketException e) {
-            throw new ContainerNotFoundException(container, e.getMessage());
         } catch (S3Exception e) {
-            throw translate(e, container, null);
+            throw propagate(e, container, null);
         }
     }
 
@@ -1346,95 +1274,51 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     /**
-     * The versioning response headers riding on an error, so a delete-marker
-     * 404 or 405 reaches the client with x-amz-delete-marker and
-     * x-amz-version-id the way S3 sends them.
-     */
-    private static Map<String, String> versioningHeaders(S3Exception e) {
-        var headers = ImmutableMap.<String, String>builder();
-        var details = e.awsErrorDetails();
-        if (details != null) {
-            var http = details.sdkHttpResponse();
-            for (var header : List.of(DELETE_MARKER_HEADER, VERSION_ID_HEADER,
-                    HttpHeaders.ALLOW)) {
-                http.firstMatchingHeader(header).ifPresent(
-                        value -> headers.put(header, value));
-            }
-        }
-        return headers.buildOrThrow();
-    }
-
-    /**
-     * Maps a 404 to KeyNotFoundException, marking it when the "missing"
-     * object is really the bucket's current delete marker, or to
-     * VersionNotFoundException when the request named a version that does
-     * not exist.
-     */
-    private static RuntimeException keyNotFoundOrDeleteMarker(String container,
-            String key, S3Exception e) {
-        var details = e.awsErrorDetails();
-        if (details != null) {
-            if ("NoSuchVersion".equals(details.errorCode())) {
-                return new VersionNotFoundException(container, key,
-                        /*versionId=*/ null, e.getMessage());
-            }
-            var marker = details.sdkHttpResponse()
-                    .firstMatchingHeader(DELETE_MARKER_HEADER);
-            if (marker.map(Boolean::parseBoolean).orElse(false)) {
-                return new KeyNotFoundException(container, key, e.getMessage(),
-                        details.sdkHttpResponse()
-                                .firstMatchingHeader(VERSION_ID_HEADER)
-                                .orElse("null"));
-            }
-        }
-        return new KeyNotFoundException(container, key, e.getMessage());
-    }
-
-    /**
-     * Like {@link #keyNotFoundOrDeleteMarker} but answering the
-     * blobMetadata contract: an absent object is null, while a delete
-     * marker or missing version still throws.
+     * Answers the blobMetadata contract for a 404: an absent object is
+     * null, while a delete marker or missing version still throws.
      */
     @Nullable
     private static BlobMetadata nullOrDeleteMarker(String container,
             String key, S3Exception e) {
-        RuntimeException translated = keyNotFoundOrDeleteMarker(container,
-                key, e);
-        if (translated instanceof KeyNotFoundException knfe &&
-                knfe.deleteMarkerVersionId() == null) {
+        if ("NoSuchVersion".equals(S3Exceptions.errorCode(e))) {
+            throw e;
+        }
+        var details = e.awsErrorDetails();
+        if (details == null) {
             return null;
         }
-        throw translated;
+        var http = details.sdkHttpResponse();
+        boolean marker = http.firstMatchingHeader(DELETE_MARKER_HEADER)
+                .map(Boolean::parseBoolean).orElse(false);
+        if (!marker) {
+            return null;
+        }
+        if (S3Exceptions.errorCode(e) != null) {
+            // verbatim; the marker headers ride on the exception
+            throw e;
+        }
+        // A bodyless HEAD 404 names no error code; synthesize NoSuchKey
+        // keeping the marker headers.
+        throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                http.firstMatchingHeader(VERSION_ID_HEADER).orElse("null"),
+                e.getMessage());
     }
 
-    private RuntimeException translate(S3Exception e,
+    /**
+     * Rethrows e verbatim when it names an S3 error code, so the upstream
+     * code, message and headers reach the client as sent.  A bodyless 404,
+     * e.g. from a HEAD, gets a synthesized NoSuchKey or NoSuchBucket so
+     * the frontend still renders an error document.
+     */
+    private static RuntimeException propagate(S3Exception e,
             @Nullable String container, @Nullable String key) {
-        if (container != null && e.statusCode() == 404) {
-            String errorCode = e.awsErrorDetails().errorCode();
-            if ("NoSuchVersion".equals(errorCode)) {
-                return new VersionNotFoundException(container, key,
-                        /*versionId=*/ null, e.getMessage());
-            }
-            if ("NoSuchBucket".equals(errorCode)) {
-                return new ContainerNotFoundException(container, e.getMessage());
-            } else if ("NoSuchKey".equals(errorCode)) {
-                if (key == null) {
-                    return new ContainerNotFoundException(container, e.getMessage());
-                }
-                return new KeyNotFoundException(container, key, e.getMessage());
-            }
-            if (key != null) {
-                return new KeyNotFoundException(container, key, e.getMessage());
-            } else {
-                return new ContainerNotFoundException(container, e.getMessage());
-            }
+        if (container != null && e.statusCode() == 404 &&
+                S3Exceptions.errorCode(e) == null) {
+            return key != null ?
+                    S3Exceptions.noSuchKey(container, key, e.getMessage()) :
+                    S3Exceptions.noSuchBucket(container, e.getMessage());
         }
-        String eTag = e.statusCode() == 304 ?
-                e.awsErrorDetails().sdkHttpResponse()
-                        .firstMatchingHeader(HttpHeaders.ETAG).orElse(null) :
-                null;
-        return new HttpResponseException(
-                new HttpResponse(e.statusCode(), eTag), e);
+        return e;
     }
 
     /**
@@ -1478,12 +1362,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         return s1.equals(s2);
     }
 
-    private HttpResponseException preconditionFailed() {
-        return new HttpResponseException(new HttpResponse(412));
+    private S3Exception preconditionFailed() {
+        return S3Exceptions.fromStatusCode(412);
     }
 
-    private KeyNotFoundException keyNotFound(String container, String key) {
-        return new KeyNotFoundException(container, key,
+    private NoSuchKeyException keyNotFound(String container, String key) {
+        return S3Exceptions.noSuchKey(container, key,
                 "Object does not exist for If-Match condition");
     }
 

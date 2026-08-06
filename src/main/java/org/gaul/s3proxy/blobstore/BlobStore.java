@@ -44,6 +44,8 @@ import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+
 /** Synchronous access to a BlobStore such as Amazon S3. */
 public interface BlobStore extends AutoCloseable {
     /** Releases backend resources such as SDK clients.  No-op by default. */
@@ -87,7 +89,7 @@ public interface BlobStore extends AutoCloseable {
         try {
             clearContainer(container,
                     ListContainerOptions.NONE);
-        } catch (ContainerNotFoundException e) {
+        } catch (NoSuchBucketException e) {
             return;
         }
         deleteContainerIfEmpty(container);
@@ -108,11 +110,11 @@ public interface BlobStore extends AutoCloseable {
     /**
      * Reads the metadata of one version, or of the current version when
      * {@code versionId} is null.  Returns null when the object does not
-     * exist; throws {@link KeyNotFoundException} carrying the marker's
-     * version when the current "version" is a delete marker, and {@link
-     * VersionNotFoundException} when the named version does not exist.
-     * Only meaningful on a store that {@link #supportsVersioning}; the
-     * default implementation throws UnsupportedOperationException.
+     * exist; throws {@link S3Exceptions#noSuchKeyDeleteMarker} carrying the
+     * marker's version when the current "version" is a delete marker, and
+     * {@link S3Exceptions#noSuchVersion} when the named version does not
+     * exist.  Only meaningful on a store that {@link #supportsVersioning};
+     * the default implementation throws UnsupportedOperationException.
      */
     @Nullable
     default BlobMetadata blobMetadata(String container, String name,

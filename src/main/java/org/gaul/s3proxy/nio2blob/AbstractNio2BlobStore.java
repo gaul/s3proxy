@@ -60,11 +60,8 @@ import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -86,6 +83,8 @@ import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
@@ -543,33 +542,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 ifMatch = null;
             }
             if ("*".equals(ifNoneMatch)) {
-                throw new HttpResponseException(new HttpResponse(304, eTag));
+                throw conditionFailed(304, eTag);
             }
             if (eTag != null) {
                 if (ifMatch != null) {
                     if (!eTag.equals(maybeQuoteETag(ifMatch))) {
-                        throw new HttpResponseException(
-                                new HttpResponse(412, eTag));
+                        throw conditionFailed(412, eTag);
                     }
                 }
                 if (ifNoneMatch != null) {
                     if (eTag.equals(maybeQuoteETag(ifNoneMatch))) {
-                        throw new HttpResponseException(
-                                new HttpResponse(304, eTag));
+                        throw conditionFailed(304, eTag);
                     }
                 }
             }
             if (options.ifModifiedSince() != null) {
                 Date modifiedSince = options.ifModifiedSince();
                 if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
-                    throw new HttpResponseException("%1$s is before %2$s".formatted(lastModifiedTime, modifiedSince), new HttpResponse(304, eTag));
+                    throw conditionFailed(304, eTag);
                 }
 
             }
             if (options.ifUnmodifiedSince() != null) {
                 Date unmodifiedSince = options.ifUnmodifiedSince();
                 if (lastModifiedTime.after(unmodifiedSince)) {
-                    throw new HttpResponseException("%1$s is after %2$s".formatted(lastModifiedTime, unmodifiedSince), new HttpResponse(412, eTag));
+                    throw conditionFailed(412, eTag);
                 }
             }
 
@@ -599,7 +596,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (hasRange) {
                         var range = options.ranges().get(0);
                         if (!range.contains("-")) {
-                            throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
+                            throw S3Exceptions.fromStatusCode(416);
                         }
                         // HTTP uses a closed interval while Java array indexing uses a
                         // half-open interval.
@@ -617,11 +614,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                                 last = Long.parseLong(firstLast[1]);
                             }
                         } catch (NumberFormatException nfe) {
-                            throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
+                            throw S3Exceptions.fromStatusCode(416, nfe);
                         }
 
                         if (offset >= size || offset > last) {
-                            throw new HttpResponseException("illegal range: " + range, new HttpResponse(416));
+                            throw S3Exceptions.fromStatusCode(416);
                         }
                         if (last + 1 > size) {
                             last = size - 1;
@@ -884,7 +881,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
         if (blob == null) {
-            throw new KeyNotFoundException(fromContainer, fromName, "while copying");
+            throw S3Exceptions.noSuchKey(fromContainer, fromName, "while copying");
         }
 
         // Evaluate preconditions inside the try-with-resources so that a
@@ -1137,7 +1134,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final BlobAccess getBlobAccess(String container, String key) {
         var containerPath = requireContainerPath(container);
         if (!blobExists(container, key)) {
-            throw new KeyNotFoundException(container, key, "");
+            throw S3Exceptions.noSuchKey(container, key, "");
         }
         var path = resolveBlobPath(containerPath, key);
 
@@ -1158,7 +1155,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final void setBlobAccess(String container, String key, BlobAccess access) {
         var containerPath = requireContainerPath(container);
         if (!blobExists(container, key)) {
-            throw new KeyNotFoundException(container, key, "");
+            throw S3Exceptions.noSuchKey(container, key, "");
         }
         var path = resolveBlobPath(containerPath, key);
 
@@ -1519,8 +1516,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
-    private static HttpResponseException returnResponseException(int code) {
-        return new HttpResponseException(new HttpResponse(code));
+    private static S3Exception returnResponseException(int code) {
+        return S3Exceptions.fromStatusCode(code);
+    }
+
+    // A failed conditional read: 304 or 412 carrying the ETag the response
+    // must echo per RFC 7232.
+    private static S3Exception conditionFailed(int code,
+            @Nullable String eTag) {
+        return S3Exceptions.fromStatusCode(code, eTag, Map.of(),
+                /*cause=*/ null);
     }
 
     private static String maybeQuoteETag(String eTag) {
@@ -1733,12 +1738,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return path;
     }
 
-    /** Resolves a container name and throws ContainerNotFoundException if
-     *  the resolved path is not an existing directory. */
+    /** Resolves a container name and throws NoSuchBucket if the resolved
+     *  path is not an existing directory. */
     private Path requireContainerPath(String container) {
         var path = resolveContainer(container);
         if (!Files.isDirectory(path)) {
-            throw new ContainerNotFoundException(container, "");
+            throw S3Exceptions.noSuchBucket(container, "");
         }
         return path;
     }

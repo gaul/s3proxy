@@ -33,12 +33,8 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.VersionNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -91,7 +87,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     private synchronized Container getContainer(String containerName) {
         var container = containers.get(containerName);
         if (container == null) {
-            throw new ContainerNotFoundException(containerName, "");
+            throw S3Exceptions.noSuchBucket(containerName, "");
         }
         return container;
     }
@@ -208,7 +204,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
         var sourceVersion = resolveVersion(source, fromName,
                 options.sourceVersionId());
         if (sourceVersion == null || sourceVersion.deleteMarker()) {
-            throw new KeyNotFoundException(fromContainer, fromName,
+            throw S3Exceptions.noSuchKey(fromContainer, fromName,
                     "while copying");
         }
 
@@ -279,7 +275,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
         if (versionId != null) {
             if (versions == null) {
-                throw new VersionNotFoundException(containerName, key,
+                throw S3Exceptions.noSuchVersion(containerName, key,
                         versionId, "no such version");
             }
             var iterator = versions.iterator();
@@ -294,7 +290,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
                             version.deleteMarker());
                 }
             }
-            throw new VersionNotFoundException(containerName, key, versionId,
+            throw S3Exceptions.noSuchVersion(containerName, key, versionId,
                     "no such version");
         }
 
@@ -481,9 +477,9 @@ final class InMemoryVersionedBlobStore implements BlobStore {
             }
             var current = versions.get(0);
             if (current.deleteMarker()) {
-                throw new KeyNotFoundException(containerName, key,
-                        "current version is a delete marker",
-                        current.versionId());
+                throw S3Exceptions.noSuchKeyDeleteMarker(containerName, key,
+                        current.versionId(),
+                        "current version is a delete marker");
             }
             return current;
         }
@@ -492,17 +488,16 @@ final class InMemoryVersionedBlobStore implements BlobStore {
                 if (version.versionId().equals(versionId)) {
                     if (version.deleteMarker()) {
                         // as on S3: reading a delete marker is refused
-                        throw new HttpResponseException(new HttpResponse(405,
-                                null, Map.of(
-                                        "x-amz-delete-marker", "true",
-                                        "x-amz-version-id",
-                                        version.versionId())));
+                        throw S3Exceptions.fromStatusCode(405, null, Map.of(
+                                "x-amz-delete-marker", "true",
+                                "x-amz-version-id", version.versionId()),
+                                /*cause=*/ null);
                     }
                     return version;
                 }
             }
         }
-        throw new VersionNotFoundException(containerName, key, versionId,
+        throw S3Exceptions.noSuchVersion(containerName, key, versionId,
                 "no such version");
     }
 

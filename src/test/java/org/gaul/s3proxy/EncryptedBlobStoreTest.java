@@ -37,7 +37,6 @@ import java.util.stream.Collectors;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -63,6 +62,8 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 
 @SuppressWarnings("UnstableApiUsage")
 @Execution(ExecutionMode.SAME_THREAD)
@@ -973,12 +974,12 @@ public final class EncryptedBlobStoreTest {
 
         GetOptions conditionalOptions = GetOptions.builder()
                 .ifETagDoesntMatch(etag).build();
-        var e = Assertions.assertThrows(HttpResponseException.class,
+        var e = Assertions.assertThrows(AwsServiceException.class,
             () -> encryptedBlobStore.getBlob(containerName, blobName, conditionalOptions));
         // The nio2 backends report If-None-Match misses as 304 directly while
         // the SDK backends report 412 and rely on the frontend remapping
         // GET and HEAD requests to 304.
-        assertThat(e.getResponse().statusCode()).isIn(304, 412);
+        assertThat(e.statusCode()).isIn(304, 412);
     }
 
     @Test

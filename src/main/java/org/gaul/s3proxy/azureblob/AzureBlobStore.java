@@ -80,12 +80,9 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -410,7 +407,7 @@ public final class AzureBlobStore implements BlobStore {
             } catch (BlobStorageException bse) {
                 throw translate(bse, container, key);
             }
-            throw new HttpResponseException(new HttpResponse(412));
+            throw S3Exceptions.fromStatusCode(412);
         }
         BlobRange azureRange = null;
         if (!options.ranges().isEmpty()) {
@@ -454,8 +451,7 @@ public final class AzureBlobStore implements BlobStore {
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() ==
                     416) {
-                throw new HttpResponseException(
-                        "illegal range: " + azureRange, new HttpResponse(416));
+                throw S3Exceptions.fromStatusCode(416);
             }
             if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
                 return null;
@@ -916,7 +912,7 @@ public final class AzureBlobStore implements BlobStore {
         var containerClient = blobServiceClient.getBlobContainerClient(container);
         try {
             if (!containerClient.exists()) {
-                throw new ContainerNotFoundException(container, "");
+                throw S3Exceptions.noSuchBucket(container, "");
             }
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
@@ -1051,7 +1047,7 @@ public final class AzureBlobStore implements BlobStore {
                     .delete();
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() == 404) {
-                throw new KeyNotFoundException(mpu.containerName(), mpu.id(),
+                throw S3Exceptions.noSuchKey(mpu.containerName(), mpu.id(),
                         "Multipart upload not found: " + mpu.id());
             }
             throw bse;
@@ -1382,7 +1378,7 @@ public final class AzureBlobStore implements BlobStore {
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         String uploadKey = mpu.id();
         if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
         }
 
@@ -1397,13 +1393,13 @@ public final class AzureBlobStore implements BlobStore {
                     stubBlobClient.getProperties().getMetadata());
         } catch (BlobStorageException bse) {
             if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-                throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                         "Multipart upload not found: " + uploadKey);
             }
             throw bse;
         }
         if (targetBlobName == null) {
-            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
         }
 
@@ -1558,8 +1554,9 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
-     * Translate BlobStorageException to a blobstore exception, returning the
-     * original BlobStorageException unchanged if no translation applies.
+     * Translate BlobStorageException to an S3-shaped SDK exception,
+     * returning the original BlobStorageException unchanged if no
+     * translation applies.
      */
     private RuntimeException translate(BlobStorageException bse,
             String container, @Nullable String key) {
@@ -1569,28 +1566,24 @@ public final class AzureBlobStore implements BlobStore {
             return bse;
         }
         if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-            var exception = new KeyNotFoundException(container, key, "");
-            exception.initCause(bse);
-            return exception;
+            return S3Exceptions.noSuchKey(container, key, "", bse);
         } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
-            var exception = new ContainerNotFoundException(container, "");
-            exception.initCause(bse);
-            return exception;
+            return S3Exceptions.noSuchBucket(container, "", bse);
         } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET) ||
                 code.equals(BlobErrorCode.SOURCE_CONDITION_NOT_MET) ||
                 code.equals(BlobErrorCode.TARGET_CONDITION_NOT_MET)) {
-            return new HttpResponseException(new HttpResponse(412), bse);
+            return S3Exceptions.fromStatusCode(412, bse);
         } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
-            return new HttpResponseException(new HttpResponse(412), bse);
+            return S3Exceptions.fromStatusCode(412, bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
-            return new HttpResponseException(new HttpResponse(400), bse);
+            return S3Exceptions.fromStatusCode(400, bse);
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);
         } else if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
             // Surface a permission failure as 403 AccessDenied rather than a
             // generic 500.
-            return new HttpResponseException(new HttpResponse(403), bse);
+            return S3Exceptions.fromStatusCode(403, bse);
         }
         return bse;
     }

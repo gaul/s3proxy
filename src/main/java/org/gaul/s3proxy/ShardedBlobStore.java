@@ -46,7 +46,6 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
@@ -65,6 +64,8 @@ import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 
 /**
  * This class implements the ability to split objects destined for specified
@@ -263,7 +264,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             existingSuperblock = this.delegate().blobMetadata(
                     ShardedBlobStore.getShardContainer(bucket, 0),
                     SUPERBLOCK_BLOB_NAME);
-        } catch (ContainerNotFoundException ignored) {
+        } catch (NoSuchBucketException ignored) {
         }
         if (existingSuperblock != null) {
             checkSuperBlock(existingSuperblock, superblockMeta, container);
@@ -396,7 +397,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 try {
                     return blobStore.list(shard,
                             ListContainerOptions.NONE).entries().isEmpty();
-                } catch (ContainerNotFoundException cnfe) {
+                } catch (NoSuchBucketException nsbe) {
                     return true;
                 }
             }));

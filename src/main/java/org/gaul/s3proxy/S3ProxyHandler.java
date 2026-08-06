@@ -94,11 +94,8 @@ import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.content.InputStreamContentSource;
 import org.eclipse.jetty.util.Promise;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.BucketAlreadyExistsException;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
-import org.gaul.s3proxy.blobstore.VersionNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -125,6 +122,10 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationFeature;
@@ -1226,9 +1227,9 @@ public class S3ProxyHandler {
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     blobName);
             return access == BlobAccess.PUBLIC_READ;
-        } catch (ContainerNotFoundException e) {
+        } catch (NoSuchBucketException e) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_BUCKET, e);
-        } catch (KeyNotFoundException e) {
+        } catch (NoSuchKeyException e) {
             throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, e);
         }
     }
@@ -2099,12 +2100,7 @@ public class S3ProxyHandler {
                 "public-read".equalsIgnoreCase(acl) ||
                 "public-read-write".equalsIgnoreCase(acl));
 
-        boolean created;
-        try {
-            created = blobStore.createContainer(containerName, options);
-        } catch (BucketAlreadyExistsException baee) {
-            throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_EXISTS, baee);
-        }
+        boolean created = blobStore.createContainer(containerName, options);
         if (!created) {
             throw new S3Exception(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU.getMessage(),
@@ -2550,7 +2546,10 @@ public class S3ProxyHandler {
                             s3Object.key(), s3Object.versionId());
                     results.add(new DeletedObjectResult(s3Object.key(),
                             s3Object.versionId(), result, null));
-                } catch (VersionNotFoundException vnfe) {
+                } catch (AwsServiceException e) {
+                    if (!"NoSuchVersion".equals(S3Exceptions.errorCode(e))) {
+                        throw e;
+                    }
                     results.add(new DeletedObjectResult(s3Object.key(),
                             s3Object.versionId(), null,
                             S3ErrorCode.NO_SUCH_VERSION));
@@ -3233,8 +3232,8 @@ public class S3ProxyHandler {
             copyResult = blobStore.copyBlob(
                     sourceContainerName, sourceBlobName,
                     destContainerName, destBlobName, options.build());
-        } catch (KeyNotFoundException knfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, knfe);
+        } catch (NoSuchKeyException nske) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_KEY, nske);
         }
 
         BlobMetadata blobMetadata = blobStore.blobMetadata(destContainerName,
@@ -4062,13 +4061,13 @@ public class S3ProxyHandler {
                             Collectors.toMap(
                                     part -> part.partNumber(),
                                     part -> part));
-            } catch (KeyNotFoundException knfe) {
+            } catch (NoSuchKeyException | NoSuchUploadException e) {
                 // these backends recognize an upload id they never minted
                 if (respondAlreadyCompleted(request, response, blobStore,
                         containerName, blobName, cmu)) {
                     return;
                 }
-                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, knfe);
+                throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, e);
             }
             if (partsByListing.isEmpty()) {
                 if (respondAlreadyCompleted(request, response, blobStore,
@@ -4940,8 +4939,8 @@ public class S3ProxyHandler {
                 PutOptions.NONE);
         try {
             blobStore.abortMultipartUpload(mpu);
-        } catch (KeyNotFoundException knfe) {
-            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, knfe);
+        } catch (NoSuchKeyException | NoSuchUploadException e) {
+            throw new S3Exception(S3ErrorCode.NO_SUCH_UPLOAD, e);
         }
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
@@ -5545,6 +5544,19 @@ public class S3ProxyHandler {
             HttpServletRequest request, HttpServletResponse response,
             S3ErrorCode code, String message,
             Map<String, String> elements) throws IOException {
+        sendSimpleErrorResponse(request, response, code.getErrorCode(),
+                code.getHttpStatusCode(), message, elements);
+    }
+
+    /**
+     * Renders an S3 error document from a raw error code and status, e.g.
+     * one a backend's service reported, which need not name an {@link
+     * S3ErrorCode} entry.
+     */
+    protected final void sendSimpleErrorResponse(
+            HttpServletRequest request, HttpServletResponse response,
+            String code, int httpStatusCode, String message,
+            Map<String, String> elements) throws IOException {
         logger.debug("sendSimpleErrorResponse: {} {}", code, elements);
 
         if (response.isCommitted()) {
@@ -5558,11 +5570,13 @@ public class S3ProxyHandler {
         // the leftover k bytes would corrupt the next request on a keep-
         // alive connection).  Close the connection on those cases so the
         // client retries on a fresh socket.
-        if (code == S3ErrorCode.BAD_DIGEST ||
-                code == S3ErrorCode.INVALID_DIGEST ||
-                code == S3ErrorCode.INVALID_REQUEST ||
-                code == S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED ||
-                code == S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH) {
+        if (code.equals(S3ErrorCode.BAD_DIGEST.getErrorCode()) ||
+                code.equals(S3ErrorCode.INVALID_DIGEST.getErrorCode()) ||
+                code.equals(S3ErrorCode.INVALID_REQUEST.getErrorCode()) ||
+                code.equals(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED
+                        .getErrorCode()) ||
+                code.equals(S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH
+                        .getErrorCode())) {
             response.setHeader(HttpHeaders.CONNECTION, "close");
         }
 
@@ -5571,7 +5585,7 @@ public class S3ProxyHandler {
         // centrally because some backends raise NoSuchKey from the blobstore
         // instead of reporting absence.  A versioning backend that did find
         // a marker has already said so; do not contradict it.
-        if (code == S3ErrorCode.NO_SUCH_KEY &&
+        if (code.equals(S3ErrorCode.NO_SUCH_KEY.getErrorCode()) &&
                 !response.containsHeader(AwsHttpHeaders.DELETE_MARKER) &&
                 (request.getMethod().equals("GET") ||
                         request.getMethod().equals("HEAD"))) {
@@ -5597,7 +5611,7 @@ public class S3ProxyHandler {
             addCorsResponseHeader(request, response);
         }
 
-        response.setStatus(code.getHttpStatusCode());
+        response.setStatus(httpStatusCode);
 
         if (request.getMethod().equals("HEAD")) {
             // The HEAD method is identical to GET except that the server MUST
@@ -5613,7 +5627,7 @@ public class S3ProxyHandler {
             xml.writeStartDocument();
             xml.writeStartElement("Error");
 
-            writeSimpleElement(xml, "Code", code.getErrorCode());
+            writeSimpleElement(xml, "Code", code);
             writeSimpleElement(xml, "Message", message);
 
             for (var entry : elements.entrySet()) {

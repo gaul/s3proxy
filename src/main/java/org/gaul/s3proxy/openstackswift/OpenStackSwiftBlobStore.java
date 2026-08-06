@@ -44,12 +44,9 @@ import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
@@ -86,6 +83,9 @@ import org.openstack4j.model.storage.object.options.ObjectListOptions;
 import org.openstack4j.model.storage.object.options.ObjectLocation;
 import org.openstack4j.model.storage.object.options.ObjectPutOptions;
 import org.openstack4j.openstack.OSFactory;
+
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
  * BlobStore backed by the OpenStack Swift object store via openstack4j.
@@ -287,10 +287,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
             if (objects.isEmpty()) {
                 // Swift returns an empty body for both an empty and a missing
-                // container; disambiguate so callers see
-                // ContainerNotFoundException.
+                // container; disambiguate so callers see NoSuchBucket.
                 if (firstRequest && !containerExists(container)) {
-                    throw new ContainerNotFoundException(container, "");
+                    throw S3Exceptions.noSuchBucket(container, "");
                 }
                 break;
             }
@@ -395,7 +394,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         try {
             clearContainer(container,
                     ListContainerOptions.NONE);
-        } catch (ContainerNotFoundException cnfe) {
+        } catch (NoSuchBucketException nsbe) {
             // The container is already gone; deleteContainer is idempotent.
             return;
         }
@@ -578,7 +577,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         } catch (ResponseException re) {
             if (re.getStatus() == STATUS_NOT_FOUND &&
                     !containerExists(container)) {
-                throw new ContainerNotFoundException(container, "");
+                throw S3Exceptions.noSuchBucket(container, "");
             }
             throw translate(re, container, key);
         }
@@ -598,7 +597,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 // The object is gone; distinguish a gone container so the GET
                 // reports NoSuchBucket rather than NoSuchKey.
                 if (!containerExists(container)) {
-                    throw new ContainerNotFoundException(container, "");
+                    throw S3Exceptions.noSuchBucket(container, "");
                 }
                 return null;
             }
@@ -608,9 +607,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // reports a bare MD5 digest, so quote it as S3 clients expect (the
             // raw header is copied through verbatim, matching how jclouds-native
             // backends surface the validator).
-            throw new HttpResponseException("unexpected status: " + status,
-                    new HttpResponse(status,
-                            etag == null ? null : maybeQuoteETag(etag)));
+            throw S3Exceptions.fromStatusCode(status,
+                    etag == null ? null : maybeQuoteETag(etag), Map.of(),
+                    /*cause=*/ null);
         }
 
         var objectMetadata = ObjectMetadata.from(response.headers());
@@ -708,16 +707,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // PreconditionFailed, and a rejected Content-MD5 (Swift replies
             // 422) is BadDigest.
             if (!containerExists(container)) {
-                throw new ContainerNotFoundException(container, "");
+                throw S3Exceptions.noSuchBucket(container, "");
             }
             if (ifNoneMatchStar &&
                     blobMetadata(container, metadata.name()) != null) {
-                throw new HttpResponseException("Precondition failed",
-                        new HttpResponse(STATUS_PRECONDITION_FAILED));
+                throw S3Exceptions.fromStatusCode(STATUS_PRECONDITION_FAILED);
             }
             if (contentMD5 != null) {
-                throw new HttpResponseException("Content-MD5 mismatch",
-                        new HttpResponse(STATUS_BAD_REQUEST));
+                throw S3Exceptions.fromStatusCode(STATUS_BAD_REQUEST);
             }
             throw new RuntimeException(
                     "could not write object " + metadata.name());
@@ -740,7 +737,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         BlobMetadata metadata = blobMetadata(container, name);
         if (metadata == null) {
-            throw new KeyNotFoundException(container, name, "while copying");
+            throw S3Exceptions.noSuchKey(container, name, "while copying");
         }
         String eTag = metadata.eTag();
         if (eTag != null) {
@@ -766,9 +763,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
     }
 
-    private static HttpResponseException preconditionFailed() {
-        return new HttpResponseException("copy source precondition failed",
-                new HttpResponse(412));
+    private static S3Exception preconditionFailed() {
+        return S3Exceptions.fromStatusCode(412);
     }
 
     @Override
@@ -793,7 +789,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // object and re-upload it with the replacement metadata instead.
             var blob = getBlob(fromContainer, fromName, GetOptions.NONE);
             if (blob == null) {
-                throw new KeyNotFoundException(fromContainer, fromName,
+                throw S3Exceptions.noSuchKey(fromContainer, fromName,
                         "while copying");
             }
             var builder = blob.toBuilder().name(toName);
@@ -821,7 +817,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (etag == null) {
             // openstack4j's copy() ignores the HTTP status and only returns the
             // ETag header, which Swift omits when the source does not exist.
-            throw new KeyNotFoundException(fromContainer, fromName,
+            throw S3Exceptions.noSuchKey(fromContainer, fromName,
                     "while copying");
         }
         return new CopyResult(etag);
@@ -966,7 +962,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
         }
         if (!exists) {
-            throw new ContainerNotFoundException(container, "");
+            throw S3Exceptions.noSuchBucket(container, "");
         }
         return access;
     }
@@ -1130,9 +1126,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             MultipartPart segment = segmentsByPartNumber.get(
                     part.partNumber());
             if (segment == null) {
-                throw new HttpResponseException(
-                        "no such part: " + part.partNumber(),
-                        new HttpResponse(400));
+                throw S3Exceptions.fromStatusCode(400);
             }
             resolved.add(segment);
         }
@@ -1198,7 +1192,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // must report no such upload rather than delete the segments that back
         // the live object.
         if (!blobExists(container, mpuMetaKey(mpu.id()))) {
-            throw new KeyNotFoundException(container, mpu.blobName(),
+            throw S3Exceptions.noSuchKey(container, mpu.blobName(),
                     "no such multipart upload: " + mpu.id());
         }
 
@@ -1411,22 +1405,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             @Nullable String key, Throwable cause) {
         if (status == STATUS_NOT_FOUND) {
             if (key != null) {
-                var exception = new KeyNotFoundException(container, key, "");
-                exception.initCause(cause);
-                return exception;
+                return S3Exceptions.noSuchKey(container, key, "", cause);
             }
-            var exception = new ContainerNotFoundException(container, "");
-            exception.initCause(cause);
-            return exception;
+            return S3Exceptions.noSuchBucket(container, "", cause);
         } else if (status == STATUS_UNAUTHORIZED || status == STATUS_FORBIDDEN) {
-            // The fork has no AuthorizationException; a 403 HttpResponseException
-            // is mapped to AccessDenied by S3ProxyHandler.
-            return new HttpResponseException(
-                    new HttpResponse(STATUS_FORBIDDEN), cause);
+            // The fork has no AuthorizationException; a code-less 403 is
+            // mapped to AccessDenied by the frontend.
+            return S3Exceptions.fromStatusCode(STATUS_FORBIDDEN, cause);
         } else if (status == STATUS_PRECONDITION_FAILED ||
                 status == STATUS_RANGE_NOT_SATISFIABLE) {
-            return new HttpResponseException(
-                    new HttpResponse(status), cause);
+            return S3Exceptions.fromStatusCode(status, cause);
         }
         if (cause instanceof RuntimeException runtime) {
             return runtime;

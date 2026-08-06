@@ -65,12 +65,9 @@ import com.google.common.hash.HashingInputStream;
 import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContainerNotFoundException;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
-import org.gaul.s3proxy.blobstore.HttpResponse;
-import org.gaul.s3proxy.blobstore.HttpResponseException;
-import org.gaul.s3proxy.blobstore.KeyNotFoundException;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
@@ -89,6 +86,8 @@ import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
@@ -335,7 +334,7 @@ public final class GCloudBlobStore implements BlobStore {
             // null; distinguish them so the frontend emits NoSuchBucket vs
             // NoSuchKey.
             if (storage.get(container) == null) {
-                throw new ContainerNotFoundException(container, "");
+                throw S3Exceptions.noSuchBucket(container, "");
             }
             return null;
         }
@@ -368,7 +367,7 @@ public final class GCloudBlobStore implements BlobStore {
             // unsatisfiable; S3 returns 416 InvalidRange.  Without this GCS
             // reads zero bytes and the declared Content-Length desyncs.
             if (rangeOffset >= blobSize) {
-                throw httpResponseException(416, null);
+                throw S3Exceptions.fromStatusCode(416);
             }
             // Clamp an end that runs past the last byte (still satisfiable).
             if (rangeEnd != null && rangeEnd >= blobSize) {
@@ -568,7 +567,7 @@ public final class GCloudBlobStore implements BlobStore {
             // "invalid".  Only surface BadDigest when we actually asked GCS to
             // validate the checksum; other 400s are unrelated client errors.
             if (se.getCode() == 400 && hash != null) {
-                throw httpResponseException(400, se);
+                throw S3Exceptions.fromStatusCode(400, se);
             }
             throw translate(se, container, null);
         } catch (IOException ioe) {
@@ -732,7 +731,7 @@ public final class GCloudBlobStore implements BlobStore {
     public ContainerAccess getContainerAccess(String container) {
         var bucket = storage.get(container);
         if (bucket == null) {
-            throw new ContainerNotFoundException(container, "");
+            throw S3Exceptions.noSuchBucket(container, "");
         }
         try {
             var acls = bucket.listAcls();
@@ -788,9 +787,9 @@ public final class GCloudBlobStore implements BlobStore {
             // the caller can emit NoSuchBucket vs NoSuchKey.
             if (se.getCode() == 404) {
                 if (storage.get(container) == null) {
-                    throw new ContainerNotFoundException(container, "");
+                    throw S3Exceptions.noSuchBucket(container, "");
                 }
-                throw new KeyNotFoundException(container, key, "");
+                throw S3Exceptions.noSuchKey(container, key, "");
             }
             // The emulator returns ACL responses the SDK cannot deserialize
             // (StorageException with no HTTP status, code 0); tolerate those
@@ -829,7 +828,7 @@ public final class GCloudBlobStore implements BlobStore {
     public MultipartUpload initiateMultipartUpload(String container,
             BlobMetadata blobMetadata, PutOptions options) {
         if (!containerExists(container)) {
-            throw new ContainerNotFoundException(container, "");
+            throw S3Exceptions.noSuchBucket(container, "");
         }
 
         String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
@@ -901,7 +900,7 @@ public final class GCloudBlobStore implements BlobStore {
         String uploadKey = mpu.id();
 
         if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
         }
 
@@ -916,7 +915,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         // Delete stub
         if (!storage.delete(BlobId.of(mpu.containerName(), uploadKey))) {
-            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
         }
     }
@@ -1189,7 +1188,7 @@ public final class GCloudBlobStore implements BlobStore {
             throw translate(se, sourceContainer, sourceName);
         }
         if (sourceBlob == null) {
-            throw new KeyNotFoundException(sourceContainer, sourceName, "");
+            throw S3Exceptions.noSuchKey(sourceContainer, sourceName, "");
         }
 
         // GCS cannot copy a byte range server-side; a range covering the
@@ -1246,7 +1245,7 @@ public final class GCloudBlobStore implements BlobStore {
     public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
         String uploadKey = mpu.id();
         if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw new KeyNotFoundException(mpu.containerName(), uploadKey,
+            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
         }
 
@@ -1317,7 +1316,7 @@ public final class GCloudBlobStore implements BlobStore {
             String eTag) {
         Blob blob = storage.get(BlobId.of(container, name));
         if (blob == null) {
-            throw new KeyNotFoundException(container, name, "");
+            throw S3Exceptions.noSuchKey(container, name, "");
         }
         // If the ETag doesn't match, the precondition fails.
         if (!eTag.equals("*") && !maybeQuoteETag(eTag).equals(
@@ -1394,52 +1393,38 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     /**
-     * Translate StorageException to a blobstore exception, returning the
-     * original StorageException unchanged if no translation applies.
+     * Translate StorageException to an S3-shaped SDK exception, returning
+     * the original StorageException unchanged if no translation applies.
      */
     private static RuntimeException translate(StorageException se,
             String container, @Nullable String key) {
         switch (se.getCode()) {
         case 404 -> {
             if (key != null) {
-                var keyEx = new KeyNotFoundException(container, key, "");
-                keyEx.initCause(se);
-                return keyEx;
+                return S3Exceptions.noSuchKey(container, key, "", se);
             } else {
-                var containerEx = new ContainerNotFoundException(
-                        container, "");
-                containerEx.initCause(se);
-                return containerEx;
+                return S3Exceptions.noSuchBucket(container, "", se);
             }
         }
         case 412 -> {
-            return httpResponseException(412, se);
+            return S3Exceptions.fromStatusCode(412, se);
         }
         case 401, 403 -> {
             // Surface a permission failure as 403 AccessDenied rather than a
             // generic 500.
-            return httpResponseException(403, se);
+            return S3Exceptions.fromStatusCode(403, se);
         }
         default -> { }
         }
         return se;
     }
 
-    // Build an HttpResponseException carrying a status code so that
-    // S3ProxyHandler translates it to the matching S3 error code (e.g.
-    // 400 -> BadDigest, 412 -> PreconditionFailed, 416 -> InvalidRange).
-    private static HttpResponseException httpResponseException(
-            int statusCode,
-            @Nullable Throwable cause) {
-        return new HttpResponseException(new HttpResponse(statusCode), cause);
-    }
-
     // Build a 412 for a failed conditional-GET precondition, echoing the
     // object's ETag so the frontend can emit it on the 304 Not Modified
     // response (required by RFC 7232).
-    private static HttpResponseException preconditionFailed(
-            @Nullable String eTag) {
-        return new HttpResponseException(new HttpResponse(412,
-                eTag == null ? null : maybeQuoteETag(eTag)));
+    private static S3Exception preconditionFailed(@Nullable String eTag) {
+        return S3Exceptions.fromStatusCode(412,
+                eTag == null ? null : maybeQuoteETag(eTag), Map.of(),
+                /*cause=*/ null);
     }
 }
