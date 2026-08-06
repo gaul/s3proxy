@@ -27,8 +27,6 @@ import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -84,9 +82,9 @@ public final class ShardedBlobStoreTest {
     }
 
     public int countShards() {
-        PageSet<? extends StorageMetadata> listing = blobStore.list();
+        var listing = blobStore.list();
         int blobStoreShards = 0;
-        for (StorageMetadata entry: listing) {
+        for (var entry : listing.buckets()) {
             if (entry.name().startsWith(prefix)) {
                 blobStoreShards++;
             }
@@ -177,12 +175,12 @@ public final class ShardedBlobStoreTest {
         String blob2Container = null;
         for (int i = 0; i < shards; i++) {
             String shard = "%s-%d".formatted(prefix, i);
-            for (StorageMetadata entry : blobStore.list(shard,
-                    ListContainerOptions.NONE)) {
-                if (entry.name().equals(blobName)) {
+            for (var entry : blobStore.list(shard,
+                    ListContainerOptions.NONE).contents()) {
+                if (entry.key().equals(blobName)) {
                     blobContainer = shard;
                 }
-                if (entry.name().equals(blobName2)) {
+                if (entry.key().equals(blobName2)) {
                     blob2Container = shard;
                 }
             }

@@ -38,6 +38,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -67,12 +68,8 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -82,10 +79,15 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 
 public abstract class AbstractNio2BlobStore implements BlobStore {
@@ -132,8 +134,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final PageSet<? extends StorageMetadata> list() {
-        var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
+    public final ListBucketsResponse list() {
+        var set = ImmutableSortedSet.<Bucket>orderedBy(
+                Comparator.comparing(Bucket::name));
         try (var stream = Files.newDirectoryStream(root)) {
             for (var path : stream) {
                 BasicFileAttributes attr;
@@ -149,17 +152,40 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     throw ioe;
                 }
                 var creationTime = new Date(attr.creationTime().toMillis());
-                set.add(new ContainerMetadata(
+                set.add(SdkResponses.bucket(
                         path.getFileName().toString(), creationTime));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
-        return new PageSet<StorageMetadata>(set.build(), null);
+        return ListBucketsResponse.builder()
+                .buckets(set.build())
+                .build();
+    }
+
+    /**
+     * One listing entry in lexicographic paging order: an object, or a
+     * common prefix when {@code object} is null.  Prefixes interleave with
+     * keys for paging exactly as S3 orders the combined document.
+     */
+    private record ListEntry(String name, @Nullable S3Object object)
+            implements Comparable<ListEntry> {
+        static ListEntry prefix(String name) {
+            return new ListEntry(name, null);
+        }
+
+        static ListEntry object(S3Object object) {
+            return new ListEntry(object.key(), object);
+        }
+
+        @Override
+        public int compareTo(ListEntry other) {
+            return name.compareTo(other.name);
+        }
     }
 
     @Override
-    public final PageSet<? extends StorageMetadata> list(String container,
+    public final ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         var containerPath = requireContainerPath(container);
 
@@ -183,7 +209,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var pathPrefix = containerPath.resolve(prefix).normalize();
         checkValidPath(containerPath, pathPrefix);
         logger.debug("Listing blobs at: {}", pathPrefix);
-        var set = ImmutableSortedSet.<StorageMetadata>naturalOrder();
+        var set = ImmutableSortedSet.<ListEntry>naturalOrder();
         var filterMultipart = !prefix.startsWith(MULTIPART_PREFIX);
         var pathPrefixString = root.resolve(pathPrefix).toAbsolutePath().toString();
         try {
@@ -203,13 +229,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
                         var attr = Files.readAttributes(pathPrefix,
                                 BasicFileAttributes.class);
-                        set.add(new BlobMetadata(StorageType.BLOB,
-                                prefix, Map.of(),
-                                readETagXattr(markerXattrs),
+                        set.add(ListEntry.object(SdkResponses.objectEntry(
+                                prefix, readETagXattr(markerXattrs),
                                 new Date(attr.lastModifiedTime().toMillis()),
-                                StorageClass.STANDARD, /*container=*/ null,
-                                ContentMetadata.builder()
-                                        .contentLength(0L).build()));
+                                0L, StorageClass.STANDARD)));
                     }
                 } catch (IOException ioe) {
                     // The prefix directory was deleted mid-request: there is
@@ -222,10 +245,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             var sorted = set.build();
             if (options.marker() != null) {
-                // StorageMetadata's natural ordering is name-only (nulls
-                // last), so a name-only stub lets tailSet skip past the
-                // marker in O(log n).
-                sorted = sorted.tailSet(markerStub(options.marker()),
+                // The ordering is name-only, so a name-only stub lets
+                // tailSet skip past the marker in O(log n).
+                sorted = sorted.tailSet(
+                        ListEntry.prefix(options.marker()),
                         /*inclusive=*/ false);
             }
             String marker = null;
@@ -242,14 +265,24 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                 }
             }
-            return new PageSet<StorageMetadata>(sorted, marker);
+            var contents = ImmutableList.<S3Object>builder();
+            var prefixes = ImmutableList.<CommonPrefix>builder();
+            for (var entry : sorted) {
+                if (entry.object() != null) {
+                    contents.add(entry.object());
+                } else {
+                    prefixes.add(SdkResponses.commonPrefix(entry.name()));
+                }
+            }
+            return SdkResponses.objectsPage(contents.build(),
+                    prefixes.build(), marker);
         } catch (IOException ioe) {
             logger.error("unexpected exception", ioe);
             throw new RuntimeException(ioe);
         }
     }
 
-    private void listHelper(ImmutableSortedSet.Builder<StorageMetadata> builder,
+    private void listHelper(ImmutableSortedSet.Builder<ListEntry> builder,
             Path containerPath, Path parent, String pathPrefixString,
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
@@ -304,7 +337,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
-    private void listEntry(ImmutableSortedSet.Builder<StorageMetadata> builder,
+    private void listEntry(ImmutableSortedSet.Builder<ListEntry> builder,
             Path containerPath, Path path, String pathPrefixString,
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
@@ -341,13 +374,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     size = 0L;
                 }
 
-                builder.add(new BlobMetadata(
-                        StorageType.RELATIVE_PATH,
-                        name + "/", Map.of(), eTag,
-                        lastModified,
-                        StorageClass.STANDARD, /*container=*/ null,
-                        ContentMetadata.builder()
-                                .contentLength(size).build()));
+                // With a delimiter this entry is a common prefix; without
+                // one only an explicitly stored directory marker surfaces,
+                // as an ordinary zero-byte object in Contents.
+                if ("/".equals(delimiter)) {
+                    builder.add(ListEntry.prefix(name + "/"));
+                } else {
+                    builder.add(ListEntry.object(SdkResponses.objectEntry(
+                            name + "/", eTag, lastModified, size,
+                            StorageClass.STANDARD)));
+                }
             }
         } else {
             var name = relativeName(containerPath, path);
@@ -366,14 +402,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
-            builder.add(new BlobMetadata(StorageType.BLOB,
-                    name, Map.of(),
-                    eTag, lastModifiedTime,
-                    storageClass,
-                    /*container=*/ null,
-                    ContentMetadata.builder()
-                            .contentLength(attr.size())
-                            .build()));
+            builder.add(ListEntry.object(SdkResponses.objectEntry(
+                    name, eTag, lastModifiedTime, attr.size(),
+                    storageClass)));
         }
     }
 
@@ -657,7 +688,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             HashCode finalHashCode = hashCode;
             Blob.Builder builder = Blob.builder(key)
-                    .type(isDirectory ? StorageType.FOLDER : StorageType.BLOB)
                     .userMetadata(userMetadata.build())
                     .payload(inputStream)
                     .cacheControl(cacheControl)
@@ -1326,25 +1356,27 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .prefix(partPrefix).build();
         while (true) {
             var pageSet = list(mpu.containerName(), options);
-            for (var sm : pageSet) {
-                if (sm.name().endsWith("-stub")) {
+            for (var sm : pageSet.contents()) {
+                if (sm.key().endsWith("-stub")) {
                     continue;
                 }
                 int partNumber;
                 try {
-                    partNumber = Integer.parseInt(sm.name().substring(partPrefix.length()));
+                    partNumber = Integer.parseInt(sm.key().substring(partPrefix.length()));
                 } catch (NumberFormatException nfe) {
-                    logger.warn("ignoring multipart entry with non-numeric suffix: {}", sm.name());
+                    logger.warn("ignoring multipart entry with non-numeric suffix: {}", sm.key());
                     continue;
                 }
                 long partSize = requireNonNull(sm.size());
-                parts.add(new MultipartPart(partNumber, partSize, sm.eTag(), sm.lastModified()));
+                parts.add(new MultipartPart(partNumber, partSize, sm.eTag(),
+                        Date.from(sm.lastModified())));
             }
-            if (pageSet.entries().isEmpty() || pageSet.nextMarker() == null) {
+            if (pageSet.contents().isEmpty() ||
+                    pageSet.nextContinuationToken() == null) {
                 break;
             }
             options = options.toBuilder()
-                    .afterMarker(pageSet.nextMarker()).build();
+                    .afterMarker(pageSet.nextContinuationToken()).build();
         }
         return parts.build();
     }
@@ -1356,22 +1388,23 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .prefix(MULTIPART_PREFIX).build();
         while (true) {
             var pageSet = list(container, options);
-            for (StorageMetadata sm : pageSet) {
-                if (!sm.name().endsWith("-stub")) {
+            for (S3Object sm : pageSet.contents()) {
+                if (!sm.key().endsWith("-stub")) {
                     continue;
                 }
-                var uploadId = sm.name().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
-                var blobName = sm.name().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
+                var uploadId = sm.key().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
+                var blobName = sm.key().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
                 int index = blobName.lastIndexOf('-');
                 blobName = blobName.substring(0, index);
 
                 mpus.add(new MultipartUpload(container, blobName, uploadId, null, null));
             }
-            if (pageSet.entries().isEmpty() || pageSet.nextMarker() == null) {
+            if (pageSet.contents().isEmpty() ||
+                    pageSet.nextContinuationToken() == null) {
                 break;
             }
             options = options.toBuilder()
-                    .afterMarker(pageSet.nextMarker()).build();
+                    .afterMarker(pageSet.nextContinuationToken()).build();
         }
 
         return mpus.build();
@@ -1750,17 +1783,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw S3Exceptions.noSuchBucket(container, "");
         }
         return path;
-    }
-
-    /** Minimal StorageMetadata used as a name-only key for SortedSet
-     *  range queries; relies on StorageMetadata's natural ordering being
-     *  by name. */
-    private static StorageMetadata markerStub(String name) {
-        return new BlobMetadata(StorageType.BLOB, name, Map.of(),
-                /*eTag=*/ null, /*lastModified=*/ null,
-                StorageClass.STANDARD,
-                /*container=*/ null,
-                ContentMetadata.builder().build());
     }
 
     private static void setBlobAccessHelper(Path path, BlobAccess access) {

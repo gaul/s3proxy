@@ -57,7 +57,6 @@ import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
@@ -72,12 +71,8 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -85,10 +80,14 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 
 public final class GCloudBlobStore implements BlobStore {
@@ -179,17 +178,19 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
-        var set = ImmutableSet.<StorageMetadata>builder();
+    public ListBucketsResponse list() {
+        var buckets = ImmutableList.<software.amazon.awssdk.services.s3.model.Bucket>builder();
         for (Bucket bucket : storage.list().iterateAll()) {
-            set.add(new ContainerMetadata(bucket.getName(),
+            buckets.add(SdkResponses.bucket(bucket.getName(),
                     toDate(bucket.getCreateTimeOffsetDateTime())));
         }
-        return new PageSet<StorageMetadata>(set.build(), null);
+        return ListBucketsResponse.builder()
+                .buckets(buckets.build())
+                .build();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         var gcsOptions = new java.util.ArrayList<BlobListOption>();
         if (options.prefix() != null) {
@@ -220,7 +221,8 @@ public final class GCloudBlobStore implements BlobStore {
             throw translate(se, container, null);
         }
 
-        var set = ImmutableSet.<StorageMetadata>builder();
+        var contents = ImmutableList.<S3Object>builder();
+        var prefixes = ImmutableList.<CommonPrefix>builder();
         Integer maxResults = options.maxResults();
         int count = 0;
         boolean hasMore = false;
@@ -235,21 +237,13 @@ public final class GCloudBlobStore implements BlobStore {
                 break;
             }
             if (blob.isDirectory()) {
-                set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
-                        blob.getName(), Map.of(), /*eTag=*/ null,
-                        /*lastModified=*/ null,
-                        StorageClass.STANDARD,
-                        /*container=*/ null,
-                        ContentMetadata.builder().build()));
+                prefixes.add(SdkResponses.commonPrefix(blob.getName()));
             } else {
-                set.add(new BlobMetadata(StorageType.BLOB,
-                        blob.getName(), Map.of(), blob.getEtag(),
+                contents.add(SdkResponses.objectEntry(blob.getName(),
+                        blob.getEtag(),
                         toDate(blob.getUpdateTimeOffsetDateTime()),
-                        fromGcsStorageClass(blob.getStorageClass()),
-                        /*container=*/ null,
-                        ContentMetadata.builder()
-                                .contentLength(blob.getSize())
-                                .build()));
+                        blob.getSize(),
+                        fromGcsStorageClass(blob.getStorageClass())));
             }
             lastName = blob.getName();
             count++;
@@ -257,7 +251,8 @@ public final class GCloudBlobStore implements BlobStore {
 
         // Synthesize a next marker if we truncated results
         String nextMarker = hasMore ? lastName : null;
-        return new PageSet<StorageMetadata>(set.build(), nextMarker);
+        return SdkResponses.objectsPage(contents.build(), prefixes.build(),
+                nextMarker);
     }
 
     @Override
@@ -719,7 +714,7 @@ public final class GCloudBlobStore implements BlobStore {
         if (gcsBlob == null) {
             return null;
         }
-        return new BlobMetadata(StorageType.BLOB, key,
+        return new BlobMetadata(key,
                 sanitizeUserMetadata(gcsBlob.getMetadata()),
                 gcsBlob.getEtag(),
                 toDate(gcsBlob.getUpdateTimeOffsetDateTime()),

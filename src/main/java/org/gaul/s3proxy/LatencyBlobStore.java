@@ -38,8 +38,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -49,6 +47,8 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 public final class LatencyBlobStore extends ForwardingBlobStore {
@@ -124,13 +124,13 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
+    public ListBucketsResponse list() {
         simulateLatency(OP_LIST);
         return super.list();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container, ListContainerOptions options) {
+    public ListObjectsV2Response list(String container, ListContainerOptions options) {
         simulateLatency(OP_LIST);
         return super.list(container, options);
     }
@@ -307,7 +307,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         Map<String, String> userMetadata = blobMeta.userMetadata();
 
         Blob.Builder builder = Blob.builder(blobMeta.name())
-                .type(blobMeta.type())
                 .storageClass(blobMeta.storageClass())
                 .userMetadata(userMetadata)
                 .payload(is)

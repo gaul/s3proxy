@@ -24,12 +24,9 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
 
@@ -37,18 +34,13 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.StorageType;
-import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
-import org.gaul.s3proxy.blobstore.domain.VersionPage;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -69,10 +61,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
-import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
@@ -83,7 +73,6 @@ import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
-import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
@@ -94,15 +83,16 @@ import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
-import software.amazon.awssdk.services.s3.model.ObjectVersion;
-import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutBucketAclRequest;
@@ -111,7 +101,6 @@ import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
-import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
@@ -196,21 +185,16 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
+    public ListBucketsResponse list() {
         try {
-            var set = ImmutableSet.<StorageMetadata>builder();
-            for (Bucket bucket : s3Client.listBuckets().buckets()) {
-                set.add(new ContainerMetadata(bucket.name(),
-                        toDate(bucket.creationDate())));
-            }
-            return new PageSet<StorageMetadata>(set.build(), null);
+            return s3Client.listBuckets();
         } catch (S3Exception e) {
             throw propagate(e, null, null);
         }
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         var requestBuilder = ListObjectsV2Request.builder()
                 .bucket(container);
@@ -227,34 +211,17 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         int maxKeys = options.maxResults() != null ?
                 options.maxResults() : 1000;
         if (maxKeys == 0) {
-            return new PageSet<StorageMetadata>(Set.of(), null);
+            return SdkResponses.objectsPage(List.of(), List.of(), null);
         }
         requestBuilder.maxKeys(maxKeys);
 
         try {
             var response = s3Client.listObjectsV2(requestBuilder.build());
 
-            var set = ImmutableSet.<StorageMetadata>builder();
+            // The marker convention names the last key of the page rather
+            // than passing the service's opaque continuation token through,
+            // since the frontend round-trips markers as start-after.
             String nextMarker = null;
-
-            for (S3Object obj : response.contents()) {
-                set.add(new BlobMetadata(StorageType.BLOB, obj.key(),
-                        Map.of(), obj.eTag(), toDate(obj.lastModified()),
-                        orStandard(obj.storageClassAsString()),
-                        /*container=*/ null,
-                        ContentMetadata.builder()
-                                .contentLength(obj.size())
-                                .build()));
-            }
-
-            for (CommonPrefix prefix : response.commonPrefixes()) {
-                set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
-                        prefix.prefix(), Map.of(), /*eTag=*/ null,
-                        /*lastModified=*/ null,
-                        StorageClass.STANDARD, /*container=*/ null,
-                        ContentMetadata.builder().build()));
-            }
-
             if (response.isTruncated()) {
                 if (!response.contents().isEmpty()) {
                     nextMarker = Streams.findLast(response.contents().stream())
@@ -266,7 +233,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 }
             }
 
-            return new PageSet<StorageMetadata>(set.build(), nextMarker);
+            return SdkResponses.objectsPage(response.contents(),
+                    response.commonPrefixes(), nextMarker);
         } catch (S3Exception e) {
             throw propagate(e, container, null);
         }
@@ -660,7 +628,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             HeadObjectResponse response = s3Client.headObject(
                     requestBuilder.build());
 
-            return new BlobMetadata(StorageType.BLOB, key,
+            return new BlobMetadata(key,
                     response.metadata(), response.eTag(),
                     toDate(response.lastModified()),
                     orStandard(response.storageClassAsString()),
@@ -749,7 +717,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public VersionPage listVersions(String container,
+    public ListObjectVersionsResponse listVersions(String container,
             ListVersionsOptions options) {
         var requestBuilder = ListObjectVersionsRequest.builder()
                 .bucket(container);
@@ -770,51 +738,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
 
         try {
-            var response = s3Client.listObjectVersions(requestBuilder.build());
-
-            // The service interleaves Version and DeleteMarker elements in
-            // one ordered document, but the SDK parses them into two lists,
-            // each still in that order.  Merge them back by S3's order --
-            // keys ascending, then newest first -- which recovers the
-            // original sequence except for a version and a marker of the
-            // same key stamped in the same millisecond.
-            var versionEntries = response.versions().stream()
-                    .map(AwsS3SdkBlobStore::toVersionMetadata)
-                    .toList();
-            var markerEntries = response.deleteMarkers().stream()
-                    .map(AwsS3SdkBlobStore::toVersionMetadata)
-                    .toList();
-            var versions = ImmutableList.<VersionMetadata>builder();
-            int vi = 0;
-            int mi = 0;
-            while (vi < versionEntries.size() || mi < markerEntries.size()) {
-                boolean takeVersion;
-                if (vi == versionEntries.size()) {
-                    takeVersion = false;
-                } else if (mi == markerEntries.size()) {
-                    takeVersion = true;
-                } else {
-                    takeVersion = compareVersionOrder(versionEntries.get(vi),
-                            markerEntries.get(mi)) <= 0;
-                }
-                versions.add(takeVersion ?
-                        versionEntries.get(vi++) : markerEntries.get(mi++));
-            }
-
-            var commonPrefixes = ImmutableList.<String>builder();
-            for (CommonPrefix prefix : response.commonPrefixes()) {
-                commonPrefixes.add(prefix.prefix());
-            }
-
-            String nextKeyMarker = null;
-            String nextVersionIdMarker = null;
-            if (Boolean.TRUE.equals(response.isTruncated())) {
-                nextKeyMarker = response.nextKeyMarker();
-                nextVersionIdMarker = response.nextVersionIdMarker();
-            }
-
-            return new VersionPage(versions.build(), commonPrefixes.build(),
-                    nextKeyMarker, nextVersionIdMarker);
+            return s3Client.listObjectVersions(requestBuilder.build());
         } catch (S3Exception e) {
             throw propagate(e, container, null);
         }
@@ -1169,55 +1093,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         StorageClass parsed = StorageClass.fromValue(storageClass);
         return parsed == StorageClass.UNKNOWN_TO_SDK_VERSION ?
                 StorageClass.STANDARD : parsed;
-    }
-
-    private static VersionMetadata toVersionMetadata(ObjectVersion version) {
-        return new VersionMetadata(version.key(),
-                version.versionId(),
-                Boolean.TRUE.equals(version.isLatest()),
-                /*deleteMarker=*/ false,
-                version.eTag(),
-                toDate(version.lastModified()),
-                version.size(),
-                fromAwsObjectVersionStorageClass(version.storageClass()));
-    }
-
-    private static VersionMetadata toVersionMetadata(
-            DeleteMarkerEntry marker) {
-        return new VersionMetadata(marker.key(),
-                marker.versionId(),
-                Boolean.TRUE.equals(marker.isLatest()),
-                /*deleteMarker=*/ true,
-                /*eTag=*/ null,
-                toDate(marker.lastModified()),
-                /*size=*/ null,
-                StorageClass.STANDARD);
-    }
-
-    /** S3 listing order: keys ascending, then newest first. */
-    private static int compareVersionOrder(VersionMetadata left,
-            VersionMetadata right) {
-        int compare = left.name().compareTo(right.name());
-        if (compare != 0) {
-            return compare;
-        }
-        var leftModified = left.lastModified();
-        var rightModified = right.lastModified();
-        return Long.compare(
-                rightModified == null ? 0 : rightModified.getTime(),
-                leftModified == null ? 0 : leftModified.getTime());
-    }
-
-    private static StorageClass fromAwsObjectVersionStorageClass(
-            @Nullable ObjectVersionStorageClass storageClass) {
-        if (storageClass == null) {
-            return StorageClass.STANDARD;
-        }
-        try {
-            return StorageClass.valueOf(storageClass.name());
-        } catch (IllegalArgumentException e) {
-            return StorageClass.STANDARD;
-        }
     }
 
     private static org.gaul.s3proxy.blobstore.ContentMetadata toContentMetadata(

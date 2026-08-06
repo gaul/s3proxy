@@ -31,8 +31,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -40,6 +38,8 @@ import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 public final class PrefixBlobStoreTest {
     private String containerName;
@@ -98,14 +98,14 @@ public final class PrefixBlobStoreTest {
         blobStore.putBlob(containerName, Blob.builder(
                 "outside.txt").payload(content).build(), PutOptions.NONE);
 
-        PageSet<? extends StorageMetadata> listing =
+        var listing =
                 prefixBlobStore.list(containerName, ListContainerOptions.NONE);
-        List<String> names = listing.entries().stream()
-                .map(StorageMetadata::name)
+        List<String> names = listing.contents().stream()
+                .map(S3Object::key)
                 .toList();
         assertThat(names).containsExactlyInAnyOrder(
                 "file-one.txt", "file-two.txt");
-        assertThat(listing.nextMarker()).isNull();
+        assertThat(listing.nextContinuationToken()).isNull();
     }
 
     @Test

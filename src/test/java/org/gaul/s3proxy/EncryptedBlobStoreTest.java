@@ -42,9 +42,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -64,6 +61,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 @SuppressWarnings("UnstableApiUsage")
 @Execution(ExecutionMode.SAME_THREAD)
@@ -231,16 +229,14 @@ public final class EncryptedBlobStoreTest {
             }
         }
 
-        PageSet<? extends StorageMetadata> blobs =
-            encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        for (StorageMetadata blob : blobs) {
+        var blobs = encryptedBlobStore.list(containerName,
+                ListContainerOptions.NONE);
+        for (S3Object blob : blobs.contents()) {
             assertThat(blob.size()).isEqualTo(
-                contentLengths.get(blob.name()));
+                contentLengths.get(blob.key()));
         }
 
-        blobs = encryptedBlobStore.list();
-        StorageMetadata metadata = blobs.iterator().next();
-        assertThat(StorageType.CONTAINER).isEqualTo(metadata.type());
+        assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
     }
 
     @Test
@@ -264,24 +260,24 @@ public final class EncryptedBlobStoreTest {
             encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         }
 
-        PageSet<? extends StorageMetadata> blobs =
-            encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        for (StorageMetadata blob : blobs) {
+        var blobs = encryptedBlobStore.list(containerName,
+                ListContainerOptions.NONE);
+        for (S3Object blob : blobs.contents()) {
             assertThat(blob.size()).isEqualTo(
-                contentLengths.get(blob.name()));
+                contentLengths.get(blob.key()));
         }
 
         blobs =
             encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        for (StorageMetadata blob : blobs) {
+        for (S3Object blob : blobs.contents()) {
             assertThat(blob.size()).isEqualTo(
-                contentLengths.get(blob.name()));
-            encryptedBlobStore.removeBlob(containerName, blob.name());
+                contentLengths.get(blob.key()));
+            encryptedBlobStore.removeBlob(containerName, blob.key());
         }
 
         blobs =
             encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        assertThat(blobs).isEmpty();
+        assertThat(blobs.contents()).isEmpty();
     }
 
     @Test
@@ -305,13 +301,13 @@ public final class EncryptedBlobStoreTest {
             if (marker != null) {
                 optionsBuilder.afterMarker(marker);
             }
-            PageSet<? extends StorageMetadata> page =
+            var page =
                 encryptedBlobStore.list(containerName, optionsBuilder.build());
-            for (StorageMetadata sm : page) {
-                assertThat(seen).doesNotContainKey(sm.name());
-                seen.put(sm.name(), sm.size());
+            for (S3Object sm : page.contents()) {
+                assertThat(seen).doesNotContainKey(sm.key());
+                seen.put(sm.key(), sm.size());
             }
-            marker = page.nextMarker();
+            marker = page.nextContinuationToken();
             if (marker == null) {
                 break;
             }
@@ -341,9 +337,9 @@ public final class EncryptedBlobStoreTest {
         assertThat(got.getMetadata().contentMetadata().contentLength())
             .isEqualTo(0L);
 
-        PageSet<? extends StorageMetadata> blobs =
-            encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        assertThat(blobs.iterator().next().size()).isEqualTo(0L);
+        var blobs = encryptedBlobStore.list(containerName,
+                ListContainerOptions.NONE);
+        assertThat(blobs.contents().get(0).size()).isEqualTo(0L);
     }
 
     @Test
@@ -388,21 +384,19 @@ public final class EncryptedBlobStoreTest {
 
         encryptedBlobStore.completeMultipartUpload(mpu, parts);
 
-        PageSet<? extends StorageMetadata> blobs =
-            encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
-        StorageMetadata metadata = blobs.iterator().next();
+        var blobs = encryptedBlobStore.list(containerName,
+                ListContainerOptions.NONE);
+        S3Object metadata = blobs.contents().get(0);
         assertThat((long) content.length()).isEqualTo(metadata.size());
 
-        blobs = encryptedBlobStore.list();
-        metadata = blobs.iterator().next();
-        assertThat(StorageType.CONTAINER).isEqualTo(metadata.type());
+        assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
 
         List<String> singleList = new ArrayList<>();
         singleList.add(blobName);
         encryptedBlobStore.removeBlobs(containerName, singleList);
         blobs = encryptedBlobStore.list(containerName,
                 ListContainerOptions.NONE);
-        assertThat(blobs).isEmpty();
+        assertThat(blobs.contents()).isEmpty();
     }
 
     @Test
@@ -426,9 +420,9 @@ public final class EncryptedBlobStoreTest {
         // no encrypted (.s3enc) backend blob was left behind, on either the
         // wrapper or the underlying delegate.
         assertThat(encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isEmpty();
+                ListContainerOptions.NONE).contents()).isEmpty();
         assertThat(blobStore.list(containerName,
-                ListContainerOptions.NONE)).isEmpty();
+                ListContainerOptions.NONE).contents()).isEmpty();
 
         // The upload no longer exists, so completing it now fails rather than
         // resurrecting the object from a dangling upload.

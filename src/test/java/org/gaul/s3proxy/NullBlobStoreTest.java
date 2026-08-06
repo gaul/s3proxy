@@ -34,8 +34,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -43,6 +41,8 @@ import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 public final class NullBlobStoreTest {
     private static final ByteSource BYTE_SOURCE =
@@ -87,17 +87,18 @@ public final class NullBlobStoreTest {
             assertThat(actualLength).isEqualTo(expectedLength);
         }
 
-        PageSet<? extends StorageMetadata> pageSet = nullBlobStore.list(
+        var pageSet = nullBlobStore.list(
                 containerName, ListContainerOptions.NONE);
-        assertThat(pageSet).hasSize(1);
-        StorageMetadata sm = pageSet.iterator().next();
-        assertThat(sm.name()).isEqualTo(blobName);
+        assertThat(pageSet.contents()).hasSize(1);
+        S3Object sm = pageSet.contents().get(0);
+        assertThat(sm.key()).isEqualTo(blobName);
         assertThat(sm.size()).isEqualTo(0);
 
         // the canonical overload which S3ProxyHandler calls also zeroes sizes
-        pageSet = nullBlobStore.list(containerName, ListContainerOptions.NONE);
-        assertThat(pageSet).hasSize(1);
-        assertThat(pageSet.iterator().next().size()).isEqualTo(0);
+        pageSet = nullBlobStore.list(containerName,
+                ListContainerOptions.NONE);
+        assertThat(pageSet.contents()).hasSize(1);
+        assertThat(pageSet.contents().get(0).size()).isEqualTo(0);
     }
 
     @Test
@@ -189,7 +190,7 @@ public final class NullBlobStoreTest {
 
         nullBlobStore.removeBlob(containerName, blobName);
         assertThat(nullBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isEmpty();
+                ListContainerOptions.NONE).contents()).isEmpty();
     }
 
     @Test
@@ -235,8 +236,8 @@ public final class NullBlobStoreTest {
                             OutputStream.nullOutputStream()));
         }
         assertThat(nullBlobStore.list(containerName,
-                ListContainerOptions.NONE).entries().stream()
-                .map(StorageMetadata::name))
+                ListContainerOptions.NONE).contents().stream()
+                .map(S3Object::key))
                 .containsExactly(blobName);
     }
 

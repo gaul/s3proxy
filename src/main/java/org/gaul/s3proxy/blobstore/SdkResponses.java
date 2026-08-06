@@ -16,12 +16,21 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.util.Collection;
+import java.util.Date;
+
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectStorageClass;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.StorageClass;
 
 /**
  * Factories for the SDK responses backends fabricate when their service
@@ -30,6 +39,51 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
  */
 public final class SdkResponses {
     private SdkResponses() {
+    }
+
+    /** A listed bucket, converting the legacy Date form. */
+    public static Bucket bucket(String name, @Nullable Date creationDate) {
+        return Bucket.builder()
+                .name(name)
+                .creationDate(creationDate == null ? null :
+                        creationDate.toInstant())
+                .build();
+    }
+
+    /** A listed object, converting the legacy Date and StorageClass forms. */
+    public static S3Object objectEntry(String key, @Nullable String eTag,
+            @Nullable Date lastModified, @Nullable Long size,
+            @Nullable StorageClass storageClass) {
+        return S3Object.builder()
+                .key(key)
+                .eTag(eTag)
+                .lastModified(lastModified == null ? null :
+                        lastModified.toInstant())
+                .size(size)
+                .storageClass(storageClass == null ? null :
+                        ObjectStorageClass.fromValue(storageClass.toString()))
+                .build();
+    }
+
+    public static CommonPrefix commonPrefix(String prefix) {
+        return CommonPrefix.builder().prefix(prefix).build();
+    }
+
+    /**
+     * One page of an object listing.  The next-marker convention rides in
+     * nextContinuationToken: null when the listing is complete, otherwise
+     * the value the next request's marker names.
+     */
+    public static ListObjectsV2Response objectsPage(
+            Collection<S3Object> contents,
+            Collection<CommonPrefix> commonPrefixes,
+            @Nullable String nextContinuationToken) {
+        return ListObjectsV2Response.builder()
+                .contents(contents)
+                .commonPrefixes(commonPrefixes)
+                .nextContinuationToken(nextContinuationToken)
+                .isTruncated(nextContinuationToken != null)
+                .build();
     }
 
     /** A response carrying only the stored object's ETag. */

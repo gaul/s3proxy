@@ -72,7 +72,6 @@ import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
@@ -88,12 +87,8 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -103,9 +98,14 @@ import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
+import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 
 public final class AzureBlobStore implements BlobStore {
@@ -240,18 +240,20 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
-        var set = ImmutableSet.<StorageMetadata>builder();
+    public ListBucketsResponse list() {
+        var buckets = ImmutableList.<Bucket>builder();
         for (var container : blobServiceClient.listBlobContainers()) {
             // Azure containers have no creation time.
-            set.add(new ContainerMetadata(container.getName(),
+            buckets.add(SdkResponses.bucket(container.getName(),
                     /*creationDate=*/ null));
         }
-        return new PageSet<StorageMetadata>(set.build(), null);
+        return ListBucketsResponse.builder()
+                .buckets(buckets.build())
+                .build();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         var client = blobServiceClient.getBlobContainerClient(container);
         var azureOptions = new ListBlobsOptions();
@@ -262,7 +264,8 @@ public final class AzureBlobStore implements BlobStore {
         // corrupts tokens containing '+' (turned into a space) or '%'.
         var marker = options.marker();
 
-        var set = ImmutableSet.<StorageMetadata>builder();
+        var contents = ImmutableList.<S3Object>builder();
+        var prefixes = ImmutableList.<CommonPrefix>builder();
         PagedResponse<BlobItem> page;
         try {
             var pages = client.listBlobsByHierarchy(
@@ -275,25 +278,17 @@ public final class AzureBlobStore implements BlobStore {
         for (var blob : page.getValue()) {
             var properties = blob.getProperties();
             if (blob.isPrefix()) {
-                set.add(new BlobMetadata(StorageType.RELATIVE_PATH,
-                        blob.getName(), Map.of(), /*eTag=*/ null,
-                        /*lastModified=*/ null,
-                        StorageClass.STANDARD,
-                        /*container=*/ null,
-                        ContentMetadata.builder().build()));
+                prefixes.add(SdkResponses.commonPrefix(blob.getName()));
             } else {
-                set.add(new BlobMetadata(StorageType.BLOB, blob.getName(),
-                        Map.of(), reportETag(properties.getETag()),
+                contents.add(SdkResponses.objectEntry(blob.getName(),
+                        reportETag(properties.getETag()),
                         toDate(properties.getLastModified()),
-                        fromAccessTier(properties.getAccessTier()),
-                        /*container=*/ null,
-                        ContentMetadata.builder()
-                                .contentLength(properties.getContentLength())
-                                .build()));
+                        properties.getContentLength(),
+                        fromAccessTier(properties.getAccessTier())));
             }
         }
 
-        return new PageSet<StorageMetadata>(set.build(),
+        return SdkResponses.objectsPage(contents.build(), prefixes.build(),
                 page.getContinuationToken());
     }
 
@@ -867,7 +862,7 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, container, /*key=*/ null);
         }
-        return new BlobMetadata(StorageType.BLOB, key,
+        return new BlobMetadata(key,
                 properties.getMetadata(),
                 reportETag(properties.getETag()),
                 toDate(properties.getLastModified()),

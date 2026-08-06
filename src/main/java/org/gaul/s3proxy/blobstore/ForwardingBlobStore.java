@@ -30,9 +30,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.VersionPage;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -45,6 +42,9 @@ import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 public abstract class ForwardingBlobStore extends ForwardingObject
@@ -66,12 +66,12 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
+    public ListBucketsResponse list() {
         return delegate().list();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         return delegate().list(container, options);
     }
@@ -180,7 +180,7 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public VersionPage listVersions(String container,
+    public ListObjectVersionsResponse listVersions(String container,
             ListVersionsOptions options) {
         return delegate().listVersions(container, options);
     }

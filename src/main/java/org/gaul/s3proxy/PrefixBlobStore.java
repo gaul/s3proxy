@@ -34,20 +34,20 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 /**
  * Middleware that scopes a virtual bucket to a fixed backend prefix.
@@ -190,28 +190,32 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         return builder.build();
     }
 
-    private PageSet<? extends StorageMetadata> trimListing(String container,
-            PageSet<? extends StorageMetadata> listing) {
+    private ListObjectsV2Response trimListing(String container,
+            ListObjectsV2Response listing) {
         if (!hasPrefix(container)) {
             return listing;
         }
-        var builder = ImmutableList.<StorageMetadata>builder();
-        for (StorageMetadata metadata : listing) {
-            if (metadata instanceof BlobMetadata blobMetadata) {
-                builder.add(blobMetadata.toBuilder()
-                        .name(trimPrefix(container, blobMetadata.name()))
-                        .build());
-            } else if (metadata instanceof ContainerMetadata cm) {
-                builder.add(new ContainerMetadata(
-                        trimPrefix(container, cm.name()),
-                        cm.creationDate()));
-            }
+        var contents = ImmutableList.<S3Object>builder();
+        for (S3Object object : listing.contents()) {
+            contents.add(object.toBuilder()
+                    .key(trimPrefix(container, object.key()))
+                    .build());
         }
-        String nextMarker = listing.nextMarker();
+        var prefixes = ImmutableList.<CommonPrefix>builder();
+        for (CommonPrefix prefix : listing.commonPrefixes()) {
+            prefixes.add(CommonPrefix.builder()
+                    .prefix(trimPrefix(container, prefix.prefix()))
+                    .build());
+        }
+        String nextMarker = listing.nextContinuationToken();
         if (nextMarker != null) {
             nextMarker = trimPrefix(container, nextMarker);
         }
-        return new PageSet<>(builder.build(), nextMarker);
+        return listing.toBuilder()
+                .contents(contents.build())
+                .commonPrefixes(prefixes.build())
+                .nextContinuationToken(nextMarker)
+                .build();
     }
 
     @Override
@@ -280,7 +284,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         if (!hasPrefix(container)) {
             return super.list(container, options);

@@ -37,8 +37,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -88,20 +86,20 @@ public final class AliasBlobStoreTest {
     public void testListNoAliasContainers() {
         String regularContainer = TestUtils.createRandomContainerName();
         createContainer(regularContainer);
-        PageSet<? extends StorageMetadata> listing = aliasBlobStore.list();
+        var listing = aliasBlobStore.list().buckets();
         assertThat(listing).hasSize(1);
-        assertThat(listing.iterator().next().name()).isEqualTo(
+        assertThat(listing.get(0).name()).isEqualTo(
                 regularContainer);
     }
 
     @Test
     public void testListAliasContainer() {
         createContainer(aliasContainerName);
-        PageSet<? extends StorageMetadata> listing = aliasBlobStore.list();
+        var listing = aliasBlobStore.list().buckets();
         assertThat(listing).hasSize(1);
-        assertThat(listing.iterator().next().name()).isEqualTo(
+        assertThat(listing.get(0).name()).isEqualTo(
                 aliasContainerName);
-        listing = blobStore.list();
+        listing = blobStore.list().buckets();
         assertThat(listing).hasSize(1);
         assertThat(listing.iterator().next().name()).isEqualTo(
                 containerName);

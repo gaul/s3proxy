@@ -36,11 +36,8 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -48,8 +45,11 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
@@ -138,23 +138,24 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
-        PageSet<? extends StorageMetadata> upstream = this.delegate().list();
-        var results = new ImmutableList.Builder<StorageMetadata>();
-        for (StorageMetadata sm : upstream) {
-            if (aliases.containsValue(sm.name())) {
-                results.add(new ContainerMetadata(
-                        requireNonNull(aliases.inverse().get(sm.name())),
-                        sm.creationDate()));
+    public ListBucketsResponse list() {
+        ListBucketsResponse upstream = this.delegate().list();
+        var results = new ImmutableList.Builder<Bucket>();
+        for (Bucket bucket : upstream.buckets()) {
+            if (aliases.containsValue(bucket.name())) {
+                results.add(bucket.toBuilder()
+                        .name(requireNonNull(
+                                aliases.inverse().get(bucket.name())))
+                        .build());
             } else {
-                results.add(sm);
+                results.add(bucket);
             }
         }
-        return new PageSet<>(results.build(), upstream.nextMarker());
+        return upstream.toBuilder().buckets(results.build()).build();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(
+    public ListObjectsV2Response list(
             String container, ListContainerOptions options) {
         return delegate().list(getContainer(container), options);
     }

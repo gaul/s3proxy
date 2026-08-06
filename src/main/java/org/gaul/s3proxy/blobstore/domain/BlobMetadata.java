@@ -36,7 +36,6 @@ import software.amazon.awssdk.services.s3.model.StorageClass;
  * {@link #builder} or {@link #toBuilder} to construct or modify.
  */
 public record BlobMetadata(
-        StorageType type,
         String name,
         Map<String, String> userMetadata,
         @Nullable String eTag,
@@ -44,29 +43,23 @@ public record BlobMetadata(
         StorageClass storageClass,
         @Nullable String container,
         ContentMetadata contentMetadata,
-        @Nullable String versionId) implements StorageMetadata {
+        @Nullable String versionId) {
 
     public BlobMetadata {
         userMetadata = ImmutableMap.copyOf(userMetadata);
     }
 
     /** Metadata without a version, as every unversioned store reports it. */
-    public BlobMetadata(StorageType type, String name,
+    public BlobMetadata(String name,
             Map<String, String> userMetadata, @Nullable String eTag,
             @Nullable Date lastModified, StorageClass storageClass,
             @Nullable String container, ContentMetadata contentMetadata) {
-        this(type, name, userMetadata, eTag, lastModified, storageClass,
+        this(name, userMetadata, eTag, lastModified, storageClass,
                 container, contentMetadata, /*versionId=*/ null);
     }
 
-    @Override
     public @Nullable Long size() {
         return contentMetadata.contentLength();
-    }
-
-    @Override
-    public @Nullable Date creationDate() {
-        return null;
     }
 
     public static Builder builder() {
@@ -75,7 +68,6 @@ public record BlobMetadata(
 
     public Builder toBuilder() {
         return builder()
-                .type(type)
                 .name(name)
                 .userMetadata(userMetadata)
                 .eTag(eTag)
@@ -87,7 +79,6 @@ public record BlobMetadata(
     }
 
     public static final class Builder {
-        private StorageType type = StorageType.BLOB;
         private @Nullable String name;
         private Map<String, String> userMetadata = new LinkedHashMap<>();
         private @Nullable String eTag;
@@ -99,11 +90,6 @@ public record BlobMetadata(
         private @Nullable String versionId;
 
         private Builder() {
-        }
-
-        public Builder type(StorageType type) {
-            this.type = type;
-            return this;
         }
 
         public Builder name(String name) {
@@ -156,7 +142,7 @@ public record BlobMetadata(
         }
 
         public BlobMetadata build() {
-            return new BlobMetadata(type, requireNonNull(name, "name"),
+            return new BlobMetadata(requireNonNull(name, "name"),
                     userMetadata, eTag,
                     lastModified, storageClass, container, contentMetadata,
                     versionId);

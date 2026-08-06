@@ -36,7 +36,7 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -45,11 +45,8 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
@@ -60,9 +57,13 @@ import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class EncryptedBlobStore extends ForwardingBlobStore {
@@ -128,7 +129,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // we do not set contentMD5 as it will not match due to the encryption
         return Blob.builder(blobMeta.name())
-            .type(blobMeta.type())
             .storageClass(blobMeta.storageClass())
             .userMetadata(userMetadata)
             .payload(payload)
@@ -191,49 +191,74 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     // filter the list by showing the unencrypted blob size
-    private PageSet<? extends StorageMetadata> filteredList(
-        @Nullable String container,
-        PageSet<? extends StorageMetadata> pageSet) {
-        var builder = ImmutableSet.<StorageMetadata>builder();
-        for (StorageMetadata sm : pageSet) {
-            if (sm instanceof BlobMetadata bm) {
-                BlobMetadata mbm = bm.container() == null &&
-                        container != null ?
-                        bm.toBuilder().container(container).build() : bm;
-
-                // if blob is encrypted remove the -s3enc suffix
-                // from content type
-                if (isEncrypted(mbm)) {
-                    mbm = removeEncryptedSuffix(mbm);
-                    mbm = calculateBlobSize(mbm);
-                }
-
-                builder.add(mbm);
-            } else if (sm.name() != null && isEncrypted(sm.name())) {
-                // Bare list entries still need the .s3enc suffix stripped
-                // from the name.  Object entries are always BlobMetadata in
-                // this API and take the branch above, so only containers
-                // reach here.  Do not fetch the full BlobMetadata to fix up
-                // sizes: a per-entry backend call is an N+1 too slow for
-                // listings.
-                if (sm instanceof ContainerMetadata cm) {
-                    builder.add(new ContainerMetadata(
-                            removeEncryptedSuffix(cm.name()),
-                            cm.creationDate()));
-                } else {
-                    builder.add(sm);
-                }
+    private ListBucketsResponse filteredBuckets(ListBucketsResponse page) {
+        var builder = ImmutableList.<Bucket>builder();
+        for (Bucket bucket : page.buckets()) {
+            if (isEncrypted(bucket.name())) {
+                builder.add(bucket.toBuilder()
+                        .name(removeEncryptedSuffix(bucket.name()))
+                        .build());
             } else {
-                builder.add(sm);
+                builder.add(bucket);
+            }
+        }
+        return page.toBuilder().buckets(builder.build()).build();
+    }
+
+    private ListObjectsV2Response filteredList(String container,
+            ListObjectsV2Response page) {
+        var builder = ImmutableList.<S3Object>builder();
+        for (S3Object object : page.contents()) {
+            // an encrypted blob drops the .s3enc suffix and reports the
+            // plaintext size rather than the padded stored size
+            if (isEncrypted(object.key())) {
+                builder.add(object.toBuilder()
+                        .key(removeEncryptedSuffix(object.key()))
+                        .size(plaintextSize(container, object))
+                        .build());
+            } else {
+                builder.add(object);
             }
         }
 
         // make sure the marker do not show blob with .s3enc suffix
-        String marker = pageSet.nextMarker();
+        String marker = page.nextContinuationToken();
         if (marker != null && isEncrypted(marker)) {
             marker = removeEncryptedSuffix(marker);
         }
-        return new PageSet<>(builder.build(), marker);
+        return page.toBuilder()
+                .contents(builder.build())
+                .nextContinuationToken(marker)
+                .build();
+    }
+
+    /**
+     * The plaintext size of a listed encrypted object: the stored size less
+     * the padding, counted from the eTag's part suffix or, failing that, by
+     * reading the final part padding -- the same fallbacks blobMetadata
+     * takes.
+     */
+    private long plaintextSize(String container, S3Object object) {
+        long blobSize = requireNonNull(object.size());
+        Matcher matcher =
+            Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(object.eTag());
+        if (matcher.find()) {
+            int parts = Integer.parseInt(matcher.group(1));
+            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
+        }
+        var options = GetOptions.builder()
+            .range(blobSize - Constants.PADDING_BLOCK_SIZE, blobSize - 1)
+            .build();
+        var blob = requireNonNull(delegate().getBlob(
+                container, object.key(), options));
+        try {
+            PartPadding lastPartPadding =
+                PartPadding.readPartPaddingFromBlob(blob);
+            int parts = lastPartPadding.getPart();
+            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
     }
 
     private boolean isEncrypted(BlobMetadata blobMeta) {
@@ -503,13 +528,12 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
-        PageSet<? extends StorageMetadata> pageSet = delegate().list();
-        return filteredList(/*container=*/ null, pageSet);
+    public ListBucketsResponse list() {
+        return filteredBuckets(delegate().list());
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
         ListContainerOptions options) {
         var marker = options.marker();
         if (marker != null && !isEncrypted(marker)) {
@@ -520,9 +544,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     .afterMarker(blobNameWithSuffix(marker))
                     .build();
         }
-        PageSet<? extends StorageMetadata> pageSet =
-            delegate().list(container, options);
-        return filteredList(container, pageSet);
+        return filteredList(container, delegate().list(container, options));
     }
 
     @Override

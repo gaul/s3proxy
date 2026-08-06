@@ -51,11 +51,8 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -63,10 +60,14 @@ import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 /**
  * This class implements the ability to split objects destined for specified
@@ -287,33 +288,34 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
-        PageSet<? extends StorageMetadata> upstream = this.delegate().list();
-        var results = new ImmutableList.Builder<StorageMetadata>();
+    public ListBucketsResponse list() {
+        ListBucketsResponse upstream = this.delegate().list();
+        var results = new ImmutableList.Builder<Bucket>();
         Set<String> virtualBuckets = new HashSet<>();
-        for (StorageMetadata sm : upstream) {
-            Matcher matcher = SHARD_RE.matcher(sm.name());
+        for (Bucket bucket : upstream.buckets()) {
+            Matcher matcher = SHARD_RE.matcher(bucket.name());
             if (!matcher.matches()) {
-                results.add(sm);
+                results.add(bucket);
                 continue;
             }
             String prefix = matcher.group("prefix");
             String virtualBucketName = this.prefixMap.get(prefix);
             if (virtualBucketName == null) {
-                results.add(sm);
+                results.add(bucket);
                 continue;
             }
             if (!virtualBuckets.contains(prefix)) {
                 virtualBuckets.add(prefix);
-                results.add(new ContainerMetadata(virtualBucketName,
-                        sm.creationDate()));
+                results.add(bucket.toBuilder()
+                        .name(virtualBucketName)
+                        .build());
             }
         }
-        return new PageSet<>(results.build(), upstream.nextMarker());
+        return upstream.toBuilder().buckets(results.build()).build();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(
+    public ListObjectsV2Response list(
             String container,
             ListContainerOptions options) {
         if (!this.buckets.containsKey(container)) {
@@ -397,7 +399,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             futuresBuilder.add(executor.submit(() -> {
                 try {
                     return blobStore.list(shard,
-                            ListContainerOptions.NONE).entries().isEmpty();
+                            ListContainerOptions.NONE).contents().isEmpty();
                 } catch (NoSuchBucketException nsbe) {
                     return true;
                 }
@@ -430,9 +432,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         String zeroShardContainer = ShardedBlobStore.getShardContainer(
                 bucket, 0);
         boolean superblockPresent = false;
-        for (StorageMetadata sm : this.delegate().list(zeroShardContainer,
-                ListContainerOptions.NONE)) {
-            if (sm.name().equals(SUPERBLOCK_BLOB_NAME)) {
+        for (S3Object sm : this.delegate().list(zeroShardContainer,
+                ListContainerOptions.NONE).contents()) {
+            if (sm.key().equals(SUPERBLOCK_BLOB_NAME)) {
                 superblockPresent = true;
             } else {
                 return false;

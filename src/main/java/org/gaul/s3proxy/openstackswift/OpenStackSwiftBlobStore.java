@@ -37,8 +37,8 @@ import java.util.UUID;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
@@ -52,12 +52,8 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.StorageType;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -82,11 +78,16 @@ import org.openstack4j.model.storage.object.options.ObjectLocation;
 import org.openstack4j.model.storage.object.options.ObjectPutOptions;
 import org.openstack4j.openstack.OSFactory;
 
+import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 
 /**
@@ -230,18 +231,20 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list() {
+    public ListBucketsResponse list() {
         var swift = objectStorage();
-        var set = ImmutableSet.<StorageMetadata>builder();
+        var buckets = ImmutableList.<Bucket>builder();
         for (var container : swift.containers().list()) {
-            set.add(new ContainerMetadata(container.getName(),
+            buckets.add(SdkResponses.bucket(container.getName(),
                     /*creationDate=*/ null));
         }
-        return new PageSet<StorageMetadata>(set.build(), null);
+        return ListBucketsResponse.builder()
+                .buckets(buckets.build())
+                .build();
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
         var swift = objectStorage();
         String prefix = options.prefix();
@@ -256,7 +259,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // container is exhausted; otherwise the listing would truncate early
         // and the container could appear empty.  The continuation marker is a
         // real visible key so it round-trips through the S3 client.
-        var visible = new ArrayList<StorageMetadata>();
+        var contents = new ArrayList<S3Object>();
+        var prefixes = new ArrayList<CommonPrefix>();
+        int visibleCount = 0;
+        String lastVisible = null;
         String swiftMarker = options.marker();
         boolean firstRequest = true;
         boolean more = false;
@@ -320,26 +326,21 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     continue;
                 }
 
-                if (maxResults != null && visible.size() == maxResults) {
+                if (maxResults != null && visibleCount == maxResults) {
                     // At least one more visible object exists beyond the page.
                     more = true;
                     break;
                 }
 
                 if (isDirectory) {
-                    visible.add(new BlobMetadata(StorageType.RELATIVE_PATH,
-                            name, Map.of(), /*eTag=*/ null,
-                            /*lastModified=*/ null,
-                            StorageClass.STANDARD, /*container=*/ null,
-                            ContentMetadata.builder().build()));
+                    prefixes.add(SdkResponses.commonPrefix(name));
                 } else {
-                    visible.add(new BlobMetadata(StorageType.BLOB, name,
-                            Map.of(), object.getETag(),
-                            object.getLastModified(), StorageClass.STANDARD,
-                            /*container=*/ null, ContentMetadata.builder()
-                                    .contentLength(object.getSizeInBytes())
-                                    .build()));
+                    contents.add(SdkResponses.objectEntry(name,
+                            object.getETag(), object.getLastModified(),
+                            object.getSizeInBytes(), StorageClass.STANDARD));
                 }
+                visibleCount++;
+                lastVisible = name;
             }
 
             if (more) {
@@ -354,10 +355,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // objects; fetch the next page from the advanced marker.
         }
 
-        String nextMarker = more && !visible.isEmpty() ?
-                visible.get(visible.size() - 1).name() : null;
-        return new PageSet<StorageMetadata>(
-                ImmutableSet.copyOf(visible), nextMarker);
+        String nextMarker = more ? lastVisible : null;
+        return SdkResponses.objectsPage(contents, prefixes, nextMarker);
     }
 
     @Override
@@ -897,7 +896,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var headers = object.getMetadata();
         var objectMetadata = ObjectMetadata.from(
                 headers == null ? Map.of() : headers);
-        return new BlobMetadata(StorageType.BLOB, key,
+        return new BlobMetadata(key,
                 objectMetadata.userMetadata(),
                 objectMetadata.eTagOr(object.getETag()),
                 object.getLastModified(), StorageClass.STANDARD, container,

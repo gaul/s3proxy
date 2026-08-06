@@ -29,9 +29,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.VersionPage;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -44,8 +41,12 @@ import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 /** Synchronous access to a BlobStore such as Amazon S3. */
 public interface BlobStore extends AutoCloseable {
@@ -54,9 +55,14 @@ public interface BlobStore extends AutoCloseable {
     default void close() {
     }
 
-    PageSet<? extends StorageMetadata> list();
+    ListBucketsResponse list();
 
-    PageSet<? extends StorageMetadata> list(String container,
+    /**
+     * Lists one page of a container.  The page's nextContinuationToken
+     * carries the marker naming where the next page resumes, or null when
+     * the listing is complete; isTruncated says the same thing.
+     */
+    ListObjectsV2Response list(String container,
             ListContainerOptions options);
 
     boolean containerExists(String container);
@@ -71,14 +77,11 @@ public interface BlobStore extends AutoCloseable {
             ListContainerOptions options) {
         ListContainerOptions opts = options;
         while (true) {
-            PageSet<? extends StorageMetadata> page = list(container, opts);
-            for (StorageMetadata sm : page) {
-                String name = sm.name();
-                if (name != null) {
-                    removeBlob(container, name);
-                }
+            ListObjectsV2Response page = list(container, opts);
+            for (S3Object object : page.contents()) {
+                removeBlob(container, object.key());
             }
-            String marker = page.nextMarker();
+            String marker = page.nextContinuationToken();
             if (marker == null) {
                 return;
             }
@@ -166,7 +169,7 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /** Lists a container's object versions and delete markers. */
-    default VersionPage listVersions(String container,
+    default ListObjectVersionsResponse listVersions(String container,
             ListVersionsOptions options) {
         throw new UnsupportedOperationException("versioning not supported");
     }

@@ -118,11 +118,6 @@ public final class Blob {
             return this;
         }
 
-        public Builder type(StorageType type) {
-            metadataBuilder.type(type);
-            return this;
-        }
-
         public Builder eTag(@Nullable String eTag) {
             metadataBuilder.eTag(eTag);
             return this;

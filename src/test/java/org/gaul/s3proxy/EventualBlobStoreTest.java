@@ -186,10 +186,10 @@ public final class EventualBlobStoreTest {
         Blob blob = makeBlob(blobName);
         eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         assertThat(eventualBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isEmpty();
+                ListContainerOptions.NONE).contents()).isEmpty();
         delay();
         assertThat(eventualBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isNotEmpty();
+                ListContainerOptions.NONE).contents()).isNotEmpty();
     }
 
     @Test
@@ -215,18 +215,18 @@ public final class EventualBlobStoreTest {
         farBlobStore.putBlob(containerName,
                 makeBlob(createRandomBlobName()), PutOptions.NONE);
         assertThat(nearBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isNotEmpty();
+                ListContainerOptions.NONE).contents()).isNotEmpty();
         assertThat(farBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isNotEmpty();
+                ListContainerOptions.NONE).contents()).isNotEmpty();
 
         eventualBlobStore.clearContainer(containerName,
                 ListContainerOptions.NONE);
 
         // clearContainer must clear both stores, not only the read store.
         assertThat(nearBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isEmpty();
+                ListContainerOptions.NONE).contents()).isEmpty();
         assertThat(farBlobStore.list(containerName,
-                ListContainerOptions.NONE)).isEmpty();
+                ListContainerOptions.NONE).contents()).isEmpty();
     }
 
     private static String createRandomContainerName() {

@@ -32,7 +32,6 @@ import org.gaul.s3proxy.BlobStores;
 import org.gaul.s3proxy.S3Proxy;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -159,8 +158,8 @@ public class S3ProxyJunitCore {
         logger.debug("S3 proxy is stopping");
         try {
             s3Proxy.stop();
-            for (StorageMetadata metadata : blobStore.list()) {
-                blobStore.deleteContainer(metadata.name());
+            for (var bucket : blobStore.list().buckets()) {
+                blobStore.deleteContainer(bucket.name());
             }
             blobStore.close();
         } catch (Exception e) {

@@ -26,7 +26,6 @@ import java.util.Arrays;
 import java.util.List;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
 import com.google.common.primitives.Longs;
@@ -37,15 +36,15 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 final class NullBlobStore extends ForwardingBlobStore {
     private NullBlobStore(BlobStore blobStore) {
@@ -119,19 +118,14 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PageSet<? extends StorageMetadata> list(String container,
+    public ListObjectsV2Response list(String container,
             ListContainerOptions options) {
-        var builder = ImmutableSet.<StorageMetadata>builder();
-        PageSet<? extends StorageMetadata> pageSet = super.list(container,
-                options);
-        for (StorageMetadata sm : pageSet) {
-            if (sm instanceof BlobMetadata bm) {
-                builder.add(bm.toBuilder().contentLength(0L).build());
-            } else {
-                builder.add(sm);
-            }
+        ListObjectsV2Response page = super.list(container, options);
+        var contents = ImmutableList.<S3Object>builder();
+        for (S3Object object : page.contents()) {
+            contents.add(object.toBuilder().size(0L).build());
         }
-        return new PageSet<>(builder.build(), pageSet.nextMarker());
+        return page.toBuilder().contents(contents.build()).build();
     }
 
     @Override

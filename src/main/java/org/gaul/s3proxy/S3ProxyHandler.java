@@ -102,10 +102,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartPart;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.domain.PageSet;
-import org.gaul.s3proxy.blobstore.domain.StorageMetadata;
-import org.gaul.s3proxy.blobstore.domain.VersionMetadata;
-import org.gaul.s3proxy.blobstore.domain.VersionPage;
 import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.GetOptions;
@@ -118,14 +114,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
@@ -1551,11 +1554,8 @@ public class S3ProxyHandler {
         // S3 lists buckets ordered by name; the backends promise no order of
         // their own, and paginating an unstable one would drop or repeat
         // buckets between pages.
-        var buckets = new ArrayList<StorageMetadata>();
-        for (StorageMetadata metadata : blobStore.list()) {
-            buckets.add(metadata);
-        }
-        buckets.sort(Comparator.comparing(StorageMetadata::name));
+        var buckets = new ArrayList<Bucket>(blobStore.list().buckets());
+        buckets.sort(Comparator.comparing(Bucket::name));
 
         int maxBuckets = MAX_BUCKETS;
         String maxBucketsString = request.getParameter("max-buckets");
@@ -1573,10 +1573,10 @@ public class S3ProxyHandler {
         String continuationToken = request.getParameter("continuation-token");
         String prefix = request.getParameter("prefix");
 
-        var page = new ArrayList<StorageMetadata>();
+        var page = new ArrayList<Bucket>();
         String nextContinuationToken = null;
-        for (StorageMetadata metadata : buckets) {
-            String name = metadata.name();
+        for (Bucket bucket : buckets) {
+            String name = bucket.name();
             if (prefix != null && !name.startsWith(prefix)) {
                 continue;
             }
@@ -1588,7 +1588,7 @@ public class S3ProxyHandler {
                 nextContinuationToken = page.get(page.size() - 1).name();
                 break;
             }
-            page.add(metadata);
+            page.add(bucket);
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -1604,12 +1604,13 @@ public class S3ProxyHandler {
             writeOwnerStanza(xml);
 
             xml.writeStartElement("Buckets");
-            for (StorageMetadata metadata : page) {
+            for (Bucket bucket : page) {
                 xml.writeStartElement("Bucket");
 
-                writeSimpleElement(xml, "Name", metadata.name());
+                writeSimpleElement(xml, "Name", bucket.name());
 
-                Date creationDate = metadata.creationDate();
+                Date creationDate = bucket.creationDate() == null ? null :
+                        Date.from(bucket.creationDate());
                 if (creationDate == null) {
                     // Some providers, e.g., Swift, do not provide container
                     // creation date.  Emit a bogus one to satisfy clients like
@@ -1736,6 +1737,49 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
     }
 
+    /**
+     * One row of the interleaved versions listing: an object version, or a
+     * delete marker when {@code deleteMarker} is set.
+     */
+    private record VersionEntry(String name, String versionId, boolean latest,
+            boolean deleteMarker, @Nullable String eTag,
+            @Nullable Date lastModified, @Nullable Long size,
+            @Nullable String storageClass) {
+        static VersionEntry of(ObjectVersion version) {
+            return new VersionEntry(version.key(), version.versionId(),
+                    Boolean.TRUE.equals(version.isLatest()),
+                    /*deleteMarker=*/ false, version.eTag(),
+                    version.lastModified() == null ? null :
+                            Date.from(version.lastModified()),
+                    version.size(),
+                    version.storageClassAsString() == null ?
+                            StorageClass.STANDARD.toString() :
+                            version.storageClassAsString());
+        }
+
+        static VersionEntry of(DeleteMarkerEntry marker) {
+            return new VersionEntry(marker.key(), marker.versionId(),
+                    Boolean.TRUE.equals(marker.isLatest()),
+                    /*deleteMarker=*/ true, /*eTag=*/ null,
+                    marker.lastModified() == null ? null :
+                            Date.from(marker.lastModified()),
+                    /*size=*/ null, /*storageClass=*/ null);
+        }
+
+        /** S3 listing order: keys ascending, then newest first. */
+        static int compareOrder(VersionEntry left, VersionEntry right) {
+            int compare = left.name().compareTo(right.name());
+            if (compare != 0) {
+                return compare;
+            }
+            var leftModified = left.lastModified();
+            var rightModified = right.lastModified();
+            return Long.compare(
+                    rightModified == null ? 0 : rightModified.getTime(),
+                    leftModified == null ? 0 : leftModified.getTime());
+        }
+    }
+
     private void handleListObjectVersions(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException {
@@ -1780,8 +1824,38 @@ public class S3ProxyHandler {
         }
         optionsBuilder.maxResults(maxKeys);
 
-        VersionPage page = blobStore.listVersions(containerName,
-                optionsBuilder.build());
+        ListObjectVersionsResponse page = blobStore.listVersions(
+                containerName, optionsBuilder.build());
+
+        // The service interleaves Version and DeleteMarker elements in one
+        // ordered document, but the SDK models them as two lists, each still
+        // in that order.  Merge them back by S3's order -- keys ascending,
+        // then newest first -- which recovers the original sequence except
+        // for a version and a marker of the same key stamped in the same
+        // millisecond.
+        var versionEntries = page.versions().stream()
+                .map(VersionEntry::of)
+                .toList();
+        var markerEntries = page.deleteMarkers().stream()
+                .map(VersionEntry::of)
+                .toList();
+        var merged = new ArrayList<VersionEntry>(
+                versionEntries.size() + markerEntries.size());
+        int vi = 0;
+        int mi = 0;
+        while (vi < versionEntries.size() || mi < markerEntries.size()) {
+            boolean takeVersion;
+            if (vi == versionEntries.size()) {
+                takeVersion = false;
+            } else if (mi == markerEntries.size()) {
+                takeVersion = true;
+            } else {
+                takeVersion = VersionEntry.compareOrder(versionEntries.get(vi),
+                        markerEntries.get(mi)) <= 0;
+            }
+            merged.add(takeVersion ?
+                    versionEntries.get(vi++) : markerEntries.get(mi++));
+        }
 
         addCorsResponseHeader(request, response);
         response.setCharacterEncoding(UTF_8);
@@ -1840,7 +1914,7 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "IsTruncated", "false");
             }
 
-            for (VersionMetadata version : page.versions()) {
+            for (VersionEntry version : merged) {
                 xml.writeStartElement(
                         version.deleteMarker() ? "DeleteMarker" : "Version");
 
@@ -1868,18 +1942,18 @@ public class S3ProxyHandler {
 
                 writeOwnerStanza(xml);
 
-                if (!version.deleteMarker()) {
-                    writeSimpleElement(xml, "StorageClass",
-                            version.storageClass().toString());
+                String storageClass = version.storageClass();
+                if (!version.deleteMarker() && storageClass != null) {
+                    writeSimpleElement(xml, "StorageClass", storageClass);
                 }
 
                 xml.writeEndElement();
             }
 
-            for (String commonPrefix : page.commonPrefixes()) {
+            for (CommonPrefix commonPrefix : page.commonPrefixes()) {
                 xml.writeStartElement("CommonPrefixes");
                 writeSimpleElement(xml, "Prefix", encodeBlob(encodingType,
-                        commonPrefix));
+                        commonPrefix.prefix()));
                 xml.writeEndElement();
             }
 
@@ -2192,18 +2266,16 @@ public class S3ProxyHandler {
         }
         optionsBuilder.maxResults(maxKeys);
 
-        PageSet<? extends StorageMetadata> set = blobStore.list(containerName,
+        ListObjectsV2Response set = blobStore.list(containerName,
                 optionsBuilder.build());
 
         boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
                 blobStoreType);
-        int filteredCount = set.entries().size();
-        if (filterStub) {
-            filteredCount = 0;
-            for (StorageMetadata sm : set) {
-                if (!sm.name().startsWith(MULTIPART_STUB_PREFIX)) {
-                    filteredCount++;
-                }
+        int filteredCount = set.commonPrefixes().size();
+        for (S3Object object : set.contents()) {
+            if (!filterStub ||
+                    !object.key().startsWith(MULTIPART_STUB_PREFIX)) {
+                filteredCount++;
             }
         }
 
@@ -2264,7 +2336,7 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "EncodingType", encodingType);
             }
 
-            String nextMarker = set.nextMarker();
+            String nextMarker = set.nextContinuationToken();
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml,
@@ -2279,12 +2351,22 @@ public class S3ProxyHandler {
                     // marker is read back from the query string already
                     // decoded.  A caller echoing the marker needs no entry:
                     // one this cache does not know passes through untouched,
-                    // which is what the store wants anyway.
-                    StorageMetadata sm = Streams.findLast(
-                            set.entries().stream()).orElse(null);
-                    if (sm != null) {
+                    // which is what the store wants anyway.  The last name
+                    // the caller sees is the greater of the final key and
+                    // the final prefix, each list being in listing order.
+                    String lastKey = Streams.findLast(
+                            set.contents().stream())
+                            .map(S3Object::key).orElse(null);
+                    String lastPrefix = Streams.findLast(
+                            set.commonPrefixes().stream())
+                            .map(CommonPrefix::prefix).orElse(null);
+                    String lastName = lastPrefix == null ? lastKey :
+                            lastKey == null ||
+                                    lastKey.compareTo(lastPrefix) < 0 ?
+                            lastPrefix : lastKey;
+                    if (lastName != null) {
                         lastKeyToMarker.put(
-                                Map.entry(containerName, sm.name()),
+                                Map.entry(containerName, lastName),
                                 nextMarker);
                     }
                 }
@@ -2292,47 +2374,35 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "IsTruncated", "false");
             }
 
-            Set<String> commonPrefixes = new TreeSet<>();
-            for (StorageMetadata metadata : set) {
-                if (filterStub && metadata.name().startsWith(
+            for (S3Object object : set.contents()) {
+                if (filterStub && object.key().startsWith(
                         MULTIPART_STUB_PREFIX)) {
                     continue;
-                }
-                switch (metadata.type()) {
-                case FOLDER, RELATIVE_PATH -> {
-                    if (delimiter != null) {
-                        commonPrefixes.add(metadata.name());
-                        continue;
-                    }
-                }
-                default -> { }
                 }
 
                 xml.writeStartElement("Contents");
 
                 writeSimpleElement(xml, "Key", encodeBlob(encodingType,
-                        metadata.name()));
+                        object.key()));
 
-                Date lastModified = metadata.lastModified();
-                if (lastModified != null) {
+                if (object.lastModified() != null) {
                     writeSimpleElement(xml, "LastModified",
-                            formatDate(lastModified));
+                            formatDate(Date.from(object.lastModified())));
                 }
 
-                String eTag = metadata.eTag();
+                String eTag = object.eTag();
                 if (eTag != null) {
                     writeSimpleElement(xml, "ETag", maybeQuoteETag(eTag));
                 }
 
-                Long size = metadata.size();
+                Long size = object.size();
                 if (size != null) {
                     writeSimpleElement(xml, "Size", String.valueOf(size));
                 }
 
-                StorageClass storageClass = metadata.storageClass();
+                String storageClass = object.storageClassAsString();
                 if (storageClass != null) {
-                    writeSimpleElement(xml, "StorageClass",
-                            storageClass.toString());
+                    writeSimpleElement(xml, "StorageClass", storageClass);
                 }
 
                 if (fetchOwner) {
@@ -2342,6 +2412,10 @@ public class S3ProxyHandler {
                 xml.writeEndElement();
             }
 
+            Set<String> commonPrefixes = new TreeSet<>();
+            for (CommonPrefix entry : set.commonPrefixes()) {
+                commonPrefixes.add(entry.prefix());
+            }
             for (String commonPrefix : commonPrefixes) {
                 xml.writeStartElement("CommonPrefixes");
 
