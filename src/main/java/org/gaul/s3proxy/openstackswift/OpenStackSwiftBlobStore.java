@@ -54,7 +54,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -82,6 +81,7 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -89,7 +89,9 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -747,11 +749,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     // x-amz-copy-source-if-* preconditions against the source object's current
     // metadata and report a violation as 412 PreconditionFailed.
     private void enforceCopySourcePreconditions(String container, String name,
-            CopyOptions options) {
-        String ifMatch = options.ifMatch();
-        String ifNoneMatch = options.ifNoneMatch();
-        Date ifModifiedSince = options.ifModifiedSince();
-        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+            CopyObjectRequest request) {
+        String ifMatch = request.copySourceIfMatch();
+        String ifNoneMatch = request.copySourceIfNoneMatch();
+        Date ifModifiedSince = request.copySourceIfModifiedSince() == null ?
+                null : Date.from(request.copySourceIfModifiedSince());
+        Date ifUnmodifiedSince =
+                request.copySourceIfUnmodifiedSince() == null ?
+                null : Date.from(request.copySourceIfUnmodifiedSince());
         if (ifMatch == null && ifNoneMatch == null &&
                 ifModifiedSince == null && ifUnmodifiedSince == null) {
             return;
@@ -790,22 +795,23 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        if (options.sourceVersionId() != null) {
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
             // Matches setBlobAccess: Swift grants read at the container, so a
             // public copy is refused rather than silently made private.
             throw new UnsupportedOperationException(
                     "blob-level access unsupported in Swift");
         }
-        enforceCopySourcePreconditions(fromContainer, fromName, options);
-        var contentMetadata = options.contentMetadata();
-        var userMetadata = options.userMetadata();
-        if (contentMetadata != null || userMetadata != null) {
+        String fromContainer = request.sourceBucket();
+        String fromName = request.sourceKey();
+        String toContainer = request.destinationBucket();
+        String toName = request.destinationKey();
+        enforceCopySourcePreconditions(fromContainer, fromName, request);
+        if (request.metadataDirective() == MetadataDirective.REPLACE) {
             // S3 CopyObject with metadata directive REPLACE.  Swift's COPY
             // always preserves the source metadata, so download the source
             // object and re-upload it with the replacement metadata instead.
@@ -819,14 +825,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                         "while copying");
             }
             var builder = blob.toBuilder().name(toName);
-            if (contentMetadata != null) {
-                builder.contentType(contentMetadata.contentType())
-                        .contentDisposition(
-                                contentMetadata.contentDisposition())
-                        .contentEncoding(contentMetadata.contentEncoding());
-            }
-            builder.userMetadata(userMetadata != null ? userMetadata :
-                    ImmutableMap.of());
+            builder.contentType(request.contentType())
+                    .contentDisposition(request.contentDisposition())
+                    .contentEncoding(request.contentEncoding());
+            builder.userMetadata(request.metadata());
             return SdkResponses.copyResponse(putBlob(toContainer,
                     builder.build(), PutOptions.NONE).eTag());
         }

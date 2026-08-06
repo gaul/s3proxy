@@ -29,7 +29,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
@@ -40,6 +39,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -131,10 +131,8 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        return delegate().copyBlob(fromContainer, fromName, toContainer,
-                toName, options);
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        return delegate().copyBlob(request);
     }
 
     @Override

@@ -52,7 +52,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -62,6 +61,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -471,13 +471,13 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-                           String toContainer, String toName,
-                           CopyOptions options) {
-        String srcShard = this.getShard(fromContainer, fromName);
-        String dstShard = this.getShard(toContainer, toName);
-        return this.delegate().copyBlob(srcShard, fromName,
-                dstShard, toName, options);
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        return this.delegate().copyBlob(request.toBuilder()
+                .sourceBucket(this.getShard(request.sourceBucket(),
+                        request.sourceKey()))
+                .destinationBucket(this.getShard(request.destinationBucket(),
+                        request.destinationKey()))
+                .build());
     }
 
     @Override

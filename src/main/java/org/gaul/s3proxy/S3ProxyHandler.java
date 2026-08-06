@@ -102,7 +102,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
@@ -119,6 +118,7 @@ import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -128,14 +128,17 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import tools.jackson.core.exc.StreamReadException;
@@ -3266,8 +3269,12 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST);
         }
 
-        CopyOptions.Builder options = CopyOptions.builder();
-        options.sourceVersionId(sourceVersionId);
+        var copyRequest = CopyObjectRequest.builder()
+                .sourceBucket(sourceContainerName)
+                .sourceKey(sourceBlobName)
+                .sourceVersionId(sourceVersionId)
+                .destinationBucket(destContainerName)
+                .destinationKey(destBlobName);
 
         // The access rides down with the copy so that the store applies it as
         // it creates the object, rather than a PutObjectAcl afterwards whose
@@ -3275,7 +3282,7 @@ public class S3ProxyHandler {
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl != null && !"private".equalsIgnoreCase(cannedAcl)) {
             if ("public-read".equalsIgnoreCase(cannedAcl)) {
-                options.blobAccess(BlobAccess.PUBLIC_READ);
+                copyRequest.acl(ObjectCannedACL.PUBLIC_READ);
             } else if (CANNED_ACLS.contains(cannedAcl)) {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             } else {
@@ -3284,28 +3291,25 @@ public class S3ProxyHandler {
             }
         }
 
-        String ifMatch = request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
-        if (ifMatch != null) {
-            options.ifMatch(ifMatch);
-        }
-        String ifNoneMatch = request.getHeader(
-                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
-        if (ifNoneMatch != null) {
-            options.ifNoneMatch(ifNoneMatch);
-        }
+        copyRequest.copySourceIfMatch(
+                request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH));
+        copyRequest.copySourceIfNoneMatch(
+                request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH));
         long ifModifiedSince = request.getDateHeader(
                 AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
         if (ifModifiedSince != -1) {
-            options.ifModifiedSince(new Date(ifModifiedSince));
+            copyRequest.copySourceIfModifiedSince(
+                    Instant.ofEpochMilli(ifModifiedSince));
         }
         long ifUnmodifiedSince = request.getDateHeader(
                 AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
         if (ifUnmodifiedSince != -1) {
-            options.ifUnmodifiedSince(new Date(ifUnmodifiedSince));
+            copyRequest.copySourceIfUnmodifiedSince(
+                    Instant.ofEpochMilli(ifUnmodifiedSince));
         }
 
         if (replaceMetadata) {
-            ContentMetadata.Builder contentMetadata = ContentMetadata.builder();
+            copyRequest.metadataDirective(MetadataDirective.REPLACE);
             var userMetadata = ImmutableMap.<String, String>builder();
             for (String headerName : Collections.list(
                     request.getHeaderNames())) {
@@ -3313,22 +3317,22 @@ public class S3ProxyHandler {
                         headerName));
                 if (headerName.equalsIgnoreCase(
                         HttpHeaders.CACHE_CONTROL)) {
-                    contentMetadata.cacheControl(headerValue);
+                    copyRequest.cacheControl(headerValue);
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_DISPOSITION)) {
-                    contentMetadata.contentDisposition(headerValue);
+                    copyRequest.contentDisposition(headerValue);
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_ENCODING)) {
                     String stripped = stripAwsChunked(headerValue);
                     if (!stripped.isEmpty()) {
-                        contentMetadata.contentEncoding(stripped);
+                        copyRequest.contentEncoding(stripped);
                     }
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_LANGUAGE)) {
-                    contentMetadata.contentLanguage(headerValue);
+                    copyRequest.contentLanguage(headerValue);
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_TYPE)) {
-                    contentMetadata.contentType(headerValue);
+                    copyRequest.contentType(headerValue);
                 } else if (startsWithIgnoreCase(headerName,
                         USER_METADATA_PREFIX)) {
                     userMetadata.put(
@@ -3337,15 +3341,12 @@ public class S3ProxyHandler {
                 }
                 // TODO: Expires
             }
-            options.contentMetadata(contentMetadata.build());
-            options.userMetadata(userMetadata.build());
+            copyRequest.metadata(userMetadata.build());
         }
 
         CopyObjectResponse copyResult;
         try {
-            copyResult = blobStore.copyBlob(
-                    sourceContainerName, sourceBlobName,
-                    destContainerName, destBlobName, options.build());
+            copyResult = blobStore.copyBlob(copyRequest.build());
         } catch (NoSuchKeyException nske) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, nske);
         }
@@ -5268,18 +5269,28 @@ public class S3ProxyHandler {
                     AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
             long nativeIfUnmodifiedSince = request.getDateHeader(
                     AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
+            var partCopyRequest = UploadPartCopyRequest.builder()
+                    .sourceBucket(sourceContainerName)
+                    .sourceKey(sourceBlobName)
+                    .sourceVersionId(sourceVersionId)
+                    .destinationBucket(containerName)
+                    .destinationKey(blobName)
+                    .uploadId(uploadId)
+                    .partNumber(partNumber)
+                    .copySourceRange(rawCopySourceRange)
+                    .copySourceIfMatch(request.getHeader(
+                            AwsHttpHeaders.COPY_SOURCE_IF_MATCH))
+                    .copySourceIfNoneMatch(request.getHeader(
+                            AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH))
+                    .copySourceIfModifiedSince(nativeIfModifiedSince == -1 ?
+                            null : Instant.ofEpochMilli(nativeIfModifiedSince))
+                    .copySourceIfUnmodifiedSince(
+                            nativeIfUnmodifiedSince == -1 ? null :
+                            Instant.ofEpochMilli(nativeIfUnmodifiedSince))
+                    .build();
             UploadPartCopyResponse part;
             try {
-                part = blobStore.copyMultipartPart(mpu, partNumber,
-                        sourceContainerName, sourceBlobName, sourceVersionId,
-                        rawCopySourceRange,
-                        request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH),
-                        request.getHeader(
-                                AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH),
-                        nativeIfModifiedSince == -1 ?
-                                null : new Date(nativeIfModifiedSince),
-                        nativeIfUnmodifiedSince == -1 ?
-                                null : new Date(nativeIfUnmodifiedSince));
+                part = blobStore.copyMultipartPart(mpu, partCopyRequest);
             } catch (UnsupportedOperationException uoe) {
                 // The backend discovered at runtime that it cannot copy
                 // server-side, e.g. Azurite lacks Put Block From URL; use

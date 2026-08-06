@@ -76,7 +76,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -86,6 +85,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -93,11 +93,14 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -482,6 +485,20 @@ public final class GCloudBlobStore implements BlobStore {
         return new Date(Math.floorDiv(date.getTime(), 1000L) * 1000L);
     }
 
+    @Nullable
+    private static Date toDate(@Nullable Instant instant) {
+        return instant == null ? null : Date.from(instant);
+    }
+
+    @Nullable
+    private static Date toDate(
+            java.time.@Nullable OffsetDateTime offsetDateTime) {
+        if (offsetDateTime == null) {
+            return null;
+        }
+        return new Date(offsetDateTime.toInstant().toEpochMilli());
+    }
+
     private static String maybeQuoteETag(String eTag) {
         if (!eTag.startsWith("\"") && !eTag.endsWith("\"")) {
             eTag = "\"" + eTag + "\"";
@@ -587,48 +604,41 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        if (options.sourceVersionId() != null) {
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        String fromContainer = request.sourceBucket();
+        String fromName = request.sourceKey();
         var source = BlobId.of(fromContainer, fromName);
-        var targetBuilder = BlobInfo.newBuilder(
-                BlobId.of(toContainer, toName));
+        var targetBuilder = BlobInfo.newBuilder(BlobId.of(
+                request.destinationBucket(), request.destinationKey()));
 
-        var contentMetadata = options.contentMetadata();
-        if (contentMetadata != null) {
-            if (contentMetadata.cacheControl() != null) {
-                targetBuilder.setCacheControl(
-                        contentMetadata.cacheControl());
+        if (request.metadataDirective() == MetadataDirective.REPLACE) {
+            if (request.cacheControl() != null) {
+                targetBuilder.setCacheControl(request.cacheControl());
             }
-            if (contentMetadata.contentDisposition() != null) {
+            if (request.contentDisposition() != null) {
                 targetBuilder.setContentDisposition(
-                        contentMetadata.contentDisposition());
+                        request.contentDisposition());
             }
-            if (contentMetadata.contentEncoding() != null) {
-                targetBuilder.setContentEncoding(
-                        contentMetadata.contentEncoding());
+            if (request.contentEncoding() != null) {
+                targetBuilder.setContentEncoding(request.contentEncoding());
             }
-            if (contentMetadata.contentLanguage() != null) {
-                targetBuilder.setContentLanguage(
-                        contentMetadata.contentLanguage());
+            if (request.contentLanguage() != null) {
+                targetBuilder.setContentLanguage(request.contentLanguage());
             }
-            if (contentMetadata.contentType() != null) {
-                targetBuilder.setContentType(
-                        contentMetadata.contentType());
+            if (request.contentType() != null) {
+                targetBuilder.setContentType(request.contentType());
             }
-        }
-        var userMetadata = options.userMetadata();
-        if (userMetadata != null) {
-            targetBuilder.setMetadata(userMetadata);
+            targetBuilder.setMetadata(request.metadata());
         }
 
-        String ifMatch = options.ifMatch();
-        String ifNoneMatch = options.ifNoneMatch();
-        Date ifModifiedSince = options.ifModifiedSince();
-        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        String ifMatch = request.copySourceIfMatch();
+        String ifNoneMatch = request.copySourceIfNoneMatch();
+        Date ifModifiedSince = toDate(request.copySourceIfModifiedSince());
+        Date ifUnmodifiedSince = toDate(request.copySourceIfUnmodifiedSince());
         List<BlobSourceOption> sourceOptions = List.of();
         if (ifMatch != null || ifNoneMatch != null ||
                 ifModifiedSince != null || ifUnmodifiedSince != null) {
@@ -637,7 +647,7 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         var targetOptions = new java.util.ArrayList<BlobTargetOption>();
-        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
             targetOptions.add(BlobTargetOption.predefinedAcl(
                     Storage.PredefinedAcl.PUBLIC_READ));
         }
@@ -1190,21 +1200,20 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
-            int partNumber, String sourceContainer, String sourceName,
-            @Nullable String sourceVersionId,
-            @Nullable String copySourceRange, @Nullable String ifMatch,
-            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
-            @Nullable Date ifUnmodifiedSince) {
-        if (sourceVersionId != null) {
+            UploadPartCopyRequest request) {
+        if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        int partNumber = request.partNumber();
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " +
                     partNumber);
         }
 
+        String sourceContainer = request.sourceBucket();
+        String sourceName = request.sourceKey();
         var source = BlobId.of(sourceContainer, sourceName);
         Blob sourceBlob;
         try {
@@ -1219,14 +1228,17 @@ public final class GCloudBlobStore implements BlobStore {
         // GCS cannot copy a byte range server-side; a range covering the
         // whole object is equivalent to no range, anything else falls back
         // to streamed emulation in the caller.
+        String copySourceRange = request.copySourceRange();
         if (copySourceRange != null && !isEntireObject(copySourceRange,
                 sourceBlob.getSize())) {
             throw new UnsupportedOperationException(
                     "GCS does not support ranged server-side copies");
         }
 
-        var sourceOptions = checkCopySourceConditions(sourceBlob, ifMatch,
-                ifNoneMatch, ifModifiedSince, ifUnmodifiedSince);
+        var sourceOptions = checkCopySourceConditions(sourceBlob,
+                request.copySourceIfMatch(), request.copySourceIfNoneMatch(),
+                toDate(request.copySourceIfModifiedSince()),
+                toDate(request.copySourceIfUnmodifiedSince()));
 
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -1366,15 +1378,6 @@ public final class GCloudBlobStore implements BlobStore {
             }
         });
         return result;
-    }
-
-    @Nullable
-    private static Date toDate(
-            java.time.@Nullable OffsetDateTime offsetDateTime) {
-        if (offsetDateTime == null) {
-            return null;
-        }
-        return new Date(offsetDateTime.toInstant().toEpochMilli());
     }
 
     private static com.google.cloud.storage.StorageClass toGcsStorageClass(

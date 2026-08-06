@@ -90,7 +90,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -103,6 +102,7 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -110,10 +110,13 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -681,13 +684,16 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        if (options.sourceVersionId() != null) {
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+        String fromContainer = request.sourceBucket();
+        String fromName = request.sourceKey();
+        boolean replace =
+                request.metadataDirective() == MetadataDirective.REPLACE;
+        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
             // Matches setBlobAccess: Azure grants read at the container, so a
             // public copy is refused rather than silently made private.
             throw new UnsupportedOperationException("unsupported in Azure");
@@ -714,34 +720,33 @@ public final class AzureBlobStore implements BlobStore {
         // TODO: is this the best way to generate a SAS URL?
         var azureOptions = new BlobUploadFromUrlOptions(url + "?" + token);
         var client = blobServiceClient
-                .getBlobContainerClient(toContainer)
-                .getBlobClient(toName)
+                .getBlobContainerClient(request.destinationBucket())
+                .getBlobClient(request.destinationKey())
                 .getBlockBlobClient();
 
         var headers = new BlobHttpHeaders();
-        var contentMetadata = options.contentMetadata();
-        if (contentMetadata != null) {
-            var cacheControl = contentMetadata.cacheControl();
+        if (replace) {
+            var cacheControl = request.cacheControl();
             if (cacheControl != null) {
                 headers.setCacheControl(cacheControl);
             }
 
-            var contentDisposition = contentMetadata.contentDisposition();
+            var contentDisposition = request.contentDisposition();
             if (contentDisposition != null) {
                 headers.setContentDisposition(contentDisposition);
             }
 
-            var contentEncoding = contentMetadata.contentEncoding();
+            var contentEncoding = request.contentEncoding();
             if (contentEncoding != null) {
                 headers.setContentEncoding(contentEncoding);
             }
 
-            var contentLanguage = contentMetadata.contentLanguage();
+            var contentLanguage = request.contentLanguage();
             if (contentLanguage != null) {
                 headers.setContentLanguage(contentLanguage);
             }
 
-            var contentType = contentMetadata.contentType();
+            var contentType = request.contentType();
             if (contentType != null) {
                 headers.setContentType(contentType);
             }
@@ -755,26 +760,26 @@ public final class AzureBlobStore implements BlobStore {
         boolean haveSourceConditions = false;
         // Undressed once here: the Put Blob From URL path below and the
         // Copy Blob fallback both hand these straight to the service.
-        String ifMatch = backendCondition(options.ifMatch());
+        String ifMatch = backendCondition(request.copySourceIfMatch());
         if (ifMatch != null) {
             sourceConditions.setIfMatch(ifMatch);
             haveSourceConditions = true;
         }
-        String ifNoneMatch = backendCondition(options.ifNoneMatch());
+        String ifNoneMatch = backendCondition(request.copySourceIfNoneMatch());
         if (ifNoneMatch != null) {
             sourceConditions.setIfNoneMatch(ifNoneMatch);
             haveSourceConditions = true;
         }
-        Date ifModifiedSince = options.ifModifiedSince();
+        Instant ifModifiedSince = request.copySourceIfModifiedSince();
         if (ifModifiedSince != null) {
             sourceConditions.setIfModifiedSince(
-                    ifModifiedSince.toInstant().atOffset(ZoneOffset.UTC));
+                    ifModifiedSince.atOffset(ZoneOffset.UTC));
             haveSourceConditions = true;
         }
-        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
+        Instant ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
         if (ifUnmodifiedSince != null) {
             sourceConditions.setIfUnmodifiedSince(
-                    ifUnmodifiedSince.toInstant().atOffset(ZoneOffset.UTC));
+                    ifUnmodifiedSince.atOffset(ZoneOffset.UTC));
             haveSourceConditions = true;
         }
         if (haveSourceConditions) {
@@ -786,9 +791,8 @@ public final class AzureBlobStore implements BlobStore {
                     azureOptions, /*timeout=*/ null, /*context=*/ null);
 
             // TODO: cannot do this as part of uploadFromUrlWithResponse?
-            var userMetadata = options.userMetadata();
-            if (userMetadata != null) {
-                client.setMetadata(userMetadata);
+            if (replace) {
+                client.setMetadata(request.metadata());
             }
 
             return SdkResponses.copyResponse(reportETag(
@@ -805,9 +809,8 @@ public final class AzureBlobStore implements BlobStore {
             try {
                 var copyOptions = new BlobBeginCopyOptions(url + "?" + token)
                         .setPollInterval(Duration.ofMillis(10));
-                var userMetadata = options.userMetadata();
-                if (userMetadata != null) {
-                    copyOptions.setMetadata(userMetadata);
+                if (replace) {
+                    copyOptions.setMetadata(request.metadata());
                 }
                 if (haveSourceConditions) {
                     var copySourceConditions =
@@ -820,19 +823,17 @@ public final class AzureBlobStore implements BlobStore {
                     }
                     if (ifModifiedSince != null) {
                         copySourceConditions.setIfModifiedSince(
-                                ifModifiedSince.toInstant()
-                                        .atOffset(ZoneOffset.UTC));
+                                ifModifiedSince.atOffset(ZoneOffset.UTC));
                     }
                     if (ifUnmodifiedSince != null) {
                         copySourceConditions.setIfUnmodifiedSince(
-                                ifUnmodifiedSince.toInstant()
-                                        .atOffset(ZoneOffset.UTC));
+                                ifUnmodifiedSince.atOffset(ZoneOffset.UTC));
                     }
                     copyOptions.setSourceRequestConditions(
                             copySourceConditions);
                 }
                 client.beginCopy(copyOptions).waitForCompletion();
-                if (contentMetadata != null) {
+                if (replace) {
                     client.setHttpHeaders(headers);
                 }
                 return SdkResponses.copyResponse(reportETag(
@@ -1266,20 +1267,21 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
-            int partNumber, String sourceContainer, String sourceName,
-            @Nullable String sourceVersionId,
-            @Nullable String copySourceRange, @Nullable String ifMatch,
-            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
-            @Nullable Date ifUnmodifiedSince) {
-        if (sourceVersionId != null) {
+            UploadPartCopyRequest request) {
+        if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        int partNumber = request.partNumber();
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
                     "Part number must be between 1 and 10,000, got: " +
                     partNumber);
         }
+        String ifMatch = request.copySourceIfMatch();
+        String ifNoneMatch = request.copySourceIfNoneMatch();
+        Instant ifModifiedSince = request.copySourceIfModifiedSince();
+        Instant ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
 
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -1292,8 +1294,8 @@ public final class AzureBlobStore implements BlobStore {
         var values = new BlobServiceSasSignatureValues(expiryTime, permission)
                 .setStartTime(OffsetDateTime.now());
         var fromClient = blobServiceClient
-                .getBlobContainerClient(sourceContainer)
-                .getBlobClient(sourceName);
+                .getBlobContainerClient(request.sourceBucket())
+                .getBlobClient(request.sourceKey());
         String token;
         var cred = creds.get();
         if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
@@ -1307,7 +1309,8 @@ public final class AzureBlobStore implements BlobStore {
 
         var options = new BlockBlobStageBlockFromUrlOptions(blockId,
                 fromClient.getBlobUrl() + "?" + token)
-                .setSourceRange(parseCopySourceRange(copySourceRange));
+                .setSourceRange(parseCopySourceRange(
+                        request.copySourceRange()));
         if (ifMatch != null || ifNoneMatch != null ||
                 ifModifiedSince != null || ifUnmodifiedSince != null) {
             var conditions = new BlobRequestConditions()
@@ -1315,11 +1318,11 @@ public final class AzureBlobStore implements BlobStore {
                     .setIfNoneMatch(backendCondition(ifNoneMatch));
             if (ifModifiedSince != null) {
                 conditions.setIfModifiedSince(OffsetDateTime.ofInstant(
-                        ifModifiedSince.toInstant(), ZoneOffset.UTC));
+                        ifModifiedSince, ZoneOffset.UTC));
             }
             if (ifUnmodifiedSince != null) {
                 conditions.setIfUnmodifiedSince(OffsetDateTime.ofInstant(
-                        ifUnmodifiedSince.toInstant(), ZoneOffset.UTC));
+                        ifUnmodifiedSince, ZoneOffset.UTC));
             }
             options.setSourceRequestConditions(conditions);
         }
@@ -1346,7 +1349,7 @@ public final class AzureBlobStore implements BlobStore {
                 throw new UnsupportedOperationException(
                         "backend does not implement Put Block From URL", bse);
             }
-            throw translate(bse, sourceContainer, sourceName);
+            throw translate(bse, request.sourceBucket(), request.sourceKey());
         }
         return SdkResponses.copiedPart(eTag, /*lastModified=*/ null,
                 /*copySourceVersionId=*/ null);

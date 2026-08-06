@@ -26,16 +26,17 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
@@ -113,40 +114,23 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        var userMetadata = options.userMetadata();
-        if (userMetadata != null) {
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        if (request.metadataDirective() == MetadataDirective.REPLACE) {
             // A copy that replaces user metadata must munge the new keys and
             // values the same way putBlob does, so the backend stores the
             // mapped form and getBlob reverses it.  A copy without replacement
             // metadata carries the source's already-munged metadata forward
             // untouched.
             var metadata = ImmutableMap.<String, String>builder();
-            for (var entry : userMetadata.entrySet()) {
+            for (var entry : request.metadata().entrySet()) {
                 metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
                         replaceChars(entry.getValue(), fromChars, toChars));
             }
-            var builder = CopyOptions.builder().userMetadata(metadata.build());
-            if (options.contentMetadata() != null) {
-                builder.contentMetadata(options.contentMetadata());
-            }
-            if (options.ifMatch() != null) {
-                builder.ifMatch(options.ifMatch());
-            }
-            if (options.ifNoneMatch() != null) {
-                builder.ifNoneMatch(options.ifNoneMatch());
-            }
-            if (options.ifModifiedSince() != null) {
-                builder.ifModifiedSince(options.ifModifiedSince());
-            }
-            if (options.ifUnmodifiedSince() != null) {
-                builder.ifUnmodifiedSince(options.ifUnmodifiedSince());
-            }
-            options = builder.build();
+            request = request.toBuilder()
+                    .metadata(metadata.build())
+                    .build();
         }
-        return super.copyBlob(fromContainer, fromName, toContainer, toName,
-                options);
+        return super.copyBlob(request);
     }
 
     @Override

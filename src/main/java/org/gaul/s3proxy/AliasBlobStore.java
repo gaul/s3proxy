@@ -37,7 +37,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -47,6 +46,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -233,11 +233,11 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(final String fromContainer, final String fromName,
-                           final String toContainer, final String toName,
-                           final CopyOptions options) {
-        return delegate().copyBlob(getContainer(fromContainer), fromName,
-                getContainer(toContainer), toName, options);
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        return delegate().copyBlob(request.toBuilder()
+                .sourceBucket(getContainer(request.sourceBucket()))
+                .destinationBucket(getContainer(request.destinationBucket()))
+                .build());
     }
 
     @Override

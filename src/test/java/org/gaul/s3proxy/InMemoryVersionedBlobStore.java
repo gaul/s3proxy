@@ -40,7 +40,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
@@ -52,6 +51,7 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
@@ -224,23 +224,24 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public synchronized CopyObjectResponse copyBlob(String fromContainer,
-            String fromName, String toContainer, String toName,
-            CopyOptions options) {
+    public synchronized CopyObjectResponse copyBlob(
+            CopyObjectRequest request) {
+        String fromContainer = request.sourceBucket();
+        String fromName = request.sourceKey();
         var source = getContainer(fromContainer);
         var sourceVersion = resolveVersion(source, fromName,
-                options.sourceVersionId());
+                request.sourceVersionId());
         if (sourceVersion == null || sourceVersion.deleteMarker()) {
             throw S3Exceptions.noSuchKey(fromContainer, fromName,
                     "while copying");
         }
 
-        var dest = getContainer(toContainer);
+        var dest = getContainer(request.destinationBucket());
         var destVersion = new Version(mintVersionId(dest),
                 /*deleteMarker=*/ false, sourceVersion.content(),
                 sourceVersion.contentType(), sourceVersion.eTag(),
                 mintTime());
-        insertVersion(dest, toName, destVersion);
+        insertVersion(dest, request.destinationKey(), destVersion);
         return CopyObjectResponse.builder()
                 .copyObjectResult(CopyObjectResult.builder()
                         .eTag(destVersion.eTag())

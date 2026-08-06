@@ -27,13 +27,14 @@ import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 
 public final class ShardedBlobStoreTest {
     private int shards;
@@ -227,9 +228,10 @@ public final class ShardedBlobStoreTest {
         this.createContainer(containerName);
         shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         String copyBlobName = TestUtils.createRandomBlobName();
-        shardedBlobStore.copyBlob(
-                containerName, blobName, containerName, copyBlobName,
-                CopyOptions.NONE);
+        shardedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(containerName).destinationKey(copyBlobName)
+                .build());
         var got3 = shardedBlobStore.getBlob(containerName, copyBlobName);
         try (InputStream actual = got3;
              InputStream expected = content.openStream()) {
@@ -247,9 +249,10 @@ public final class ShardedBlobStoreTest {
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
         shardedBlobStore.putBlob(unshardedContainer, blob, PutOptions.NONE);
-        shardedBlobStore.copyBlob(
-                unshardedContainer, blobName, containerName, blobName,
-                CopyOptions.NONE);
+        shardedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(unshardedContainer).sourceKey(blobName)
+                .destinationBucket(containerName).destinationKey(blobName)
+                .build());
         var got4 = shardedBlobStore.getBlob(containerName, blobName);
         try (InputStream actual = got4;
              InputStream expected = content.openStream()) {
@@ -267,9 +270,10 @@ public final class ShardedBlobStoreTest {
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
         shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
-        shardedBlobStore.copyBlob(
-                containerName, blobName, unshardedContainer, blobName,
-                CopyOptions.NONE);
+        shardedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(unshardedContainer).destinationKey(blobName)
+                .build());
         var got5 = shardedBlobStore.getBlob(unshardedContainer, blobName);
         try (InputStream actual = got5;
              InputStream expected = content.openStream()) {

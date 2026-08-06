@@ -37,7 +37,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -46,6 +45,7 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -146,10 +146,11 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        return super.copyBlob(fromContainer, replaceBlobName(fromName),
-                toContainer, replaceBlobName(toName), options);
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        return super.copyBlob(request.toBuilder()
+                .sourceKey(replaceBlobName(request.sourceKey()))
+                .destinationKey(replaceBlobName(request.destinationKey()))
+                .build());
     }
 
     @Override

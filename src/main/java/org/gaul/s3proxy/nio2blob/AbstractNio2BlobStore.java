@@ -70,7 +70,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -83,6 +82,7 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -90,6 +90,8 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -913,12 +915,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        if (options.sourceVersionId() != null) {
+    public final CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        String fromContainer = request.sourceBucket();
+        String fromName = request.sourceKey();
+        String toContainer = request.destinationBucket();
+        String toName = request.destinationKey();
+        boolean replace =
+                request.metadataDirective() == MetadataDirective.REPLACE;
         var blob = getBlobInternal(fromContainer, fromName,
                 GetObjectRequest.builder()
                         .bucket(fromContainer)
@@ -934,22 +941,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // getBlob.
         try (var is = requireNonNull(blob.getPayload())) {
             var eTag = blob.getMetadata().eTag();
+            String ifMatch = request.copySourceIfMatch();
+            String ifNoneMatch = request.copySourceIfNoneMatch();
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
-                if (options.ifMatch() != null && !maybeQuoteETag(options.ifMatch()).equals(eTag)) {
+                if (ifMatch != null && !maybeQuoteETag(ifMatch).equals(eTag)) {
                     throw returnResponseException(412);
                 }
-                if (options.ifNoneMatch() != null && maybeQuoteETag(options.ifNoneMatch()).equals(eTag)) {
+                if (ifNoneMatch != null && maybeQuoteETag(ifNoneMatch).equals(eTag)) {
                     throw returnResponseException(412);
                 }
             }
 
             var lastModified = blob.getMetadata().lastModified();
             if (lastModified != null) {
-                if (options.ifModifiedSince() != null && lastModified.compareTo(options.ifModifiedSince()) <= 0) {
+                var ifModifiedSince = request.copySourceIfModifiedSince();
+                var ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
+                if (ifModifiedSince != null && lastModified.compareTo(Date.from(ifModifiedSince)) <= 0) {
                     throw returnResponseException(412);
                 }
-                if (options.ifUnmodifiedSince() != null && lastModified.compareTo(options.ifUnmodifiedSince()) > 0) {
+                if (ifUnmodifiedSince != null && lastModified.compareTo(Date.from(ifUnmodifiedSince)) > 0) {
                     throw returnResponseException(412);
                 }
             }
@@ -961,25 +972,24 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 builder.contentLength(contentLength);
             }
 
-            var contentMetadata = options.contentMetadata();
-            if (contentMetadata != null) {
-                String cacheControl = contentMetadata.cacheControl();
+            if (replace) {
+                String cacheControl = request.cacheControl();
                 if (cacheControl != null) {
                     builder.cacheControl(cacheControl);
                 }
-                String contentDisposition = contentMetadata.contentDisposition();
+                String contentDisposition = request.contentDisposition();
                 if (contentDisposition != null) {
                     builder.contentDisposition(contentDisposition);
                 }
-                String contentEncoding = contentMetadata.contentEncoding();
+                String contentEncoding = request.contentEncoding();
                 if (contentEncoding != null) {
                     builder.contentEncoding(contentEncoding);
                 }
-                String contentLanguage = contentMetadata.contentLanguage();
+                String contentLanguage = request.contentLanguage();
                 if (contentLanguage != null) {
                     builder.contentLanguage(contentLanguage);
                 }
-                String contentType = contentMetadata.contentType();
+                String contentType = request.contentType();
                 if (contentType != null) {
                     builder.contentType(contentType);
                 }
@@ -991,15 +1001,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         .contentType(metadata.contentType());
             }
 
-            var userMetadata = options.userMetadata();
-            if (userMetadata != null) {
-                builder.userMetadata(userMetadata);
+            if (replace) {
+                builder.userMetadata(request.metadata());
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
             return SdkResponses.copyResponse(putBlob(toContainer,
                     builder.build(),
-                    PutOptions.builder().blobAccess(options.blobAccess())
+                    PutOptions.builder()
+                            .blobAccess(request.acl() ==
+                                    ObjectCannedACL.PUBLIC_READ ?
+                                    BlobAccess.PUBLIC_READ :
+                                    BlobAccess.PRIVATE)
                             .build(),
                     /*parts=*/ null));
         } catch (IOException ioe) {

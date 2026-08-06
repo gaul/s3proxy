@@ -19,10 +19,8 @@ package org.gaul.s3proxy.awssdk;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.time.Instant;
 import java.util.Base64;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.List;
 
 import com.google.common.base.Supplier;
@@ -39,7 +37,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
@@ -448,74 +445,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options) {
-        var requestBuilder = CopyObjectRequest.builder()
-                .sourceBucket(fromContainer)
-                .sourceKey(fromName)
-                .destinationBucket(toContainer)
-                .destinationKey(toName);
-
-        if (options.sourceVersionId() != null) {
-            requestBuilder.sourceVersionId(options.sourceVersionId());
-        }
-
-        var contentMetadata = options.contentMetadata();
-        if (contentMetadata != null) {
-            if (contentMetadata.cacheControl() != null) {
-                requestBuilder.cacheControl(contentMetadata.cacheControl());
-            }
-            if (contentMetadata.contentDisposition() != null) {
-                requestBuilder.contentDisposition(
-                        contentMetadata.contentDisposition());
-            }
-            if (contentMetadata.contentEncoding() != null) {
-                requestBuilder.contentEncoding(
-                        contentMetadata.contentEncoding());
-            }
-            if (contentMetadata.contentLanguage() != null) {
-                requestBuilder.contentLanguage(
-                        contentMetadata.contentLanguage());
-            }
-            if (contentMetadata.contentType() != null) {
-                requestBuilder.contentType(contentMetadata.contentType());
-            }
-            requestBuilder.metadataDirective("REPLACE");
-        }
-
-        var userMetadata = options.userMetadata();
-        if (userMetadata != null) {
-            requestBuilder.metadata(userMetadata);
-            requestBuilder.metadataDirective("REPLACE");
-        }
-
-        String ifMatch = options.ifMatch();
-        if (ifMatch != null) {
-            requestBuilder.copySourceIfMatch(ifMatch);
-        }
-        String ifNoneMatch = options.ifNoneMatch();
-        if (ifNoneMatch != null) {
-            requestBuilder.copySourceIfNoneMatch(ifNoneMatch);
-        }
-        Date ifModifiedSince = options.ifModifiedSince();
-        if (ifModifiedSince != null) {
-            requestBuilder.copySourceIfModifiedSince(
-                    ifModifiedSince.toInstant());
-        }
-        Date ifUnmodifiedSince = options.ifUnmodifiedSince();
-        if (ifUnmodifiedSince != null) {
-            requestBuilder.copySourceIfUnmodifiedSince(
-                    ifUnmodifiedSince.toInstant());
-        }
-
-        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
-            requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
-        }
-
+    public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         try {
-            return s3Client.copyObject(requestBuilder.build());
+            return s3Client.copyObject(request);
         } catch (S3Exception e) {
-            throw propagate(e, fromContainer, fromName);
+            throw propagate(e, request.sourceBucket(), request.sourceKey());
         }
     }
 
@@ -845,40 +779,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
-            int partNumber, String sourceContainer, String sourceName,
-            @Nullable String sourceVersionId,
-            @Nullable String copySourceRange, @Nullable String ifMatch,
-            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
-            @Nullable Date ifUnmodifiedSince) {
-        var builder = UploadPartCopyRequest.builder()
-                .sourceBucket(sourceContainer)
-                .sourceKey(sourceName)
-                .destinationBucket(mpu.containerName())
-                .destinationKey(mpu.blobName())
-                .uploadId(mpu.id())
-                .partNumber(partNumber);
-        if (sourceVersionId != null) {
-            builder.sourceVersionId(sourceVersionId);
-        }
-        if (copySourceRange != null) {
-            builder.copySourceRange(copySourceRange);
-        }
-        if (ifMatch != null) {
-            builder.copySourceIfMatch(ifMatch);
-        }
-        if (ifNoneMatch != null) {
-            builder.copySourceIfNoneMatch(ifNoneMatch);
-        }
-        if (ifModifiedSince != null) {
-            builder.copySourceIfModifiedSince(ifModifiedSince.toInstant());
-        }
-        if (ifUnmodifiedSince != null) {
-            builder.copySourceIfUnmodifiedSince(ifUnmodifiedSince.toInstant());
-        }
+            UploadPartCopyRequest request) {
         try {
-            return s3Client.uploadPartCopy(builder.build());
+            return s3Client.uploadPartCopy(request);
         } catch (S3Exception e) {
-            throw propagate(e, sourceContainer, sourceName);
+            throw propagate(e, request.sourceBucket(), request.sourceKey());
         }
     }
 
@@ -973,14 +878,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             previousPartNumber = partNumber;
         }
         return sortedParts;
-    }
-
-    @Nullable
-    private static Date toDate(@Nullable Instant instant) {
-        if (instant == null) {
-            return null;
-        }
-        return Date.from(instant);
     }
 
     /**

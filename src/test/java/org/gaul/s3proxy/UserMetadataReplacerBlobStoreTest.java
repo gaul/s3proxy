@@ -23,12 +23,14 @@ import java.util.Map;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class UserMetadataReplacerBlobStoreTest {
@@ -106,10 +108,12 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         // A copy with a metadata-replace directive must munge the new
         // metadata into the backend the same way putBlob does.
-        userMetadataReplacerBlobStore.copyBlob(containerName, fromName,
-                containerName, toName, CopyOptions.builder()
-                        .userMetadata(Map.of("my-key", "my-value-"))
-                        .build());
+        userMetadataReplacerBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(fromName)
+                .destinationBucket(containerName).destinationKey(toName)
+                .metadataDirective(MetadataDirective.REPLACE)
+                .metadata(Map.of("my-key", "my-value-"))
+                .build());
 
         // check underlying blobStore stores the munged form
         var backend = blobStore.blobMetadata(containerName, toName)
@@ -137,8 +141,10 @@ public final class UserMetadataReplacerBlobStoreTest {
         // A copy without a replace directive carries the source's stored
         // (already-munged) metadata forward untouched; it must not be
         // re-munged or wiped.
-        userMetadataReplacerBlobStore.copyBlob(containerName, fromName,
-                containerName, toName, CopyOptions.NONE);
+        userMetadataReplacerBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(fromName)
+                .destinationBucket(containerName).destinationKey(toName)
+                .build());
 
         // backend still holds the single munged form
         assertThat(blobStore.blobMetadata(containerName, toName)

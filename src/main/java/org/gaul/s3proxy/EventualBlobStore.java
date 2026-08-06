@@ -37,7 +37,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -47,6 +46,7 @@ import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -179,16 +179,12 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CopyObjectResponse copyBlob(final String fromContainer, final String fromName,
-            final String toContainer, final String toName,
-            final CopyOptions options) {
-        CopyObjectResponse nearResult = writeStore.copyBlob(fromContainer,
-                fromName, toContainer, toName, options);
+    public CopyObjectResponse copyBlob(final CopyObjectRequest request) {
+        CopyObjectResponse nearResult = writeStore.copyBlob(request);
         schedule(new Callable<CopyObjectResponse>() {
                 @Override
                 public CopyObjectResponse call() {
-                    return delegate().copyBlob(fromContainer, fromName,
-                            toContainer, toName, options);
+                    return delegate().copyBlob(request);
                 }
             });
         return nearResult;

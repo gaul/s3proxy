@@ -41,7 +41,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
@@ -59,6 +58,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -624,8 +624,11 @@ public final class EncryptedBlobStoreTest {
             assertThat(contentType).isEqualTo(
                 metadata.contentType());
 
-            encryptedBlobStore.copyBlob(containerName, blobName,
-                containerName, blobName + "-copy", CopyOptions.NONE);
+            encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(containerName)
+                .destinationKey(blobName + "-copy")
+                .build());
 
             blob = blobStore.getBlob(containerName,
                 blobName + Constants.S3_ENC_SUFFIX);

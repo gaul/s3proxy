@@ -33,13 +33,14 @@ import com.google.common.net.MediaType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 
 public final class EventualBlobStoreTest {
     private static final int DELAY = 1;
@@ -130,8 +131,10 @@ public final class EventualBlobStoreTest {
         Blob blob = makeBlob(fromName);
         eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
         delay();
-        eventualBlobStore.copyBlob(containerName, fromName, containerName,
-                toName, CopyOptions.NONE);
+        eventualBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(fromName)
+                .destinationBucket(containerName).destinationKey(toName)
+                .build());
         assertThat(eventualBlobStore.getBlob(containerName, toName))
                 .isNull();
         delay();

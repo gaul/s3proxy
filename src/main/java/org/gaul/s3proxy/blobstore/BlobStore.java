@@ -18,7 +18,6 @@
 package org.gaul.s3proxy.blobstore;
 
 import java.io.InputStream;
-import java.util.Date;
 import java.util.List;
 
 import com.google.common.hash.HashCode;
@@ -28,7 +27,6 @@ import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CopyOptions;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
@@ -39,6 +37,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -52,6 +51,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -112,8 +112,14 @@ public interface BlobStore extends AutoCloseable {
 
     PutObjectResponse putBlob(String container, Blob blob, PutOptions options);
 
-    CopyObjectResponse copyBlob(String fromContainer, String fromName,
-            String toContainer, String toName, CopyOptions options);
+    /**
+     * Copies one object onto another server-side.  Replacement metadata --
+     * user metadata and the Content-* headers -- applies only when the
+     * request's metadataDirective is REPLACE; otherwise the source's
+     * metadata carries over.  A non-null sourceVersionId is only meaningful
+     * on a store that {@link #supportsVersioning}.
+     */
+    CopyObjectResponse copyBlob(CopyObjectRequest request);
 
     /**
      * Reads the metadata of the version the request names, or of the
@@ -174,10 +180,9 @@ public interface BlobStore extends AutoCloseable {
 
     /**
      * Whether this store supports object versioning.  Only a store that
-     * reports true honors the read requests' versionId, {@link
-     * CopyOptions#sourceVersionId}, the versioned removeBlob overload, and
-     * the operations below; the default implementations throw
-     * UnsupportedOperationException.
+     * reports true honors the read and copy requests' versionIds, the
+     * versioned removeBlob overload, and the operations below; the default
+     * implementations throw UnsupportedOperationException.
      */
     default boolean supportsVersioning() {
         return false;
@@ -246,22 +251,15 @@ public interface BlobStore extends AutoCloseable {
      * server-side, without streaming the payload through the caller.
      * Throwing UnsupportedOperationException tells the caller to fall back
      * to streamed emulation, e.g. when the backend discovers at runtime
-     * that the service does not implement the copy operation.
-     *
-     * @param sourceVersionId version of the source object to copy, or null
-     *        for the current version; only meaningful on a store that
-     *        {@link #supportsVersioning}
-     * @param copySourceRange raw x-amz-copy-source-range value, e.g.
-     *        bytes=first-last, or null to copy the entire object; the
-     *        backend enforces its own validation and the copy-source
-     *        conditions
+     * that the service does not implement the copy operation.  The
+     * request's copySourceRange rides verbatim (bytes=first-last, or null
+     * to copy the entire object) and the backend enforces its own
+     * validation and the copy-source conditions; a non-null
+     * sourceVersionId is only meaningful on a store that {@link
+     * #supportsVersioning}.
      */
     default UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
-            int partNumber, String sourceContainer, String sourceName,
-            @Nullable String sourceVersionId,
-            @Nullable String copySourceRange, @Nullable String ifMatch,
-            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
-            @Nullable Date ifUnmodifiedSince) {
+            UploadPartCopyRequest request) {
         throw new UnsupportedOperationException(
                 "backend does not support server-side part copies");
     }
