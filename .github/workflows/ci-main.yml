@@ -364,7 +364,9 @@ jobs:
           path: target/s3-tests-*.xml
 
   swiftTests:
-    runs-on: ubuntu-26.04-arm
+    # OpenStack publishes its all-in-one Swift for amd64 alone, so this lane
+    # cannot share the arm64 runner the rest of the workflow uses.
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     needs: [meta]
     steps:
@@ -380,28 +382,41 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "stable"
 
       - name: Maven Package
         run: |
           mvn package -DskipTests
 
-      # gaul/openstackswift is a fork whose go.mod still declares the upstream
-      # module path, so `go install` of the fork path fails on a path
-      # mismatch; clone and build it instead.
-      - name: Build openstackswift
+      # Pinned by digest because neither tag will do: latest is rebuilt from
+      # Swift's master branch daily, and the version tags stopped at 2.25.0 in
+      # 2020.  Bump this deliberately rather than discovering a Swift change
+      # as a failure in an unrelated pull request.  The digest is of the
+      # manifest, not of the amd64 image under it, so it keeps resolving if
+      # OpenStack ever publishes another architecture.
+      - name: Install Swift
+        run: docker pull openstackswift/saio@sha256:e507743c9be31581f0045c6d43352414b50b51e77a2d8ae39b7d8fec7386985d
+      - name: Start Swift
         run: |
-          git clone --depth 1 https://github.com/gaul/openstackswift \
-            "$RUNNER_TEMP/openstackswift"
-          (cd "$RUNNER_TEMP/openstackswift" &&
-            go build -o "$HOME/go/bin/swift" ./cmd/swift)
-      - name: Start openstackswift
-        run: |
-          $HOME/go/bin/swift server --binding 127.0.0.1 --port 5000 &
-          ./src/test/resources/wait-for-url.sh http://127.0.0.1:5000/version
-      - name: Maven Test with openstackswift
+          docker run -d --name swift -p 8080:8080 \
+            openstackswift/saio@sha256:e507743c9be31581f0045c6d43352414b50b51e77a2d8ae39b7d8fec7386985d
+          # The proxy answers /healthcheck before the account, container and
+          # object servers behind it are all up, so wait on the credentials
+          # actually buying a token -- which is the first thing the lane does.
+          for i in $(seq 60); do
+            if curl --silent --fail --output /dev/null \
+                --header 'X-Auth-User: test:tester' \
+                --header 'X-Auth-Key: testing' \
+                http://127.0.0.1:8080/auth/v1.0; then
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Swift did not authenticate within 60 seconds" >&2
+              docker logs swift >&2
+              exit 1
+            fi
+            sleep 1
+          done
+      - name: Maven Test with Swift
         run: |
           mvn test -Ds3proxy.test.conf=s3proxy-swift.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
       - uses: actions/upload-artifact@v7
@@ -414,10 +429,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
-      - name: Run s3-tests with openstackswift
+      - name: Run s3-tests with Swift
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-swift.conf
-          kill $(pidof swift)
       - uses: actions/upload-artifact@v7
         if: always()
         with:
