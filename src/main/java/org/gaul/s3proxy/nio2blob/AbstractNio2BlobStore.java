@@ -38,6 +38,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -67,12 +68,10 @@ import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,10 +79,12 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -93,6 +94,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -734,10 +736,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final PutObjectResponse putBlob(String container, Blob blob,
-            PutOptions options) {
-        return SdkResponses.putResponse(putBlob(container, blob,
-                options,
+    public final PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        return SdkResponses.putResponse(putBlob(request.bucket(),
+                toBlobBuilder(request).payload(payload).build(),
+                request.acl() == ObjectCannedACL.PUBLIC_READ ?
+                        BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE,
+                request.ifNoneMatch(),
                 /*parts=*/ null));
     }
 
@@ -750,8 +755,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Reading the payload instead would cost a full read and write of an
      * object that has already been written once as parts.
      */
-    private String putBlob(String container, Blob blob, PutOptions options,
-            @Nullable List<Path> parts) {
+    private String putBlob(String container, Blob blob, BlobAccess access,
+            @Nullable String ifNoneMatch, @Nullable List<Path> parts) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
         // TODO: should we use a known suffix to filter these out during list?
@@ -855,9 +860,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
-            setBlobAccessHelper(tmpPath, options.blobAccess());
+            setBlobAccessHelper(tmpPath, access);
 
-            String ifNoneMatch = options.ifNoneMatch();
             if ("*".equals(ifNoneMatch)) {
                 // Claiming a key: publish by linking rather than renaming, so
                 // that two writers racing cannot both believe they created the
@@ -912,6 +916,33 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 logger.debug("unable to delete temp file {}", tmpPath, ioe);
             }
         }
+    }
+
+    /** The request's metadata as this store's internal write carrier. */
+    private static Blob.Builder toBlobBuilder(PutObjectRequest request) {
+        var builder = Blob.builder(request.key())
+                .cacheControl(request.cacheControl())
+                .contentDisposition(request.contentDisposition())
+                .contentEncoding(request.contentEncoding())
+                .contentLanguage(request.contentLanguage())
+                .contentType(request.contentType())
+                .userMetadata(request.metadata());
+        Long contentLength = request.contentLength();
+        if (contentLength != null) {
+            builder.contentLength(contentLength);
+        }
+        String contentMD5 = request.contentMD5();
+        if (contentMD5 != null) {
+            builder.contentMD5(HashCode.fromBytes(
+                    Base64.getDecoder().decode(contentMD5)));
+        }
+        if (request.expires() != null) {
+            builder.expires(Date.from(request.expires()));
+        }
+        if (request.storageClass() != null) {
+            builder.storageClass(request.storageClass());
+        }
+        return builder;
     }
 
     @Override
@@ -1008,12 +1039,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             return SdkResponses.copyResponse(putBlob(toContainer,
                     builder.build(),
-                    PutOptions.builder()
-                            .blobAccess(request.acl() ==
-                                    ObjectCannedACL.PUBLIC_READ ?
-                                    BlobAccess.PUBLIC_READ :
-                                    BlobAccess.PRIVATE)
-                            .build(),
+                    request.acl() == ObjectCannedACL.PUBLIC_READ ?
+                            BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE,
+                    /*ifNoneMatch=*/ null,
                     /*parts=*/ null));
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1242,14 +1270,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
+    public final MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
         var uploadId = UUID.randomUUID().toString();
         // create a stub blob
-        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + blobMetadata.name() + "-stub").payload(ByteSource.empty()).build();
-        putBlob(container, blob, PutOptions.NONE);
-        return new MultipartUpload(container, blobMetadata.name(), uploadId,
-                blobMetadata, options);
+        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).build();
+        putBlob(request.bucket(), blob, BlobAccess.PRIVATE,
+                /*ifNoneMatch=*/ null, /*parts=*/ null);
+        return new MultipartUpload(uploadId, request);
     }
 
     @Override
@@ -1263,7 +1291,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final CompleteMultipartUploadResponse completeMultipartUpload(
-            MultipartUpload mpu, List<CompletedPart> parts) {
+            MultipartUpload mpu, CompleteMultipartUploadRequest request) {
+        List<CompletedPart> parts = request.multipartUpload() == null ?
+                List.of() : request.multipartUpload().parts();
         var partNames = ImmutableList.<String>builder();
         long contentLength = 0;
         var md5Hasher = md5.newHasher();
@@ -1294,39 +1324,36 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         partNames.build()))
                 .contentLength(contentLength)
                 .eTag(mpuETag);
-        var mpuBlobMetadata = mpu.blobMetadata();
-        if (mpuBlobMetadata != null) {
-            blobBuilder.userMetadata(mpuBlobMetadata.userMetadata());
-            var contentMetadata = mpuBlobMetadata.contentMetadata();
-            var cacheControl = contentMetadata.cacheControl();
-            if (cacheControl != null) {
-                blobBuilder.cacheControl(cacheControl);
-            }
-            var contentDisposition = contentMetadata.contentDisposition();
-            if (contentDisposition != null) {
-                blobBuilder.contentDisposition(contentDisposition);
-            }
-            var contentEncoding = contentMetadata.contentEncoding();
-            if (contentEncoding != null) {
-                blobBuilder.contentEncoding(contentEncoding);
-            }
-            var contentLanguage = contentMetadata.contentLanguage();
-            if (contentLanguage != null) {
-                blobBuilder.contentLanguage(contentLanguage);
-            }
-            // intentionally not copying MD5
-            var contentType = contentMetadata.contentType();
-            if (contentType != null) {
-                blobBuilder.contentType(contentType);
-            }
-            var expires = contentMetadata.expires();
-            if (expires != null) {
-                blobBuilder.expires(expires);
-            }
-            var storageClass = mpuBlobMetadata.storageClass();
-            if (storageClass != null) {
-                blobBuilder.storageClass(storageClass);
-            }
+        var mpuRequest = mpu.request();
+        blobBuilder.userMetadata(mpuRequest.metadata());
+        var cacheControl = mpuRequest.cacheControl();
+        if (cacheControl != null) {
+            blobBuilder.cacheControl(cacheControl);
+        }
+        var contentDisposition = mpuRequest.contentDisposition();
+        if (contentDisposition != null) {
+            blobBuilder.contentDisposition(contentDisposition);
+        }
+        var contentEncoding = mpuRequest.contentEncoding();
+        if (contentEncoding != null) {
+            blobBuilder.contentEncoding(contentEncoding);
+        }
+        var contentLanguage = mpuRequest.contentLanguage();
+        if (contentLanguage != null) {
+            blobBuilder.contentLanguage(contentLanguage);
+        }
+        // intentionally not copying MD5
+        var contentType = mpuRequest.contentType();
+        if (contentType != null) {
+            blobBuilder.contentType(contentType);
+        }
+        var expires = mpuRequest.expires();
+        if (expires != null) {
+            blobBuilder.expires(Date.from(expires));
+        }
+        var storageClass = mpuRequest.storageClass();
+        if (storageClass != null) {
+            blobBuilder.storageClass(storageClass);
         }
 
         // Publishing the assembled object is the write the condition applies
@@ -1335,13 +1362,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // the client to retry or abort.  Only If-None-Match: the caller
         // resolves If-Match, which needs a compare-and-swap this store has
         // no way to perform.
-        var completeOptions = PutOptions.NONE;
-        var mpuOptions = mpu.putOptions();
-        if (mpuOptions != null && mpuOptions.ifNoneMatch() != null) {
-            completeOptions = PutOptions.builder()
-                    .ifNoneMatch(mpuOptions.ifNoneMatch())
-                    .build();
-        }
+
         // Name the part files so the assembly is a kernel copy rather than a
         // read of every byte back through this process.  The payload built
         // above stays on the blob as the fallback for a store whose parts are
@@ -1352,7 +1373,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             partPaths.add(resolveBlobPath(containerPath, multipartPartName(
                     mpu.id(), mpu.blobName(), part.partNumber())));
         }
-        putBlob(mpu.containerName(), blobBuilder.build(), completeOptions,
+        putBlob(mpu.containerName(), blobBuilder.build(),
+                BlobAccess.PRIVATE, request.ifNoneMatch(),
                 partPaths.build());
 
         // Remove every uploaded part, not just the ones referenced by the
@@ -1362,10 +1384,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
 
-        var mpuPutOptions = mpu.putOptions();
-        if (mpuPutOptions != null) {
-            setBlobAccess(mpu.containerName(), mpu.blobName(), mpuPutOptions.blobAccess());
-        }
+        setBlobAccess(mpu.containerName(), mpu.blobName(),
+                mpuRequest.acl() == ObjectCannedACL.PUBLIC_READ ?
+                        BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE);
 
         return SdkResponses.completeResponse(mpuETag);
     }
@@ -1378,8 +1399,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentLength(contentLength)
                 .contentMD5(contentMD5)
                 .build();
-        var partETag = putBlob(mpu.containerName(), blob, PutOptions.NONE,
-                /*parts=*/ null);
+        var partETag = putBlob(mpu.containerName(), blob,
+                BlobAccess.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null);
         var metadata = requireNonNull(
                 blobMetadata(mpu.containerName(), partName));
         return SdkResponses.uploadedPart(partETag);

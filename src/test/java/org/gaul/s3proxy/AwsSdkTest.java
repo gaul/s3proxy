@@ -58,11 +58,9 @@ import com.google.common.io.ByteSource;
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -2275,16 +2273,15 @@ public final class AwsSdkTest {
         // identity is an xattr that sftp cannot keep
         assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
-        blobStore.putBlob(containerName, Blob.builder("sibling.txt")
-                .payload(ByteSource.wrap(new byte[4])).build(),
-                        PutOptions.NONE);
+        TestUtils.putBlob(blobStore, containerName, "sibling.txt",
+                ByteSource.wrap(new byte[4]));
 
         // PUT key "/" as a 0-byte directory marker with user metadata,
         // mimicking an s3fs mount-point stamp.
-        blobStore.putBlob(containerName, Blob.builder("/")
-                .payload(ByteSource.empty())
-                .userMetadata(Map.of("mode", "16832"))
-                .build(), PutOptions.NONE);
+        blobStore.putBlob(TestUtils.putRequest(containerName, "/",
+                ByteSource.empty()).toBuilder()
+                .metadata(Map.of("mode", "16832"))
+                .build(), ByteSource.empty().openStream());
 
         // The bucket and the unrelated object survive the PUT.
         assertThat(blobStore.containerExists(containerName)).isTrue();
@@ -2378,8 +2375,8 @@ public final class AwsSdkTest {
         // identity is an xattr that sftp cannot keep
         assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
-        blobStore.putBlob(containerName, Blob.builder("/")
-                .payload(ByteSource.empty()).build(), PutOptions.NONE);
+        TestUtils.putBlob(blobStore, containerName, "/",
+                ByteSource.empty());
 
         blobStore.setContainerAccess(containerName,
                 ContainerAccess.PUBLIC_READ);

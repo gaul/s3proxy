@@ -22,9 +22,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,15 +58,15 @@ public final class UserMetadataReplacerBlobStoreTest {
     }
 
     @Test
-    public void testPutNewBlob() {
+    public void testPutNewBlob() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(blobName)
-                .payload(content)
-                .userMetadata(Map.of("my-key", "my-value-"))
-                .build();
-        userMetadataReplacerBlobStore.putBlob(containerName, blob,
-                PutOptions.NONE);
+        userMetadataReplacerBlobStore.putBlob(
+                TestUtils.putRequest(containerName, blobName, content)
+                        .toBuilder()
+                        .metadata(Map.of("my-key", "my-value-"))
+                        .build(),
+                content.openStream());
 
         // check underlying blobStore
         var userMetadata = blobStore.blobMetadata(containerName, blobName)
@@ -96,15 +95,12 @@ public final class UserMetadataReplacerBlobStoreTest {
     }
 
     @Test
-    public void testCopyBlobReplaceMetadata() {
+    public void testCopyBlobReplaceMetadata() throws Exception {
         var fromName = TestUtils.createRandomBlobName();
         var toName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(fromName)
-                .payload(content)
-                .build();
-        userMetadataReplacerBlobStore.putBlob(containerName, blob,
-                PutOptions.NONE);
+        TestUtils.putBlob(userMetadataReplacerBlobStore, containerName,
+                fromName, content);
 
         // A copy with a metadata-replace directive must munge the new
         // metadata into the backend the same way putBlob does.
@@ -127,16 +123,16 @@ public final class UserMetadataReplacerBlobStoreTest {
     }
 
     @Test
-    public void testCopyBlobPreservesMetadata() {
+    public void testCopyBlobPreservesMetadata() throws Exception {
         var fromName = TestUtils.createRandomBlobName();
         var toName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(fromName)
-                .payload(content)
-                .userMetadata(Map.of("my-key", "my-value-"))
-                .build();
-        userMetadataReplacerBlobStore.putBlob(containerName, blob,
-                PutOptions.NONE);
+        userMetadataReplacerBlobStore.putBlob(
+                TestUtils.putRequest(containerName, fromName, content)
+                        .toBuilder()
+                        .metadata(Map.of("my-key", "my-value-"))
+                        .build(),
+                content.openStream());
 
         // A copy without a replace directive carries the source's stored
         // (already-munged) metadata forward untouched; it must not be
@@ -160,16 +156,15 @@ public final class UserMetadataReplacerBlobStoreTest {
     public void testPutNewMultipartBlob() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(blobName)
-                .payload(content)
-                .userMetadata(Map.of("my-key", "my-value-"))
-                .build();
         var mpu = userMetadataReplacerBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(containerName, blobName).toBuilder()
+                        .metadata(Map.of("my-key", "my-value-"))
+                        .build());
         var part = userMetadataReplacerBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
-        userMetadataReplacerBlobStore.completeMultipartUpload(
-                mpu, List.of(TestUtils.completedPart(1, part)));
+        userMetadataReplacerBlobStore.completeMultipartUpload(mpu,
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part))));
 
         // check underlying blobStore
         var userMetadata = blobStore.blobMetadata(containerName, blobName)

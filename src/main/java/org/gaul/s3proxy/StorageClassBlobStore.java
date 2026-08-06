@@ -16,15 +16,14 @@
 
 package org.gaul.s3proxy;
 
-import static java.util.Objects.requireNonNull;
+import java.io.InputStream;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 
@@ -63,43 +62,19 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-            PutOptions options) {
-        var newBlob = replaceStorageClass(blob);
-        return delegate().putBlob(containerName, newBlob, options);
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        return delegate().putBlob(request.toBuilder()
+                .storageClass(storageClass)
+                .build(), payload);
     }
 
     @Override
     public MultipartUpload initiateMultipartUpload(
-            String container, BlobMetadata blobMetadata, PutOptions options) {
-        var newBlobMetadata = replaceStorageClass(blobMetadata);
-        return delegate().initiateMultipartUpload(container, newBlobMetadata,
-                options);
-    }
-
-    private Blob replaceStorageClass(Blob blob) {
-        var blobMeta = blob.getMetadata();
-        var contentMeta = blob.getMetadata().contentMetadata();
-        var builder = Blob.builder(blobMeta.name())
+            CreateMultipartUploadRequest request) {
+        return delegate().initiateMultipartUpload(request.toBuilder()
                 .storageClass(storageClass)
-                .userMetadata(blobMeta.userMetadata())
-                .payload(requireNonNull(blob.getPayload()))
-                .cacheControl(contentMeta.cacheControl())
-                .contentDisposition(contentMeta.contentDisposition())
-                .contentEncoding(contentMeta.contentEncoding())
-                .contentLanguage(contentMeta.contentLanguage())
-                .contentMD5(contentMeta.contentMD5())
-                .contentType(contentMeta.contentType())
-                .expires(contentMeta.expires());
-        Long contentLength = contentMeta.contentLength();
-        if (contentLength != null) {
-            builder.contentLength(contentLength);
-        }
-        return builder.build();
-    }
-
-    private BlobMetadata replaceStorageClass(BlobMetadata meta) {
-        return meta.toBuilder().storageClass(storageClass).build();
+                .build());
     }
 
     // TODO: copyBlob

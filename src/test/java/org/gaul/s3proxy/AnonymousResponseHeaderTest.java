@@ -29,10 +29,8 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,11 +65,10 @@ public final class AnonymousResponseHeaderTest {
         blobStore.createContainer(containerName, CreateContainerOptions.NONE);
         ByteSource payload = ByteSource.wrap(
                 CONTENT.getBytes(StandardCharsets.UTF_8));
-        blobStore.putBlob(containerName, Blob.builder(BLOB_NAME)
-                .payload(payload)
-                .contentLength(payload.size())
+        blobStore.putBlob(TestUtils.putRequest(containerName, BLOB_NAME,
+                payload).toBuilder()
                 .contentType("application/json")
-                .build(), PutOptions.NONE);
+                .build(), payload.openStream());
         blobStore.setBlobAccess(containerName, BLOB_NAME,
                 BlobAccess.PUBLIC_READ);
 

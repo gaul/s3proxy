@@ -28,10 +28,8 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -124,9 +122,7 @@ public final class AnonymousPathTest {
     private void put(String container, String blobName) throws Exception {
         ByteSource payload = ByteSource.wrap(
                 CONTENT.getBytes(StandardCharsets.UTF_8));
-        blobStore.putBlob(container, Blob.builder(blobName)
-                .payload(payload).contentLength(payload.size()).build(),
-                PutOptions.NONE);
+        TestUtils.putBlob(blobStore, container, blobName, payload);
         blobStore.setBlobAccess(container, blobName, BlobAccess.PUBLIC_READ);
     }
 

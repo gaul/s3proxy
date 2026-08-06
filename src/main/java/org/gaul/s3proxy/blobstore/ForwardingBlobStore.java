@@ -24,23 +24,21 @@ import java.util.Objects;
 import com.google.common.collect.ForwardingObject;
 import com.google.common.hash.HashCode;
 
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -50,6 +48,7 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -125,9 +124,9 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-            PutOptions putOptions) {
-        return delegate().putBlob(containerName, blob, putOptions);
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        return delegate().putBlob(request, payload);
     }
 
     @Override
@@ -199,10 +198,9 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
-        return delegate().initiateMultipartUpload(container, blobMetadata,
-                options);
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        return delegate().initiateMultipartUpload(request);
     }
 
     @Override
@@ -212,8 +210,8 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
-            MultipartUpload mpu, List<CompletedPart> parts) {
-        return delegate().completeMultipartUpload(mpu, parts);
+            MultipartUpload mpu, CompleteMultipartUploadRequest request) {
+        return delegate().completeMultipartUpload(mpu, request);
     }
 
     @Override

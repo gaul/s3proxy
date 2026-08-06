@@ -34,9 +34,7 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -104,12 +102,10 @@ public final class LatencyBlobStoreTest {
 
         String blobName = createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName)
-                .payload(content)
-                .contentLength(1024)
-                .build();
-
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
+        var request = TestUtils.putRequest(containerName, blobName, content);
+        var payload = content.openStream();
+        long timeTaken = time(() -> latencyBlobStore.putBlob(request,
+                payload));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
     }
 
@@ -121,12 +117,10 @@ public final class LatencyBlobStoreTest {
 
         String blobName = createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName)
-                .payload(content)
-                .contentLength(1024)
-                .build();
-
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
+        var request = TestUtils.putRequest(containerName, blobName, content);
+        var payload = content.openStream();
+        long timeTaken = time(() -> latencyBlobStore.putBlob(request,
+                payload));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
     }
 
@@ -151,12 +145,10 @@ public final class LatencyBlobStoreTest {
 
         String blobName = createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName)
-                .payload(content)
-                .contentLength(1024)
-                .build();
-
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
+        var request = TestUtils.putRequest(containerName, blobName, content);
+        var payload = content.openStream();
+        long timeTaken = time(() -> latencyBlobStore.putBlob(request,
+                payload));
         assertThat(timeTaken).isGreaterThanOrEqualTo(2000L);
     }
 
@@ -167,12 +159,10 @@ public final class LatencyBlobStoreTest {
 
         String blobName = createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 0);
-        Blob blob = Blob.builder(blobName)
-                .payload(content)
-                .contentLength(0)
-                .build();
-
-        long timeTaken = time(() -> latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE));
+        var request = TestUtils.putRequest(containerName, blobName, content);
+        var payload = content.openStream();
+        long timeTaken = time(() -> latencyBlobStore.putBlob(request,
+                payload));
         assertThat(timeTaken).isGreaterThanOrEqualTo(1000L);
     }
 
@@ -183,13 +173,10 @@ public final class LatencyBlobStoreTest {
 
         String blobName = createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName)
-                .payload(content)
-                .contentLength(1024)
-                .build();
-
+        var request = TestUtils.putRequest(containerName, blobName, content);
+        var payload = content.openStream();
         long timeTaken = time(() -> {
-            latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+            latencyBlobStore.putBlob(request, payload);
             consume(latencyBlobStore.getBlob(containerName, blobName));
         });
         assertThat(timeTaken).isGreaterThanOrEqualTo(3000L);
@@ -202,11 +189,8 @@ public final class LatencyBlobStoreTest {
 
         String blobName = createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName)
-                .payload(content)
-                .contentLength(1024)
-                .build();
-        latencyBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        latencyBlobStore.putBlob(TestUtils.putRequest(containerName,
+                blobName, content), content.openStream());
 
         ExecutorService executorService = null;
         try {

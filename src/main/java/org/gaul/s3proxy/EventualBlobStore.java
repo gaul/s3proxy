@@ -21,7 +21,6 @@ import static java.util.Objects.requireNonNull;
 
 import java.io.InputStream;
 import java.util.Deque;
-import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -33,21 +32,20 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -127,27 +125,28 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(final String containerName, Blob blob,
-            final PutOptions options) {
-        final String nearName = blob.getMetadata().name();
-        PutObjectResponse nearResult = writeStore.putBlob(containerName, blob,
-                options);
+    public PutObjectResponse putBlob(final PutObjectRequest request,
+            InputStream payload) {
+        final String containerName = request.bucket();
+        final String nearName = request.key();
+        PutObjectResponse nearResult = writeStore.putBlob(request, payload);
         schedule(new Callable<@Nullable PutObjectResponse>() {
                 @Override
                 public @Nullable PutObjectResponse call() {
-                    var near = writeStore.getBlob(containerName,
-                            nearName);
-                    Blob nearBlob = near == null ? null :
-                            Blob.from(nearName, near.response(), near);
-                    if (nearBlob == null) {
+                    var near = writeStore.getBlob(containerName, nearName);
+                    if (near == null) {
                         // a racing removeBlob already deleted the near blob;
                         // the far copy will converge via its scheduled removal
                         logger.warn("near blob {}/{} removed before" +
                                 " replication", containerName, nearName);
                         return null;
                     }
-                    return delegate().putBlob(containerName, nearBlob,
-                            options);
+                    // replay what the near store kept, not the consumed
+                    // payload; its response supplies the content metadata
+                    return delegate().putBlob(request.toBuilder()
+                            .contentLength(near.response().contentLength())
+                            .contentMD5(null)
+                            .build(), near);
                 }
             });
         return nearResult;
@@ -191,11 +190,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
-        MultipartUpload mpu = delegate().initiateMultipartUpload(container,
-                blobMetadata, options);
-        return mpu;
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        return delegate().initiateMultipartUpload(request);
     }
 
     @Override
@@ -205,11 +202,11 @@ final class EventualBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
-            final List<CompletedPart> parts) {
+            final CompleteMultipartUploadRequest request) {
         schedule(new Callable<CompleteMultipartUploadResponse>() {
                 @Override
                 public CompleteMultipartUploadResponse call() {
-                    return delegate().completeMultipartUpload(mpu, parts);
+                    return delegate().completeMultipartUpload(mpu, request);
                 }
             });
         return SdkResponses.completeResponse("");  // TODO: fake ETag

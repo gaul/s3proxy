@@ -31,26 +31,25 @@ import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -128,28 +127,22 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (upload == null || !hasPrefix(upload.containerName())) {
             return upload;
         }
-        var metadata = upload.blobMetadata() == null ? null :
-                upload.blobMetadata().toBuilder()
-                        .name(addPrefix(upload.containerName(),
-                                upload.blobMetadata().name()))
-                        .build();
-        return new MultipartUpload(upload.containerName(),
-                addPrefix(upload.containerName(), upload.blobName()),
-                upload.id(), metadata, upload.putOptions());
+        return new MultipartUpload(upload.id(),
+                upload.request().toBuilder()
+                        .key(addPrefix(upload.containerName(),
+                                upload.blobName()))
+                        .build());
     }
 
     private MultipartUpload toClientMultipartUpload(MultipartUpload upload) {
         if (upload == null || !hasPrefix(upload.containerName())) {
             return upload;
         }
-        var metadata = upload.blobMetadata() == null ? null :
-                upload.blobMetadata().toBuilder()
-                        .name(trimPrefix(upload.containerName(),
-                                upload.blobMetadata().name()))
-                        .build();
-        return new MultipartUpload(upload.containerName(),
-                trimPrefix(upload.containerName(), upload.blobName()),
-                upload.id(), metadata, upload.putOptions());
+        return new MultipartUpload(upload.id(),
+                upload.request().toBuilder()
+                        .key(trimPrefix(upload.containerName(),
+                                upload.blobName()))
+                        .build());
     }
 
     private ListContainerOptions applyPrefix(String container,
@@ -227,11 +220,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-                          PutOptions options) {
-        return super.putBlob(containerName, blob.toBuilder()
-                .name(addPrefix(containerName, blob.getMetadata().name()))
-                .build(), options);
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        return super.putBlob(request.toBuilder()
+                .key(addPrefix(request.bucket(), request.key()))
+                .build(), payload);
     }
 
     @Override
@@ -293,13 +286,12 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
-        BlobMetadata renamed = blobMetadata.toBuilder()
-                .name(addPrefix(container, blobMetadata.name()))
-                .build();
-        MultipartUpload upload = super.initiateMultipartUpload(container,
-                renamed, options);
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        MultipartUpload upload = super.initiateMultipartUpload(
+                request.toBuilder()
+                        .key(addPrefix(request.bucket(), request.key()))
+                        .build());
         return toClientMultipartUpload(upload);
     }
 
@@ -310,9 +302,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<CompletedPart> parts) {
-        return super.completeMultipartUpload(
-                toDelegateMultipartUpload(mpu), parts);
+            CompleteMultipartUploadRequest request) {
+        return super.completeMultipartUpload(toDelegateMultipartUpload(mpu),
+                request.toBuilder()
+                        .key(addPrefix(request.bucket(), request.key()))
+                        .build());
     }
 
     @Override

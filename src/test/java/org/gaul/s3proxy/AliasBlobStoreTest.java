@@ -31,11 +31,10 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -108,10 +107,8 @@ public final class AliasBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         @SuppressWarnings("deprecation")
         String contentMD5 = Hashing.md5().hashBytes(content.read()).toString();
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
-        String eTag = aliasBlobStore.putBlob(aliasContainerName, blob,
-                PutOptions.NONE).eTag();
+        String eTag = TestUtils.putBlob(aliasBlobStore, aliasContainerName,
+                blobName, content).eTag();
         assertThat(eTag).isEqualTo(contentMD5);
         var blobMetadata = aliasBlobStore.blobMetadata(
                 aliasContainerName, blobName);
@@ -130,15 +127,15 @@ public final class AliasBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         @SuppressWarnings("deprecation")
         HashCode contentHash = Hashing.md5().hashBytes(content.read());
-        Blob blob = Blob.builder(blobName).build();
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
-                aliasContainerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(aliasContainerName, blobName));
         assertThat(mpu.containerName()).isEqualTo(aliasContainerName);
         var part = aliasBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
         assertThat(part.eTag()).isEqualTo(contentHash.toString());
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
-                List.of(TestUtils.completedPart(1, part))).eTag();
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part)))).eTag();
         @SuppressWarnings("deprecation")
         HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
         assertThat(mpuETag).isEqualTo(
@@ -155,9 +152,8 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
-        aliasBlobStore.putBlob(aliasContainerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(aliasBlobStore, aliasContainerName, blobName,
+                content);
 
         assertThat(aliasBlobStore.getBlobAccess(aliasContainerName, blobName))
                 .isEqualTo(BlobAccess.PRIVATE);
@@ -175,9 +171,8 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).build();
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
-                aliasContainerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(aliasContainerName, blobName));
         aliasBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
 
@@ -191,7 +186,7 @@ public final class AliasBlobStoreTest {
         assertThat(uploads.get(0).uploadId()).isEqualTo(mpu.id());
 
         aliasBlobStore.completeMultipartUpload(mpu,
-                TestUtils.completedParts(parts));
+                TestUtils.completeRequest(mpu, parts));
     }
 
     @Test

@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -31,16 +32,17 @@ import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 public final class EventualBlobStoreTest {
     private static final int DELAY = 1;
@@ -88,8 +90,8 @@ public final class EventualBlobStoreTest {
     @Test
     public void testReadAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        eventualBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
@@ -99,8 +101,8 @@ public final class EventualBlobStoreTest {
     @Test
     public void testReadAfterDelete() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        eventualBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
@@ -114,12 +116,12 @@ public final class EventualBlobStoreTest {
     @Test
     public void testOverwriteAfterDelete() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        eventualBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
-        blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        eventualBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
     }
@@ -128,8 +130,8 @@ public final class EventualBlobStoreTest {
     public void testReadAfterCopy() throws Exception {
         String fromName = createRandomBlobName();
         String toName = createRandomBlobName();
-        Blob blob = makeBlob(fromName);
-        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        eventualBlobStore.putBlob(makeRequest(containerName, fromName),
+                BYTE_SOURCE.openStream());
         delay();
         eventualBlobStore.copyBlob(CopyObjectRequest.builder()
                 .sourceBucket(containerName).sourceKey(fromName)
@@ -144,14 +146,21 @@ public final class EventualBlobStoreTest {
     @Test
     public void testReadAfterMultipartUpload() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
         MultipartUpload mpu = eventualBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), PutOptions.NONE);
+                CreateMultipartUploadRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .contentDisposition("attachment; filename=foo.mp4")
+                        .contentEncoding("compress")
+                        .contentType(MediaType.MP4_AUDIO.toString())
+                        .metadata(Map.of("key", "value"))
+                        .build());
         var part = eventualBlobStore.uploadMultipartPart(mpu,
                 /*partNumber=*/ 1, BYTE_SOURCE.openStream(),
                 BYTE_SOURCE.size(), null);
         eventualBlobStore.completeMultipartUpload(mpu,
-                List.of(TestUtils.completedPart(1, part)));
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part))));
         assertThat(eventualBlobStore.getBlob(containerName, blobName))
                 .isNull();
         delay();
@@ -164,8 +173,8 @@ public final class EventualBlobStoreTest {
                 nearBlobStore, farBlobStore, executorService, DELAY,
                 DELAY_UNIT, /*probability=*/ 0.0);
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        store.putBlob(containerName, blob, PutOptions.NONE);
+        store.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         delay();
         assertThat(farBlobStore.blobMetadata(containerName, blobName))
                 .isNotNull();
@@ -174,8 +183,8 @@ public final class EventualBlobStoreTest {
     @Test
     public void testListAfterCreate() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        eventualBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        eventualBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         assertThat(eventualBlobStore.list(containerName,
                 ListContainerOptions.NONE).contents()).isEmpty();
         delay();
@@ -201,10 +210,12 @@ public final class EventualBlobStoreTest {
 
     @Test
     public void testClearContainerClearsBothStores() throws Exception {
-        nearBlobStore.putBlob(containerName,
-                makeBlob(createRandomBlobName()), PutOptions.NONE);
-        farBlobStore.putBlob(containerName,
-                makeBlob(createRandomBlobName()), PutOptions.NONE);
+        nearBlobStore.putBlob(
+                makeRequest(containerName, createRandomBlobName()),
+                BYTE_SOURCE.openStream());
+        farBlobStore.putBlob(
+                makeRequest(containerName, createRandomBlobName()),
+                BYTE_SOURCE.openStream());
         assertThat(nearBlobStore.list(containerName,
                 ListContainerOptions.NONE).contents()).isNotEmpty();
         assertThat(farBlobStore.list(containerName,
@@ -228,15 +239,18 @@ public final class EventualBlobStoreTest {
         return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 
-    private static Blob makeBlob(String blobName) throws IOException {
-        return Blob.builder(blobName)
-                .payload(BYTE_SOURCE)
+    private static PutObjectRequest makeRequest(String containerName,
+            String blobName) throws IOException {
+        return PutObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
                 .contentDisposition("attachment; filename=foo.mp4")
                 .contentEncoding("compress")
                 .contentLength(BYTE_SOURCE.size())
                 .contentType(MediaType.MP4_AUDIO.toString())
-                .contentMD5(BYTE_SOURCE.hash(TestUtils.MD5))
-                .userMetadata(Map.of("key", "value"))
+                .contentMD5(Base64.getEncoder().encodeToString(
+                        BYTE_SOURCE.hash(TestUtils.MD5).asBytes()))
+                .metadata(Map.of("key", "value"))
                 .build();
     }
 

@@ -20,10 +20,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Random;
 
+import com.google.common.io.ByteSource;
+
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,7 +60,8 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testPutBlob() throws Exception {
         try {
-            readOnlyBlobStore.putBlob(containerName, null, PutOptions.NONE);
+            readOnlyBlobStore.putBlob(TestUtils.putRequest(containerName,
+                    "blob", ByteSource.empty()), null);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {
@@ -70,7 +72,8 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testPutBlobOptions() throws Exception {
         try {
-            readOnlyBlobStore.putBlob(containerName, null, PutOptions.NONE);
+            readOnlyBlobStore.putBlob(TestUtils.putRequest(containerName,
+                    "blob", ByteSource.empty()), null);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {

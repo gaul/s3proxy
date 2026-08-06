@@ -80,7 +80,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
-import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
@@ -97,15 +96,12 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -117,9 +113,11 @@ import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -135,6 +133,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -2746,31 +2745,31 @@ public class S3ProxyHandler {
     }
 
     /**
-     * The multipart carrier's view of a HEAD result.  MultipartUpload still
-     * hauls request-shaped BlobMetadata from initiate to complete, and a
-     * response names no key, so the caller supplies the one it asked about.
+     * The multipart carrier's view of a stub blob's HEAD: the create-time
+     * request reconstructed from what the stub persisted, so a store that
+     * assembles the final object itself can write its metadata.
      */
-    @Nullable
-    private static BlobMetadata toCarrierMetadata(String name,
-            @Nullable HeadObjectResponse head) {
-        if (head == null) {
-            return null;
-        }
-        return BlobMetadata.builder()
-                .name(name)
-                .userMetadata(head.metadata())
-                .eTag(head.eTag())
-                .lastModified(head.lastModified() == null ? null :
-                        Date.from(head.lastModified()))
-                .contentMetadata(ContentMetadata.builder()
-                        .cacheControl(head.cacheControl())
-                        .contentDisposition(head.contentDisposition())
-                        .contentEncoding(head.contentEncoding())
-                        .contentLanguage(head.contentLanguage())
-                        .contentLength(head.contentLength())
-                        .contentType(head.contentType())
-                        .build())
-                .build();
+    private static CreateMultipartUploadRequest.Builder toCarrierRequest(
+            String containerName, String blobName, HeadObjectResponse head) {
+        return CreateMultipartUploadRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .metadata(head.metadata())
+                .cacheControl(head.cacheControl())
+                .contentDisposition(head.contentDisposition())
+                .contentEncoding(head.contentEncoding())
+                .contentLanguage(head.contentLanguage())
+                .contentType(head.contentType());
+    }
+
+    /** The carrier for an upload known only by its id and target. */
+    private static MultipartUpload reconstructedMpu(String containerName,
+            String blobName, String uploadId) {
+        return new MultipartUpload(uploadId,
+                CreateMultipartUploadRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .build());
     }
 
     /** The part count a composite ETag encodes, or 1 when it is not one. */
@@ -3531,35 +3530,42 @@ public class S3ProxyHandler {
             return;
         }
 
-        var options = PutOptions.builder()
-                .blobAccess(access)
+        var putRequest = PutObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .contentLength(contentLength)
                 .ifMatch(ifMatch)
-                .ifNoneMatch(ifNoneMatch)
-                .build();
-
-        Blob.Builder builder = Blob.builder(blobName)
-                .payload(is)
-                .contentLength(contentLength);
+                .ifNoneMatch(ifNoneMatch);
+        if (access == BlobAccess.PUBLIC_READ) {
+            putRequest.acl(ObjectCannedACL.PUBLIC_READ);
+        }
 
         String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
         } else {
             try {
-                builder.storageClass(StorageClass.valueOf(storageClass));
+                putRequest.storageClass(StorageClass.valueOf(storageClass));
             } catch (IllegalArgumentException iae) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
             }
         }
 
-        addContentMetadataFromHttpRequest(builder, request, checksum,
+        var contentHeaders = parseContentMetadata(request, checksum,
                 checksumValue);
+        putRequest.cacheControl(contentHeaders.cacheControl())
+                .contentDisposition(contentHeaders.contentDisposition())
+                .contentEncoding(contentHeaders.contentEncoding())
+                .contentLanguage(contentHeaders.contentLanguage())
+                .contentType(contentHeaders.contentType())
+                .expires(contentHeaders.expires())
+                .metadata(contentHeaders.userMetadata());
         if (contentMD5 != null) {
-            builder = builder.contentMD5(contentMD5);
+            putRequest.contentMD5(Base64.getEncoder().encodeToString(
+                    contentMD5.asBytes()));
         }
 
-        PutObjectResponse result = blobStore.putBlob(containerName, builder.build(),
-                options);
+        PutObjectResponse result = blobStore.putBlob(putRequest.build(), is);
 
         addCorsResponseHeader(request, response);
 
@@ -3918,10 +3924,12 @@ public class S3ProxyHandler {
             }
         }
 
-        Blob.Builder builder = Blob.builder(blobName)
-                .payload(ByteSource.wrap(payload));
+        var putRequest = PutObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .contentLength((long) payload.length);
         if (contentType != null) {
-            builder.contentType(contentType);
+            putRequest.contentType(contentType);
         }
         var userMetadata = new TreeMap<String, String>();
         for (var entry : fields.entrySet()) {
@@ -3934,10 +3942,10 @@ public class S3ProxyHandler {
             userMetadata.put(checksum.metadataKey(), checksumValue);
         }
         if (!userMetadata.isEmpty()) {
-            builder.userMetadata(userMetadata);
+            putRequest.metadata(userMetadata);
         }
-        PutObjectResponse result = blobStore.putBlob(containerName, builder.build(),
-                PutOptions.NONE);
+        PutObjectResponse result = blobStore.putBlob(putRequest.build(),
+                new ByteArrayInputStream(payload));
 
         addCorsResponseHeader(request, response);
         if (checksum != null) {
@@ -4036,25 +4044,32 @@ public class S3ProxyHandler {
             }
         }
 
-        ByteSource payload = ByteSource.empty();
-        Blob.Builder builder = Blob.builder(blobName)
-                .payload(payload);
-        addContentMetadataFromHttpRequest(builder, request);
-        builder.contentLength(payload.size());
+        var contentHeaders = parseContentMetadata(request, null, null);
+        var createRequest = CreateMultipartUploadRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .cacheControl(contentHeaders.cacheControl())
+                .contentDisposition(contentHeaders.contentDisposition())
+                .contentEncoding(contentHeaders.contentEncoding())
+                .contentLanguage(contentHeaders.contentLanguage())
+                .contentType(contentHeaders.contentType())
+                .expires(contentHeaders.expires())
+                .metadata(contentHeaders.userMetadata());
 
+        StorageClass parsedStorageClass = null;
         String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
         if (storageClass == null || storageClass.equalsIgnoreCase("STANDARD")) {
             // defaults to STANDARD
         } else {
             try {
-                builder.storageClass(StorageClass.valueOf(storageClass));
+                parsedStorageClass = StorageClass.valueOf(storageClass);
+                createRequest.storageClass(parsedStorageClass);
             } catch (IllegalArgumentException iae) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_STORAGE_CLASS, iae);
             }
         }
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
-        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         String blobStoreType = getBlobStoreType(blobStore);
 
         // Azure only supports If-None-Match: *, not If-Match: *
@@ -4065,7 +4080,6 @@ public class S3ProxyHandler {
             if (blobStore.blobMetadata(containerName, blobName) == null) {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
             }
-            ifMatch = null;
         }
 
         BlobAccess access;
@@ -4080,28 +4094,42 @@ public class S3ProxyHandler {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
+        if (access == BlobAccess.PUBLIC_READ) {
+            createRequest.acl(ObjectCannedACL.PUBLIC_READ);
+        }
 
-        var options = PutOptions.builder()
-                .blobAccess(access)
-                .ifMatch(ifMatch)
-                .ifNoneMatch(ifNoneMatch)
-                .build();
-
-        MultipartUpload mpu = blobStore.initiateMultipartUpload(containerName,
-                builder.build().getMetadata(), options);
+        MultipartUpload mpu = blobStore.initiateMultipartUpload(
+                createRequest.build());
 
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            var stub = builder.name(multipartStubName(mpu.id()))
-                    .payload(payload);
+            var stubMetadata = new LinkedHashMap<>(
+                    contentHeaders.userMetadata());
             if (fullObject) {
                 // Remember the choice, since the completion request does not
                 // reliably restate it and the two types are computed
                 // differently.
-                stub.userMetadata(Map.of(CHECKSUM_TYPE_METADATA_KEY,
-                        FULL_OBJECT));
+                stubMetadata.put(CHECKSUM_TYPE_METADATA_KEY, FULL_OBJECT);
             }
-            blobStore.putBlob(containerName, stub.build(), options);
+            var stub = PutObjectRequest.builder()
+                    .bucket(containerName)
+                    .key(multipartStubName(mpu.id()))
+                    .contentLength(0L)
+                    .cacheControl(contentHeaders.cacheControl())
+                    .contentDisposition(contentHeaders.contentDisposition())
+                    .contentEncoding(contentHeaders.contentEncoding())
+                    .contentLanguage(contentHeaders.contentLanguage())
+                    .contentType(contentHeaders.contentType())
+                    .expires(contentHeaders.expires())
+                    .metadata(stubMetadata);
+            if (parsedStorageClass != null) {
+                stub.storageClass(parsedStorageClass);
+            }
+            if (access == BlobAccess.PUBLIC_READ) {
+                stub.acl(ObjectCannedACL.PUBLIC_READ);
+            }
+            blobStore.putBlob(stub.build(),
+                    new ByteArrayInputStream(new byte[0]));
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -4142,14 +4170,13 @@ public class S3ProxyHandler {
         CompleteMultipartUploadRequest cmu = readXmlBody(
                 is, CompleteMultipartUploadRequest.class);
 
-        BlobMetadata metadata;
-        PutOptions options;
+        CreateMultipartUploadRequest carrierRequest;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             String stubName = multipartStubName(uploadId);
-            metadata = toCarrierMetadata(stubName,
-                    blobStore.blobMetadata(containerName, stubName));
-            if (metadata == null) {
+            HeadObjectResponse stubHead = blobStore.blobMetadata(
+                    containerName, stubName);
+            if (stubHead == null) {
                 if (respondAlreadyCompleted(request, response, blobStore,
                         containerName, blobName, cmu)) {
                     return;
@@ -4159,13 +4186,20 @@ public class S3ProxyHandler {
             }
             BlobAccess access = blobStore.getBlobAccess(containerName,
                     stubName);
-            options = PutOptions.builder().blobAccess(access).build();
+            carrierRequest = toCarrierRequest(containerName, blobName,
+                    stubHead)
+                    .acl(access == BlobAccess.PUBLIC_READ ?
+                            ObjectCannedACL.PUBLIC_READ :
+                            ObjectCannedACL.PRIVATE)
+                    .build();
         } else {
-            metadata = BlobMetadata.builder().name(blobName).build();
-            options = PutOptions.NONE;
+            carrierRequest = CreateMultipartUploadRequest.builder()
+                    .bucket(containerName)
+                    .key(blobName)
+                    .build();
         }
-        final MultipartUpload mpu = new MultipartUpload(containerName,
-                blobName, uploadId, metadata, options);
+        final MultipartUpload mpu = new MultipartUpload(uploadId,
+                carrierRequest);
 
         final List<CompletedPart> parts = new ArrayList<>();
         var listedPartSizes = new HashMap<Integer, Long>();
@@ -4340,36 +4374,40 @@ public class S3ProxyHandler {
                     null;
             mpuChecksum = computeMpuChecksum(request, cmu, mpuAlgorithm,
                     partChecksums, listedPartSizes,
-                    fullObjectUpload(metadata, request, mpuAlgorithm));
-        }
-
-        // The condition rides down with the upload, since completion is the
-        // write that has to honour it.
-        PutOptions completeOptions = options;
-        if (completeIfMatch != null || completeIfNoneMatch != null) {
-            completeOptions = (options == null ? PutOptions.builder() :
-                    options.toBuilder())
-                    .ifMatch(completeIfMatch)
-                    .ifNoneMatch(completeIfNoneMatch)
-                    .build();
+                    fullObjectUpload(carrierRequest.metadata(), request,
+                            mpuAlgorithm));
         }
 
         // Persist the composite checksum onto the final object for stub
         // backends, which build the completed blob's metadata from the
         // MultipartUpload passed to completeMultipartUpload.
-        BlobMetadata completeMetadata = metadata;
-        if (mpuChecksum != null && metadata != null && requiresStub) {
-            var userMetadata = new LinkedHashMap<>(metadata.userMetadata());
+        CreateMultipartUploadRequest completeCarrier = carrierRequest;
+        if (mpuChecksum != null && requiresStub) {
+            var userMetadata = new LinkedHashMap<>(carrierRequest.metadata());
             // the upload's bookkeeping does not belong on the object; the
             // stored value's shape already says which type it is
             userMetadata.remove(CHECKSUM_TYPE_METADATA_KEY);
             userMetadata.put(mpuChecksum.algorithm().metadataKey(),
                     mpuChecksum.value());
-            completeMetadata = metadata.toBuilder()
-                    .userMetadata(userMetadata).build();
+            completeCarrier = carrierRequest.toBuilder()
+                    .metadata(userMetadata).build();
         }
-        final MultipartUpload completeMpu = new MultipartUpload(containerName,
-                blobName, uploadId, completeMetadata, completeOptions);
+        final MultipartUpload completeMpu = new MultipartUpload(uploadId,
+                completeCarrier);
+
+        // The condition rides on the completion request, since completion is
+        // the write that has to honour it.
+        final var sdkComplete = software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest
+                .builder()
+                .bucket(containerName)
+                .key(blobName)
+                .uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(parts)
+                        .build())
+                .ifMatch(completeIfMatch)
+                .ifNoneMatch(completeIfNoneMatch)
+                .build();
 
         // A conditional completion has to finish before anything is sent: the
         // store decides the outcome, and once the 200 and the XML prolog are
@@ -4381,7 +4419,8 @@ public class S3ProxyHandler {
         CompleteMultipartUploadResponse syncResult = null;
         if (completeIfMatch != null || completeIfNoneMatch != null ||
                 blobStore.supportsVersioning()) {
-            syncResult = blobStore.completeMultipartUpload(completeMpu, parts);
+            syncResult = blobStore.completeMultipartUpload(completeMpu,
+                    sdkComplete);
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
                 blobStore.removeBlob(containerName,
                         multipartStubName(uploadId));
@@ -4419,7 +4458,7 @@ public class S3ProxyHandler {
                 public void run() {
                     try {
                         result.set(blobStore.completeMultipartUpload(
-                                completeMpu, parts));
+                                completeMpu, sdkComplete));
                     } catch (RuntimeException re) {
                         exception.set(re);
                     }
@@ -4746,17 +4785,15 @@ public class S3ProxyHandler {
      * backends without one have only the completion request to go on, where a
      * value carrying no "-<partCount>" suffix implies a full object.
      */
-    private static boolean fullObjectUpload(@Nullable BlobMetadata metadata,
+    private static boolean fullObjectUpload(
+            Map<String, String> recordedMetadata,
             HttpServletRequest request, FlexChecksum algorithm) {
         if (!algorithm.supportsFullObject()) {
             return false;
         }
-        if (metadata != null) {
-            String recorded = metadata.userMetadata().get(
-                    CHECKSUM_TYPE_METADATA_KEY);
-            if (recorded != null) {
-                return recorded.equals(FULL_OBJECT);
-            }
+        String recorded = recordedMetadata.get(CHECKSUM_TYPE_METADATA_KEY);
+        if (recorded != null) {
+            return recorded.equals(FULL_OBJECT);
         }
         String type = request.getHeader(AwsHttpHeaders.CHECKSUM_TYPE);
         if (type != null) {
@@ -5056,10 +5093,8 @@ public class S3ProxyHandler {
 
         addCorsResponseHeader(request, response);
 
-        // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = new MultipartUpload(containerName,
-                blobName, uploadId, createFakeBlobMetadata(),
-                PutOptions.NONE);
+        MultipartUpload mpu = reconstructedMpu(containerName, blobName,
+                uploadId);
         try {
             blobStore.abortMultipartUpload(mpu);
         } catch (NoSuchKeyException | NoSuchUploadException e) {
@@ -5078,10 +5113,8 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
-        // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = new MultipartUpload(containerName,
-                blobName, uploadId, createFakeBlobMetadata(),
-                PutOptions.NONE);
+        MultipartUpload mpu = reconstructedMpu(containerName, blobName,
+                uploadId);
 
         List<Part> parts = blobStore.listMultipartUpload(mpu);
 
@@ -5241,10 +5274,8 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
-        // TODO: how to reconstruct original mpu?
-        MultipartUpload mpu = new MultipartUpload(containerName,
-                blobName, uploadId, createFakeBlobMetadata(),
-                PutOptions.NONE);
+        MultipartUpload mpu = reconstructedMpu(containerName, blobName,
+                uploadId);
 
         if (blobStore.supportsCopyMultipartPart()) {
             // Backends report overlong ranges inconsistently; enforce the
@@ -5491,18 +5522,8 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
-        // TODO: how to reconstruct original mpu?
-        BlobMetadata blobMetadata;
-        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
-                blobStore))) {
-            String stubName = multipartStubName(uploadId);
-            blobMetadata = toCarrierMetadata(stubName,
-                    blobStore.blobMetadata(containerName, stubName));
-        } else {
-            blobMetadata = createFakeBlobMetadata();
-        }
-        MultipartUpload mpu = new MultipartUpload(containerName,
-                blobName, uploadId, blobMetadata, PutOptions.NONE);
+        MultipartUpload mpu = reconstructedMpu(containerName, blobName,
+                uploadId);
 
         UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
                 partNumber, is, contentLength, contentMD5);
@@ -5805,14 +5826,18 @@ public class S3ProxyHandler {
         }
     }
 
-    private static void addContentMetadataFromHttpRequest(
-            Blob.Builder builder,
-            HttpServletRequest request) {
-        addContentMetadataFromHttpRequest(builder, request, null, null);
+    /** The content headers and x-amz-meta-* pairs a write request carries. */
+    private record RequestContentMetadata(
+            Map<String, String> userMetadata,
+            @Nullable String cacheControl,
+            @Nullable String contentDisposition,
+            @Nullable String contentEncoding,
+            @Nullable String contentLanguage,
+            @Nullable String contentType,
+            @Nullable Instant expires) {
     }
 
-    private static void addContentMetadataFromHttpRequest(
-            Blob.Builder builder,
+    private static RequestContentMetadata parseContentMetadata(
             HttpServletRequest request,
             @Nullable FlexChecksum checksum,
             @Nullable String checksumValue) {
@@ -5840,22 +5865,15 @@ public class S3ProxyHandler {
                 contentEncoding = null;
             }
         }
-        builder.cacheControl(request.getHeader(
-                        HttpHeaders.CACHE_CONTROL))
-                .contentDisposition(request.getHeader(
-                        HttpHeaders.CONTENT_DISPOSITION))
-                .contentEncoding(contentEncoding)
-                .contentLanguage(request.getHeader(
-                        HttpHeaders.CONTENT_LANGUAGE))
-                .userMetadata(userMetadata.build());
-        String contentType = request.getContentType();
-        if (contentType != null) {
-            builder.contentType(contentType);
-        }
         long expires = request.getDateHeader(HttpHeaders.EXPIRES);
-        if (expires != -1) {
-            builder.expires(new Date(expires));
-        }
+        return new RequestContentMetadata(
+                userMetadata.build(),
+                request.getHeader(HttpHeaders.CACHE_CONTROL),
+                request.getHeader(HttpHeaders.CONTENT_DISPOSITION),
+                contentEncoding,
+                request.getHeader(HttpHeaders.CONTENT_LANGUAGE),
+                request.getContentType(),
+                expires == -1 ? null : Instant.ofEpochMilli(expires));
     }
 
     // TODO: bogus values
@@ -5922,12 +5940,6 @@ public class S3ProxyHandler {
         xml.writeStartElement(elementName);
         xml.writeCharacters(characters);
         xml.writeEndElement();
-    }
-
-    private static BlobMetadata createFakeBlobMetadata() {
-        return Blob.builder("fake-name")
-                .build()
-                .getMetadata();
     }
 
     private static boolean equalsIgnoringSurroundingQuotes(String s1,

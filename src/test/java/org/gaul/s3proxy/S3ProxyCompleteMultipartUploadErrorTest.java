@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
-import java.util.List;
 
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -60,7 +59,9 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
         BlobStore failing = new ForwardingBlobStore(blobStore) {
             @Override
             public CompleteMultipartUploadResponse completeMultipartUpload(
-                    MultipartUpload mpu, List<CompletedPart> parts) {
+                    MultipartUpload mpu,
+                    software.amazon.awssdk.services.s3.model
+                            .CompleteMultipartUploadRequest completeRequest) {
                 throw new RuntimeException("simulated late backend failure");
             }
         };

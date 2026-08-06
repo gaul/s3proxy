@@ -30,24 +30,21 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -55,6 +52,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -192,10 +190,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob, PutOptions putOptions) {
+    public PutObjectResponse putBlob(PutObjectRequest request, InputStream payload) {
         simulateLatency(OP_PUT_BLOB);
-        Blob newBlob = replaceStream(blob, new ThrottledInputStream(requireNonNull(blob.getPayload()), getSpeed(OP_PUT_BLOB)));
-        return super.putBlob(containerName, newBlob, PutOptions.NONE);
+        return super.putBlob(request, new ThrottledInputStream(payload, getSpeed(OP_PUT_BLOB)));
     }
 
     @Override
@@ -249,9 +246,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
+    public MultipartUpload initiateMultipartUpload(CreateMultipartUploadRequest request) {
         simulateLatency(OP_MULTIPART_MESSAGE);
-        return super.initiateMultipartUpload(container, blobMetadata, options);
+        return super.initiateMultipartUpload(request);
     }
 
     @Override
@@ -261,9 +258,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, List<CompletedPart> parts) {
+    public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu, CompleteMultipartUploadRequest request) {
         simulateLatency(OP_MULTIPART_MESSAGE);
-        return super.completeMultipartUpload(mpu, parts);
+        return super.completeMultipartUpload(mpu, request);
     }
 
     @Override
@@ -311,32 +308,4 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
         }
     }
 
-    private Blob replaceStream(Blob blob, InputStream is) {
-        BlobMetadata blobMeta = blob.getMetadata();
-        ContentMetadata contentMeta = blobMeta.contentMetadata();
-        Map<String, String> userMetadata = blobMeta.userMetadata();
-
-        Blob.Builder builder = Blob.builder(blobMeta.name())
-                .storageClass(blobMeta.storageClass())
-                .userMetadata(userMetadata)
-                .payload(is)
-                .cacheControl(contentMeta.cacheControl())
-                .contentDisposition(contentMeta.contentDisposition())
-                .contentEncoding(contentMeta.contentEncoding())
-                .contentLanguage(contentMeta.contentLanguage())
-                .contentMD5(contentMeta.contentMD5())
-                .contentType(contentMeta.contentType())
-                .expires(contentMeta.expires())
-                .eTag(blobMeta.eTag())
-                .lastModified(blobMeta.lastModified())
-                .container(blobMeta.container())
-                // Preserve the Content-Range response header, which the
-                // handler reads for ranged GET responses.
-                .contentRange(blob.getContentRange());
-        Long contentLength = contentMeta.contentLength();
-        if (contentLength != null) {
-            builder.contentLength(contentLength);
-        }
-        return builder.build();
-    }
 }

@@ -17,13 +17,22 @@
 
 package org.gaul.s3proxy.blobstore.domain;
 
-import org.gaul.s3proxy.blobstore.options.PutOptions;
-import org.jspecify.annotations.Nullable;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 
+/**
+ * One in-progress multipart upload: its id and the request that created
+ * it, whose metadata stores that assemble the final object themselves
+ * read back at completion.
+ */
 public record MultipartUpload(
-        String containerName,
-        String blobName,
         String id,
-        @Nullable BlobMetadata blobMetadata,
-        @Nullable PutOptions putOptions) {
+        CreateMultipartUploadRequest request) {
+
+    public String containerName() {
+        return request.bucket();
+    }
+
+    public String blobName() {
+        return request.key();
+    }
 }

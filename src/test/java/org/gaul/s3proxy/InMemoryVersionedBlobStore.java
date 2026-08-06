@@ -16,8 +16,6 @@
 
 package org.gaul.s3proxy;
 
-import static java.util.Objects.requireNonNull;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,25 +33,23 @@ import com.google.common.hash.Hashing;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -66,6 +62,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -204,16 +201,16 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public synchronized PutObjectResponse putBlob(String containerName, Blob blob,
-            PutOptions options) {
-        var container = getContainer(containerName);
-        var key = blob.getMetadata().name();
-        byte[] content = readPayload(blob);
+    public synchronized PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        var container = getContainer(request.bucket());
+        var key = request.key();
+        byte[] content = readPayload(payload);
         @SuppressWarnings("deprecation")
         var eTag = Hashing.md5().hashBytes(content).toString();
         var version = new Version(mintVersionId(container),
                 /*deleteMarker=*/ false, content,
-                blob.getMetadata().contentMetadata().contentType(), eTag,
+                request.contentType(), eTag,
                 mintTime());
         insertVersion(container, key, version);
         return PutObjectResponse.builder()
@@ -471,8 +468,8 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String containerName,
-            BlobMetadata blobMetadata, PutOptions options) {
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
         throw new UnsupportedOperationException("multipart not supported");
     }
 
@@ -483,7 +480,7 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
-            MultipartUpload mpu, List<CompletedPart> parts) {
+            MultipartUpload mpu, CompleteMultipartUploadRequest request) {
         throw new UnsupportedOperationException("multipart not supported");
     }
 
@@ -595,8 +592,8 @@ final class InMemoryVersionedBlobStore implements BlobStore {
         return null;
     }
 
-    private static byte[] readPayload(Blob blob) {
-        try (var is = requireNonNull(blob.getPayload())) {
+    private static byte[] readPayload(InputStream payload) {
+        try (var is = payload) {
             return is.readAllBytes();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);

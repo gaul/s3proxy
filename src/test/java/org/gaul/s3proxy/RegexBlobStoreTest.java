@@ -32,9 +32,7 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -72,11 +70,8 @@ public final class RegexBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         @SuppressWarnings("deprecation")
         String contentHash = Hashing.md5().hashBytes(content.read()).toString();
-        Blob blob = Blob.builder(initialBlobName).payload(
-                content).build();
-
-        String eTag = regexBlobStore.putBlob(containerName, blob,
-                PutOptions.NONE).eTag();
+        String eTag = TestUtils.putBlob(regexBlobStore, containerName,
+                initialBlobName, content).eTag();
         assertThat(eTag).isEqualTo(contentHash);
 
         var blobMetadata = regexBlobStore.blobMetadata(

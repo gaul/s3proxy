@@ -32,9 +32,7 @@ import com.google.common.io.ByteSource;
 import org.gaul.s3proxy.GlobBlobStoreLocator.GlobTarget;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -189,9 +187,7 @@ public final class CopySourceAuthorizationTest {
         ByteSource payload = ByteSource.wrap(
                 "confidential".getBytes(StandardCharsets.UTF_8));
         try {
-            blobStore.putBlob(victimContainer, Blob.builder("secret")
-                    .payload(payload).contentLength(payload.size()).build(),
-                    PutOptions.NONE);
+            TestUtils.putBlob(blobStore, victimContainer, "secret", payload);
         } catch (java.io.IOException ioe) {
             throw new RuntimeException(ioe);
         }

@@ -69,6 +69,47 @@ final class TestUtils {
                 .build();
     }
 
+    /** Stores {@code content} as one object without further options. */
+    static software.amazon.awssdk.services.s3.model.PutObjectResponse putBlob(
+            BlobStore blobStore, String containerName, String blobName,
+            ByteSource content) throws IOException {
+        return blobStore.putBlob(putRequest(containerName, blobName, content),
+                content.openStream());
+    }
+
+    /** A bare write request sized to {@code content}. */
+    static software.amazon.awssdk.services.s3.model.PutObjectRequest
+            putRequest(String containerName, String blobName,
+            ByteSource content) throws IOException {
+        return software.amazon.awssdk.services.s3.model.PutObjectRequest
+                .builder()
+                .bucket(containerName)
+                .key(blobName)
+                .contentLength(content.size())
+                .build();
+    }
+
+    /** A bare create-upload request. */
+    static software.amazon.awssdk.services.s3.model
+            .CreateMultipartUploadRequest createRequest(
+            String containerName, String blobName) {
+        return software.amazon.awssdk.services.s3.model
+                .CreateMultipartUploadRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .build();
+    }
+
+    /** The unconditional completion of {@code mpu} from listed parts. */
+    static software.amazon.awssdk.services.s3.model
+            .CompleteMultipartUploadRequest completeRequest(
+            org.gaul.s3proxy.blobstore.domain.MultipartUpload mpu,
+            java.util.List<software.amazon.awssdk.services.s3.model
+                    .Part> parts) {
+        return org.gaul.s3proxy.blobstore.SdkRequests.completeRequest(mpu,
+                completedParts(parts));
+    }
+
     static ByteSource randomByteSource() {
         return randomByteSource(0);
     }

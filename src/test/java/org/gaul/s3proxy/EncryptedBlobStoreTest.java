@@ -34,16 +34,12 @@ import java.util.Properties;
 import java.util.Random;
 import java.util.stream.Collectors;
 
-import com.google.common.io.ByteSource;
-
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.gaul.s3proxy.crypto.Constants;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -60,6 +56,7 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 @SuppressWarnings("UnstableApiUsage")
@@ -91,45 +88,21 @@ public final class EncryptedBlobStoreTest {
             .build();
     }
 
-    private static Blob makeBlob(String blobName, InputStream is,
-        long contentLength) {
+    private static PutObjectRequest makeRequest(String containerName,
+        String blobName, long contentLength) {
 
-        return Blob.builder(blobName)
-            .payload(is)
+        return PutObjectRequest.builder()
+            .bucket(containerName)
+            .key(blobName)
             .contentLength(contentLength)
-            .build();
-    }
-
-    private static Blob makeBlob(String blobName, byte[] payload,
-        long contentLength) {
-
-        return Blob.builder(blobName)
-            .payload(ByteSource.wrap(payload))
-            .contentLength(contentLength)
-            .build();
-    }
-
-    private static Blob makeBlobWithContentType(String blobName,
-        long contentLength,
-        InputStream is,
-        String contentType) {
-
-        return Blob.builder(blobName)
-            .payload(is)
-            .contentLength(contentLength)
-            .contentType(contentType)
             .build();
     }
 
     /** Uploads MPU_CONTENT as a three part multipart blob. */
     private String uploadMultipartContent() {
         String blobName = TestUtils.createRandomBlobName();
-        BlobMetadata blobMetadata = makeBlob(blobName,
-            MPU_CONTENT.getBytes(StandardCharsets.UTF_8),
-            MPU_CONTENT.length()).getMetadata();
-        MultipartUpload mpu =
-            encryptedBlobStore.initiateMultipartUpload(containerName,
-                blobMetadata, PutOptions.NONE);
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
 
         int partNumber = 1;
         for (String part : new String[] {MPU_PART1, MPU_PART2, MPU_PART3}) {
@@ -139,7 +112,7 @@ public final class EncryptedBlobStoreTest {
         }
 
         encryptedBlobStore.completeMultipartUpload(mpu,
-            TestUtils.completedParts(
+            TestUtils.completeRequest(mpu,
                 encryptedBlobStore.listMultipartUpload(mpu)));
         return blobName;
     }
@@ -214,9 +187,9 @@ public final class EncryptedBlobStoreTest {
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
             contentLengths.put(blobName, (long) content.length());
-            blobStore.putBlob(containerName,
-                    makeBlob(blobName, is, content.length()),
-                    PutOptions.NONE);
+            blobStore.putBlob(
+                    makeRequest(containerName, blobName, content.length()),
+                    is);
             var blob = encryptedBlobStore.getBlob(containerName, blobName);
 
             try (InputStream blobIs = blob) {
@@ -262,9 +235,8 @@ public final class EncryptedBlobStoreTest {
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
             contentLengths.put(blobName, (long) content.length());
-            Blob blob =
-                makeBlob(blobName, is, content.length());
-            encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, content.length()), is);
         }
 
         var blobs = encryptedBlobStore.list(containerName,
@@ -295,8 +267,9 @@ public final class EncryptedBlobStoreTest {
             byte[] content = new byte[10 + i];
             java.util.Arrays.fill(content, (byte) 'c');
             expected.put(blobName, (long) content.length);
-            Blob blob = makeBlob(blobName, content, content.length);
-            encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, content.length),
+                new ByteArrayInputStream(content));
         }
 
         // Page one blob at a time: the marker must advance so every blob is
@@ -326,8 +299,8 @@ public final class EncryptedBlobStoreTest {
     @Test
     public void testEncryptedEmptyBlob() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
-        Blob blob = makeBlob(blobName, new byte[0], 0);
-        encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        encryptedBlobStore.putBlob(makeRequest(containerName, blobName, 0),
+            new ByteArrayInputStream(new byte[0]));
 
         // An empty object is stored as a single 64-byte padding block.  HEAD
         // and the list view report zero; GET must also return zero bytes
@@ -360,13 +333,8 @@ public final class EncryptedBlobStoreTest {
         };
 
         String content = contentParts[0] + contentParts[1] + contentParts[2];
-        BlobMetadata blobMetadata = makeBlob(blobName,
-            content.getBytes(StandardCharsets.UTF_8),
-            content.length()).getMetadata();
-
-        MultipartUpload mpu =
-            encryptedBlobStore.initiateMultipartUpload(containerName,
-                blobMetadata, PutOptions.NONE);
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
 
         byte[] bytes1 = contentParts[0].getBytes(StandardCharsets.UTF_8);
         byte[] bytes2 = contentParts[1].getBytes(StandardCharsets.UTF_8);
@@ -389,7 +357,7 @@ public final class EncryptedBlobStoreTest {
         }
 
         encryptedBlobStore.completeMultipartUpload(mpu,
-            TestUtils.completedParts(parts));
+            TestUtils.completeRequest(mpu, parts));
 
         var blobs = encryptedBlobStore.list(containerName,
                 ListContainerOptions.NONE);
@@ -410,16 +378,13 @@ public final class EncryptedBlobStoreTest {
     public void testEncryptionMultipartUploadAbort() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
         var content = "0123456789ABCDEF0123456789ABCDEF";
-        BlobMetadata blobMetadata = makeBlob(blobName,
-            content.getBytes(StandardCharsets.UTF_8),
-            content.length()).getMetadata();
-
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
-            containerName, blobMetadata, PutOptions.NONE);
+            TestUtils.createRequest(containerName, blobName));
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         var uploaded = encryptedBlobStore.uploadMultipartPart(mpu, 1,
             new ByteArrayInputStream(bytes), bytes.length, null);
-        var parts = List.of(TestUtils.completedPart(1, uploaded));
+        var completeRequest = SdkRequests.completeRequest(mpu,
+            List.of(TestUtils.completedPart(1, uploaded)));
 
         encryptedBlobStore.abortMultipartUpload(mpu);
 
@@ -434,7 +399,7 @@ public final class EncryptedBlobStoreTest {
         // The upload no longer exists, so completing it now fails rather than
         // resurrecting the object from a dangling upload.
         assertThatThrownBy(() ->
-            encryptedBlobStore.completeMultipartUpload(mpu, parts))
+            encryptedBlobStore.completeMultipartUpload(mpu, completeRequest))
             .isInstanceOf(RuntimeException.class);
     }
 
@@ -453,8 +418,8 @@ public final class EncryptedBlobStoreTest {
             String blobName = TestUtils.createRandomBlobName();
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
-            blobStore.putBlob(containerName,
-                makeBlob(blobName, is, content.length()), PutOptions.NONE);
+            blobStore.putBlob(
+                makeRequest(containerName, blobName, content.length()), is);
             blobNames.put(content, blobName);
         }
 
@@ -536,9 +501,9 @@ public final class EncryptedBlobStoreTest {
 
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
-            encryptedBlobStore.putBlob(containerName,
-                makeBlobWithContentType(blobName, content.length(), is,
-                    contentType), PutOptions.NONE);
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, content.length())
+                    .toBuilder().contentType(contentType).build(), is);
 
             var blob = encryptedBlobStore.getBlob(containerName, blobName);
 
@@ -595,9 +560,9 @@ public final class EncryptedBlobStoreTest {
 
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
-            encryptedBlobStore.putBlob(containerName,
-                makeBlobWithContentType(blobName, content.length(), is,
-                    contentType), PutOptions.NONE);
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, content.length())
+                    .toBuilder().contentType(contentType).build(), is);
 
             var blob = encryptedBlobStore.getBlob(containerName, blobName);
 
@@ -661,12 +626,8 @@ public final class EncryptedBlobStoreTest {
         String content3 = "123456789G123456123456789H123456123456789I123";
 
         String content = content1 + content2 + content3;
-        BlobMetadata blobMetadata = makeBlob(blobName,
-            content.getBytes(StandardCharsets.UTF_8),
-            content.length()).getMetadata();
-        MultipartUpload mpu =
-            encryptedBlobStore.initiateMultipartUpload(containerName,
-                blobMetadata, PutOptions.NONE);
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
 
         byte[] bytes1 = content1.getBytes(StandardCharsets.UTF_8);
         byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
@@ -687,7 +648,7 @@ public final class EncryptedBlobStoreTest {
         assertThat(mpus.get(0).uploadId()).isEqualTo(mpu.id());
 
         encryptedBlobStore.completeMultipartUpload(mpu,
-            TestUtils.completedParts(parts));
+            TestUtils.completeRequest(mpu, parts));
         var blob = encryptedBlobStore.getBlob(containerName, blobName);
 
         try (InputStream blobIs = blob) {
@@ -716,8 +677,8 @@ public final class EncryptedBlobStoreTest {
                 "C123456789D123456789E12345";
         InputStream is = new ByteArrayInputStream(
             content.getBytes(StandardCharsets.UTF_8));
-        encryptedBlobStore.putBlob(containerName,
-            makeBlob(blobName, is, content.length()), PutOptions.NONE);
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, content.length()), is);
 
         for (int offset = 0; offset < 60; offset++) {
             logger.debug("Test with offset {}", offset);
@@ -747,8 +708,8 @@ public final class EncryptedBlobStoreTest {
                 "123456789D123456789E12345";
         InputStream is = new ByteArrayInputStream(
             content.getBytes(StandardCharsets.UTF_8));
-        encryptedBlobStore.putBlob(containerName,
-            makeBlob(blobName, is, content.length()), PutOptions.NONE);
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, content.length()), is);
 
         for (int length = 1; length < 60; length++) {
             logger.debug("Test with length {}", length);
@@ -781,8 +742,8 @@ public final class EncryptedBlobStoreTest {
                 "123456789D123456-123456789E123456";
         InputStream is = new ByteArrayInputStream(
             content.getBytes(StandardCharsets.UTF_8));
-        encryptedBlobStore.putBlob(containerName,
-            makeBlob(blobName, is, content.length()), PutOptions.NONE);
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, content.length()), is);
 
         var rand = new Random();
         for (int offset = 0; offset < 50; offset++) {
@@ -828,8 +789,8 @@ public final class EncryptedBlobStoreTest {
             String blobName = TestUtils.createRandomBlobName();
             InputStream is = new ByteArrayInputStream(
                 content.getBytes(StandardCharsets.UTF_8));
-            Blob blob = makeBlob(blobName, is, length);
-            encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, length), is);
 
             var got = encryptedBlobStore.getBlob(rangeRequest(
                 containerName, blobName,
@@ -861,8 +822,8 @@ public final class EncryptedBlobStoreTest {
         String blobName = TestUtils.createRandomBlobName();
         InputStream is = new ByteArrayInputStream(
             content.getBytes(StandardCharsets.UTF_8));
-        Blob blob = makeBlob(blobName, is, length);
-        encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, length), is);
 
         var got = encryptedBlobStore.getBlob(rangeRequest(
             containerName, blobName, "bytes=-" + (length + 1000)));
@@ -956,8 +917,8 @@ public final class EncryptedBlobStoreTest {
         String content = "Hello world.";
         InputStream is = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
 
-        encryptedBlobStore.putBlob(containerName,
-            makeBlob(blobName, is, content.length()), PutOptions.NONE);
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, content.length()), is);
 
         var blob = encryptedBlobStore.getBlob(containerName, blobName);
         String etag = blob.response().eTag();
@@ -981,8 +942,8 @@ public final class EncryptedBlobStoreTest {
         String content = "Hello world.";
         InputStream is = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
 
-        Blob blob = makeBlob(blobName, is, content.length());
-        encryptedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, content.length()), is);
 
         var result = encryptedBlobStore.getBlob(rangeRequest(
                 containerName, blobName, "bytes=0-0"));

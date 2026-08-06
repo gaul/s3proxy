@@ -19,9 +19,7 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,22 +52,21 @@ public final class TierBlobStoreTest {
     }
 
     @Test
-    public void testPutNewBlob() {
+    public void testPutNewBlob() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(blobName).payload(content).build();
-        tierBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(tierBlobStore, containerName, blobName,
+                content);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
     }
 
     @Test
-    public void testGetExistingBlob() {
+    public void testGetExistingBlob() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(blobName).payload(content).build();
-        blobStore.putBlob(containerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(blobStore, containerName, blobName, content);
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.STANDARD);
@@ -79,17 +76,15 @@ public final class TierBlobStoreTest {
     public void testPutNewMpu() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(blobName).payload(content).build();
-
         var mpu = tierBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(containerName, blobName));
 
         tierBlobStore.uploadMultipartPart(mpu, 1, content.openStream(),
                 content.size(), null);
 
         var parts = tierBlobStore.listMultipartUpload(mpu);
         tierBlobStore.completeMultipartUpload(mpu,
-                TestUtils.completedParts(parts));
+                TestUtils.completeRequest(mpu, parts));
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.DEEP_ARCHIVE);
@@ -99,17 +94,15 @@ public final class TierBlobStoreTest {
     public void testGetExistingMpu() throws Exception {
         var blobName = TestUtils.createRandomBlobName();
         var content = TestUtils.randomByteSource().slice(0, 1024);
-        var blob = Blob.builder(blobName).payload(content).build();
-
         var mpu = blobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(containerName, blobName));
 
         blobStore.uploadMultipartPart(mpu, 1, content.openStream(),
                 content.size(), null);
 
         var parts = blobStore.listMultipartUpload(mpu);
         blobStore.completeMultipartUpload(mpu,
-                TestUtils.completedParts(parts));
+                TestUtils.completeRequest(mpu, parts));
 
         var blobMetadata = tierBlobStore.blobMetadata(containerName, blobName);
         assertThat(blobMetadata.storageClass()).isEqualTo(StorageClass.STANDARD);

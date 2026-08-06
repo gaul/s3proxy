@@ -33,25 +33,24 @@ import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -135,14 +134,14 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-            PutOptions putOptions) {
-        String name = blob.getMetadata().name();
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        String name = request.key();
         String newName = replaceBlobName(name);
         logger.debug("Renaming blob name from {} to {}", name, newName);
 
-        return super.putBlob(containerName,
-                blob.toBuilder().name(newName).build(), putOptions);
+        return super.putBlob(request.toBuilder().key(newName).build(),
+                payload);
     }
 
     @Override
@@ -196,10 +195,11 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
-        return super.initiateMultipartUpload(container,
-                rewriteBlobMetadata(blobMetadata), options);
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        return super.initiateMultipartUpload(request.toBuilder()
+                .key(replaceBlobName(request.key()))
+                .build());
     }
 
     @Override
@@ -209,8 +209,11 @@ public final class RegexBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<CompletedPart> parts) {
-        return super.completeMultipartUpload(rewriteMultipartUpload(mpu), parts);
+            CompleteMultipartUploadRequest request) {
+        return super.completeMultipartUpload(rewriteMultipartUpload(mpu),
+                request.toBuilder()
+                        .key(replaceBlobName(request.key()))
+                        .build());
     }
 
     @Override
@@ -226,27 +229,15 @@ public final class RegexBlobStore extends ForwardingBlobStore {
         return super.listMultipartUpload(rewriteMultipartUpload(mpu));
     }
 
-    private BlobMetadata rewriteBlobMetadata(BlobMetadata metadata) {
-        String name = metadata.name();
-        String newName = replaceBlobName(name);
-        if (name.equals(newName)) {
-            return metadata;
-        }
-        return metadata.toBuilder().name(newName).build();
-    }
-
     private MultipartUpload rewriteMultipartUpload(MultipartUpload mpu) {
         String name = mpu.blobName();
         String newName = replaceBlobName(name);
         if (name.equals(newName)) {
             return mpu;
         }
-        BlobMetadata metadata = mpu.blobMetadata();
-        if (metadata != null) {
-            metadata = rewriteBlobMetadata(metadata);
-        }
-        return new MultipartUpload(mpu.containerName(), newName,
-                mpu.id(), metadata, mpu.putOptions());
+        return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
+                .key(newName)
+                .build());
     }
 
 

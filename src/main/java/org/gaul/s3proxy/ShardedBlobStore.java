@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -43,26 +44,23 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -71,6 +69,7 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -282,12 +281,12 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
         // Upload the superblock
         if (existingSuperblock == null) {
-            Blob superblockBlob = Blob.builder(SUPERBLOCK_BLOB_NAME)
-                    .payload(ByteSource.empty())
-                    .userMetadata(superblockMeta)
-                    .build();
-            this.delegate().putBlob(ShardedBlobStore.getShardContainer(
-                    bucket, 0), superblockBlob, PutOptions.NONE);
+            this.delegate().putBlob(PutObjectRequest.builder()
+                    .bucket(ShardedBlobStore.getShardContainer(bucket, 0))
+                    .key(SUPERBLOCK_BLOB_NAME)
+                    .contentLength(0L)
+                    .metadata(superblockMeta)
+                    .build(), new ByteArrayInputStream(new byte[0]));
         }
 
         return ret;
@@ -463,11 +462,11 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(final String containerName, Blob blob,
-                          final PutOptions putOptions) {
-        return this.delegate().putBlob(
-                this.getShard(containerName, blob.getMetadata().name()),
-                blob, putOptions);
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        return this.delegate().putBlob(request.toBuilder()
+                .bucket(this.getShard(request.bucket(), request.key()))
+                .build(), payload);
     }
 
     @Override
@@ -536,12 +535,10 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-                                                   BlobMetadata blobMetadata,
-                                                   PutOptions options) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate()
-                    .initiateMultipartUpload(container, blobMetadata, options);
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().initiateMultipartUpload(request);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
@@ -557,9 +554,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
-            MultipartUpload mpu, List<CompletedPart> parts) {
+            MultipartUpload mpu, CompleteMultipartUploadRequest request) {
         if (!this.buckets.containsKey(mpu.containerName())) {
-            return this.delegate().completeMultipartUpload(mpu, parts);
+            return this.delegate().completeMultipartUpload(mpu, request);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }

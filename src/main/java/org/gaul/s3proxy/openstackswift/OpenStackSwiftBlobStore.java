@@ -27,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -51,12 +52,10 @@ import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 import org.openstack4j.api.OSClient.OSClientV3;
 import org.openstack4j.api.exceptions.ResponseException;
@@ -79,10 +78,12 @@ import org.openstack4j.openstack.OSFactory;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -93,6 +94,7 @@ import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -664,8 +666,33 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String container, Blob blob,
-            PutOptions options) {
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        var builder = Blob.builder(request.key())
+                .payload(payload)
+                .cacheControl(request.cacheControl())
+                .contentDisposition(request.contentDisposition())
+                .contentEncoding(request.contentEncoding())
+                .contentType(request.contentType())
+                .userMetadata(request.metadata());
+        Long contentLength = request.contentLength();
+        if (contentLength != null) {
+            builder.contentLength(contentLength);
+        }
+        String contentMD5 = request.contentMD5();
+        if (contentMD5 != null) {
+            builder.contentMD5(HashCode.fromBytes(
+                    Base64.getDecoder().decode(contentMD5)));
+        }
+        if (request.expires() != null) {
+            builder.expires(Date.from(request.expires()));
+        }
+        return putBlobInternal(request.bucket(), builder.build(),
+                request.ifNoneMatch());
+    }
+
+    private PutObjectResponse putBlobInternal(String container, Blob blob,
+            @Nullable String ifNoneMatch) {
         var swift = objectStorage();
         var metadata = blob.getMetadata();
         var contentMetadata = metadata.contentMetadata();
@@ -696,8 +723,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         // Swift supports conditional PUT only via If-None-Match: *, replying
         // 412 Precondition Failed when the object already exists.
-        boolean ifNoneMatchStar = options != null &&
-                "*".equals(options.ifNoneMatch());
+        boolean ifNoneMatchStar = "*".equals(ifNoneMatch);
         if (ifNoneMatchStar) {
             swiftOptions.getOptions().put(HttpHeaders.IF_NONE_MATCH, "*");
         }
@@ -829,8 +855,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     .contentDisposition(request.contentDisposition())
                     .contentEncoding(request.contentEncoding());
             builder.userMetadata(request.metadata());
-            return SdkResponses.copyResponse(putBlob(toContainer,
-                    builder.build(), PutOptions.NONE).eTag());
+            return SdkResponses.copyResponse(putBlobInternal(toContainer,
+                    builder.build(), /*ifNoneMatch=*/ null).eTag());
         }
         var swift = objectStorage();
         String etag;
@@ -1035,36 +1061,31 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     // and complete, since S3ProxyHandler reconstructs the upload from only the
     // upload id.  All of this is hidden from list().
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
         String uploadId = UUID.randomUUID().toString();
 
-        var contentMetadata = blobMetadata.contentMetadata();
-        var userMetadata = new HashMap<String, String>();
-        if (blobMetadata.userMetadata() != null) {
-            userMetadata.putAll(blobMetadata.userMetadata());
-        }
+        var userMetadata = new HashMap<String, String>(request.metadata());
         // Record the target key so listMultipartUploads can recover it.
-        userMetadata.put(MPU_KEY_METADATA, blobMetadata.name());
+        userMetadata.put(MPU_KEY_METADATA, request.key());
 
         var markerBuilder = Blob.builder(mpuMetaKey(uploadId))
                 .payload(new ByteArrayInputStream(new byte[0]))
                 .contentLength(0)
                 .userMetadata(userMetadata);
-        if (contentMetadata.contentType() != null) {
-            markerBuilder.contentType(contentMetadata.contentType());
+        if (request.contentType() != null) {
+            markerBuilder.contentType(request.contentType());
         }
-        if (contentMetadata.contentDisposition() != null) {
-            markerBuilder.contentDisposition(
-                    contentMetadata.contentDisposition());
+        if (request.contentDisposition() != null) {
+            markerBuilder.contentDisposition(request.contentDisposition());
         }
-        if (contentMetadata.contentEncoding() != null) {
-            markerBuilder.contentEncoding(contentMetadata.contentEncoding());
+        if (request.contentEncoding() != null) {
+            markerBuilder.contentEncoding(request.contentEncoding());
         }
-        putBlob(container, markerBuilder.build(), PutOptions.NONE);
+        putBlobInternal(request.bucket(), markerBuilder.build(),
+                /*ifNoneMatch=*/ null);
 
-        return new MultipartUpload(container, blobMetadata.name(),
-                uploadId, blobMetadata, options);
+        return new MultipartUpload(uploadId, request);
     }
 
     @Override
@@ -1076,8 +1097,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .contentLength(contentLength)
                 .contentMD5(contentMD5)
                 .build();
-        String eTag = putBlob(mpu.containerName(), segment, PutOptions.NONE)
-                .eTag();
+        String eTag = putBlobInternal(mpu.containerName(), segment,
+                /*ifNoneMatch=*/ null).eTag();
         return SdkResponses.uploadedPart(eTag);
     }
 
@@ -1115,7 +1136,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<CompletedPart> parts) {
+            CompleteMultipartUploadRequest request) {
+        List<CompletedPart> parts = request.multipartUpload() == null ?
+                List.of() : request.multipartUpload().parts();
         var swift = objectStorage();
         String container = mpu.containerName();
         String uploadId = mpu.id();

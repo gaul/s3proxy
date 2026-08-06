@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Base64;
 import java.util.Map;
 import java.util.Random;
 
@@ -28,17 +29,16 @@ import com.google.common.io.ByteSource;
 import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 public final class NullBlobStoreTest {
@@ -68,8 +68,8 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateBlobGetBlob() throws Exception {
         String blobName = createRandomBlobName();
-        nullBlobStore.putBlob(containerName, makeBlob(blobName),
-                PutOptions.NONE);
+        nullBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
 
         var blob = nullBlobStore.getBlob(containerName, blobName);
         validateBlobMetadata(nullBlobStore.blobMetadata(containerName,
@@ -102,8 +102,8 @@ public final class NullBlobStoreTest {
     @Test
     public void testGetBlobRange() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        nullBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         long size = BYTE_SOURCE.size();
 
         // bytes=A-B
@@ -137,8 +137,8 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateBlobBlobMetadata() throws Exception {
         String blobName = createRandomBlobName();
-        Blob blob = makeBlob(blobName);
-        nullBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        nullBlobStore.putBlob(makeRequest(containerName, blobName),
+                BYTE_SOURCE.openStream());
         var metadata = nullBlobStore.blobMetadata(containerName,
                 blobName);
         validateBlobMetadata(metadata);
@@ -147,10 +147,15 @@ public final class NullBlobStoreTest {
     @Test
     public void testCreateMultipartBlobGetBlob() throws Exception {
         String blobName = "multipart-upload";
-        BlobMetadata blobMetadata = makeBlob(blobName)
-                .getMetadata();
         MultipartUpload mpu = nullBlobStore.initiateMultipartUpload(
-                containerName, blobMetadata, PutOptions.NONE);
+                CreateMultipartUploadRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .contentDisposition("attachment; filename=foo.mp4")
+                        .contentEncoding("compress")
+                        .contentType(MediaType.MP4_AUDIO.toString())
+                        .metadata(Map.of("key", "value"))
+                        .build());
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, nullBlobStore.getMinimumMultipartPartSize() + 1);
@@ -174,7 +179,7 @@ public final class NullBlobStoreTest {
         assertThat(nullBlobStore.listMultipartUpload(mpu)).hasSize(2);
 
         nullBlobStore.completeMultipartUpload(mpu,
-                TestUtils.completedParts(parts));
+                TestUtils.completeRequest(mpu, parts));
 
         var newBlob = nullBlobStore.getBlob(containerName, blobName);
         validateBlobMetadata(nullBlobStore.blobMetadata(
@@ -203,8 +208,7 @@ public final class NullBlobStoreTest {
         // blobName.
         String blobName = "multipart-target";
         MultipartUpload initiated = nullBlobStore.initiateMultipartUpload(
-                containerName, makeBlob(blobName).getMetadata(),
-                PutOptions.NONE);
+                TestUtils.createRequest(containerName, blobName));
 
         ByteSource byteSource = TestUtils.randomByteSource().slice(
                 0, nullBlobStore.getMinimumMultipartPartSize() + 1);
@@ -219,15 +223,13 @@ public final class NullBlobStoreTest {
         var parts = nullBlobStore.listMultipartUpload(
                 initiated);
 
-        // Rebuild the MPU the way the handler does: correct blobName, but
-        // blobMetadata carrying the (different) stub name.
-        BlobMetadata stubMetadata = makeBlob(
-                ".s3proxy-mpu-stub-" + initiated.id()).getMetadata();
-        MultipartUpload mpu = new MultipartUpload(containerName, blobName,
-                initiated.id(), stubMetadata, PutOptions.NONE);
+        // Rebuild the MPU the way the handler does, from just the id and
+        // the target object name.
+        MultipartUpload mpu = new MultipartUpload(initiated.id(),
+                TestUtils.createRequest(containerName, blobName));
 
         nullBlobStore.completeMultipartUpload(mpu,
-                TestUtils.completedParts(parts));
+                TestUtils.completeRequest(mpu, parts));
 
         var newBlob = nullBlobStore.getBlob(containerName, blobName);
         assertThat(newBlob).isNotNull();
@@ -251,15 +253,18 @@ public final class NullBlobStoreTest {
         return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 
-    private static Blob makeBlob(String blobName) throws IOException {
-        return Blob.builder(blobName)
-                .payload(BYTE_SOURCE)
+    private static PutObjectRequest makeRequest(String containerName,
+            String blobName) throws IOException {
+        return PutObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
                 .contentDisposition("attachment; filename=foo.mp4")
                 .contentEncoding("compress")
                 .contentLength(BYTE_SOURCE.size())
                 .contentType(MediaType.MP4_AUDIO.toString())
-                .contentMD5(BYTE_SOURCE.hash(TestUtils.MD5))
-                .userMetadata(Map.of("key", "value"))
+                .contentMD5(Base64.getEncoder().encodeToString(
+                        BYTE_SOURCE.hash(TestUtils.MD5).asBytes()))
+                .metadata(Map.of("key", "value"))
                 .build();
     }
 

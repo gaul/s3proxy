@@ -85,14 +85,11 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
@@ -100,10 +97,12 @@ import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -113,6 +112,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -517,43 +517,43 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String container, Blob blob,
-            PutOptions options) {
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        String container = request.bucket();
+        String key = request.key();
         var client = blobServiceClient.getBlobContainerClient(container)
-                .getBlobClient(blob.getMetadata().name())
+                .getBlobClient(key)
                 .getBlockBlobClient();
-        try (var is = requireNonNull(blob.getPayload())) {
+        try (var is = payload) {
             // TODO: Expires?
             var blobHttpHeaders = new BlobHttpHeaders();
-            var contentMetadata = blob.getMetadata().contentMetadata();
-            blobHttpHeaders.setCacheControl(contentMetadata.cacheControl());
+            blobHttpHeaders.setCacheControl(request.cacheControl());
             blobHttpHeaders.setContentDisposition(
-                    contentMetadata.contentDisposition());
-            blobHttpHeaders.setContentEncoding(
-                    contentMetadata.contentEncoding());
-            blobHttpHeaders.setContentLanguage(
-                    contentMetadata.contentLanguage());
-            var hash = contentMetadata.contentMD5();
-            blobHttpHeaders.setContentMd5(hash != null ? hash.asBytes() : null);
-            blobHttpHeaders.setContentType(contentMetadata.contentType());
+                    request.contentDisposition());
+            blobHttpHeaders.setContentEncoding(request.contentEncoding());
+            blobHttpHeaders.setContentLanguage(request.contentLanguage());
+            var hash = request.contentMD5();
+            blobHttpHeaders.setContentMd5(hash != null ?
+                    Base64.getDecoder().decode(hash) : null);
+            blobHttpHeaders.setContentType(request.contentType());
 
-            var metadata = blob.getMetadata().userMetadata();
+            var metadata = request.metadata();
 
             AccessTier tier = null;
-            if (blob.getMetadata().storageClass() != StorageClass.STANDARD) {
-                tier = toAccessTier(blob.getMetadata().storageClass());
+            if (request.storageClass() != null &&
+                    request.storageClass() != StorageClass.STANDARD) {
+                tier = toAccessTier(request.storageClass());
             }
 
             BlobRequestConditions requestConditions = null;
-            if (options != null && (options.ifMatch() != null ||
-                    options.ifNoneMatch() != null)) {
+            if (request.ifMatch() != null || request.ifNoneMatch() != null) {
                 requestConditions = new BlobRequestConditions()
-                        .setIfMatch(backendCondition(options.ifMatch()))
+                        .setIfMatch(backendCondition(request.ifMatch()))
                         .setIfNoneMatch(
-                                backendCondition(options.ifNoneMatch()));
+                                backendCondition(request.ifNoneMatch()));
             }
 
-            Long contentLength = contentMetadata.contentLength();
+            Long contentLength = request.contentLength();
             if (contentLength != null && contentLength >= 0) {
                 // Stream the payload to the service as a single Put Blob in
                 // bounded-size chunks instead of buffering the entire object
@@ -592,11 +592,11 @@ public final class AzureBlobStore implements BlobStore {
             // TODO: racy
             return SdkResponses.putResponse(reportETag(blobServiceClient
                     .getBlobContainerClient(container)
-                    .getBlobClient(blob.getMetadata().name())
+                    .getBlobClient(key)
                     .getProperties()
                     .getETag()));
         } catch (BlobStorageException bse) {
-            throw translate(bse, container, blob.getMetadata().name());
+            throw translate(bse, container, key);
         } catch (IOException ioe) {
             if (ioe.getCause() instanceof BlobStorageException bse) {
                 throw translate(bse, container, /*key=*/ null);
@@ -928,8 +928,9 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        String container = request.bucket();
         var containerClient = blobServiceClient.getBlobContainerClient(container);
         try {
             if (!containerClient.exists()) {
@@ -939,29 +940,24 @@ public final class AzureBlobStore implements BlobStore {
             throw translate(bse, container, /*key=*/ null);
         }
 
-        var userMetadata = blobMetadata.userMetadata();
-        if (userMetadata != null && !userMetadata.isEmpty()) {
-            for (var key : userMetadata.keySet()) {
-                if (!isValidMetadataKey(key)) {
-                    throw new IllegalArgumentException(
-                            "Invalid metadata key: " + key);
-                }
+        var userMetadata = request.metadata();
+        for (var key : userMetadata.keySet()) {
+            if (!isValidMetadataKey(key)) {
+                throw new IllegalArgumentException(
+                        "Invalid metadata key: " + key);
             }
         }
 
         String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
-        String targetBlobName = blobMetadata.name();
+        String targetBlobName = request.key();
         var stubBlobClient = containerClient.getBlobClient(uploadKey).getBlockBlobClient();
 
-        var contentMetadata = blobMetadata.contentMetadata();
         BlobHttpHeaders headers = new BlobHttpHeaders();
-        if (contentMetadata != null) {
-            headers.setContentType(contentMetadata.contentType());
-            headers.setContentDisposition(contentMetadata.contentDisposition());
-            headers.setContentEncoding(contentMetadata.contentEncoding());
-            headers.setContentLanguage(contentMetadata.contentLanguage());
-            headers.setCacheControl(contentMetadata.cacheControl());
-        }
+        headers.setContentType(request.contentType());
+        headers.setContentDisposition(request.contentDisposition());
+        headers.setContentEncoding(request.contentEncoding());
+        headers.setContentLanguage(request.contentLanguage());
+        headers.setCacheControl(request.cacheControl());
 
         var uploadOptions = new BlockBlobSimpleUploadOptions(
                 new ByteArrayInputStream(new byte[0]), 0);
@@ -970,16 +966,14 @@ public final class AzureBlobStore implements BlobStore {
         // sent of our own before adding it -- two entries differing only in
         // case would collide, and ours must be the one that survives.
         var stubMetadata = new java.util.LinkedHashMap<String, String>();
-        if (userMetadata != null) {
-            stubMetadata.putAll(userMetadata);
-        }
+        stubMetadata.putAll(userMetadata);
         stubMetadata.keySet().removeIf(
                 key -> key.equalsIgnoreCase(TARGET_BLOB_NAME_METADATA));
         stubMetadata.put(TARGET_BLOB_NAME_METADATA,
                 encodeTargetBlobName(targetBlobName));
         uploadOptions.setMetadata(stubMetadata);
-        if (blobMetadata.storageClass() != null && blobMetadata.storageClass() != StorageClass.STANDARD) {
-            uploadOptions.setTier(toAccessTier(blobMetadata.storageClass()));
+        if (request.storageClass() != null && request.storageClass() != StorageClass.STANDARD) {
+            uploadOptions.setTier(toAccessTier(request.storageClass()));
         }
 
         // The destination rides along with the stub rather than following in a
@@ -987,8 +981,7 @@ public final class AzureBlobStore implements BlobStore {
         // unknown -- one that listMultipartUploads skips and no abort reaches.
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);
 
-        return new MultipartUpload(container, targetBlobName,
-                uploadKey, blobMetadata, options);
+        return new MultipartUpload(uploadKey, request);
     }
 
     /**
@@ -1077,7 +1070,9 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<CompletedPart> parts) {
+            CompleteMultipartUploadRequest request) {
+        List<CompletedPart> parts = request.multipartUpload() == null ?
+                List.of() : request.multipartUpload().parts();
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 
@@ -1170,13 +1165,11 @@ public final class AzureBlobStore implements BlobStore {
         }
 
         // Support conditional writes (If-Match/If-None-Match)
-        var putOpts = mpu.putOptions();
-        if (putOpts != null && (putOpts.ifMatch() != null ||
-                putOpts.ifNoneMatch() != null)) {
+        if (request.ifMatch() != null || request.ifNoneMatch() != null) {
             options.setRequestConditions(new BlobRequestConditions()
-                    .setIfMatch(backendCondition(putOpts.ifMatch()))
+                    .setIfMatch(backendCondition(request.ifMatch()))
                     .setIfNoneMatch(
-                            backendCondition(putOpts.ifNoneMatch())));
+                            backendCondition(request.ifNoneMatch())));
         }
 
         try {

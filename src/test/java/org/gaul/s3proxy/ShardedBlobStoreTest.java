@@ -26,10 +26,8 @@ import java.util.Map;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -109,16 +107,14 @@ public final class ShardedBlobStoreTest {
     }
 
     @Test
-    public void testDeleteContainerNonEmptyShard() {
+    public void testDeleteContainerNonEmptyShard() throws Exception {
         this.createContainer(containerName);
         // Place an object directly on a non-zero shard so shard 0 keeps only
         // the superblock.  deleteContainerIfEmpty must report the bucket as
         // non-empty and leave every shard and the superblock intact.
         String nonZeroShard = "%s-3".formatted(prefix);
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        blobStore.putBlob(nonZeroShard,
-                Blob.builder("object").payload(content).build(),
-                        PutOptions.NONE);
+        TestUtils.putBlob(blobStore, nonZeroShard, "object", content);
 
         assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
                 .isFalse();
@@ -149,14 +145,10 @@ public final class ShardedBlobStoreTest {
         String blobName2 = "bar";
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         ByteSource content2 = TestUtils.randomByteSource().slice(1024, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
-        Blob blob2 = Blob.builder(blobName2).payload(content2)
-                .build();
-
         createContainer(containerName);
-        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
-        shardedBlobStore.putBlob(containerName, blob2, PutOptions.NONE);
+        TestUtils.putBlob(shardedBlobStore, containerName, blobName, content);
+        TestUtils.putBlob(shardedBlobStore, containerName, blobName2,
+                content2);
 
         var got1 = shardedBlobStore.getBlob(containerName, blobName);
         try (InputStream actual = got1;
@@ -189,13 +181,11 @@ public final class ShardedBlobStoreTest {
     }
 
     @Test
-    public void testDeleteBlob() {
+    public void testDeleteBlob() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
         this.createContainer(containerName);
-        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(shardedBlobStore, containerName, blobName, content);
         assertThat(shardedBlobStore.blobExists(containerName, blobName))
                 .isTrue();
         shardedBlobStore.removeBlob(containerName, blobName);
@@ -208,10 +198,9 @@ public final class ShardedBlobStoreTest {
         String unshardedContainer = TestUtils.createRandomContainerName();
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
         this.createContainer(unshardedContainer);
-        shardedBlobStore.putBlob(unshardedContainer, blob, PutOptions.NONE);
+        TestUtils.putBlob(shardedBlobStore, unshardedContainer, blobName,
+                content);
         var got2 = blobStore.getBlob(unshardedContainer, blobName);
         try (InputStream actual = got2;
              InputStream expected = content.openStream()) {
@@ -223,10 +212,8 @@ public final class ShardedBlobStoreTest {
     public void testCopyBlob() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
         this.createContainer(containerName);
-        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(shardedBlobStore, containerName, blobName, content);
         String copyBlobName = TestUtils.createRandomBlobName();
         shardedBlobStore.copyBlob(CopyObjectRequest.builder()
                 .sourceBucket(containerName).sourceKey(blobName)
@@ -244,11 +231,10 @@ public final class ShardedBlobStoreTest {
         String blobName = TestUtils.createRandomBlobName();
         String unshardedContainer = TestUtils.createRandomContainerName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
-        shardedBlobStore.putBlob(unshardedContainer, blob, PutOptions.NONE);
+        TestUtils.putBlob(shardedBlobStore, unshardedContainer, blobName,
+                content);
         shardedBlobStore.copyBlob(CopyObjectRequest.builder()
                 .sourceBucket(unshardedContainer).sourceKey(blobName)
                 .destinationBucket(containerName).destinationKey(blobName)
@@ -265,11 +251,9 @@ public final class ShardedBlobStoreTest {
         String blobName = TestUtils.createRandomBlobName();
         String unshardedContainer = TestUtils.createRandomContainerName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        Blob blob = Blob.builder(blobName).payload(content)
-                .build();
         this.createContainer(containerName);
         this.createContainer(unshardedContainer);
-        shardedBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(shardedBlobStore, containerName, blobName, content);
         shardedBlobStore.copyBlob(CopyObjectRequest.builder()
                 .sourceBucket(containerName).sourceKey(blobName)
                 .destinationBucket(unshardedContainer).destinationKey(blobName)

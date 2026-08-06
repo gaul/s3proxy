@@ -28,11 +28,10 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,10 +66,8 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testPutAndGetBlob() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 256);
-        Blob blob = Blob.builder("object.txt")
-                .payload(content)
-                .build();
-        prefixBlobStore.putBlob(containerName, blob, PutOptions.NONE);
+        TestUtils.putBlob(prefixBlobStore, containerName, "object.txt",
+                content);
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "object.txt")).isTrue();
@@ -86,13 +83,11 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testListTrimsPrefix() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 64);
-        prefixBlobStore.putBlob(containerName, Blob.builder(
-                "file-one.txt").payload(content).build(), PutOptions.NONE);
-        blobStore.putBlob(containerName, Blob.builder(
-                prefix + "file-two.txt").payload(content).build(),
-                        PutOptions.NONE);
-        blobStore.putBlob(containerName, Blob.builder(
-                "outside.txt").payload(content).build(), PutOptions.NONE);
+        TestUtils.putBlob(prefixBlobStore, containerName, "file-one.txt",
+                content);
+        TestUtils.putBlob(blobStore, containerName, prefix + "file-two.txt",
+                content);
+        TestUtils.putBlob(blobStore, containerName, "outside.txt", content);
 
         var listing =
                 prefixBlobStore.list(containerName, ListContainerOptions.NONE);
@@ -105,12 +100,11 @@ public final class PrefixBlobStoreTest {
     }
 
     @Test
-    public void testClearContainerKeepsOtherObjects() {
+    public void testClearContainerKeepsOtherObjects() throws Exception {
         ByteSource content = TestUtils.randomByteSource().slice(0, 32);
-        prefixBlobStore.putBlob(containerName, Blob.builder(
-                "inside.txt").payload(content).build(), PutOptions.NONE);
-        blobStore.putBlob(containerName, Blob.builder(
-                "outside.txt").payload(content).build(), PutOptions.NONE);
+        TestUtils.putBlob(prefixBlobStore, containerName, "inside.txt",
+                content);
+        TestUtils.putBlob(blobStore, containerName, "outside.txt", content);
 
         prefixBlobStore.clearContainer(containerName,
                 ListContainerOptions.NONE);
@@ -124,16 +118,16 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testMultipartUploadUsesPrefix() throws IOException {
         ByteSource content = TestUtils.randomByteSource().slice(0, 512);
-        Blob blob = Blob.builder("archive.bin").build();
         MultipartUpload mpu = prefixBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(containerName, "archive.bin"));
         assertThat(mpu.containerName()).isEqualTo(containerName);
         assertThat(mpu.blobName()).isEqualTo("archive.bin");
 
         var part = prefixBlobStore.uploadMultipartPart(
                 mpu, 1, content.openStream(), content.size(), null);
         prefixBlobStore.completeMultipartUpload(mpu,
-                List.of(TestUtils.completedPart(1, part)));
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part))));
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "archive.bin")).isTrue();
@@ -141,9 +135,8 @@ public final class PrefixBlobStoreTest {
 
     @Test
     public void testListMultipartUploadsTrimsPrefix() {
-        Blob blob = Blob.builder("pending.bin").build();
         MultipartUpload mpu = prefixBlobStore.initiateMultipartUpload(
-                containerName, blob.getMetadata(), PutOptions.NONE);
+                TestUtils.createRequest(containerName, "pending.bin"));
 
         try {
             var uploads =

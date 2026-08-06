@@ -25,7 +25,6 @@ import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -73,20 +72,20 @@ import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -96,6 +95,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -507,28 +507,27 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String container,
-            org.gaul.s3proxy.blobstore.domain.Blob blob, PutOptions options) {
-        var contentMetadata = blob.getMetadata().contentMetadata();
-        var blobInfo = BlobInfo.newBuilder(
-                BlobId.of(container, blob.getMetadata().name()));
-        blobInfo.setContentType(contentMetadata.contentType());
-        blobInfo.setContentDisposition(
-                contentMetadata.contentDisposition());
-        blobInfo.setContentEncoding(contentMetadata.contentEncoding());
-        blobInfo.setContentLanguage(contentMetadata.contentLanguage());
-        blobInfo.setCacheControl(contentMetadata.cacheControl());
-        var hash = contentMetadata.contentMD5();
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        String container = request.bucket();
+        String name = request.key();
+        var blobInfo = BlobInfo.newBuilder(BlobId.of(container, name));
+        blobInfo.setContentType(request.contentType());
+        blobInfo.setContentDisposition(request.contentDisposition());
+        blobInfo.setContentEncoding(request.contentEncoding());
+        blobInfo.setContentLanguage(request.contentLanguage());
+        blobInfo.setCacheControl(request.cacheControl());
+        var hash = request.contentMD5();
         if (hash != null) {
-            blobInfo.setMd5(Base64.getEncoder().encodeToString(hash.asBytes()));
+            blobInfo.setMd5(hash);
         }
-        if (blob.getMetadata().userMetadata() != null) {
-            blobInfo.setMetadata(blob.getMetadata().userMetadata());
+        if (request.hasMetadata()) {
+            blobInfo.setMetadata(request.metadata());
         }
-        if (blob.getMetadata().storageClass() != null &&
-                blob.getMetadata().storageClass() != StorageClass.STANDARD) {
+        if (request.storageClass() != null &&
+                request.storageClass() != StorageClass.STANDARD) {
             blobInfo.setStorageClass(
-                    toGcsStorageClass(blob.getMetadata().storageClass()));
+                    toGcsStorageClass(request.storageClass()));
         }
 
         var writeOptions = new java.util.ArrayList<BlobWriteOption>();
@@ -539,53 +538,50 @@ public final class GCloudBlobStore implements BlobStore {
             // re-sends the md5 and requests server-side validation.
             writeOptions.add(MD5_MATCH);
         }
-        if (options != null) {
-            String name = blob.getMetadata().name();
-            String ifMatch = options.ifMatch();
-            String ifNoneMatch = options.ifNoneMatch();
-            if (ifMatch != null) {
-                if (ifMatch.equals("*")) {
-                    // If-Match: * — overwrite only an existing object.  Pin
-                    // the write to its current generation so a concurrent
-                    // delete fails the precondition instead of recreating it.
-                    Blob existing = storage.get(BlobId.of(container, name));
-                    if (existing == null) {
-                        throw preconditionFailed(null);
-                    }
-                    writeOptions.add(BlobWriteOption.generationMatch(
-                            existing.getGeneration()));
-                } else {
-                    // If-Match: <etag> — gate the write on the matching
-                    // generation; mismatch or absence fails the precondition.
-                    writeOptions.add(BlobWriteOption.generationMatch(
-                            getGeneration(container, name, ifMatch)));
+        String ifMatch = request.ifMatch();
+        String ifNoneMatch = request.ifNoneMatch();
+        if (ifMatch != null) {
+            if (ifMatch.equals("*")) {
+                // If-Match: * — overwrite only an existing object.  Pin
+                // the write to its current generation so a concurrent
+                // delete fails the precondition instead of recreating it.
+                Blob existing = storage.get(BlobId.of(container, name));
+                if (existing == null) {
+                    throw preconditionFailed(null);
                 }
+                writeOptions.add(BlobWriteOption.generationMatch(
+                        existing.getGeneration()));
+            } else {
+                // If-Match: <etag> — gate the write on the matching
+                // generation; mismatch or absence fails the precondition.
+                writeOptions.add(BlobWriteOption.generationMatch(
+                        getGeneration(container, name, ifMatch)));
             }
-            if (ifNoneMatch != null) {
-                if (ifNoneMatch.equals("*")) {
-                    writeOptions.add(BlobWriteOption.doesNotExist());
-                } else {
-                    // If-None-Match: <etag> — fail if an object with that ETag
-                    // currently exists.  GCS has no etag precondition, but
-                    // pinning generationNotMatch to the matching object's
-                    // generation makes the rejection atomic: if it is still
-                    // that version the write fails, and if it has since changed
-                    // or been deleted the write proceeds.
-                    Blob existing = storage.get(BlobId.of(container, name));
-                    if (existing != null && maybeQuoteETag(ifNoneMatch).equals(
-                            maybeQuoteETag(existing.getEtag()))) {
-                        writeOptions.add(BlobWriteOption.generationNotMatch(
-                                existing.getGeneration()));
-                    }
+        }
+        if (ifNoneMatch != null) {
+            if (ifNoneMatch.equals("*")) {
+                writeOptions.add(BlobWriteOption.doesNotExist());
+            } else {
+                // If-None-Match: <etag> — fail if an object with that ETag
+                // currently exists.  GCS has no etag precondition, but
+                // pinning generationNotMatch to the matching object's
+                // generation makes the rejection atomic: if it is still
+                // that version the write fails, and if it has since changed
+                // or been deleted the write proceeds.
+                Blob existing = storage.get(BlobId.of(container, name));
+                if (existing != null && maybeQuoteETag(ifNoneMatch).equals(
+                        maybeQuoteETag(existing.getEtag()))) {
+                    writeOptions.add(BlobWriteOption.generationNotMatch(
+                            existing.getGeneration()));
                 }
             }
         }
-        if (options.blobAccess() == BlobAccess.PUBLIC_READ) {
+        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
             writeOptions.add(BlobWriteOption.predefinedAcl(
                     Storage.PredefinedAcl.PUBLIC_READ));
         }
 
-        try (var is = blob.getPayload()) {
+        try (var is = payload) {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
                     writeOptions.toArray(new BlobWriteOption[0]));
             return SdkResponses.putResponse(gcsBlob.getEtag());
@@ -859,62 +855,55 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
+        String container = request.bucket();
         if (!containerExists(container)) {
             throw S3Exceptions.noSuchBucket(container, "");
         }
 
         String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
-        String targetBlobName = blobMetadata.name();
+        String targetBlobName = request.key();
 
         // Store stub blob with metadata for later use during complete
         var stubMetadata = new HashMap<String, String>();
         stubMetadata.put(TARGET_BLOB_NAME_KEY, targetBlobName);
 
-        var contentMetadata = blobMetadata.contentMetadata();
-        if (contentMetadata != null) {
-            if (contentMetadata.contentType() != null) {
-                stubMetadata.put("s3proxy_content_type",
-                        contentMetadata.contentType());
-            }
-            if (contentMetadata.contentDisposition() != null) {
-                stubMetadata.put("s3proxy_content_disposition",
-                        contentMetadata.contentDisposition());
-            }
-            if (contentMetadata.contentEncoding() != null) {
-                stubMetadata.put("s3proxy_content_encoding",
-                        contentMetadata.contentEncoding());
-            }
-            if (contentMetadata.contentLanguage() != null) {
-                stubMetadata.put("s3proxy_content_language",
-                        contentMetadata.contentLanguage());
-            }
-            if (contentMetadata.cacheControl() != null) {
-                stubMetadata.put("s3proxy_cache_control",
-                        contentMetadata.cacheControl());
-            }
+        if (request.contentType() != null) {
+            stubMetadata.put("s3proxy_content_type", request.contentType());
+        }
+        if (request.contentDisposition() != null) {
+            stubMetadata.put("s3proxy_content_disposition",
+                    request.contentDisposition());
+        }
+        if (request.contentEncoding() != null) {
+            stubMetadata.put("s3proxy_content_encoding",
+                    request.contentEncoding());
+        }
+        if (request.contentLanguage() != null) {
+            stubMetadata.put("s3proxy_content_language",
+                    request.contentLanguage());
+        }
+        if (request.cacheControl() != null) {
+            stubMetadata.put("s3proxy_cache_control",
+                    request.cacheControl());
         }
 
-        var userMetadata = blobMetadata.userMetadata();
-        if (userMetadata != null) {
-            for (var entry : userMetadata.entrySet()) {
-                stubMetadata.put("s3proxy_user_" + entry.getKey(),
-                        entry.getValue());
-            }
+        for (var entry : request.metadata().entrySet()) {
+            stubMetadata.put("s3proxy_user_" + entry.getKey(),
+                    entry.getValue());
         }
 
-        if (blobMetadata.storageClass() != null &&
-                blobMetadata.storageClass() != StorageClass.STANDARD) {
+        if (request.storageClass() != null &&
+                request.storageClass() != StorageClass.STANDARD) {
             stubMetadata.put("s3proxy_storage_class",
-                    blobMetadata.storageClass().name());
+                    request.storageClass().name());
         }
 
         // The access rides on the stub because it is only offered here.  This
         // backend does not require a stub as far as Quirks is concerned, so
-        // the MultipartUpload that completeMultipartUpload receives carries
-        // PutOptions.NONE and cannot be asked what the caller wanted.
-        if (options != null && options.blobAccess() == BlobAccess.PUBLIC_READ) {
+        // the completion cannot be asked what the caller wanted.
+        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
             stubMetadata.put(BLOB_ACCESS_KEY,
                     BlobAccess.PUBLIC_READ.name());
         }
@@ -925,8 +914,7 @@ public final class GCloudBlobStore implements BlobStore {
                 .build();
         storage.create(stubInfo, new byte[0]);
 
-        return new MultipartUpload(container, targetBlobName,
-                uploadKey, blobMetadata, options);
+        return new MultipartUpload(uploadKey, request);
     }
 
     @Override
@@ -956,7 +944,9 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
-            List<CompletedPart> parts) {
+            CompleteMultipartUploadRequest request) {
+        List<CompletedPart> parts = request.multipartUpload() == null ?
+                List.of() : request.multipartUpload().parts();
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 

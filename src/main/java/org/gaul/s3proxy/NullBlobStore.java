@@ -35,14 +35,12 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -51,6 +49,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -142,10 +141,10 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-            PutOptions options) {
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
         long length;
-        try (InputStream is = requireNonNull(blob.getPayload())) {
+        try (InputStream is = payload) {
             length = is.transferTo(OutputStream.nullOutputStream());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -153,17 +152,18 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         byte[] array = Longs.toByteArray(length);
 
-        return super.putBlob(containerName,
-                blob.toBuilder()
-                        .payload(ByteSource.wrap(array))
+        return super.putBlob(request.toBuilder()
+                        .contentLength((long) array.length)
                         .contentMD5(null)
                         .build(),
-                options);
+                new ByteArrayInputStream(array));
     }
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(final MultipartUpload mpu,
-            final List<CompletedPart> parts) {
+            final CompleteMultipartUploadRequest request) {
+        List<CompletedPart> parts = request.multipartUpload() == null ?
+                List.of() : request.multipartUpload().parts();
         long length = 0;
         var sizeByPart = new java.util.HashMap<Integer, Long>();
         for (Part listed : listMultipartUpload(mpu)) {
@@ -179,27 +179,18 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         super.abortMultipartUpload(mpu);
 
-        // Re-initiate a single-part upload holding the logical length.  The
-        // MPU's blobMetadata carries the stub name on MULTIPART_REQUIRES_STUB
-        // backends, or a null name otherwise, so restore the target object
-        // name before re-initiating to avoid writing to the wrong key or
-        // failing on a null name.
-        var metadataBuilder = mpu.blobMetadata() == null ?
-                BlobMetadata.builder() : mpu.blobMetadata().toBuilder();
-        var metadata = metadataBuilder.name(mpu.blobName()).build();
-        var putOptions = mpu.putOptions();
-        MultipartUpload mpu2 = super.initiateMultipartUpload(
-                mpu.containerName(), metadata,
-                putOptions != null ? putOptions : PutOptions.NONE);
+        // Re-initiate a single-part upload holding the logical length.
+        MultipartUpload mpu2 = super.initiateMultipartUpload(mpu.request());
 
         var part = super.uploadMultipartPart(mpu2, 1,
                 new ByteArrayInputStream(array), array.length, null);
 
-        return super.completeMultipartUpload(mpu2, List.of(
-                CompletedPart.builder()
-                        .partNumber(1)
-                        .eTag(part.eTag())
-                        .build()));
+        return super.completeMultipartUpload(mpu2,
+                SdkRequests.completeRequest(mpu2, List.of(
+                        CompletedPart.builder()
+                                .partNumber(1)
+                                .eTag(part.eTag())
+                                .build())));
     }
 
     @Override
@@ -227,10 +218,12 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         // create a single-part object which contains the logical length which
         // list and complete will read later
-        Blob blob = Blob.builder(mpu.id() + "-" + partNumber)
-                .payload(ByteSource.wrap(array))
-                .build();
-        super.putBlob(mpu.containerName(), blob, PutOptions.NONE);
+        super.putBlob(PutObjectRequest.builder()
+                        .bucket(mpu.containerName())
+                        .key(mpu.id() + "-" + partNumber)
+                        .contentLength((long) array.length)
+                        .build(),
+                new ByteArrayInputStream(array));
 
         return super.uploadMultipartPart(mpu, partNumber,
                 new ByteArrayInputStream(array), array.length, null);

@@ -18,25 +18,26 @@ package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import java.io.InputStream;
+
 import com.google.common.collect.ImmutableMap;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 /**
@@ -63,16 +64,16 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-            PutOptions putOptions) {
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
         var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blob.getMetadata().userMetadata().entrySet()) {
+        for (var entry : request.metadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
                     replaceChars(entry.getValue(), fromChars, toChars));
         }
-        return super.putBlob(containerName, blob.toBuilder()
-                .userMetadata(metadata.build())
-                .build(), putOptions);
+        return super.putBlob(request.toBuilder()
+                .metadata(metadata.build())
+                .build(), payload);
     }
 
     @Override
@@ -134,16 +135,16 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions overrides) {
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
         var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blobMetadata.userMetadata().entrySet()) {
+        for (var entry : request.metadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ fromChars, /*toChars=*/ toChars),
                     replaceChars(entry.getValue(), /*fromChars=*/ fromChars, /*toChars=*/ toChars));
         }
-        return super.initiateMultipartUpload(container,
-                blobMetadata.toBuilder().userMetadata(metadata.build()).build(),
-                overrides);
+        return super.initiateMultipartUpload(request.toBuilder()
+                .metadata(metadata.build())
+                .build());
     }
 
     private static String replaceChars(String value, String fromChars,

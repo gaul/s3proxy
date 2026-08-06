@@ -35,12 +35,12 @@ import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.Credentials;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 public final class SftpBlobStoreTest {
     private static final String SFTP_USER = "sftp-user";
@@ -81,10 +81,11 @@ public final class SftpBlobStoreTest {
             blobStore.createContainer(bucket, CreateContainerOptions.NONE);
             var payload = ByteSource.wrap("value".getBytes(
                     StandardCharsets.UTF_8));
-            blobStore.putBlob(bucket, Blob.builder(key)
-                    .payload(payload)
+            blobStore.putBlob(PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
                     .contentLength(payload.size())
-                    .build(), PutOptions.NONE);
+                    .build(), payload.openStream());
 
             try (InputStream input = blobStore.getBlob(bucket, key)) {
                 assertThat(new String(input.readAllBytes(),

@@ -19,7 +19,6 @@ package org.gaul.s3proxy.awssdk;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 
@@ -32,15 +31,12 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -362,85 +358,39 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String container, Blob blob,
-            PutOptions options) {
-        var contentMetadata = blob.getMetadata().contentMetadata();
-        var requestBuilder = PutObjectRequest.builder()
-                .bucket(container)
-                .key(blob.getMetadata().name());
-
-        if (contentMetadata.cacheControl() != null) {
-            requestBuilder.cacheControl(contentMetadata.cacheControl());
-        }
-        if (contentMetadata.contentDisposition() != null) {
-            requestBuilder.contentDisposition(
-                    contentMetadata.contentDisposition());
-        }
-        if (contentMetadata.contentEncoding() != null) {
-            requestBuilder.contentEncoding(contentMetadata.contentEncoding());
-        }
-        if (contentMetadata.contentLanguage() != null) {
-            requestBuilder.contentLanguage(contentMetadata.contentLanguage());
-        }
-        HashCode md5 = contentMetadata.contentMD5();
-        if (md5 != null) {
-            requestBuilder.contentMD5(Base64.getEncoder().encodeToString(
-                    md5.asBytes()));
-        }
-        if (contentMetadata.contentType() != null) {
-            requestBuilder.contentType(contentMetadata.contentType());
-        }
-        if (contentMetadata.expires() != null) {
-            requestBuilder.expires(contentMetadata.expires().toInstant());
-        }
-
-        var userMetadata = blob.getMetadata().userMetadata();
-        if (userMetadata != null && !userMetadata.isEmpty()) {
-            requestBuilder.metadata(userMetadata);
-        }
-
-        BlobAccess requestedAccess = options != null ? options.blobAccess() : null;
-        if (requestedAccess == BlobAccess.PUBLIC_READ) {
-            requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
-        }
-
-        if (blob.getMetadata().storageClass() != null &&
-                blob.getMetadata().storageClass() != StorageClass.STANDARD) {
-            requestBuilder.storageClass(
-                    blob.getMetadata().storageClass());
-        }
-
-        String ifMatch = options != null ? options.ifMatch() : null;
-        String ifNoneMatch = options != null ? options.ifNoneMatch() : null;
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        String container = request.bucket();
+        String key = request.key();
+        String ifMatch = request.ifMatch();
+        String ifNoneMatch = request.ifNoneMatch();
 
         boolean hasConditionalHeaders = ifMatch != null || ifNoneMatch != null;
         if (hasConditionalHeaders && !useNativeConditionalWrites) {
-            validateConditionalPut(container, blob.getMetadata().name(),
-                    ifMatch, ifNoneMatch);
-            ifMatch = null;
-            ifNoneMatch = null;
+            validateConditionalPut(container, key, ifMatch, ifNoneMatch);
+            request = request.toBuilder()
+                    .ifMatch(null)
+                    .ifNoneMatch(null)
+                    .build();
+        } else if (hasConditionalHeaders) {
+            request = request.toBuilder()
+                    .ifMatch(maybeStripETagQuotes(ifMatch))
+                    .ifNoneMatch(maybeStripETagQuotes(ifNoneMatch))
+                    .build();
         }
 
-        if (ifMatch != null) {
-            requestBuilder.ifMatch(maybeStripETagQuotes(ifMatch));
-        }
-        if (ifNoneMatch != null) {
-            requestBuilder.ifNoneMatch(maybeStripETagQuotes(ifNoneMatch));
-        }
-
-        try (InputStream is = blob.getPayload()) {
-            Long contentLength = contentMetadata.contentLength();
+        try (InputStream is = payload) {
+            Long contentLength = request.contentLength();
             if (contentLength == null) {
                 // Mimic S3 behavior: Reject unknown length instead of crashing memory
                 throw new IllegalArgumentException("Content-Length is required for S3 putBlob");
-            } else {
-                return s3Client.putObject(requestBuilder.build(),
-                        RequestBody.fromInputStream(is, contentLength));
             }
+            return s3Client.putObject(request,
+                    RequestBody.fromInputStream(is, contentLength));
         } catch (IOException e) {
             throw new RuntimeException("Failed to read blob payload", e);
         } catch (S3Exception e) {
-            throw propagate(e, container, blob.getMetadata().name());
+            throw propagate(e, container, key);
         }
     }
 
@@ -656,56 +606,13 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-            BlobMetadata blobMetadata, PutOptions options) {
-        var requestBuilder = CreateMultipartUploadRequest.builder()
-                .bucket(container)
-                .key(blobMetadata.name());
-
-        var contentMetadata = blobMetadata.contentMetadata();
-        if (contentMetadata != null) {
-            if (contentMetadata.cacheControl() != null) {
-                requestBuilder.cacheControl(contentMetadata.cacheControl());
-            }
-            if (contentMetadata.contentDisposition() != null) {
-                requestBuilder.contentDisposition(
-                        contentMetadata.contentDisposition());
-            }
-            if (contentMetadata.contentEncoding() != null) {
-                requestBuilder.contentEncoding(
-                        contentMetadata.contentEncoding());
-            }
-            if (contentMetadata.contentLanguage() != null) {
-                requestBuilder.contentLanguage(
-                        contentMetadata.contentLanguage());
-            }
-            if (contentMetadata.contentType() != null) {
-                requestBuilder.contentType(contentMetadata.contentType());
-            }
-        }
-
-        var userMetadata = blobMetadata.userMetadata();
-        if (userMetadata != null && !userMetadata.isEmpty()) {
-            requestBuilder.metadata(userMetadata);
-        }
-
-        if (options != null && options.blobAccess() == BlobAccess.PUBLIC_READ) {
-            requestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
-        }
-
-        if (blobMetadata.storageClass() != null &&
-                blobMetadata.storageClass() != StorageClass.STANDARD) {
-            requestBuilder.storageClass(
-                    blobMetadata.storageClass());
-        }
-
+    public MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request) {
         try {
-            var response = s3Client.createMultipartUpload(
-                    requestBuilder.build());
-            return new MultipartUpload(container, blobMetadata.name(),
-                    response.uploadId(), blobMetadata, options);
+            var response = s3Client.createMultipartUpload(request);
+            return new MultipartUpload(response.uploadId(), request);
         } catch (S3Exception e) {
-            throw propagate(e, container, blobMetadata.name());
+            throw propagate(e, request.bucket(), request.key());
         }
     }
 
@@ -726,30 +633,19 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
-            MultipartUpload mpu, List<CompletedPart> parts) {
-        var completedParts = sortAndValidateParts(parts);
-
-        var requestBuilder = CompleteMultipartUploadRequest.builder()
-                .bucket(mpu.containerName())
-                .key(mpu.blobName())
-                .uploadId(mpu.id())
-                .multipartUpload(CompletedMultipartUpload.builder()
-                        .parts(completedParts)
-                        .build());
-
-        var putOptions = mpu.putOptions();
-        if (putOptions != null) {
-            // S3 resolves the condition as it publishes the object, so it
-            // holds even against a writer racing this completion
-            requestBuilder.ifMatch(putOptions.ifMatch());
-            requestBuilder.ifNoneMatch(putOptions.ifNoneMatch());
-        }
+            MultipartUpload mpu, CompleteMultipartUploadRequest request) {
+        var completedParts = sortAndValidateParts(
+                request.multipartUpload() == null ? List.of() :
+                        request.multipartUpload().parts());
 
         try {
-            return s3Client.completeMultipartUpload(
-                    requestBuilder.build());
+            return s3Client.completeMultipartUpload(request.toBuilder()
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(completedParts)
+                            .build())
+                    .build());
         } catch (S3Exception e) {
-            throw propagate(e, mpu.containerName(), mpu.blobName());
+            throw propagate(e, request.bucket(), request.key());
         }
     }
 

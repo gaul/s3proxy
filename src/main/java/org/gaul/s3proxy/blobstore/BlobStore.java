@@ -22,23 +22,21 @@ import java.util.List;
 
 import com.google.common.hash.HashCode;
 
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -49,6 +47,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
@@ -110,7 +109,13 @@ public interface BlobStore extends AutoCloseable {
 
     boolean blobExists(String container, String name);
 
-    PutObjectResponse putBlob(String container, Blob blob, PutOptions options);
+    /**
+     * Stores one object from {@code payload}, consuming and closing the
+     * stream.  The request's contentLength is required; contentMD5 rides
+     * base64-encoded as on the wire; ifMatch/ifNoneMatch carry any
+     * conditional write.
+     */
+    PutObjectResponse putBlob(PutObjectRequest request, InputStream payload);
 
     /**
      * Copies one object onto another server-side.  Replacement metadata --
@@ -218,13 +223,19 @@ public interface BlobStore extends AutoCloseable {
 
     void setBlobAccess(String container, String name, BlobAccess access);
 
-    MultipartUpload initiateMultipartUpload(String container, BlobMetadata blob,
-            PutOptions options);
+    MultipartUpload initiateMultipartUpload(
+            CreateMultipartUploadRequest request);
 
     void abortMultipartUpload(MultipartUpload mpu);
 
+    /**
+     * Publishes a multipart upload's assembled object.  The request names
+     * the upload, asserts its parts, and carries any completion
+     * conditions; {@code mpu} carries the create-time request whose
+     * metadata a store that assembles the object itself writes onto it.
+     */
     CompleteMultipartUploadResponse completeMultipartUpload(
-            MultipartUpload mpu, List<CompletedPart> parts);
+            MultipartUpload mpu, CompleteMultipartUploadRequest request);
 
     /**
      * Uploads a part of a multipart upload, consuming and closing

@@ -32,22 +32,20 @@ import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -55,6 +53,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -81,22 +80,16 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     private MultipartUpload getDelegateMpu(MultipartUpload mpu) {
-        return new MultipartUpload(
-                getContainer(mpu.containerName()),
-                mpu.blobName(),
-                mpu.id(),
-                mpu.blobMetadata(),
-                mpu.putOptions());
+        return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
+                .bucket(getContainer(mpu.containerName()))
+                .build());
     }
 
     private MultipartUpload getClientMpu(MultipartUpload mpu) {
-        return new MultipartUpload(
-                aliases.inverse().getOrDefault(
-                        mpu.containerName(), mpu.containerName()),
-                mpu.blobName(),
-                mpu.id(),
-                mpu.blobMetadata(),
-                mpu.putOptions());
+        return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
+                .bucket(aliases.inverse().getOrDefault(
+                        mpu.containerName(), mpu.containerName()))
+                .build());
     }
 
     public static ImmutableBiMap<String, String> parseAliases(
@@ -215,10 +208,11 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(final String containerName, Blob blob,
-                          final PutOptions options) {
-        return delegate().putBlob(getContainer(containerName), blob,
-                options);
+    public PutObjectResponse putBlob(PutObjectRequest request,
+            InputStream payload) {
+        return delegate().putBlob(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build(), payload);
     }
 
     @Override
@@ -242,11 +236,12 @@ public final class AliasBlobStore extends ForwardingBlobStore {
 
     @Override
     public MultipartUpload initiateMultipartUpload(
-            String container, BlobMetadata blobMetadata, PutOptions options) {
+            CreateMultipartUploadRequest request) {
         MultipartUpload mpu = delegate().initiateMultipartUpload(
-                getContainer(container), blobMetadata, options);
-        return new MultipartUpload(container, blobMetadata.name(),
-                mpu.id(), mpu.blobMetadata(), mpu.putOptions());
+                request.toBuilder()
+                        .bucket(getContainer(request.bucket()))
+                        .build());
+        return new MultipartUpload(mpu.id(), request);
     }
 
     @Override
@@ -256,8 +251,12 @@ public final class AliasBlobStore extends ForwardingBlobStore {
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
-            final MultipartUpload mpu, final List<CompletedPart> parts) {
-        return delegate().completeMultipartUpload(getDelegateMpu(mpu), parts);
+            final MultipartUpload mpu,
+            final CompleteMultipartUploadRequest request) {
+        return delegate().completeMultipartUpload(getDelegateMpu(mpu),
+                request.toBuilder()
+                        .bucket(getContainer(request.bucket()))
+                        .build());
     }
 
     @Override

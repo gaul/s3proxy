@@ -26,7 +26,6 @@ import java.security.GeneralSecurityException;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.regex.Matcher;
 
@@ -40,16 +39,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.PutOptions;
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
@@ -58,10 +53,11 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -69,6 +65,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -110,66 +107,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
         } catch (GeneralSecurityException e) {
             throw new IllegalArgumentException(e);
-        }
-    }
-
-    private Blob cipheredBlob(Blob blob, InputStream payload,
-        long contentLength,
-        boolean addEncryptedMetadata) {
-
-        // make a copy of the blob with the new payload stream
-        BlobMetadata blobMeta = blob.getMetadata();
-        ContentMetadata contentMeta = blob.getMetadata().contentMetadata();
-        Map<String, String> userMetadata = blobMeta.userMetadata();
-        String contentType = contentMeta.contentType();
-
-        // suffix the content type with -s3enc if we need to encrypt
-        if (addEncryptedMetadata) {
-            blobMeta = setEncryptedSuffix(blobMeta);
-        } else {
-            // remove the -s3enc suffix while decrypting
-            // but not if it contains a multipart meta
-            if (!blobMeta.userMetadata()
-                .containsKey(Constants.METADATA_IS_ENCRYPTED_MULTIPART)) {
-                blobMeta = removeEncryptedSuffix(blobMeta);
-            }
-        }
-
-        // we do not set contentMD5 as it will not match due to the encryption
-        return Blob.builder(blobMeta.name())
-            .storageClass(blobMeta.storageClass())
-            .userMetadata(userMetadata)
-            .payload(payload)
-            .cacheControl(contentMeta.cacheControl())
-            .contentDisposition(contentMeta.contentDisposition())
-            .contentEncoding(contentMeta.contentEncoding())
-            .contentLanguage(contentMeta.contentLanguage())
-            .contentLength(contentLength)
-            .contentType(contentType)
-            .eTag(blobMeta.eTag())
-            .lastModified(blobMeta.lastModified())
-            .container(blobMeta.container())
-            .build();
-    }
-
-    private Blob encryptBlob(Blob blob) {
-
-        try {
-            // open the streams and pass them through the encryption
-            InputStream isRaw = requireNonNull(blob.getPayload());
-            Encryption encryption =
-                new Encryption(secretKey, isRaw, 1);
-            InputStream is = encryption.openStream();
-
-            // adjust the encrypted content length by
-            // adding the padding block size
-            long contentLength = requireNonNull(
-                blob.getMetadata().contentMetadata().contentLength()) +
-                    Constants.PADDING_BLOCK_SIZE;
-
-            return cipheredBlob(blob, is, contentLength, true);
-        } catch (IOException | GeneralSecurityException e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -251,27 +188,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return blobName.endsWith(Constants.S3_ENC_SUFFIX);
     }
 
-    private BlobMetadata setEncryptedSuffix(BlobMetadata blobMeta) {
-        if (blobMeta.name() != null && !isEncrypted(blobMeta.name())) {
-            return blobMeta.toBuilder()
-                    .name(blobNameWithSuffix(blobMeta.name()))
-                    .build();
-        }
-        return blobMeta;
-    }
-
     private String removeEncryptedSuffix(String blobName) {
         return blobName.substring(0,
             blobName.length() - Constants.S3_ENC_SUFFIX.length());
-    }
-
-    private BlobMetadata removeEncryptedSuffix(BlobMetadata blobMeta) {
-        if (isEncrypted(blobMeta.name())) {
-            return blobMeta.toBuilder()
-                    .name(removeEncryptedSuffix(blobMeta.name()))
-                    .build();
-        }
-        return blobMeta;
     }
 
     /**
@@ -434,10 +353,23 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public PutObjectResponse putBlob(String containerName, Blob blob,
-        PutOptions putOptions) {
-        return delegate().putBlob(containerName,
-            encryptBlob(blob), putOptions);
+    public PutObjectResponse putBlob(PutObjectRequest request,
+        InputStream payload) {
+        InputStream encrypted;
+        try {
+            encrypted = new Encryption(secretKey, payload, 1).openStream();
+        } catch (IOException | GeneralSecurityException e) {
+            throw new RuntimeException(e);
+        }
+        // adjust the encrypted content length by adding the padding block
+        // size; drop the MD5 since encryption changes the bytes
+        String key = request.key();
+        return delegate().putBlob(request.toBuilder()
+                .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
+                .contentLength(requireNonNull(request.contentLength()) +
+                        Constants.PADDING_BLOCK_SIZE)
+                .contentMD5(null)
+                .build(), encrypted);
     }
 
     @Override
@@ -517,10 +449,12 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public MultipartUpload initiateMultipartUpload(String container,
-        BlobMetadata blobMetadata, PutOptions options) {
-        return delegate().initiateMultipartUpload(container,
-            setEncryptedSuffix(blobMetadata), options);
+    public MultipartUpload initiateMultipartUpload(
+        CreateMultipartUploadRequest request) {
+        String key = request.key();
+        return delegate().initiateMultipartUpload(request.toBuilder()
+            .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
+            .build());
     }
 
     @Override
@@ -582,26 +516,24 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     private MultipartUpload filterMultipartUpload(MultipartUpload mpu) {
-        BlobMetadata mbm = null;
-        if (mpu.blobMetadata() != null) {
-            mbm = setEncryptedSuffix(mpu.blobMetadata());
-        }
-
         String blobName = mpu.blobName();
-        if (!isEncrypted(blobName)) {
-            blobName = blobNameWithSuffix(blobName);
+        if (isEncrypted(blobName)) {
+            return mpu;
         }
-
-        return new MultipartUpload(mpu.containerName(), blobName, mpu.id(),
-            mbm, mpu.putOptions());
+        return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
+            .key(blobNameWithSuffix(blobName))
+            .build());
     }
 
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
-        MultipartUpload mpu, List<CompletedPart> parts) {
+        MultipartUpload mpu, CompleteMultipartUploadRequest request) {
 
+        String key = request.key();
         return delegate().completeMultipartUpload(filterMultipartUpload(mpu),
-            parts);
+            request.toBuilder()
+                .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
+                .build());
     }
 
     @Override
