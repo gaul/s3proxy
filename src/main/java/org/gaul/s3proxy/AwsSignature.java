@@ -392,7 +392,8 @@ final class AwsSignature {
                                                  String uri, byte[] payload,
                                                  String hashAlgorithm,
                                                  boolean presignedUrl,
-                                                 @Nullable String pinnedHash)
+                                                 @Nullable String pinnedHash,
+                                                 @Nullable String verifiedHash)
             throws IOException, NoSuchAlgorithmException {
         // A presigned request is signed through the query string.  Any
         // Authorization header it also carries addresses something other than
@@ -420,6 +421,13 @@ final class AwsSignature {
             digest = "STREAMING-UNSIGNED-PAYLOAD-TRAILER";
         } else if ("UNSIGNED-PAYLOAD".equals(xAmzContentSha256)) {
             digest = "UNSIGNED-PAYLOAD";
+        } else if (verifiedHash != null) {
+            // The caller already hashed the payload to check the
+            // x-amz-content-sha256 header, so hashing it again here can only
+            // repeat that answer.  Reuse it for the payload line; the hash a
+            // request carries but the caller did not verify -- one whose
+            // presigned parameters skipped the body -- never reaches here.
+            digest = verifiedHash;
         } else {
             digest = getMessageDigest(payload, hashAlgorithm);
         }
@@ -461,12 +469,13 @@ final class AwsSignature {
     static SignatureDetail createAuthorizationSignatureV4(
             HttpServletRequest request, S3AuthorizationHeader authHeader,
             byte[] payload, String uri, String credential,
-            boolean presignedUrl, @Nullable String pinnedHash)
+            boolean presignedUrl, @Nullable String pinnedHash,
+            @Nullable String verifiedHash)
             throws InvalidKeyException, IOException, NoSuchAlgorithmException {
         // V4 headers always carry these fields
         String hashAlgorithm = requireNonNull(authHeader.getHashAlgorithm());
         String canonicalRequest = createCanonicalRequest(request, uri, payload,
-                hashAlgorithm, presignedUrl, pinnedHash);
+                hashAlgorithm, presignedUrl, pinnedHash, verifiedHash);
         String algorithm = requireNonNull(authHeader.getHmacAlgorithm());
         byte[] signingKey = deriveSigningKeyV4(authHeader, credential);
         String date = request.getHeader(AwsHttpHeaders.DATE);

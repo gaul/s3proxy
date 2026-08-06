@@ -870,6 +870,11 @@ public class S3ProxyHandler {
             } else {
                 String contentSha256 = request.getHeader(
                         AwsHttpHeaders.CONTENT_SHA256);
+                // The header value once the buffered payload has hashed to
+                // it, letting the canonical request reuse the digest rather
+                // than hash the body a second time.  Stays null on the paths
+                // that never verify the body against the header.
+                String verifiedContentSha256 = null;
                 try {
                     byte[] payload;
                     if (request.getParameter("X-Amz-Algorithm") != null) {
@@ -931,6 +936,7 @@ public class S3ProxyHandler {
                                     S3ErrorCode
                                     .X_AMZ_CONTENT_S_H_A_256_MISMATCH);
                         }
+                        verifiedContentSha256 = contentSha256;
                         is = new ByteArrayInputStream(payload);
                     }
 
@@ -943,7 +949,8 @@ public class S3ProxyHandler {
                     signatureDetail = AwsSignature
                             .createAuthorizationSignatureV4(// v4 sign
                             baseRequest, authHeader, payload, uriForSigning,
-                            credential, presignedUrl, pinnedSha256);
+                            credential, presignedUrl, pinnedSha256,
+                            verifiedContentSha256);
                     expectedSignature = signatureDetail.signature();
                     // A URL that pins a payload hash may have signed it on the
                     // payload line or left UNSIGNED-PAYLOAD there: the AWS SDK
@@ -955,7 +962,8 @@ public class S3ProxyHandler {
                         signatureDetail = AwsSignature
                                 .createAuthorizationSignatureV4(
                                 baseRequest, authHeader, payload, uriForSigning,
-                                credential, presignedUrl, /*pinnedHash=*/ null);
+                                credential, presignedUrl, /*pinnedHash=*/ null,
+                                verifiedContentSha256);
                         expectedSignature = signatureDetail.signature();
                     }
                     if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(
