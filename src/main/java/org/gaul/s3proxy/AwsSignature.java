@@ -28,6 +28,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -39,7 +40,6 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
-import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
@@ -235,7 +235,7 @@ final class AwsSignature {
             throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance(algorithm);
         byte[] hash = md.digest(payload);
-        return BaseEncoding.base16().lowerCase().encode(hash);
+        return HexFormat.of().formatHex(hash);
     }
 
     /**
@@ -483,7 +483,7 @@ final class AwsSignature {
                 signatureString.getBytes(StandardCharsets.UTF_8),
                 signingKey, algorithm);
         return new SignatureDetail(
-                BaseEncoding.base16().lowerCase().encode(signature),
+                HexFormat.of().formatHex(signature),
                 signatureString, canonicalRequest);
     }
 }

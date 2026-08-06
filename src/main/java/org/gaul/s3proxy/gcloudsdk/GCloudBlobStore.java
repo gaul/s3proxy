@@ -27,6 +27,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +64,6 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
-import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -1190,7 +1190,7 @@ public final class GCloudBlobStore implements BlobStore {
                     ioe.getMessage()), ioe);
         }
 
-        String eTag = BaseEncoding.base16().lowerCase().encode(md5Hash);
+        String eTag = HexFormat.of().formatHex(md5Hash);
         return SdkResponses.uploadedPart(eTag);
     }
 

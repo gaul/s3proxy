@@ -26,12 +26,11 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.zip.CRC32;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-
-import com.google.common.io.BaseEncoding;
 
 import org.junit.jupiter.api.Test;
 
@@ -308,7 +307,7 @@ public final class ChunkedInputStreamTest {
                 chunkHash;
         Mac mac = Mac.getInstance(HMAC);
         mac.init(new SecretKeySpec(signingKey, HMAC));
-        return BaseEncoding.base16().lowerCase().encode(
+        return HexFormat.of().formatHex(
                 mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -327,7 +326,7 @@ public final class ChunkedInputStreamTest {
     }
 
     private static String sha256Hex(byte[] bytes) throws Exception {
-        return BaseEncoding.base16().lowerCase().encode(
+        return HexFormat.of().formatHex(
                 MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 

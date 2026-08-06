@@ -30,6 +30,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -77,7 +78,6 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
-import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
@@ -1261,8 +1261,7 @@ public final class AzureBlobStore implements BlobStore {
                     partNumber, mpu.blobName(), mpu.containerName(), ioe.getMessage()), ioe);
         }
 
-        String eTag = BaseEncoding.base16()
-                .lowerCase().encode(md5Hash);
+        String eTag = HexFormat.of().formatHex(md5Hash);
         return SdkResponses.uploadedPart(eTag);
     }
 
@@ -1347,8 +1346,8 @@ public final class AzureBlobStore implements BlobStore {
             // check against part ETags.
             String md5 = response.getHeaders().getValue(
                     HttpHeaderName.CONTENT_MD5);
-            eTag = md5 == null ? blockId : BaseEncoding.base16().lowerCase()
-                    .encode(Base64.getDecoder().decode(md5));
+            eTag = md5 == null ? blockId : HexFormat.of().formatHex(
+                    Base64.getDecoder().decode(md5));
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() == 501) {
                 nativePartCopyUnsupported = true;

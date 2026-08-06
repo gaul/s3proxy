@@ -43,6 +43,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +57,6 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
-import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Longs;
@@ -725,7 +725,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 builder.contentRange(contentRange);
             }
             if (finalHashCode != null) {
-                builder.eTag(BaseEncoding.base16().lowerCase().encode(finalHashCode.asBytes()));
+                builder.eTag(HexFormat.of().formatHex(finalHashCode.asBytes()));
             }
             return builder.build();
         } catch (NoSuchFileException nsfe) {
@@ -787,7 +787,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
-            return BaseEncoding.base16().lowerCase().encode(DIRECTORY_MD5);
+            return HexFormat.of().formatHex(DIRECTORY_MD5);
         }
 
         // Create parent directories.
@@ -1327,7 +1327,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                        eTag.length() >= 2) {
                     eTag = eTag.substring(1, eTag.length() - 1);
                 }
-                md5Hasher.putBytes(BaseEncoding.base16().lowerCase().decode(eTag));
+                md5Hasher.putBytes(HexFormat.of().parseHex(eTag));
             }
         }
         var mpuETag = "\"" + md5Hasher.hash() + "-" + parts.size() + "\"";

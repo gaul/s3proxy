@@ -42,6 +42,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +81,6 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
@@ -925,7 +925,7 @@ public class S3ProxyHandler {
                         MessageDigest md = MessageDigest.getInstance(
                             authHeader.getHashAlgorithm());
                         byte[] hash = md.digest(payload);
-                        if (!BaseEncoding.base16().lowerCase().encode(hash)
+                        if (!HexFormat.of().formatHex(hash)
                                 .equals(contentSha256)) {
                             throw new S3ProxyException(
                                     S3ErrorCode
@@ -1002,8 +1002,7 @@ public class S3ProxyHandler {
             if (pinnedSha256 != null) {
                 is = new ChecksumValidatingInputStream(is,
                         FlexChecksum.SHA256.newChecksum(),
-                        BaseEncoding.base16().lowerCase().decode(
-                                pinnedSha256.toLowerCase()),
+                        HexFormat.of().parseHex(pinnedSha256),
                         request.getContentLengthLong(),
                         S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH);
             }
@@ -3980,7 +3979,7 @@ public class S3ProxyHandler {
                     kRegion);
             byte[] kSigning = hmac("HmacSHA256",
                     "aws4_request".getBytes(StandardCharsets.UTF_8), kService);
-            String expectedSignature = BaseEncoding.base16().lowerCase().encode(
+            String expectedSignature = HexFormat.of().formatHex(
                     hmac("HmacSHA256", policy, kSigning));
             if (!constantTimeEquals(signature, expectedSignature)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -4731,7 +4730,7 @@ public class S3ProxyHandler {
             }
             eTag = eTag.replace("\"", "").toLowerCase();
             try {
-                byte[] digest = BaseEncoding.base16().lowerCase().decode(eTag);
+                byte[] digest = HexFormat.of().parseHex(eTag);
                 if (digest.length != MD5.bits() / Byte.SIZE) {
                     return null;
                 }

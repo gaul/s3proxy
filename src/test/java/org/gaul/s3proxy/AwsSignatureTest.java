@@ -18,7 +18,7 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.google.common.io.BaseEncoding;
+import java.util.HexFormat;
 
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +37,7 @@ public final class AwsSignatureTest {
                 "SignedHeaders=host, Signature=ignored");
         byte[] signingKey = AwsSignature.deriveSigningKeyV4(auth,
                 "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY");
-        assertThat(BaseEncoding.base16().lowerCase().encode(signingKey))
+        assertThat(HexFormat.of().formatHex(signingKey))
                 .isEqualTo("c4afb1cc5771d871763a393e44b7035" +
                         "71b55cc28424d1a5e86da6ed3c154a4b9");
     }

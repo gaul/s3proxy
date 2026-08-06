@@ -24,11 +24,11 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.HexFormat;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 
 import org.jspecify.annotations.Nullable;
@@ -228,8 +228,7 @@ final class ChunkedInputStream extends FilterInputStream {
         String chunkHash;
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            chunkHash = BaseEncoding.base16().lowerCase()
-                    .encode(md.digest(data));
+            chunkHash = HexFormat.of().formatHex(md.digest(data));
         } catch (NoSuchAlgorithmException e) {
             throw new IOException(e);
         }
@@ -243,7 +242,7 @@ final class ChunkedInputStream extends FilterInputStream {
         try {
             Mac mac = Mac.getInstance(hmacAlgorithm);
             mac.init(new SecretKeySpec(signingKey, hmacAlgorithm));
-            expected = BaseEncoding.base16().lowerCase().encode(
+            expected = HexFormat.of().formatHex(
                     mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8)));
         } catch (InvalidKeyException | NoSuchAlgorithmException e) {
             throw new IOException(e);

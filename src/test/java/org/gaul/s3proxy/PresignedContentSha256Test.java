@@ -26,13 +26,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.Random;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.hash.Hashing;
-import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
@@ -195,7 +195,7 @@ public final class PresignedContentSha256Test {
     }
 
     private static String hex(byte[] bytes) {
-        return BaseEncoding.base16().lowerCase().encode(bytes);
+        return HexFormat.of().formatHex(bytes);
     }
 
     private static byte[] hmac(byte[] key, String data) throws Exception {

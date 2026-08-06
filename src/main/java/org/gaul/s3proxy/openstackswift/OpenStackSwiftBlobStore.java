@@ -31,6 +31,7 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -43,7 +44,6 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
-import com.google.common.io.BaseEncoding;
 import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -1359,10 +1359,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                         eTag.endsWith("\"")) {
                     eTag = eTag.substring(1, eTag.length() - 1);
                 }
-                md.update(BaseEncoding.base16().lowerCase().decode(
-                        eTag.toLowerCase(Locale.ROOT)));
+                md.update(HexFormat.of().parseHex(eTag));
             }
-            return BaseEncoding.base16().lowerCase().encode(md.digest()) +
+            return HexFormat.of().formatHex(md.digest()) +
                     "-" + parts.size();
         } catch (NoSuchAlgorithmException | IllegalArgumentException e) {
             return null;
