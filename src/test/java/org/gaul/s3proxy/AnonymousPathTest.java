@@ -29,7 +29,6 @@ import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +57,7 @@ public final class AnonymousPathTest {
         blobStore = TestUtils.createTransientBlobStore();
         containerName =
                 "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
         put(containerName, BLOB_NAME);
 
         s3Proxy = S3Proxy.builder()
@@ -111,7 +110,7 @@ public final class AnonymousPathTest {
     @Test
     public void testAnonymousReadRefusesAnInvalidBucketName()
             throws Exception {
-        blobStore.createContainer("ab", CreateContainerOptions.NONE);
+        blobStore.createContainer("ab");
         put("ab", "blob");
 
         HttpResponse<String> response = get("ab/blob");

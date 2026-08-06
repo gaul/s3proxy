@@ -34,8 +34,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +42,9 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -91,10 +91,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions options) {
-        return delegate().createContainer(container, options) &&
-                writeStore.createContainer(container, options);
+    public boolean createContainer(CreateBucketRequest request) {
+        return delegate().createContainer(request) &&
+                writeStore.createContainer(request);
     }
 
     // Container operations are not eventually consistent: apply them
@@ -107,9 +106,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void clearContainer(String container, ListContainerOptions options) {
-        delegate().clearContainer(container, options);
-        writeStore.clearContainer(container, options);
+    public void clearContainer(ListObjectsV2Request request) {
+        delegate().clearContainer(request);
+        writeStore.clearContainer(request);
     }
 
     @Override

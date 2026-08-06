@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +37,7 @@ public final class TierBlobStoreTest {
 
         //noinspection UnstableApiUsage
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
 
         tierBlobStore = StorageClassBlobStore.newStorageClassBlobStore(
                 blobStore, StorageClass.DEEP_ARCHIVE.toString());

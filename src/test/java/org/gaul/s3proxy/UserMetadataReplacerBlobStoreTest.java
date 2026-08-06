@@ -23,7 +23,6 @@ import java.util.Map;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +43,7 @@ public final class UserMetadataReplacerBlobStoreTest {
 
         //noinspection UnstableApiUsage
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
 
         userMetadataReplacerBlobStore = UserMetadataReplacerBlobStore
                 .newUserMetadataReplacerBlobStore(blobStore, "-", "_");

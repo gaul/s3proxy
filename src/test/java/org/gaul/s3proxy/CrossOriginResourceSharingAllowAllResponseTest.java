@@ -47,7 +47,6 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -109,8 +108,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
         httpClient = getHttpClient();
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainer(containerName,
-                CreateContainerOptions.NONE);
+        info.getBlobStore().createContainer(containerName);
 
         s3Client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ));

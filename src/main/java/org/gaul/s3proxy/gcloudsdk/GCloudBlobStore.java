@@ -74,23 +74,24 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -204,17 +205,19 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        String container = request.bucket();
+        String marker0 = request.continuationToken() != null ?
+                request.continuationToken() : request.startAfter();
         var gcsOptions = new java.util.ArrayList<BlobListOption>();
-        if (options.prefix() != null) {
-            gcsOptions.add(BlobListOption.prefix(options.prefix()));
+        if (request.prefix() != null) {
+            gcsOptions.add(BlobListOption.prefix(request.prefix()));
         }
-        if (options.maxResults() != null) {
+        if (request.maxKeys() != null) {
             gcsOptions.add(BlobListOption.pageSize(
-                    options.maxResults()));
+                    request.maxKeys()));
         }
-        String marker = options.marker();
+        String marker = marker0;
         if (marker != null) {
             // Begin the server-side scan at the marker rather than paging from
             // the start of the bucket, which would make listing a bucket of N
@@ -223,8 +226,8 @@ public final class GCloudBlobStore implements BlobStore {
             // entry equal to the marker; results are otherwise identical.
             gcsOptions.add(BlobListOption.startOffset(marker));
         }
-        if (options.delimiter() != null) {
-            gcsOptions.add(BlobListOption.delimiter(options.delimiter()));
+        if (request.delimiter() != null) {
+            gcsOptions.add(BlobListOption.delimiter(request.delimiter()));
         }
 
         com.google.api.gax.paging.Page<Blob> page;
@@ -237,7 +240,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         var contents = ImmutableList.<S3Object>builder();
         var prefixes = ImmutableList.<CommonPrefix>builder();
-        Integer maxResults = options.maxResults();
+        Integer maxResults = request.maxKeys();
         int count = 0;
         boolean hasMore = false;
         String lastName = null;
@@ -276,16 +279,17 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions options) {
+    public boolean createContainer(CreateBucketRequest request) {
+        String container = request.bucket();
+        boolean publicRead = request.acl() == BucketCannedACL.PUBLIC_READ;
         try {
             var bucketInfo = BucketInfo.newBuilder(container).build();
-            if (options.publicRead() && atomicBucketAcl) {
+            if (publicRead && atomicBucketAcl) {
                 storage.create(bucketInfo, Storage.BucketTargetOption
                         .predefinedAcl(Storage.PredefinedAcl.PUBLIC_READ));
             } else {
                 storage.create(bucketInfo);
-                if (options.publicRead()) {
+                if (publicRead) {
                     storage.createAcl(container,
                             Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
                 }

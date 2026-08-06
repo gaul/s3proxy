@@ -25,7 +25,6 @@ import java.time.Duration;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,8 +79,7 @@ public final class AwsSdkServicePathTest {
         client = buildClient(true);
 
         containerName = AwsSdkTest.createRandomContainerName();
-        info.getBlobStore().createContainer(containerName,
-                CreateContainerOptions.NONE);
+        info.getBlobStore().createContainer(containerName);
     }
 
     @AfterEach

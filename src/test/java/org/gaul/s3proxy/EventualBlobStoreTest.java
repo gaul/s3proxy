@@ -34,14 +34,13 @@ import com.google.common.net.MediaType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 public final class EventualBlobStoreTest {
@@ -60,12 +59,10 @@ public final class EventualBlobStoreTest {
         containerName = createRandomContainerName();
 
         nearBlobStore = TestUtils.createTransientBlobStore();
-        nearBlobStore.createContainer(containerName,
-                CreateContainerOptions.NONE);
+        nearBlobStore.createContainer(containerName);
 
         farBlobStore = TestUtils.createTransientBlobStore();
-        farBlobStore.createContainer(containerName,
-                CreateContainerOptions.NONE);
+        farBlobStore.createContainer(containerName);
 
         executorService = Executors.newScheduledThreadPool(1);
 
@@ -185,19 +182,16 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         eventualBlobStore.putBlob(makeRequest(containerName, blobName),
                 BYTE_SOURCE.openStream());
-        assertThat(eventualBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isEmpty();
+        assertThat(eventualBlobStore.list(containerName).contents()).isEmpty();
         delay();
-        assertThat(eventualBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isNotEmpty();
+        assertThat(eventualBlobStore.list(containerName).contents()).isNotEmpty();
     }
 
     @Test
     public void testCreateContainerInBothStores() throws Exception {
         String newContainer = createRandomContainerName();
         try {
-            assertThat(eventualBlobStore.createContainer(newContainer,
-                    CreateContainerOptions.NONE))
+            assertThat(eventualBlobStore.createContainer(newContainer))
                     .isTrue();
             // Container operations apply synchronously to both stores.
             assertThat(nearBlobStore.containerExists(newContainer)).isTrue();
@@ -216,19 +210,16 @@ public final class EventualBlobStoreTest {
         farBlobStore.putBlob(
                 makeRequest(containerName, createRandomBlobName()),
                 BYTE_SOURCE.openStream());
-        assertThat(nearBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isNotEmpty();
-        assertThat(farBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isNotEmpty();
+        assertThat(nearBlobStore.list(containerName).contents()).isNotEmpty();
+        assertThat(farBlobStore.list(containerName).contents()).isNotEmpty();
 
-        eventualBlobStore.clearContainer(containerName,
-                ListContainerOptions.NONE);
+        eventualBlobStore.clearContainer(ListObjectsV2Request.builder()
+                .bucket(containerName)
+                .build());
 
         // clearContainer must clear both stores, not only the read store.
-        assertThat(nearBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isEmpty();
-        assertThat(farBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isEmpty();
+        assertThat(nearBlobStore.list(containerName).contents()).isEmpty();
+        assertThat(farBlobStore.list(containerName).contents()).isEmpty();
     }
 
     private static String createRandomContainerName() {

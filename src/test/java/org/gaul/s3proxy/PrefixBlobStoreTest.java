@@ -30,12 +30,11 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 public final class PrefixBlobStoreTest {
@@ -49,7 +48,7 @@ public final class PrefixBlobStoreTest {
         containerName = TestUtils.createRandomContainerName();
         prefix = "forward-prefix/";
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
         prefixBlobStore = PrefixBlobStore.newPrefixBlobStore(
                 blobStore, Map.of(containerName, prefix));
     }
@@ -57,8 +56,9 @@ public final class PrefixBlobStoreTest {
     @AfterEach
     public void tearDown() {
         if (blobStore != null) {
-            blobStore.clearContainer(containerName,
-                    ListContainerOptions.NONE);
+            blobStore.clearContainer(ListObjectsV2Request.builder()
+                    .bucket(containerName)
+                    .build());
             blobStore.deleteContainer(containerName);
         }
     }
@@ -90,7 +90,7 @@ public final class PrefixBlobStoreTest {
         TestUtils.putBlob(blobStore, containerName, "outside.txt", content);
 
         var listing =
-                prefixBlobStore.list(containerName, ListContainerOptions.NONE);
+                prefixBlobStore.list(containerName);
         List<String> names = listing.contents().stream()
                 .map(S3Object::key)
                 .toList();
@@ -106,8 +106,9 @@ public final class PrefixBlobStoreTest {
                 content);
         TestUtils.putBlob(blobStore, containerName, "outside.txt", content);
 
-        prefixBlobStore.clearContainer(containerName,
-                ListContainerOptions.NONE);
+        prefixBlobStore.clearContainer(ListObjectsV2Request.builder()
+                .bucket(containerName)
+                .build());
 
         assertThat(blobStore.blobExists(containerName,
                 prefix + "inside.txt")).isFalse();

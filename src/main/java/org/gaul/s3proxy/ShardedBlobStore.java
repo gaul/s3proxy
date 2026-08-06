@@ -50,8 +50,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -60,12 +58,14 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.Part;
@@ -227,7 +227,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     private boolean createShards(ShardedBucket bucket,
-                                 CreateContainerOptions options) {
+                                 CreateBucketRequest request) {
         var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.min(bucket.shards, MAX_SHARD_THREADS));
@@ -236,7 +236,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String shardContainer = ShardedBlobStore.getShardContainer(
                     bucket, n);
             futuresBuilder.add(executor.submit(
-                () -> blobStore.createContainer(shardContainer, options)));
+                () -> blobStore.createContainer(request.toBuilder()
+                        .bucket(shardContainer)
+                        .build())));
         }
         var futures = futuresBuilder.build();
         executor.shutdown();
@@ -254,13 +256,11 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @SuppressWarnings("EmptyCatch")
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions createContainerOptions) {
-
+    public boolean createContainer(CreateBucketRequest request) {
+        String container = request.bucket();
         ShardedBucket bucket = this.buckets.get(container);
         if (bucket == null) {
-            return this.delegate().createContainer(container,
-                    createContainerOptions);
+            return this.delegate().createContainer(request);
         }
 
         Map<String, String> superblockMeta = this.createSuperblockMeta(bucket);
@@ -277,7 +277,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             checkSuperBlock(existingSuperblock, superblockMeta, container);
         }
 
-        boolean ret = createShards(bucket, createContainerOptions);
+        boolean ret = createShards(bucket, request);
 
         // Upload the superblock
         if (existingSuperblock == null) {
@@ -320,11 +320,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(
-            String container,
-            ListContainerOptions options) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate().list(container, options);
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().list(request);
         }
         // TODO: implement listing a sharded container
         throw new UnsupportedOperationException("sharded bucket");
@@ -357,7 +355,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void clearContainer(String container, ListContainerOptions options) {
+    public void clearContainer(ListObjectsV2Request request) {
         throw new UnsupportedOperationException("sharded bucket");
     }
 
@@ -403,8 +401,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String shard = ShardedBlobStore.getShardContainer(bucket, n);
             futuresBuilder.add(executor.submit(() -> {
                 try {
-                    return blobStore.list(shard,
-                            ListContainerOptions.NONE).contents().isEmpty();
+                    return blobStore.list(shard).contents().isEmpty();
                 } catch (NoSuchBucketException nsbe) {
                     return true;
                 }
@@ -437,8 +434,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         String zeroShardContainer = ShardedBlobStore.getShardContainer(
                 bucket, 0);
         boolean superblockPresent = false;
-        for (S3Object sm : this.delegate().list(zeroShardContainer,
-                ListContainerOptions.NONE).contents()) {
+        for (S3Object sm : this.delegate().list(zeroShardContainer)
+                .contents()) {
             if (sm.key().equals(SUPERBLOCK_BLOB_NAME)) {
                 superblockPresent = true;
             } else {

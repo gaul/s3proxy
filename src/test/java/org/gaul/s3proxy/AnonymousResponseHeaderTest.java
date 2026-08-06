@@ -30,7 +30,6 @@ import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,7 +61,7 @@ public final class AnonymousResponseHeaderTest {
         blobStore = TestUtils.createTransientBlobStore();
         String containerName =
                 "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
         ByteSource payload = ByteSource.wrap(
                 CONTENT.getBytes(StandardCharsets.UTF_8));
         blobStore.putBlob(TestUtils.putRequest(containerName, BLOB_NAME,

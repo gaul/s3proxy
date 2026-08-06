@@ -54,8 +54,6 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 import org.openstack4j.api.OSClient.OSClientV3;
 import org.openstack4j.api.exceptions.ResponseException;
@@ -77,18 +75,21 @@ import org.openstack4j.openstack.OSFactory;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -255,14 +256,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        String container = request.bucket();
+        String marker0 = request.continuationToken() != null ?
+                request.continuationToken() : request.startAfter();
         var swift = objectStorage();
-        String prefix = options.prefix();
-        var delimiter = options.delimiter();
+        String prefix = request.prefix();
+        var delimiter = request.delimiter();
         Character delimiterChar = delimiter != null && !delimiter.isEmpty() ?
                 delimiter.charAt(0) : null;
-        Integer maxResults = options.maxResults();
+        Integer maxResults = request.maxKeys();
 
         // Collect visible objects, hiding multipart-upload internals.  A whole
         // Swift page can consist entirely of hidden keys, so keep fetching
@@ -274,7 +277,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var prefixes = new ArrayList<CommonPrefix>();
         int visibleCount = 0;
         String lastVisible = null;
-        String swiftMarker = options.marker();
+        String swiftMarker = marker0;
         boolean firstRequest = true;
         boolean more = false;
 
@@ -384,11 +387,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions options) {
+    public boolean createContainer(CreateBucketRequest request) {
+        String container = request.bucket();
         var swift = objectStorage();
         CreateUpdateContainerOptions swiftOptions = null;
-        if (options.publicRead()) {
+        if (request.acl() == BucketCannedACL.PUBLIC_READ) {
             swiftOptions = CreateUpdateContainerOptions.create()
                     .accessAnybodyRead();
         }
@@ -404,8 +407,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public void deleteContainer(String container) {
         try {
-            clearContainer(container,
-                    ListContainerOptions.NONE);
+            clearContainer(ListObjectsV2Request.builder()
+                    .bucket(container)
+                    .build());
         } catch (NoSuchBucketException nsbe) {
             // The container is already gone; deleteContainer is idempotent.
             return;

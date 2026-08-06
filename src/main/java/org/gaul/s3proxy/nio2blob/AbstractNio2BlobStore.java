@@ -70,26 +70,27 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -175,18 +176,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
+    public final ListObjectsV2Response list(ListObjectsV2Request request) {
+        String container = request.bucket();
+        String marker0 = request.continuationToken() != null ?
+                request.continuationToken() : request.startAfter();
         var containerPath = requireContainerPath(container);
 
-        var delimiter = options.delimiter();
+        var delimiter = request.delimiter();
         if ("".equals(delimiter)) {
             delimiter = null;
         } else if (delimiter != null && !delimiter.equals("/")) {
             throw new IllegalArgumentException("Delimiters other than / not supported");
         }
 
-        var prefix = options.prefix();
+        var prefix = request.prefix();
         var dirPrefix = containerPath;
         if (prefix != null) {
             int idx = prefix.lastIndexOf('/');
@@ -234,16 +237,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
 
             var sorted = set.build();
-            if (options.marker() != null) {
+            if (marker0 != null) {
                 // The ordering is name-only, so a name-only stub lets
                 // tailSet skip past the marker in O(log n).
                 sorted = sorted.tailSet(
-                        ListEntry.prefix(options.marker()),
+                        ListEntry.prefix(marker0),
                         /*inclusive=*/ false);
             }
             String marker = null;
-            if (options.maxResults() != null) {
-                int maxResults = options.maxResults().intValue();
+            if (request.maxKeys() != null) {
+                int maxResults = request.maxKeys().intValue();
                 var sortedList = sorted.asList();
                 if (sortedList.size() > maxResults) {
                     if (maxResults == 0) {
@@ -425,8 +428,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final boolean createContainer(String container,
-            CreateContainerOptions options) {
+    public final boolean createContainer(CreateBucketRequest request) {
+        String container = request.bucket();
         try {
             Files.createDirectories(getRoot());
             Files.createDirectory(resolveContainer(container));
@@ -436,7 +439,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
 
-        setContainerAccess(container, options.publicRead() ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
+        setContainerAccess(container, request.acl() == BucketCannedACL.PUBLIC_READ ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
 
         return true;
     }
@@ -1410,10 +1413,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final List<Part> listMultipartUpload(MultipartUpload mpu) {
         var parts = ImmutableList.<Part>builder();
         var partPrefix = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-";
-        var options = ListContainerOptions.builder()
+        var options = ListObjectsV2Request.builder()
+                .bucket(mpu.containerName())
                 .prefix(partPrefix).build();
         while (true) {
-            var pageSet = list(mpu.containerName(), options);
+            var pageSet = list(options);
             for (var sm : pageSet.contents()) {
                 if (sm.key().endsWith("-stub")) {
                     continue;
@@ -1434,7 +1438,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 break;
             }
             options = options.toBuilder()
-                    .afterMarker(pageSet.nextContinuationToken()).build();
+                    .continuationToken(pageSet.nextContinuationToken())
+                    .build();
         }
         return parts.build();
     }
@@ -1444,10 +1449,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             listMultipartUploads(String container) {
         var mpus = ImmutableList.<software.amazon.awssdk.services.s3
                 .model.MultipartUpload>builder();
-        var options = ListContainerOptions.builder()
+        var options = ListObjectsV2Request.builder()
+                .bucket(container)
                 .prefix(MULTIPART_PREFIX).build();
         while (true) {
-            var pageSet = list(container, options);
+            var pageSet = list(options);
             for (S3Object sm : pageSet.contents()) {
                 if (!sm.key().endsWith("-stub")) {
                     continue;
@@ -1464,7 +1470,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 break;
             }
             options = options.toBuilder()
-                    .afterMarker(pageSet.nextContinuationToken()).build();
+                    .continuationToken(pageSet.nextContinuationToken())
+                    .build();
         }
 
         return mpus.build();

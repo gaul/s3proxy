@@ -25,9 +25,6 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -36,6 +33,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -43,7 +41,11 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.Part;
@@ -64,41 +66,89 @@ public interface BlobStore extends AutoCloseable {
     ListBucketsResponse list();
 
     /**
-     * Lists one page of a container.  The page's nextContinuationToken
-     * carries the marker naming where the next page resumes, or null when
-     * the listing is complete; isTruncated says the same thing.
+     * Lists one page of a bucket.  The page's nextContinuationToken names
+     * where the next page resumes, or is null when the listing is
+     * complete; isTruncated says the same thing.  A store that emulates
+     * listings issues last-key tokens and treats continuationToken and
+     * startAfter alike; a native store passes both through.
      */
-    ListObjectsV2Response list(String container,
-            ListContainerOptions options);
+    ListObjectsV2Response list(ListObjectsV2Request request);
+
+    /** Lists one full page of a bucket. */
+    default ListObjectsV2Response list(String container) {
+        return list(ListObjectsV2Request.builder()
+                .bucket(container)
+                .build());
+    }
+
+    /**
+     * Lists one page with V1 marker semantics: the marker and NextMarker
+     * are keys, not tokens.  The default bridges over the V2 listing --
+     * marker rides as startAfter, which every store reads as a key --
+     * and derives NextMarker as the page's last name.
+     */
+    default ListObjectsResponse listV1(ListObjectsRequest request) {
+        var page = list(ListObjectsV2Request.builder()
+                .bucket(request.bucket())
+                .prefix(request.prefix())
+                .delimiter(request.delimiter())
+                .maxKeys(request.maxKeys())
+                .startAfter(request.marker())
+                .build());
+        String nextMarker = null;
+        if (Boolean.TRUE.equals(page.isTruncated())) {
+            String lastKey = page.contents().isEmpty() ? null :
+                    page.contents().get(page.contents().size() - 1).key();
+            String lastPrefix = page.commonPrefixes().isEmpty() ? null :
+                    page.commonPrefixes()
+                            .get(page.commonPrefixes().size() - 1).prefix();
+            nextMarker = lastPrefix == null ? lastKey :
+                    lastKey == null || lastKey.compareTo(lastPrefix) < 0 ?
+                    lastPrefix : lastKey;
+        }
+        return ListObjectsResponse.builder()
+                .contents(page.contents())
+                .commonPrefixes(page.commonPrefixes())
+                .isTruncated(page.isTruncated())
+                .nextMarker(nextMarker)
+                .build();
+    }
 
     boolean containerExists(String container);
 
-    boolean createContainer(String container, CreateContainerOptions options);
+    boolean createContainer(CreateBucketRequest request);
+
+    /** Creates a bucket without further options. */
+    default boolean createContainer(String container) {
+        return createContainer(CreateBucketRequest.builder()
+                .bucket(container)
+                .build());
+    }
 
     ContainerAccess getContainerAccess(String container);
 
     void setContainerAccess(String container, ContainerAccess access);
 
-    default void clearContainer(String container,
-            ListContainerOptions options) {
-        ListContainerOptions opts = options;
+    default void clearContainer(ListObjectsV2Request request) {
+        var request0 = request;
         while (true) {
-            ListObjectsV2Response page = list(container, opts);
+            ListObjectsV2Response page = list(request0);
             for (S3Object object : page.contents()) {
-                removeBlob(container, object.key());
+                removeBlob(request.bucket(), object.key());
             }
-            String marker = page.nextContinuationToken();
-            if (marker == null) {
+            String token = page.nextContinuationToken();
+            if (token == null) {
                 return;
             }
-            opts = options.toBuilder().afterMarker(marker).build();
+            request0 = request.toBuilder().continuationToken(token).build();
         }
     }
 
     default void deleteContainer(String container) {
         try {
-            clearContainer(container,
-                    ListContainerOptions.NONE);
+            clearContainer(ListObjectsV2Request.builder()
+                    .bucket(container)
+                    .build());
         } catch (NoSuchBucketException e) {
             return;
         }
@@ -208,8 +258,8 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /** Lists a container's object versions and delete markers. */
-    default ListObjectVersionsResponse listVersions(String container,
-            ListVersionsOptions options) {
+    default ListObjectVersionsResponse listVersions(
+            ListObjectVersionsRequest request) {
         throw new UnsupportedOperationException("versioning not supported");
     }
 

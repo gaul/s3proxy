@@ -35,7 +35,6 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,7 +63,7 @@ public final class PostObjectTest {
     public void setUp() throws Exception {
         blobStore = TestUtils.createTransientBlobStore();
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
 
         s3Proxy = S3Proxy.builder()
                 .blobStore(blobStore)

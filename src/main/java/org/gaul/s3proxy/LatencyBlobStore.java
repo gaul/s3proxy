@@ -35,8 +35,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -44,12 +42,14 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -135,9 +135,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container, ListContainerOptions options) {
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
         simulateLatency(OP_LIST);
-        return super.list(container, options);
+        return super.list(request);
     }
 
     @Override
@@ -147,10 +147,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions createContainerOptions) {
+    public boolean createContainer(CreateBucketRequest request) {
         simulateLatency(OP_CREATE_CONTAINER);
-        return super.createContainer(container, createContainerOptions);
+        return super.createContainer(request);
     }
 
     @Override
@@ -166,9 +165,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void clearContainer(String container, ListContainerOptions options) {
+    public void clearContainer(ListObjectsV2Request request) {
         simulateLatency(OP_CLEAR_CONTAINER);
-        super.clearContainer(container, options);
+        super.clearContainer(request);
     }
 
     @Override

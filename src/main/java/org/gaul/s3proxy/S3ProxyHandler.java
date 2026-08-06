@@ -99,9 +99,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -110,6 +107,7 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -117,6 +115,7 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -124,7 +123,11 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -1799,22 +1802,23 @@ public class S3ProxyHandler {
         }
 
         String encodingType = request.getParameter("encoding-type");
-        var optionsBuilder = ListVersionsOptions.builder();
+        var versionsRequest = ListObjectVersionsRequest.builder()
+                .bucket(containerName);
         String prefix = request.getParameter("prefix");
         if (prefix != null && !prefix.isEmpty()) {
-            optionsBuilder.prefix(prefix);
+            versionsRequest.prefix(prefix);
         }
         String delimiter = request.getParameter("delimiter");
         if (delimiter != null && !delimiter.isEmpty()) {
-            optionsBuilder.delimiter(delimiter);
+            versionsRequest.delimiter(delimiter);
         }
         String keyMarker = request.getParameter("key-marker");
         if (keyMarker != null) {
-            optionsBuilder.keyMarker(keyMarker);
+            versionsRequest.keyMarker(keyMarker);
         }
         String versionIdMarker = request.getParameter("version-id-marker");
         if (versionIdMarker != null) {
-            optionsBuilder.versionIdMarker(versionIdMarker);
+            versionsRequest.versionIdMarker(versionIdMarker);
         }
 
         int maxKeys = 1000;
@@ -1832,10 +1836,10 @@ public class S3ProxyHandler {
                 maxKeys = 1000;
             }
         }
-        optionsBuilder.maxResults(maxKeys);
+        versionsRequest.maxKeys(maxKeys);
 
         ListObjectVersionsResponse page = blobStore.listVersions(
-                containerName, optionsBuilder.build());
+                versionsRequest.build());
 
         // The service interleaves Version and DeleteMarker elements in one
         // ordered document, but the SDK models them as two lists, each still
@@ -2167,8 +2171,8 @@ public class S3ProxyHandler {
                 locationString = null;
             } else {
                 pis.unread(ch);
-                CreateBucketRequest cbr = readXmlBody(
-                        pis, CreateBucketRequest.class);
+                org.gaul.s3proxy.CreateBucketRequest cbr = readXmlBody(
+                        pis, org.gaul.s3proxy.CreateBucketRequest.class);
                 locationString = cbr.locationConstraint();
             }
         }
@@ -2184,11 +2188,14 @@ public class S3ProxyHandler {
         // bucket created for anonymous use answering AccessDenied to the
         // anonymous reads its own ACL had allowed.
         String acl = request.getHeader(AwsHttpHeaders.ACL);
-        var options = new CreateContainerOptions(
-                "public-read".equalsIgnoreCase(acl) ||
-                "public-read-write".equalsIgnoreCase(acl));
+        var createRequest = CreateBucketRequest.builder()
+                .bucket(containerName);
+        if ("public-read".equalsIgnoreCase(acl) ||
+                "public-read-write".equalsIgnoreCase(acl)) {
+            createRequest.acl(BucketCannedACL.PUBLIC_READ);
+        }
 
-        boolean created = blobStore.createContainer(containerName, options);
+        boolean created = blobStore.createContainer(createRequest.build());
         if (!created) {
             throw new S3ProxyException(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
                     S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU.getMessage(),
@@ -2218,15 +2225,11 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException {
         String blobStoreType = getBlobStoreType(blobStore);
-        var optionsBuilder = ListContainerOptions.builder();
         String encodingType = request.getParameter("encoding-type");
         String delimiter = request.getParameter("delimiter");
-        if (delimiter != null) {
-            optionsBuilder.delimiter(delimiter);
-        }
         String prefix = request.getParameter("prefix");
-        if (prefix != null && !prefix.isEmpty()) {
-            optionsBuilder.prefix(prefix);
+        if (prefix != null && prefix.isEmpty()) {
+            prefix = null;
         }
 
         boolean isListV2 = false;
@@ -2249,15 +2252,14 @@ public class S3ProxyHandler {
         } else {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
-        if (marker != null) {
-            if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
-                String realMarker = lastKeyToMarker.getIfPresent(
-                        Map.entry(containerName, marker));
-                if (realMarker != null) {
-                    marker = realMarker;
-                }
+        boolean opaqueMarkers = Quirks.OPAQUE_MARKERS.contains(
+                blobStoreType);
+        if (marker != null && opaqueMarkers) {
+            String realMarker = lastKeyToMarker.getIfPresent(
+                    Map.entry(containerName, marker));
+            if (realMarker != null) {
+                marker = realMarker;
             }
-            optionsBuilder.afterMarker(marker);
         }
 
         boolean fetchOwner = !isListV2 ||
@@ -2278,15 +2280,53 @@ public class S3ProxyHandler {
                 maxKeys = 1000;
             }
         }
-        optionsBuilder.maxResults(maxKeys);
 
-        ListObjectsV2Response set = blobStore.list(containerName,
-                optionsBuilder.build());
+        // V2 rides the store's own continuation tokens; V1 pages by keys,
+        // which the default listV1 bridge serves over the V2 listing.
+        List<S3Object> contents;
+        List<CommonPrefix> prefixList;
+        String nextToken;
+        if (isListV2) {
+            var listRequest = ListObjectsV2Request.builder()
+                    .bucket(containerName)
+                    .prefix(prefix)
+                    .delimiter(delimiter)
+                    .maxKeys(maxKeys);
+            // marker carries the continuation token, or start-after when no
+            // token was sent -- possibly cache-mapped to the store's opaque
+            // token, in which case it must ride as a token either way.
+            if (continuationToken != null || opaqueMarkers) {
+                listRequest.continuationToken(marker);
+            } else {
+                listRequest.startAfter(marker);
+            }
+            ListObjectsV2Response set = blobStore.list(listRequest.build());
+            contents = set.contents();
+            prefixList = set.commonPrefixes();
+            nextToken = set.nextContinuationToken();
+        } else {
+            ListObjectsResponse set = blobStore.listV1(
+                    ListObjectsRequest.builder()
+                            .bucket(containerName)
+                            .prefix(prefix)
+                            .delimiter(delimiter)
+                            .maxKeys(maxKeys)
+                            .marker(marker)
+                            .build());
+            contents = set.contents();
+            prefixList = set.commonPrefixes();
+            nextToken = set.nextMarker();
+            if (nextToken == null &&
+                    Boolean.TRUE.equals(set.isTruncated()) &&
+                    !contents.isEmpty()) {
+                nextToken = contents.get(contents.size() - 1).key();
+            }
+        }
 
         boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
                 blobStoreType);
-        int filteredCount = set.commonPrefixes().size();
-        for (S3Object object : set.contents()) {
+        int filteredCount = prefixList.size();
+        for (S3Object object : contents) {
             if (!filterStub ||
                     !object.key().startsWith(MULTIPART_STUB_PREFIX)) {
                 filteredCount++;
@@ -2350,7 +2390,7 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "EncodingType", encodingType);
             }
 
-            String nextMarker = set.nextContinuationToken();
+            String nextMarker = nextToken;
             if (nextMarker != null) {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 writeSimpleElement(xml,
@@ -2368,11 +2408,9 @@ public class S3ProxyHandler {
                     // which is what the store wants anyway.  The last name
                     // the caller sees is the greater of the final key and
                     // the final prefix, each list being in listing order.
-                    String lastKey = Streams.findLast(
-                            set.contents().stream())
+                    String lastKey = Streams.findLast(contents.stream())
                             .map(S3Object::key).orElse(null);
-                    String lastPrefix = Streams.findLast(
-                            set.commonPrefixes().stream())
+                    String lastPrefix = Streams.findLast(prefixList.stream())
                             .map(CommonPrefix::prefix).orElse(null);
                     String lastName = lastPrefix == null ? lastKey :
                             lastKey == null ||
@@ -2388,7 +2426,7 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "IsTruncated", "false");
             }
 
-            for (S3Object object : set.contents()) {
+            for (S3Object object : contents) {
                 if (filterStub && object.key().startsWith(
                         MULTIPART_STUB_PREFIX)) {
                     continue;
@@ -2427,7 +2465,7 @@ public class S3ProxyHandler {
             }
 
             Set<String> commonPrefixes = new TreeSet<>();
-            for (CommonPrefix entry : set.commonPrefixes()) {
+            for (CommonPrefix entry : prefixList) {
                 commonPrefixes.add(entry.prefix());
             }
             for (String commonPrefix : commonPrefixes) {

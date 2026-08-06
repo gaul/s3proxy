@@ -88,26 +88,27 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -265,23 +266,25 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        String container = request.bucket();
+        String marker0 = request.continuationToken() != null ?
+                request.continuationToken() : request.startAfter();
         var client = blobServiceClient.getBlobContainerClient(container);
         var azureOptions = new ListBlobsOptions();
-        azureOptions.setPrefix(options.prefix());
-        azureOptions.setMaxResultsPerPage(options.maxResults());
+        azureOptions.setPrefix(request.prefix());
+        azureOptions.setMaxResultsPerPage(request.maxKeys());
         // Pass the continuation token through verbatim: it is the opaque
         // marker Azure returned, round-tripped by the frontend.  Decoding it
         // corrupts tokens containing '+' (turned into a space) or '%'.
-        var marker = options.marker();
+        var marker = marker0;
 
         var contents = ImmutableList.<S3Object>builder();
         var prefixes = ImmutableList.<CommonPrefix>builder();
         PagedResponse<BlobItem> page;
         try {
             var pages = client.listBlobsByHierarchy(
-                    options.delimiter(), azureOptions, /*timeout=*/ null);
+                    request.delimiter(), azureOptions, /*timeout=*/ null);
             page = firstPageWithEntries(
                     m -> pages.iterableByPage(m).iterator().next(), marker);
         } catch (BlobStorageException bse) {
@@ -333,10 +336,10 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions options) {
+    public boolean createContainer(CreateBucketRequest request) {
+        String container = request.bucket();
         var azureOptions = new BlobContainerCreateOptions();
-        if (options.publicRead()) {
+        if (request.acl() == BucketCannedACL.PUBLIC_READ) {
             azureOptions.setPublicAccessType(PublicAccessType.CONTAINER);
         }
         try {

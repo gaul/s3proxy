@@ -24,7 +24,6 @@ import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +51,7 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
     public void setUp() throws Exception {
         blobStore = TestUtils.createTransientBlobStore();
         containerName = TestUtils.createRandomContainerName();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
 
         // Fail only completeMultipartUpload, so the upload succeeds up to the
         // point where the response has already been committed with 200.

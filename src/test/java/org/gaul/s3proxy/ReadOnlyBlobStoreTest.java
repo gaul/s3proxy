@@ -24,7 +24,6 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +38,7 @@ public final class ReadOnlyBlobStoreTest {
         containerName = createRandomContainerName();
 
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
         readOnlyBlobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
     }
 
@@ -84,8 +83,7 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testCreateContainer() throws Exception {
         try {
-            readOnlyBlobStore.createContainer(containerName,
-                    CreateContainerOptions.NONE);
+            readOnlyBlobStore.createContainer(containerName);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {
@@ -96,8 +94,7 @@ public final class ReadOnlyBlobStoreTest {
     @Test
     public void testCreateContainerOptions() throws Exception {
         try {
-            readOnlyBlobStore.createContainer(containerName,
-                    new CreateContainerOptions(false));
+            readOnlyBlobStore.createContainer(containerName);
             Fail.failBecauseExceptionWasNotThrown(
                     UnsupportedOperationException.class);
         } catch (UnsupportedOperationException ne) {

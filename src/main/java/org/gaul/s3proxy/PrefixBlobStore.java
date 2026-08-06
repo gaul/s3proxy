@@ -33,7 +33,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -47,6 +46,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -145,16 +145,16 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                         .build());
     }
 
-    private ListContainerOptions applyPrefix(String container,
-            ListContainerOptions options) {
+    private ListObjectsV2Request applyPrefix(String container,
+            ListObjectsV2Request request) {
         if (!hasPrefix(container)) {
-            return options;
+            return request;
         }
-        var builder = options == null ?
-                ListContainerOptions.builder() : options.toBuilder();
+        var builder = request.toBuilder();
         String basePrefix = getPrefix(container);
-        String requestedPrefix = options == null ? null : options.prefix();
-        String requestedMarker = options == null ? null : options.marker();
+        String requestedPrefix = request.prefix();
+        String requestedMarker = request.continuationToken() != null ?
+                request.continuationToken() : request.startAfter();
 
         if (Strings.isNullOrEmpty(requestedPrefix)) {
             builder.prefix(basePrefix);
@@ -163,7 +163,9 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         }
 
         if (!Strings.isNullOrEmpty(requestedMarker)) {
-            builder.afterMarker(addPrefix(container, requestedMarker));
+            builder.continuationToken(
+                    addPrefix(container, requestedMarker));
+            builder.startAfter(null);
         }
 
         return builder.build();
@@ -267,22 +269,23 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        String container = request.bucket();
         if (!hasPrefix(container)) {
-            return super.list(container, options);
+            return super.list(request);
         }
-        var effective = applyPrefix(container, options);
-        return trimListing(container, super.list(container, effective));
+        var effective = applyPrefix(container, request);
+        return trimListing(container, super.list(effective));
     }
 
     @Override
-    public void clearContainer(String container, ListContainerOptions options) {
+    public void clearContainer(ListObjectsV2Request request) {
+        String container = request.bucket();
         if (!hasPrefix(container)) {
-            super.clearContainer(container, options);
+            super.clearContainer(request);
             return;
         }
-        super.clearContainer(container, applyPrefix(container, options));
+        super.clearContainer(applyPrefix(container, request));
     }
 
     @Override

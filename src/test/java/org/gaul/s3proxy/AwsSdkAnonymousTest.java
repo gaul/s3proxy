@@ -27,7 +27,6 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,8 +75,7 @@ public final class AwsSdkAnonymousTest {
         client = buildClient(AnonymousCredentialsProvider.create());
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainer(containerName,
-                CreateContainerOptions.NONE);
+        info.getBlobStore().createContainer(containerName);
     }
 
     @AfterEach

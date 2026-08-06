@@ -38,8 +38,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.crypto.Constants;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -56,6 +54,7 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -150,7 +149,7 @@ public final class EncryptedBlobStoreTest {
     @BeforeEach
     public void setUp() throws Exception {
         containerName = TestUtils.createRandomContainerName();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
     }
 
     @AfterEach
@@ -209,8 +208,7 @@ public final class EncryptedBlobStoreTest {
             }
         }
 
-        var blobs = encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE);
+        var blobs = encryptedBlobStore.list(containerName);
         for (S3Object blob : blobs.contents()) {
             assertThat(blob.size()).isEqualTo(
                 contentLengths.get(blob.key()));
@@ -239,15 +237,14 @@ public final class EncryptedBlobStoreTest {
                 makeRequest(containerName, blobName, content.length()), is);
         }
 
-        var blobs = encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE);
+        var blobs = encryptedBlobStore.list(containerName);
         for (S3Object blob : blobs.contents()) {
             assertThat(blob.size()).isEqualTo(
                 contentLengths.get(blob.key()));
         }
 
         blobs =
-            encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
+            encryptedBlobStore.list(containerName);
         for (S3Object blob : blobs.contents()) {
             assertThat(blob.size()).isEqualTo(
                 contentLengths.get(blob.key()));
@@ -255,7 +252,7 @@ public final class EncryptedBlobStoreTest {
         }
 
         blobs =
-            encryptedBlobStore.list(containerName, ListContainerOptions.NONE);
+            encryptedBlobStore.list(containerName);
         assertThat(blobs.contents()).isEmpty();
     }
 
@@ -277,12 +274,11 @@ public final class EncryptedBlobStoreTest {
         var seen = new java.util.LinkedHashMap<String, Long>();
         String marker = null;
         for (int i = 0; i < expected.size() * 3; i++) {
-            var optionsBuilder = ListContainerOptions.builder().maxResults(1);
-            if (marker != null) {
-                optionsBuilder.afterMarker(marker);
-            }
-            var page =
-                encryptedBlobStore.list(containerName, optionsBuilder.build());
+            var page = encryptedBlobStore.list(ListObjectsV2Request.builder()
+                .bucket(containerName)
+                .maxKeys(1)
+                .continuationToken(marker)
+                .build());
             for (S3Object sm : page.contents()) {
                 assertThat(seen).doesNotContainKey(sm.key());
                 seen.put(sm.key(), sm.size());
@@ -316,8 +312,7 @@ public final class EncryptedBlobStoreTest {
         assertThat(got.response().contentLength())
             .isEqualTo(0L);
 
-        var blobs = encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE);
+        var blobs = encryptedBlobStore.list(containerName);
         assertThat(blobs.contents().get(0).size()).isEqualTo(0L);
     }
 
@@ -359,8 +354,7 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.completeMultipartUpload(mpu,
             TestUtils.completeRequest(mpu, parts));
 
-        var blobs = encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE);
+        var blobs = encryptedBlobStore.list(containerName);
         S3Object metadata = blobs.contents().get(0);
         assertThat((long) content.length()).isEqualTo(metadata.size());
 
@@ -369,8 +363,7 @@ public final class EncryptedBlobStoreTest {
         List<String> singleList = new ArrayList<>();
         singleList.add(blobName);
         encryptedBlobStore.removeBlobs(containerName, singleList);
-        blobs = encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE);
+        blobs = encryptedBlobStore.list(containerName);
         assertThat(blobs.contents()).isEmpty();
     }
 
@@ -391,10 +384,8 @@ public final class EncryptedBlobStoreTest {
         // The abort removed the in-progress upload: nothing was committed and
         // no encrypted (.s3enc) backend blob was left behind, on either the
         // wrapper or the underlying delegate.
-        assertThat(encryptedBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isEmpty();
-        assertThat(blobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isEmpty();
+        assertThat(encryptedBlobStore.list(containerName).contents()).isEmpty();
+        assertThat(blobStore.list(containerName).contents()).isEmpty();
 
         // The upload no longer exists, so completing it now fails rather than
         // resurrecting the object from a dangling upload.

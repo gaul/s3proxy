@@ -44,7 +44,6 @@ import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
@@ -63,6 +62,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -434,18 +434,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-        ListContainerOptions options) {
-        var marker = options.marker();
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        var marker = request.continuationToken() != null ?
+                request.continuationToken() : request.startAfter();
         if (marker != null && !isEncrypted(marker)) {
             // filteredList strips the .s3enc suffix from the marker it returns;
             // re-add it so the backend resumes after the encrypted key rather
             // than re-listing it (which duplicates or stalls pagination).
-            options = options.toBuilder()
-                    .afterMarker(blobNameWithSuffix(marker))
+            request = request.toBuilder()
+                    .continuationToken(blobNameWithSuffix(marker))
+                    .startAfter(null)
                     .build();
         }
-        return filteredList(container, delegate().list(container, options));
+        return filteredList(request.bucket(), delegate().list(request));
     }
 
     @Override

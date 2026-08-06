@@ -32,7 +32,6 @@ import com.google.common.io.ByteSource;
 import org.gaul.s3proxy.GlobBlobStoreLocator.GlobTarget;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,9 +83,8 @@ public final class CopySourceAuthorizationTest {
         victimContainer = "victim-" + new Random().nextInt(Integer.MAX_VALUE);
         attackerContainer = "attacker-" +
                 new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainer(victimContainer, CreateContainerOptions.NONE);
-        blobStore.createContainer(attackerContainer,
-                CreateContainerOptions.NONE);
+        blobStore.createContainer(victimContainer);
+        blobStore.createContainer(attackerContainer);
 
         // Both identities are served by the same backing store but each owns
         // a disjoint set of buckets, so neither may read the other's.

@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -90,7 +89,7 @@ public final class MultipartUploadKeyCharacterTest {
                 .build();
 
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
     }
 
     @AfterEach

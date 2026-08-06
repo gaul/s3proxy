@@ -32,7 +32,6 @@ import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,7 +45,7 @@ public final class RegexBlobStoreTest {
         containerName = createRandomContainerName();
 
         delegate = TestUtils.createTransientBlobStore();
-        delegate.createContainer(containerName, CreateContainerOptions.NONE);
+        delegate.createContainer(containerName);
 
     }
 

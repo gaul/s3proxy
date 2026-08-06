@@ -36,9 +36,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -49,6 +46,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -57,7 +55,9 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
@@ -123,12 +123,13 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
     @Override
     public synchronized ListObjectsV2Response list(
-            String containerName, ListContainerOptions options) {
+            ListObjectsV2Request request) {
+        String containerName = request.bucket();
         var container = getContainer(containerName);
         var contents = new ArrayList<S3Object>();
         for (var entry : container.keys.entrySet()) {
-            if (options.prefix() != null &&
-                    !entry.getKey().startsWith(options.prefix())) {
+            if (request.prefix() != null &&
+                    !entry.getKey().startsWith(request.prefix())) {
                 continue;
             }
             var current = entry.getValue().get(0);
@@ -148,9 +149,9 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public synchronized boolean createContainer(String containerName,
-            CreateContainerOptions options) {
-        return containers.putIfAbsent(containerName, new Container()) == null;
+    public synchronized boolean createContainer(CreateBucketRequest request) {
+        return containers.putIfAbsent(request.bucket(),
+                new Container()) == null;
     }
 
     @Override
@@ -352,12 +353,13 @@ final class InMemoryVersionedBlobStore implements BlobStore {
 
     @Override
     public synchronized ListObjectVersionsResponse listVersions(
-            String containerName, ListVersionsOptions options) {
+            ListObjectVersionsRequest request) {
+        String containerName = request.bucket();
         var container = getContainer(containerName);
-        String prefix = options.prefix() == null ? "" : options.prefix();
-        String delimiter = options.delimiter();
-        int maxResults = options.maxResults() == null ?
-                1000 : options.maxResults();
+        String prefix = request.prefix() == null ? "" : request.prefix();
+        String delimiter = request.delimiter();
+        int maxResults = request.maxKeys() == null ?
+                1000 : request.maxKeys();
 
         // Flatten to S3's total order -- keys ascending, newest first --
         // then slice out one page.  Simplicity over efficiency: this store
@@ -393,9 +395,9 @@ final class InMemoryVersionedBlobStore implements BlobStore {
         }
 
         int start = 0;
-        String keyMarker = options.keyMarker();
+        String keyMarker = request.keyMarker();
         if (keyMarker != null) {
-            String versionIdMarker = options.versionIdMarker();
+            String versionIdMarker = request.versionIdMarker();
             for (int i = 0; i < all.size(); i++) {
                 var candidate = all.get(i);
                 if (versionIdMarker == null) {

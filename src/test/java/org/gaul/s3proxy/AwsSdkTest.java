@@ -60,7 +60,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +81,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.ChecksumMode;
@@ -89,6 +89,7 @@ import software.amazon.awssdk.services.s3.model.ChecksumType;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAttributesResponse;
@@ -157,8 +158,7 @@ public final class AwsSdkTest {
         client = buildClient(awsCreds);
 
         containerName = createRandomContainerName();
-        info.getBlobStore().createContainer(containerName,
-                CreateContainerOptions.NONE);
+        info.getBlobStore().createContainer(containerName);
 
         blobStoreEndpoint = URI.create(info.getProperties().getProperty(
                 Constants.PROPERTY_ENDPOINT, "http://stub"));
@@ -1996,25 +1996,27 @@ public final class AwsSdkTest {
                 .bucket(containerName).maxKeys(1).startAfter("1"));
         assertThat(result.continuationToken()).isNullOrEmpty();
         assertThat(result.startAfter()).isEqualTo("1");
-        assertThat(result.nextContinuationToken()).isEqualTo("2");
         assertThat(result.isTruncated()).isTrue();
         assertThat(result.contents()).hasSize(1);
         assertThat(result.contents().get(0).key()).isEqualTo("2");
 
+        // The token is the store's own -- a key on emulating stores, opaque
+        // on a native one -- so page with it rather than asserting its shape.
         String nextToken = result.nextContinuationToken();
+        assertThat(nextToken).isNotEmpty();
         result = client.listObjectsV2(b -> b.bucket(containerName).maxKeys(1)
                 .continuationToken(nextToken));
-        assertThat(result.continuationToken()).isEqualTo("2");
-        assertThat(result.nextContinuationToken()).isEqualTo("3");
+        assertThat(result.continuationToken()).isEqualTo(nextToken);
         assertThat(result.startAfter()).isNullOrEmpty();
         assertThat(result.isTruncated()).isTrue();
         assertThat(result.contents()).hasSize(1);
         assertThat(result.contents().get(0).key()).isEqualTo("3");
 
         String nextToken2 = result.nextContinuationToken();
+        assertThat(nextToken2).isNotEmpty();
         result = client.listObjectsV2(b -> b.bucket(containerName).maxKeys(1)
                 .continuationToken(nextToken2));
-        assertThat(result.continuationToken()).isEqualTo("3");
+        assertThat(result.continuationToken()).isEqualTo(nextToken2);
         assertThat(result.nextContinuationToken()).isNull();
         assertThat(result.startAfter()).isNullOrEmpty();
         assertThat(result.isTruncated()).isFalse();
@@ -2050,7 +2052,7 @@ public final class AwsSdkTest {
         assertThat(result.contents().get(0).key()).isEqualTo("3");
         // Both are echoed back as sent, ignored or not.
         assertThat(result.startAfter()).isEqualTo("1");
-        assertThat(result.continuationToken()).isEqualTo("2");
+        assertThat(result.continuationToken()).isEqualTo(nextToken);
     }
 
     @Test
@@ -2354,8 +2356,10 @@ public final class AwsSdkTest {
         // Backends that carry it in a second call after the create can report
         // success having applied only the first half.
         String publicContainer = createRandomContainerName();
-        blobStore.createContainer(publicContainer,
-                new CreateContainerOptions(/*publicRead=*/ true));
+        blobStore.createContainer(CreateBucketRequest.builder()
+                .bucket(publicContainer)
+                .acl(BucketCannedACL.PUBLIC_READ)
+                .build());
         try {
             assertThat(blobStore.getContainerAccess(publicContainer))
                     .isEqualTo(ContainerAccess.PUBLIC_READ);

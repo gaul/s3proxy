@@ -30,8 +30,6 @@ import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +51,7 @@ public final class NullBlobStoreTest {
         containerName = createRandomContainerName();
 
         blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
 
         nullBlobStore = NullBlobStore.newNullBlobStore(blobStore);
     }
@@ -85,16 +83,14 @@ public final class NullBlobStoreTest {
             assertThat(actualLength).isEqualTo(expectedLength);
         }
 
-        var pageSet = nullBlobStore.list(
-                containerName, ListContainerOptions.NONE);
+        var pageSet = nullBlobStore.list(containerName);
         assertThat(pageSet.contents()).hasSize(1);
         S3Object sm = pageSet.contents().get(0);
         assertThat(sm.key()).isEqualTo(blobName);
         assertThat(sm.size()).isEqualTo(0);
 
         // the canonical overload which S3ProxyHandler calls also zeroes sizes
-        pageSet = nullBlobStore.list(containerName,
-                ListContainerOptions.NONE);
+        pageSet = nullBlobStore.list(containerName);
         assertThat(pageSet.contents()).hasSize(1);
         assertThat(pageSet.contents().get(0).size()).isEqualTo(0);
     }
@@ -196,8 +192,7 @@ public final class NullBlobStoreTest {
         }
 
         nullBlobStore.removeBlob(containerName, blobName);
-        assertThat(nullBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents()).isEmpty();
+        assertThat(nullBlobStore.list(containerName).contents()).isEmpty();
     }
 
     @Test
@@ -239,8 +234,7 @@ public final class NullBlobStoreTest {
                     .isEqualTo(expected.transferTo(
                             OutputStream.nullOutputStream()));
         }
-        assertThat(nullBlobStore.list(containerName,
-                ListContainerOptions.NONE).contents().stream()
+        assertThat(nullBlobStore.list(containerName).contents().stream()
                 .map(S3Object::key))
                 .containsExactly(blobName);
     }

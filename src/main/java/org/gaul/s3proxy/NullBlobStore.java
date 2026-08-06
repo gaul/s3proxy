@@ -36,7 +36,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -47,6 +46,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -130,9 +130,8 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
-        ListObjectsV2Response page = super.list(container, options);
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        ListObjectsV2Response page = super.list(request);
         var contents = ImmutableList.<S3Object>builder();
         for (S3Object object : page.contents()) {
             contents.add(object.toBuilder().size(0L).build());

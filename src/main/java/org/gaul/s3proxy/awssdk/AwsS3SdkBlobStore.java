@@ -24,7 +24,6 @@ import java.util.List;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -34,9 +33,6 @@ import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListVersionsOptions;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -79,6 +75,8 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
@@ -188,49 +186,26 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public ListObjectsV2Response list(String container,
-            ListContainerOptions options) {
-        var requestBuilder = ListObjectsV2Request.builder()
-                .bucket(container);
-
-        if (options.prefix() != null) {
-            requestBuilder.prefix(options.prefix());
-        }
-        if (options.delimiter() != null) {
-            requestBuilder.delimiter(options.delimiter());
-        }
-        if (options.marker() != null) {
-            requestBuilder.startAfter(options.marker());
-        }
-        int maxKeys = options.maxResults() != null ?
-                options.maxResults() : 1000;
-        if (maxKeys == 0) {
+    public ListObjectsV2Response list(ListObjectsV2Request request) {
+        if (request.maxKeys() != null && request.maxKeys() == 0) {
             return SdkResponses.objectsPage(List.of(), List.of(), null);
         }
-        requestBuilder.maxKeys(maxKeys);
-
         try {
-            var response = s3Client.listObjectsV2(requestBuilder.build());
-
-            // The marker convention names the last key of the page rather
-            // than passing the service's opaque continuation token through,
-            // since the frontend round-trips markers as start-after.
-            String nextMarker = null;
-            if (response.isTruncated()) {
-                if (!response.contents().isEmpty()) {
-                    nextMarker = Streams.findLast(response.contents().stream())
-                            .orElseThrow().key();
-                } else if (!response.commonPrefixes().isEmpty()) {
-                    nextMarker = Streams.findLast(
-                            response.commonPrefixes().stream())
-                            .orElseThrow().prefix();
-                }
-            }
-
-            return SdkResponses.objectsPage(response.contents(),
-                    response.commonPrefixes(), nextMarker);
+            return s3Client.listObjectsV2(request);
         } catch (S3Exception e) {
-            throw propagate(e, container, null);
+            throw propagate(e, request.bucket(), null);
+        }
+    }
+
+    @Override
+    public ListObjectsResponse listV1(ListObjectsRequest request) {
+        if (request.maxKeys() != null && request.maxKeys() == 0) {
+            return ListObjectsResponse.builder().isTruncated(false).build();
+        }
+        try {
+            return s3Client.listObjects(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), null);
         }
     }
 
@@ -252,39 +227,34 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(String container,
-            CreateContainerOptions options) {
-        if (options == null) {
-            options = CreateContainerOptions.NONE;
-        }
+    public boolean createContainer(CreateBucketRequest request) {
         try {
-            var requestBuilder = CreateBucketRequest.builder()
-                    .bucket(container);
-            if (!Region.US_EAST_1.equals(awsRegion)) {
-                requestBuilder.createBucketConfiguration(
-                        CreateBucketConfiguration.builder()
-                                .locationConstraint(awsRegion.id())
-                                .build());
+            if (!Region.US_EAST_1.equals(awsRegion) &&
+                    request.createBucketConfiguration() == null) {
+                request = request.toBuilder()
+                        .createBucketConfiguration(
+                                CreateBucketConfiguration.builder()
+                                        .locationConstraint(awsRegion.id())
+                                        .build())
+                        .build();
             }
-            if (options.publicRead()) {
-                requestBuilder.acl(BucketCannedACL.PUBLIC_READ);
-            }
-            s3Client.createBucket(requestBuilder.build());
+            s3Client.createBucket(request);
             return true;
         } catch (S3Exception e) {
             if ("BucketAlreadyOwnedByYou".equals(S3Exceptions.errorCode(e))) {
                 // Idempotent success - bucket exists and caller owns it
                 return false;
             }
-            throw propagate(e, container, null);
+            throw propagate(e, request.bucket(), null);
         }
     }
 
     @Override
     public void deleteContainer(String container) {
         try {
-            clearContainer(container,
-                    ListContainerOptions.NONE);
+            clearContainer(ListObjectsV2Request.builder()
+                    .bucket(container)
+                    .build());
             s3Client.deleteBucket(DeleteBucketRequest.builder()
                     .bucket(container)
                     .build());
@@ -523,30 +493,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public ListObjectVersionsResponse listVersions(String container,
-            ListVersionsOptions options) {
-        var requestBuilder = ListObjectVersionsRequest.builder()
-                .bucket(container);
-        if (options.prefix() != null) {
-            requestBuilder.prefix(options.prefix());
-        }
-        if (options.delimiter() != null) {
-            requestBuilder.delimiter(options.delimiter());
-        }
-        if (options.keyMarker() != null) {
-            requestBuilder.keyMarker(options.keyMarker());
-        }
-        if (options.versionIdMarker() != null) {
-            requestBuilder.versionIdMarker(options.versionIdMarker());
-        }
-        if (options.maxResults() != null) {
-            requestBuilder.maxKeys(options.maxResults());
-        }
-
+    public ListObjectVersionsResponse listVersions(
+            ListObjectVersionsRequest request) {
         try {
-            return s3Client.listObjectVersions(requestBuilder.build());
+            return s3Client.listObjectVersions(request);
         } catch (S3Exception e) {
-            throw propagate(e, container, null);
+            throw propagate(e, request.bucket(), null);
         }
     }
 

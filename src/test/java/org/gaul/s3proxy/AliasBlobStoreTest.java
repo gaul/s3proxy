@@ -34,7 +34,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,8 +67,7 @@ public final class AliasBlobStoreTest {
     }
 
     private void createContainer(String container) {
-        assertThat(aliasBlobStore.createContainer(container,
-                CreateContainerOptions.NONE)).isTrue();
+        assertThat(aliasBlobStore.createContainer(container)).isTrue();
         if (container.equals(aliasContainerName)) {
             createdContainers.add(containerName);
         } else {

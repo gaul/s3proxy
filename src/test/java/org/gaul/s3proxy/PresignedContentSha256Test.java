@@ -35,7 +35,6 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -72,7 +71,7 @@ public final class PresignedContentSha256Test {
         host = info.getEndpoint().getHost() + ":" + s3Proxy.getPort();
 
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
-        blobStore.createContainer(containerName, CreateContainerOptions.NONE);
+        blobStore.createContainer(containerName);
     }
 
     @AfterEach

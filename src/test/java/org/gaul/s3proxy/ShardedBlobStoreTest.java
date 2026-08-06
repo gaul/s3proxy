@@ -26,8 +26,6 @@ import java.util.Map;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.options.CreateContainerOptions;
-import org.gaul.s3proxy.blobstore.options.ListContainerOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,8 +73,7 @@ public final class ShardedBlobStoreTest {
         } else {
             this.createdContainers.add(container);
         }
-        assertThat(shardedBlobStore.createContainer(container,
-                CreateContainerOptions.NONE)).isTrue();
+        assertThat(shardedBlobStore.createContainer(container)).isTrue();
     }
 
     public int countShards() {
@@ -165,8 +162,7 @@ public final class ShardedBlobStoreTest {
         String blob2Container = null;
         for (int i = 0; i < shards; i++) {
             String shard = "%s-%d".formatted(prefix, i);
-            for (var entry : blobStore.list(shard,
-                    ListContainerOptions.NONE).contents()) {
+            for (var entry : blobStore.list(shard).contents()) {
                 if (entry.key().equals(blobName)) {
                     blobContainer = shard;
                 }
