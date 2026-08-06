@@ -24,6 +24,7 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 /**
  * Helpers for the SDK request types the {@link BlobStore} SPI consumes.
@@ -46,6 +47,16 @@ public final class SdkRequests {
     /** Formats a closed range request header. */
     public static String range(long first, long last) {
         return "bytes=" + first + "-" + last;
+    }
+
+    /**
+     * A request's canned ACL normalized to the two states the SPI
+     * supports: PUBLIC_READ, or PRIVATE for anything else including none.
+     */
+    public static ObjectCannedACL aclOrPrivate(
+            @Nullable ObjectCannedACL acl) {
+        return acl == ObjectCannedACL.PUBLIC_READ ? acl :
+                ObjectCannedACL.PRIVATE;
     }
 
     /** An unconditional completion request asserting {@code parts}. */

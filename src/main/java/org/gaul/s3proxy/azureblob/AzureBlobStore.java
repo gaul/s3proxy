@@ -85,8 +85,6 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
@@ -899,34 +897,34 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public BucketCannedACL getContainerAccess(String container) {
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
             var blobAccessType = client.getAccessPolicy().getBlobAccessType();
             return blobAccessType != null && blobAccessType.equals(
                     PublicAccessType.CONTAINER) ?
-                    ContainerAccess.PUBLIC_READ :
-                    ContainerAccess.PRIVATE;
+                    BucketCannedACL.PUBLIC_READ :
+                    BucketCannedACL.PRIVATE;
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
     }
 
     @Override
-    public void setContainerAccess(String container, ContainerAccess access) {
+    public void setContainerAccess(String container, BucketCannedACL access) {
         var client = blobServiceClient.getBlobContainerClient(container);
-        var publicAccess = access == ContainerAccess.PUBLIC_READ ?
+        var publicAccess = access == BucketCannedACL.PUBLIC_READ ?
                 PublicAccessType.CONTAINER : null;
         client.setAccessPolicy(publicAccess, List.of());
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String key) {
-        return BlobAccess.PRIVATE;
+    public ObjectCannedACL getBlobAccess(String container, String key) {
+        return ObjectCannedACL.PRIVATE;
     }
 
     @Override
-    public void setBlobAccess(String container, String key, BlobAccess access) {
+    public void setBlobAccess(String container, String key, ObjectCannedACL access) {
         throw new UnsupportedOperationException("unsupported in Azure");
     }
 

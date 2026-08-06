@@ -30,8 +30,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
@@ -426,32 +424,30 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public BucketCannedACL getContainerAccess(String container) {
         try {
             var response = s3Client.getBucketAcl(GetBucketAclRequest.builder()
                     .bucket(container)
                     .build());
             boolean isPublic = hasPublicRead(response.grants());
             return isPublic ?
-                    ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE;
+                    BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
         } catch (NoSuchBucketException e) {
             throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
                 throw propagate(e, container, null);
             }
-            return ContainerAccess.PRIVATE;
+            return BucketCannedACL.PRIVATE;
         }
     }
 
     @Override
-    public void setContainerAccess(String container, ContainerAccess access) {
-        BucketCannedACL acl = access == ContainerAccess.PUBLIC_READ ?
-                BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
+    public void setContainerAccess(String container, BucketCannedACL access) {
         try {
             s3Client.putBucketAcl(PutBucketAclRequest.builder()
                     .bucket(container)
-                    .acl(acl)
+                    .acl(access)
                     .build());
         } catch (S3Exception e) {
             throw propagate(e, container, null);
@@ -503,14 +499,14 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String key) {
+    public ObjectCannedACL getBlobAccess(String container, String key) {
         try {
             var response = s3Client.getObjectAcl(GetObjectAclRequest.builder()
                     .bucket(container)
                     .key(key)
                     .build());
             return hasPublicRead(response.grants()) ?
-                    BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE;
+                    ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
                 throw translateAclNotFound(container, key, e);
@@ -543,14 +539,13 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public void setBlobAccess(String container, String key, BlobAccess access) {
-        ObjectCannedACL acl = access == BlobAccess.PUBLIC_READ ?
-                ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
+    public void setBlobAccess(String container, String key,
+            ObjectCannedACL access) {
         try {
             s3Client.putObjectAcl(PutObjectAclRequest.builder()
                     .bucket(container)
                     .key(key)
-                    .acl(acl)
+                    .acl(access)
                     .build());
         } catch (S3Exception e) {
             throw propagate(e, container, key);

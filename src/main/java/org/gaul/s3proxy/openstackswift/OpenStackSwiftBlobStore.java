@@ -51,8 +51,6 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.openstack4j.api.OSClient.OSClientV3;
@@ -1006,14 +1004,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public BucketCannedACL getContainerAccess(String container) {
         var swift = objectStorage();
         var metadata = swift.containers().getMetadata(container);
         // getMetadata returns an empty map for a missing container; the object
         // count is present only when it exists.  Signal a gone container so the
         // anonymous-access check reports NoSuchBucket instead of 403.
         boolean exists = false;
-        var access = ContainerAccess.PRIVATE;
+        var access = BucketCannedACL.PRIVATE;
         for (var entry : metadata.entrySet()) {
             if (entry.getKey().equalsIgnoreCase("X-Container-Object-Count")) {
                 exists = true;
@@ -1021,7 +1019,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     SwiftHeaders.CONTAINER_READ)) {
                 var read = entry.getValue();
                 if (read != null && read.contains(".r:*")) {
-                    access = ContainerAccess.PUBLIC_READ;
+                    access = BucketCannedACL.PUBLIC_READ;
                 }
             }
         }
@@ -1032,9 +1030,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public void setContainerAccess(String container, ContainerAccess access) {
+    public void setContainerAccess(String container, BucketCannedACL access) {
         var options = CreateUpdateContainerOptions.create();
-        if (access == ContainerAccess.PUBLIC_READ) {
+        if (access == BucketCannedACL.PUBLIC_READ) {
             options.accessAnybodyRead();
         } else {
             // Clearing X-Container-Read removes anonymous read access.
@@ -1047,13 +1045,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String key) {
-        return BlobAccess.PRIVATE;
+    public ObjectCannedACL getBlobAccess(String container, String key) {
+        return ObjectCannedACL.PRIVATE;
     }
 
     @Override
     public void setBlobAccess(String container, String key,
-            BlobAccess access) {
+            ObjectCannedACL access) {
         throw new UnsupportedOperationException(
                 "blob-level access unsupported in Swift");
     }

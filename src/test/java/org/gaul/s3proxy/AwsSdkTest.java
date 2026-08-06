@@ -58,8 +58,6 @@ import com.google.common.io.ByteSource;
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -2344,10 +2342,10 @@ public final class AwsSdkTest {
                 .acl(ObjectCannedACL.PUBLIC_READ));
 
         assertThat(blobStore.getBlobAccess(containerName, "public-copy"))
-                .isEqualTo(BlobAccess.PUBLIC_READ);
+                .isEqualTo(ObjectCannedACL.PUBLIC_READ);
         // The source is untouched by the copy's ACL
         assertThat(blobStore.getBlobAccess(containerName, "source"))
-                .isEqualTo(BlobAccess.PRIVATE);
+                .isEqualTo(ObjectCannedACL.PRIVATE);
     }
 
     @Test
@@ -2362,7 +2360,7 @@ public final class AwsSdkTest {
                 .build());
         try {
             assertThat(blobStore.getContainerAccess(publicContainer))
-                    .isEqualTo(ContainerAccess.PUBLIC_READ);
+                    .isEqualTo(BucketCannedACL.PUBLIC_READ);
         } finally {
             blobStore.deleteContainer(publicContainer);
         }
@@ -2383,26 +2381,26 @@ public final class AwsSdkTest {
                 ByteSource.empty());
 
         blobStore.setContainerAccess(containerName,
-                ContainerAccess.PUBLIC_READ);
+                BucketCannedACL.PUBLIC_READ);
         // Skip on filesystems that cannot represent POSIX permissions; there
         // the ACL bit does not exist and there is nothing to isolate.
         assumeTrue(blobStore.getContainerAccess(containerName) ==
-                ContainerAccess.PUBLIC_READ);
+                BucketCannedACL.PUBLIC_READ);
 
         // Making the "/" object private must not touch the bucket ACL.
-        blobStore.setBlobAccess(containerName, "/", BlobAccess.PRIVATE);
+        blobStore.setBlobAccess(containerName, "/", ObjectCannedACL.PRIVATE);
         assertThat(blobStore.getContainerAccess(containerName))
-                .isEqualTo(ContainerAccess.PUBLIC_READ);
+                .isEqualTo(BucketCannedACL.PUBLIC_READ);
         assertThat(blobStore.getBlobAccess(containerName, "/"))
-                .isEqualTo(BlobAccess.PRIVATE);
+                .isEqualTo(ObjectCannedACL.PRIVATE);
 
         // And the reverse: bucket private, "/" object public.
-        blobStore.setContainerAccess(containerName, ContainerAccess.PRIVATE);
-        blobStore.setBlobAccess(containerName, "/", BlobAccess.PUBLIC_READ);
+        blobStore.setContainerAccess(containerName, BucketCannedACL.PRIVATE);
+        blobStore.setBlobAccess(containerName, "/", ObjectCannedACL.PUBLIC_READ);
         assertThat(blobStore.getContainerAccess(containerName))
-                .isEqualTo(ContainerAccess.PRIVATE);
+                .isEqualTo(BucketCannedACL.PRIVATE);
         assertThat(blobStore.getBlobAccess(containerName, "/"))
-                .isEqualTo(BlobAccess.PUBLIC_READ);
+                .isEqualTo(ObjectCannedACL.PUBLIC_READ);
     }
 
     @Test

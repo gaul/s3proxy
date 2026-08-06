@@ -32,11 +32,12 @@ import com.google.common.io.ByteSource;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 public final class AliasBlobStoreTest {
     private String containerName;
@@ -154,14 +155,14 @@ public final class AliasBlobStoreTest {
                 content);
 
         assertThat(aliasBlobStore.getBlobAccess(aliasContainerName, blobName))
-                .isEqualTo(BlobAccess.PRIVATE);
+                .isEqualTo(ObjectCannedACL.PRIVATE);
         aliasBlobStore.setBlobAccess(aliasContainerName, blobName,
-                BlobAccess.PUBLIC_READ);
+                ObjectCannedACL.PUBLIC_READ);
         assertThat(aliasBlobStore.getBlobAccess(aliasContainerName, blobName))
-                .isEqualTo(BlobAccess.PUBLIC_READ);
+                .isEqualTo(ObjectCannedACL.PUBLIC_READ);
         // the change must be applied to the backend (real) container
         assertThat(blobStore.getBlobAccess(containerName, blobName))
-                .isEqualTo(BlobAccess.PUBLIC_READ);
+                .isEqualTo(ObjectCannedACL.PUBLIC_READ);
     }
 
     @Test

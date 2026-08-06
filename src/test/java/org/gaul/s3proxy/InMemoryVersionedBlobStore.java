@@ -33,13 +33,12 @@ import com.google.common.hash.Hashing;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -59,6 +58,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
 import software.amazon.awssdk.services.s3.model.Part;
@@ -155,14 +155,14 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String containerName) {
+    public BucketCannedACL getContainerAccess(String containerName) {
         getContainer(containerName);
-        return ContainerAccess.PRIVATE;
+        return BucketCannedACL.PRIVATE;
     }
 
     @Override
     public void setContainerAccess(String containerName,
-            ContainerAccess access) {
+            BucketCannedACL access) {
         getContainer(containerName);
     }
 
@@ -460,13 +460,13 @@ final class InMemoryVersionedBlobStore implements BlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String containerName, String key) {
-        return BlobAccess.PRIVATE;
+    public ObjectCannedACL getBlobAccess(String containerName, String key) {
+        return ObjectCannedACL.PRIVATE;
     }
 
     @Override
     public void setBlobAccess(String containerName, String key,
-            BlobAccess access) {
+            ObjectCannedACL access) {
     }
 
     @Override

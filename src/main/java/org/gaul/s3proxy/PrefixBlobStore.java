@@ -31,7 +31,6 @@ import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
@@ -48,6 +47,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -248,13 +248,13 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String name) {
+    public ObjectCannedACL getBlobAccess(String container, String name) {
         return super.getBlobAccess(container, addPrefix(container, name));
     }
 
     @Override
     public void setBlobAccess(String container, String name,
-            BlobAccess access) {
+            ObjectCannedACL access) {
         super.setBlobAccess(container, addPrefix(container, name), access);
     }
 

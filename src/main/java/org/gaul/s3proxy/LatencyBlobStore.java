@@ -32,12 +32,11 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -51,6 +50,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -153,13 +153,13 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public BucketCannedACL getContainerAccess(String container) {
         simulateLatency(OP_CONTAINER_ACCESS);
         return super.getContainerAccess(container);
     }
 
     @Override
-    public void setContainerAccess(String container, ContainerAccess containerAccess) {
+    public void setContainerAccess(String container, BucketCannedACL containerAccess) {
         simulateLatency(OP_CONTAINER_ACCESS);
         super.setContainerAccess(container, containerAccess);
     }
@@ -233,13 +233,13 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String name) {
+    public ObjectCannedACL getBlobAccess(String container, String name) {
         simulateLatency(OP_BLOB_ACCESS);
         return super.getBlobAccess(container, name);
     }
 
     @Override
-    public void setBlobAccess(String container, String name, BlobAccess access) {
+    public void setBlobAccess(String container, String name, ObjectCannedACL access) {
         simulateLatency(OP_BLOB_ACCESS);
         super.setBlobAccess(container, name, access);
     }

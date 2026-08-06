@@ -42,7 +42,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
@@ -64,6 +63,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -410,7 +410,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String name) {
+    public ObjectCannedACL getBlobAccess(String container, String name) {
         name = blobNameWithSuffix(container, name);
         return delegate().getBlobAccess(container, name);
     }
@@ -423,7 +423,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public void setBlobAccess(String container, String name,
-        BlobAccess access) {
+        ObjectCannedACL access) {
         name = blobNameWithSuffix(container, name);
         delegate().setBlobAccess(container, name, access);
     }

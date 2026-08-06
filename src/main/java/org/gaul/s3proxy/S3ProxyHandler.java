@@ -96,8 +96,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 import org.jspecify.annotations.Nullable;
@@ -1235,13 +1233,13 @@ public class S3ProxyHandler {
         String blobStoreType = getBlobStoreType(blobStore);
         try {
             if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
-                ContainerAccess access = blobStore.getContainerAccess(
+                BucketCannedACL access = blobStore.getContainerAccess(
                         containerName);
-                return access == ContainerAccess.PUBLIC_READ;
+                return access == BucketCannedACL.PUBLIC_READ;
             }
-            BlobAccess access = blobStore.getBlobAccess(containerName,
+            ObjectCannedACL access = blobStore.getBlobAccess(containerName,
                     blobName);
-            return access == BlobAccess.PUBLIC_READ;
+            return access == ObjectCannedACL.PUBLIC_READ;
         } catch (NoSuchBucketException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
         } catch (NoSuchKeyException e) {
@@ -1281,9 +1279,9 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
-                ContainerAccess access = blobStore.getContainerAccess(
+                BucketCannedACL access = blobStore.getContainerAccess(
                         containerName);
-                if (access == ContainerAccess.PRIVATE) {
+                if (access == BucketCannedACL.PRIVATE) {
                     setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
@@ -1318,9 +1316,9 @@ public class S3ProxyHandler {
         case "HEAD" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 String containerName = path[1];
-                ContainerAccess access = blobStore.getContainerAccess(
+                BucketCannedACL access = blobStore.getContainerAccess(
                         containerName);
-                if (access == ContainerAccess.PRIVATE) {
+                if (access == BucketCannedACL.PRIVATE) {
                     setOperation(ctx, S3Operation.HEAD_BUCKET);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
@@ -1373,7 +1371,7 @@ public class S3ProxyHandler {
         if (!blobStore.containerExists(containerName)) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
-        ContainerAccess access = blobStore.getContainerAccess(containerName);
+        BucketCannedACL access = blobStore.getContainerAccess(containerName);
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -1391,7 +1389,7 @@ public class S3ProxyHandler {
 
             // S3 lists the group grant ahead of the owner's, which clients
             // rely on to tell the two apart without inspecting every grantee.
-            if (access == ContainerAccess.PUBLIC_READ) {
+            if (access == BucketCannedACL.PUBLIC_READ) {
                 writeAllUsersReadGrant(xml);
             }
 
@@ -1409,13 +1407,13 @@ public class S3ProxyHandler {
     private void handleSetContainerAcl(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException {
-        ContainerAccess access;
+        BucketCannedACL access;
 
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || "private".equalsIgnoreCase(cannedAcl)) {
-            access = ContainerAccess.PRIVATE;
+            access = BucketCannedACL.PRIVATE;
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
-            access = ContainerAccess.PUBLIC_READ;
+            access = BucketCannedACL.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
@@ -1431,9 +1429,9 @@ public class S3ProxyHandler {
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
-                access = ContainerAccess.PRIVATE;
+                access = BucketCannedACL.PRIVATE;
             } else if (accessString.equals("public-read")) {
-                access = ContainerAccess.PUBLIC_READ;
+                access = BucketCannedACL.PUBLIC_READ;
             } else {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
@@ -1451,7 +1449,7 @@ public class S3ProxyHandler {
         // answer with the wrong version's ACL.
         checkVersionId(request);
 
-        BlobAccess access = blobStore.getBlobAccess(containerName, blobName);
+        ObjectCannedACL access = blobStore.getBlobAccess(containerName, blobName);
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -1467,7 +1465,7 @@ public class S3ProxyHandler {
 
             xml.writeStartElement("AccessControlList");
 
-            if (access == BlobAccess.PUBLIC_READ) {
+            if (access == ObjectCannedACL.PUBLIC_READ) {
                 writeAllUsersReadGrant(xml);
             }
 
@@ -1490,13 +1488,13 @@ public class S3ProxyHandler {
         // change the wrong version's ACL.
         checkVersionId(request);
 
-        BlobAccess access;
+        ObjectCannedACL access;
 
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || "private".equalsIgnoreCase(cannedAcl)) {
-            access = BlobAccess.PRIVATE;
+            access = ObjectCannedACL.PRIVATE;
         } else if ("public-read".equalsIgnoreCase(cannedAcl)) {
-            access = BlobAccess.PUBLIC_READ;
+            access = ObjectCannedACL.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
@@ -1512,9 +1510,9 @@ public class S3ProxyHandler {
                     pis, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
-                access = BlobAccess.PRIVATE;
+                access = ObjectCannedACL.PRIVATE;
             } else if (accessString.equals("public-read")) {
-                access = BlobAccess.PUBLIC_READ;
+                access = ObjectCannedACL.PUBLIC_READ;
             } else {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
@@ -2183,7 +2181,7 @@ public class S3ProxyHandler {
         logger.debug("Creating bucket with location: {}", locationString);
 
         // public-read-write grants AllUsers read as well as write.  A
-        // ContainerAccess says only whether a container is readable, so the
+        // BucketCannedACL says only whether a container is readable, so the
         // write half is dropped -- but dropping the read half too left a
         // bucket created for anonymous use answering AccessDenied to the
         // anonymous reads its own ACL had allowed.
@@ -3555,12 +3553,12 @@ public class S3ProxyHandler {
                     blobName), ifMatch, ifNoneMatch);
         }
 
-        BlobAccess access;
+        ObjectCannedACL access;
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
-            access = BlobAccess.PRIVATE;
+            access = ObjectCannedACL.PRIVATE;
         } else if (cannedAcl.equalsIgnoreCase("public-read")) {
-            access = BlobAccess.PUBLIC_READ;
+            access = ObjectCannedACL.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
@@ -3574,7 +3572,7 @@ public class S3ProxyHandler {
                 .contentLength(contentLength)
                 .ifMatch(ifMatch)
                 .ifNoneMatch(ifNoneMatch);
-        if (access == BlobAccess.PUBLIC_READ) {
+        if (access == ObjectCannedACL.PUBLIC_READ) {
             putRequest.acl(ObjectCannedACL.PUBLIC_READ);
         }
 
@@ -4120,19 +4118,19 @@ public class S3ProxyHandler {
             }
         }
 
-        BlobAccess access;
+        ObjectCannedACL access;
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         if (cannedAcl == null || cannedAcl.equalsIgnoreCase("private")) {
-            access = BlobAccess.PRIVATE;
+            access = ObjectCannedACL.PRIVATE;
         } else if (cannedAcl.equalsIgnoreCase("public-read")) {
-            access = BlobAccess.PUBLIC_READ;
+            access = ObjectCannedACL.PUBLIC_READ;
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        if (access == BlobAccess.PUBLIC_READ) {
+        if (access == ObjectCannedACL.PUBLIC_READ) {
             createRequest.acl(ObjectCannedACL.PUBLIC_READ);
         }
 
@@ -4163,7 +4161,7 @@ public class S3ProxyHandler {
             if (parsedStorageClass != null) {
                 stub.storageClass(parsedStorageClass);
             }
-            if (access == BlobAccess.PUBLIC_READ) {
+            if (access == ObjectCannedACL.PUBLIC_READ) {
                 stub.acl(ObjectCannedACL.PUBLIC_READ);
             }
             blobStore.putBlob(stub.build(),
@@ -4222,13 +4220,11 @@ public class S3ProxyHandler {
                 // the stub is the only record that the upload exists
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
-            BlobAccess access = blobStore.getBlobAccess(containerName,
+            ObjectCannedACL access = blobStore.getBlobAccess(containerName,
                     stubName);
             carrierRequest = toCarrierRequest(containerName, blobName,
                     stubHead)
-                    .acl(access == BlobAccess.PUBLIC_READ ?
-                            ObjectCannedACL.PUBLIC_READ :
-                            ObjectCannedACL.PRIVATE)
+                    .acl(access)
                     .build();
         } else {
             carrierRequest = CreateMultipartUploadRequest.builder()

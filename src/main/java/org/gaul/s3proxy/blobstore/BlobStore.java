@@ -22,12 +22,11 @@ import java.util.List;
 
 import com.google.common.hash.HashCode;
 
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -48,6 +47,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -125,9 +125,9 @@ public interface BlobStore extends AutoCloseable {
                 .build());
     }
 
-    ContainerAccess getContainerAccess(String container);
+    BucketCannedACL getContainerAccess(String container);
 
-    void setContainerAccess(String container, ContainerAccess access);
+    void setContainerAccess(String container, BucketCannedACL access);
 
     default void clearContainer(ListObjectsV2Request request) {
         var request0 = request;
@@ -269,9 +269,9 @@ public interface BlobStore extends AutoCloseable {
         }
     }
 
-    BlobAccess getBlobAccess(String container, String name);
+    ObjectCannedACL getBlobAccess(String container, String name);
 
-    void setBlobAccess(String container, String name, BlobAccess access);
+    void setBlobAccess(String container, String name, ObjectCannedACL access);
 
     MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request);

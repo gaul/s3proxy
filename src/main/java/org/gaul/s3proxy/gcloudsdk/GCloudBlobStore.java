@@ -71,8 +71,6 @@ import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
@@ -762,7 +760,7 @@ public final class GCloudBlobStore implements BlobStore {
 
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public BucketCannedACL getContainerAccess(String container) {
         var bucket = storage.get(container);
         if (bucket == null) {
             throw S3Exceptions.noSuchBucket(container, "");
@@ -771,7 +769,7 @@ public final class GCloudBlobStore implements BlobStore {
             var acls = bucket.listAcls();
             for (var acl : acls) {
                 if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
-                    return ContainerAccess.PUBLIC_READ;
+                    return BucketCannedACL.PUBLIC_READ;
                 }
             }
         } catch (StorageException se) {
@@ -782,14 +780,14 @@ public final class GCloudBlobStore implements BlobStore {
                 throw translate(se, container, /*key=*/ null);
             }
         }
-        return ContainerAccess.PRIVATE;
+        return BucketCannedACL.PRIVATE;
     }
 
     @Override
     public void setContainerAccess(String container,
-            ContainerAccess access) {
+            BucketCannedACL access) {
         try {
-            if (access == ContainerAccess.PUBLIC_READ) {
+            if (access == BucketCannedACL.PUBLIC_READ) {
                 storage.createAcl(container,
                         Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
             } else {
@@ -808,12 +806,12 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String key) {
+    public ObjectCannedACL getBlobAccess(String container, String key) {
         try {
             var acls = storage.listAcls(BlobId.of(container, key));
             for (var acl : acls) {
                 if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
-                    return BlobAccess.PUBLIC_READ;
+                    return ObjectCannedACL.PUBLIC_READ;
                 }
             }
         } catch (StorageException se) {
@@ -832,14 +830,14 @@ public final class GCloudBlobStore implements BlobStore {
                 throw translate(se, container, key);
             }
         }
-        return BlobAccess.PRIVATE;
+        return ObjectCannedACL.PRIVATE;
     }
 
     @Override
     public void setBlobAccess(String container, String key,
-            BlobAccess access) {
+            ObjectCannedACL access) {
         try {
-            if (access == BlobAccess.PUBLIC_READ) {
+            if (access == ObjectCannedACL.PUBLIC_READ) {
                 storage.createAcl(BlobId.of(container, key),
                         Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
             } else {
@@ -909,7 +907,7 @@ public final class GCloudBlobStore implements BlobStore {
         // the completion cannot be asked what the caller wanted.
         if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
             stubMetadata.put(BLOB_ACCESS_KEY,
-                    BlobAccess.PUBLIC_READ.name());
+                    ObjectCannedACL.PUBLIC_READ.name());
         }
 
         var stubInfo = BlobInfo.newBuilder(
@@ -1031,7 +1029,7 @@ public final class GCloudBlobStore implements BlobStore {
         // that request, so no later one can fail and leave a private blob
         // where the caller asked for a public one.  Compose cannot; see below.
         var targetOptions = new java.util.ArrayList<BlobTargetOption>();
-        if (BlobAccess.PUBLIC_READ.name().equals(
+        if (ObjectCannedACL.PUBLIC_READ.name().equals(
                 stubMetadata.get(BLOB_ACCESS_KEY))) {
             targetOptions.add(BlobTargetOption.predefinedAcl(
                     Storage.PredefinedAcl.PUBLIC_READ));

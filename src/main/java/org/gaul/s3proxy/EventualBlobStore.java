@@ -32,12 +32,12 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -100,7 +100,7 @@ final class EventualBlobStore extends ForwardingBlobStore {
     // synchronously to both the read (delegate) and write stores so the two
     // stores keep the same container structure.
     @Override
-    public void setContainerAccess(String container, ContainerAccess access) {
+    public void setContainerAccess(String container, BucketCannedACL access) {
         delegate().setContainerAccess(container, access);
         writeStore.setContainerAccess(container, access);
     }

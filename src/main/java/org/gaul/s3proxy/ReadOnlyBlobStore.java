@@ -22,11 +22,10 @@ import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -36,6 +35,7 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -57,7 +57,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public void setContainerAccess(String container,
-            ContainerAccess containerAccess) {
+            BucketCannedACL containerAccess) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
@@ -107,7 +107,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public void setBlobAccess(String container, String name,
-            BlobAccess access) {
+            ObjectCannedACL access) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

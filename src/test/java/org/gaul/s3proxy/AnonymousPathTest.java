@@ -28,10 +28,11 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 /**
  * A read nobody signed names its bucket and key the same way a signed one
@@ -122,7 +123,7 @@ public final class AnonymousPathTest {
         ByteSource payload = ByteSource.wrap(
                 CONTENT.getBytes(StandardCharsets.UTF_8));
         TestUtils.putBlob(blobStore, container, blobName, payload);
-        blobStore.setBlobAccess(container, blobName, BlobAccess.PUBLIC_READ);
+        blobStore.setBlobAccess(container, blobName, ObjectCannedACL.PUBLIC_READ);
     }
 
     private HttpResponse<String> get(String path) throws Exception {

@@ -67,8 +67,6 @@ import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -439,7 +437,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new RuntimeException(ioe);
         }
 
-        setContainerAccess(container, request.acl() == BucketCannedACL.PUBLIC_READ ? ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE);
+        setContainerAccess(container, request.acl() == BucketCannedACL.PUBLIC_READ ? BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE);
 
         return true;
     }
@@ -743,8 +741,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             InputStream payload) {
         return SdkResponses.putResponse(putBlob(request.bucket(),
                 toBlobBuilder(request).payload(payload).build(),
-                request.acl() == ObjectCannedACL.PUBLIC_READ ?
-                        BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE,
+                SdkRequests.aclOrPrivate(request.acl()),
                 request.ifNoneMatch(),
                 /*parts=*/ null));
     }
@@ -758,7 +755,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Reading the payload instead would cost a full read and write of an
      * object that has already been written once as parts.
      */
-    private String putBlob(String container, Blob blob, BlobAccess access,
+    private String putBlob(String container, Blob blob, ObjectCannedACL access,
             @Nullable String ifNoneMatch, @Nullable List<Path> parts) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
@@ -1042,8 +1039,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             return SdkResponses.copyResponse(putBlob(toContainer,
                     builder.build(),
-                    request.acl() == ObjectCannedACL.PUBLIC_READ ?
-                            BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE,
+                    SdkRequests.aclOrPrivate(request.acl()),
                     /*ifNoneMatch=*/ null,
                     /*parts=*/ null));
         } catch (IOException ioe) {
@@ -1194,30 +1190,30 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final ContainerAccess getContainerAccess(String container) {
+    public final BucketCannedACL getContainerAccess(String container) {
         var path = requireContainerPath(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
         } catch (UnsupportedOperationException uoe) {
             // Windows/SMB/other non-POSIX: default to PRIVATE
-            return ContainerAccess.PRIVATE;
+            return BucketCannedACL.PRIVATE;
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
         return permissions.contains(PosixFilePermission.OTHERS_READ) ?
-                ContainerAccess.PUBLIC_READ : ContainerAccess.PRIVATE;
+                BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
     }
 
     @Override
-    public final void setContainerAccess(String container, ContainerAccess access) {
+    public final void setContainerAccess(String container, BucketCannedACL access) {
         var path = requireContainerPath(container);
         Set<PosixFilePermission> permissions;
         try {
             permissions = new HashSet<>(Files.getPosixFilePermissions(path));
-            if (access == ContainerAccess.PRIVATE) {
+            if (access == BucketCannedACL.PRIVATE) {
                 permissions.remove(PosixFilePermission.OTHERS_READ);
-            } else if (access == ContainerAccess.PUBLIC_READ) {
+            } else if (access == BucketCannedACL.PUBLIC_READ) {
                 permissions.add(PosixFilePermission.OTHERS_READ);
             }
             Files.setPosixFilePermissions(path, permissions);
@@ -1230,7 +1226,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final BlobAccess getBlobAccess(String container, String key) {
+    public final ObjectCannedACL getBlobAccess(String container, String key) {
         var containerPath = requireContainerPath(container);
         if (!blobExists(container, key)) {
             throw S3Exceptions.noSuchKey(container, key, "");
@@ -1242,16 +1238,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             permissions = Files.getPosixFilePermissions(path);
         } catch (UnsupportedOperationException uoe) {
             // Windows/SMB/other non-POSIX: default to PRIVATE
-            return BlobAccess.PRIVATE;
+            return ObjectCannedACL.PRIVATE;
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
         return permissions.contains(PosixFilePermission.OTHERS_READ) ?
-                BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE;
+                ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
     }
 
     @Override
-    public final void setBlobAccess(String container, String key, BlobAccess access) {
+    public final void setBlobAccess(String container, String key, ObjectCannedACL access) {
         var containerPath = requireContainerPath(container);
         if (!blobExists(container, key)) {
             throw S3Exceptions.noSuchKey(container, key, "");
@@ -1278,7 +1274,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var uploadId = UUID.randomUUID().toString();
         // create a stub blob
         var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).build();
-        putBlob(request.bucket(), blob, BlobAccess.PRIVATE,
+        putBlob(request.bucket(), blob, ObjectCannedACL.PRIVATE,
                 /*ifNoneMatch=*/ null, /*parts=*/ null);
         return new MultipartUpload(uploadId, request);
     }
@@ -1377,7 +1373,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     mpu.id(), mpu.blobName(), part.partNumber())));
         }
         putBlob(mpu.containerName(), blobBuilder.build(),
-                BlobAccess.PRIVATE, request.ifNoneMatch(),
+                ObjectCannedACL.PRIVATE, request.ifNoneMatch(),
                 partPaths.build());
 
         // Remove every uploaded part, not just the ones referenced by the
@@ -1388,8 +1384,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         removeBlob(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
 
         setBlobAccess(mpu.containerName(), mpu.blobName(),
-                mpuRequest.acl() == ObjectCannedACL.PUBLIC_READ ?
-                        BlobAccess.PUBLIC_READ : BlobAccess.PRIVATE);
+                SdkRequests.aclOrPrivate(mpuRequest.acl()));
 
         return SdkResponses.completeResponse(mpuETag);
     }
@@ -1403,7 +1398,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentMD5(contentMD5)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob,
-                BlobAccess.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null);
+                ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null);
         var metadata = requireNonNull(
                 blobMetadata(mpu.containerName(), partName));
         return SdkResponses.uploadedPart(partETag);
@@ -1854,12 +1849,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return path;
     }
 
-    private static void setBlobAccessHelper(Path path, BlobAccess access) {
+    private static void setBlobAccessHelper(Path path, ObjectCannedACL access) {
         try {
             var permissions = new HashSet<>(Files.getPosixFilePermissions(path));
-            if (access == BlobAccess.PRIVATE) {
+            if (access == ObjectCannedACL.PRIVATE) {
                 permissions.remove(PosixFilePermission.OTHERS_READ);
-            } else if (access == BlobAccess.PUBLIC_READ) {
+            } else if (access == ObjectCannedACL.PUBLIC_READ) {
                 permissions.add(PosixFilePermission.OTHERS_READ);
             }
             Files.setPosixFilePermissions(path, permissions);

@@ -47,13 +47,12 @@ import com.google.common.hash.Hashing;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
-import org.gaul.s3proxy.blobstore.domain.ContainerAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -68,6 +67,7 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -337,7 +337,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ContainerAccess getContainerAccess(String container) {
+    public BucketCannedACL getContainerAccess(String container) {
         if (!this.buckets.containsKey(container)) {
             return this.delegate().getContainerAccess(container);
         }
@@ -346,7 +346,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     public void setContainerAccess(String container,
-                                   ContainerAccess containerAccess) {
+                                   BucketCannedACL containerAccess) {
         if (!this.buckets.containsKey(container)) {
             this.delegate().setContainerAccess(container, containerAccess);
             return;
@@ -519,14 +519,14 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public BlobAccess getBlobAccess(String container, String name) {
+    public ObjectCannedACL getBlobAccess(String container, String name) {
         return this.delegate()
                 .getBlobAccess(this.getShard(container, name), name);
     }
 
     @Override
     public void setBlobAccess(String container, String name,
-                              BlobAccess access) {
+                              ObjectCannedACL access) {
         this.delegate()
                 .setBlobAccess(this.getShard(container, name), name, access);
     }

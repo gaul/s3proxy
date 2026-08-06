@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.crypto.Constants;
 import org.junit.jupiter.api.AfterAll;
@@ -55,6 +54,7 @@ import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -519,15 +519,15 @@ public final class EncryptedBlobStoreTest {
                 blobName)).isTrue();
 
             if (!Quirks.NO_BLOB_ACCESS_CONTROL.contains(provider)) {
-                BlobAccess access =
+                ObjectCannedACL access =
                     encryptedBlobStore.getBlobAccess(containerName, blobName);
-                assertThat(access).isEqualTo(BlobAccess.PRIVATE);
+                assertThat(access).isEqualTo(ObjectCannedACL.PRIVATE);
 
                 encryptedBlobStore.setBlobAccess(containerName, blobName,
-                    BlobAccess.PUBLIC_READ);
+                    ObjectCannedACL.PUBLIC_READ);
                 access = encryptedBlobStore.getBlobAccess(containerName,
                     blobName);
-                assertThat(access).isEqualTo(BlobAccess.PUBLIC_READ);
+                assertThat(access).isEqualTo(ObjectCannedACL.PUBLIC_READ);
             }
         }
     }

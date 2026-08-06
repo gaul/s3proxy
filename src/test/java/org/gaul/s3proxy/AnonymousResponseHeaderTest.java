@@ -29,10 +29,11 @@ import java.util.Random;
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.BlobAccess;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 /**
  * The parameters that replace response headers let the URL say what an object
@@ -69,7 +70,7 @@ public final class AnonymousResponseHeaderTest {
                 .contentType("application/json")
                 .build(), payload.openStream());
         blobStore.setBlobAccess(containerName, BLOB_NAME,
-                BlobAccess.PUBLIC_READ);
+                ObjectCannedACL.PUBLIC_READ);
 
         s3Proxy = S3Proxy.builder()
                 .blobStore(blobStore)
