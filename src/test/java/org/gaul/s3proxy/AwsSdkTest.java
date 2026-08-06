@@ -734,6 +734,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testVersionIdNotImplemented() throws Exception {
+        // a versioning backend resolves version ids rather than refusing them
+        assumeTrue(!blobStore.supportsVersioning());
         var key = "testVersionId";
         client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromString("body"));
@@ -787,6 +789,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testPutBucketVersioningNotImplemented() throws Exception {
+        // a versioning backend accepts the configuration instead
+        assumeTrue(!blobStore.supportsVersioning());
         try {
             client.putBucketVersioning(b -> b.bucket(containerName)
                     .versioningConfiguration(v -> v.status(
@@ -800,6 +804,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testListObjectVersionsNotImplemented() throws Exception {
+        // a versioning backend serves the listing instead
+        assumeTrue(!blobStore.supportsVersioning());
         try {
             client.listObjectVersions(b -> b.bucket(containerName));
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
