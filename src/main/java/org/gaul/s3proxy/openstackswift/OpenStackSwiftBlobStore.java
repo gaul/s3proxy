@@ -21,9 +21,15 @@ import static java.util.Objects.requireNonNull;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -40,6 +46,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,8 +61,12 @@ import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.openstack4j.api.OSClient.OSClientV3;
+import org.openstack4j.api.exceptions.AuthenticationException;
 import org.openstack4j.api.exceptions.ResponseException;
 import org.openstack4j.api.storage.ObjectStorageService;
+import org.openstack4j.api.types.Facing;
+import org.openstack4j.api.types.ServiceType;
+import org.openstack4j.core.transport.ObjectMapperSingleton;
 import org.openstack4j.model.common.ActionResponse;
 import org.openstack4j.model.common.DLPayload;
 import org.openstack4j.model.common.Identifier;
@@ -70,6 +81,7 @@ import org.openstack4j.model.storage.object.options.ObjectListOptions;
 import org.openstack4j.model.storage.object.options.ObjectLocation;
 import org.openstack4j.model.storage.object.options.ObjectPutOptions;
 import org.openstack4j.openstack.OSFactory;
+import org.openstack4j.openstack.identity.v3.domain.KeystoneToken;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -103,12 +115,20 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 /**
  * BlobStore backed by the OpenStack Swift object store via openstack4j.
  *
- * <p>Authenticates against Keystone v3 with a project-scoped token, which is
- * required to reach the object-store service in the catalog.  The provider
- * {@code endpoint} must be the Keystone auth URL (e.g.
- * {@code https://host:5000/v3}); the Swift endpoint itself is discovered from
- * the catalog.  The Keystone project and domains are supplied via the
- * {@code openstack-swift-sdk.*} properties.
+ * <p>Authenticates in either of the two ways a Swift deployment offers, told
+ * apart by the version in the {@code endpoint} path.
+ *
+ * <p>Against Keystone v3 ({@code https://host:5000/v3}) it takes a
+ * project-scoped token, which is required to reach the object-store service in
+ * the catalog, and the Swift endpoint itself is discovered from that catalog.
+ * The project and domains come from the {@code openstack-swift-sdk.*}
+ * properties.
+ *
+ * <p>Against Swift's own tempauth ({@code https://host:8080/auth/v1.0}) it
+ * exchanges the credentials for a token and the URL of the one account they
+ * reach.  tempauth names a user as {@code account:user}, so either give the
+ * whole thing as the identity or name the account as the project.  Domains and
+ * regions do not apply, Keystone being the thing that has them.
  */
 public final class OpenStackSwiftBlobStore implements BlobStore {
     /**
@@ -133,9 +153,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     public static final String PROPERTY_REGION = "openstack-swift-sdk.region";
 
     private static final long EXPIRY_MARGIN_MILLIS = 60_000L;
+    // How long a tempauth token is assumed good for when the response does
+    // not say, short enough that a wrong guess costs one re-authentication.
+    private static final long TEMPAUTH_DEFAULT_LIFETIME_SECONDS = 3600L;
+    // Keystone spells expiry as an ISO-8601 instant, which is what the
+    // Jackson mapping openstack4j parses a real response with expects.
+    private static final DateTimeFormatter ISO_INSTANT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    .withZone(ZoneOffset.UTC);
 
     // HTTP status codes, spelled out to avoid a jakarta.ws.rs.core dependency
     // (the openstack4j okhttp connector deliberately avoids JAX-RS).
+    private static final int STATUS_OK = 200;
     private static final int STATUS_CREATED = 201;
     private static final int STATUS_BAD_REQUEST = 400;
     private static final int STATUS_UNAUTHORIZED = 401;
@@ -217,12 +246,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (current != null && !isExpiringSoon(current)) {
             return current;
         }
+        var cred = creds.get();
+        token = isTempAuthEndpoint(endpoint) ? authenticateTempAuth(cred) :
+                authenticateKeystone(cred);
+        return token;
+    }
+
+    private Token authenticateKeystone(Credentials cred) {
         if (projectName.isEmpty()) {
             throw new IllegalArgumentException("Property " +
                     PROPERTY_PROJECT_NAME +
                     " is required to access OpenStack Swift");
         }
-        var cred = creds.get();
         OSClientV3 client = OSFactory.builderV3()
                 .endpoint(endpoint)
                 .credentials(cred.identity(), cred.credential(),
@@ -230,8 +265,120 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 .scopeToProject(Identifier.byName(projectName),
                         Identifier.byName(projectDomainName))
                 .authenticate();
-        token = client.getToken();
-        return token;
+        return client.getToken();
+    }
+
+    /**
+     * Whether the endpoint names Swift's own authentication rather than
+     * Keystone's, which the version in its path tells apart: tempauth answers
+     * at {@code /auth/v1.0}, Keystone at {@code /v3}.  python-swiftclient and
+     * the swift CLI read the URL the same way.
+     */
+    private static boolean isTempAuthEndpoint(String endpoint) {
+        String path = endpoint;
+        while (path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path.endsWith("/v1.0") || path.endsWith("/v1");
+    }
+
+    /**
+     * Authenticates against Swift's built-in tempauth, which Keystone does not
+     * front: a GET carrying the credentials returns a token and the URL of the
+     * account it reaches, and nothing describes a catalog of other services.
+     *
+     * <p>The result is dressed as a Keystone token holding that one
+     * object-store endpoint, so the rest of the provider -- which asks
+     * openstack4j for a client and lets it resolve the object store -- cannot
+     * tell which of the two answered.  The catalog carries whatever region was
+     * configured so {@code useRegion} still matches; tempauth itself has no
+     * notion of one.
+     */
+    private Token authenticateTempAuth(Credentials cred) {
+        // tempauth identifies a user as "account:user".  Accept either the
+        // whole thing as the identity or the account named separately, since
+        // the project is what a Keystone-configured store already calls it.
+        String user = cred.identity().indexOf(':') >= 0 ? cred.identity() :
+                projectName + ":" + cred.identity();
+        HttpResponse<Void> response;
+        try {
+            var request = HttpRequest.newBuilder(URI.create(endpoint))
+                    .header("X-Auth-User", user)
+                    .header("X-Auth-Key", cred.credential())
+                    .GET()
+                    .build();
+            response = HttpClient.newHttpClient().send(request,
+                    BodyHandlers.discarding());
+        } catch (IOException ioe) {
+            throw new AuthenticationException(
+                    "Could not reach " + endpoint + ": " + ioe.getMessage(),
+                    STATUS_UNAUTHORIZED, ioe);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new AuthenticationException(
+                    "Interrupted authenticating against " + endpoint,
+                    STATUS_UNAUTHORIZED, ie);
+        }
+        if (response.statusCode() != STATUS_OK) {
+            throw new AuthenticationException(
+                    "tempauth rejected " + user + " at " + endpoint,
+                    response.statusCode());
+        }
+        var headers = response.headers();
+        String authToken = headers.firstValue("X-Auth-Token")
+                .or(() -> headers.firstValue("X-Storage-Token"))
+                .orElseThrow(() -> new AuthenticationException(
+                        endpoint + " returned no X-Auth-Token",
+                        STATUS_UNAUTHORIZED));
+        String storageUrl = headers.firstValue("X-Storage-Url")
+                .orElseThrow(() -> new AuthenticationException(
+                        endpoint + " returned no X-Storage-Url",
+                        STATUS_UNAUTHORIZED));
+        // tempauth reports the lifetime in seconds and Keystone an instant.
+        long lifetime = headers.firstValueAsLong("X-Auth-Token-Expires")
+                .orElse(TEMPAUTH_DEFAULT_LIFETIME_SECONDS);
+        return tempAuthToken(authToken, storageUrl, lifetime);
+    }
+
+    private Token tempAuthToken(String authToken, String storageUrl,
+            long lifetimeSeconds) {
+        var endpointNode = JsonNodeFactory.instance.objectNode()
+                .put("id", "swift")
+                .put("interface", Facing.PUBLIC.value())
+                .put("region", tempAuthRegion())
+                .put("region_id", tempAuthRegion())
+                .put("url", storageUrl);
+        var serviceNode = JsonNodeFactory.instance.objectNode()
+                .put("id", "swift")
+                .put("name", "swift")
+                .put("type", ServiceType.OBJECT_STORAGE.getType());
+        serviceNode.putArray("endpoints").add(endpointNode);
+        var tokenNode = JsonNodeFactory.instance.objectNode()
+                .put("expires_at", ISO_INSTANT.format(Instant.now()
+                        .plusSeconds(lifetimeSeconds)))
+                .put("issued_at", ISO_INSTANT.format(Instant.now()));
+        tokenNode.putArray("catalog").add(serviceNode);
+        var document = JsonNodeFactory.instance.objectNode();
+        document.set("token", tokenNode);
+
+        KeystoneToken parsed;
+        try {
+            parsed = ObjectMapperSingleton.getContext(KeystoneToken.class)
+                    .treeToValue(document, KeystoneToken.class);
+        } catch (JsonProcessingException jpe) {
+            throw new IllegalStateException(
+                    "Could not build a token for " + storageUrl, jpe);
+        }
+        parsed.setId(authToken);
+        // The session endpoint doubles as the identity a resolved URL is
+        // cached under, so name the account rather than the auth URL every
+        // account of one Swift would otherwise share.
+        parsed.setEndpoint(storageUrl);
+        return parsed;
+    }
+
+    private String tempAuthRegion() {
+        return region.isEmpty() ? "RegionOne" : region;
     }
 
     private static boolean isExpiringSoon(Token token) {
