@@ -49,6 +49,14 @@ final class AwsHttpHeaders {
     static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
     static final String REQUEST_ID = "x-amz-request-id";
     static final String SDK_CHECKSUM_ALGORITHM = "x-amz-sdk-checksum-algorithm";
+    static final String SERVER_SIDE_ENCRYPTION =
+            "x-amz-server-side-encryption";
+    static final String SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID =
+            "x-amz-server-side-encryption-aws-kms-key-id";
+    static final String SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED =
+            "x-amz-server-side-encryption-bucket-key-enabled";
+    static final String SERVER_SIDE_ENCRYPTION_CONTEXT =
+            "x-amz-server-side-encryption-context";
     static final String STORAGE_CLASS = "x-amz-storage-class";
     static final String TRAILER = "x-amz-trailer";
     static final String TRANSFER_ENCODING = "x-amz-te";

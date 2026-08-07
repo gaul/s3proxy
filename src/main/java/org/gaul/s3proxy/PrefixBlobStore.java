@@ -142,7 +142,8 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                 upload.request().toBuilder()
                         .key(trimPrefix(upload.containerName(),
                                 upload.blobName()))
-                        .build());
+                        .build(),
+                upload.response());
     }
 
     private ListObjectsV2Request applyPrefix(String container,

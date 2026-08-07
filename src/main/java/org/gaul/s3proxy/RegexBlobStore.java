@@ -237,7 +237,8 @@ public final class RegexBlobStore extends ForwardingBlobStore {
         }
         return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
                 .key(newName)
-                .build());
+                .build(),
+                mpu.response());
     }
 
 

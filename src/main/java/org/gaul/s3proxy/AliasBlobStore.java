@@ -238,7 +238,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
                 request.toBuilder()
                         .bucket(getContainer(request.bucket()))
                         .build());
-        return new MultipartUpload(mpu.id(), request);
+        return new MultipartUpload(mpu.id(), request, mpu.response());
     }
 
     @Override

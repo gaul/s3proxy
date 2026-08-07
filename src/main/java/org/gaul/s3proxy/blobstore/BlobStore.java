@@ -263,6 +263,18 @@ public interface BlobStore extends AutoCloseable {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
+    /**
+     * Whether this store forwards the requests' server-side encryption
+     * fields -- the x-amz-server-side-encryption header family on put,
+     * copy and initiate-multipart -- to a backend that performs the
+     * encryption and reports the outcome on its responses.  The frontend
+     * refuses such requests to any other store up front, rather than
+     * storing plaintext that asked to be encrypted.
+     */
+    default boolean supportsServerSideEncryption() {
+        return false;
+    }
+
     default void removeBlobs(String container, Iterable<String> names) {
         for (String name : names) {
             removeBlob(container, name);
