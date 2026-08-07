@@ -397,7 +397,14 @@ jobs:
         run: docker pull openstackswift/saio@sha256:e507743c9be31581f0045c6d43352414b50b51e77a2d8ae39b7d8fec7386985d
       - name: Start Swift
         run: |
+          # Docker 29 denies AF_ALG sockets in both its default seccomp and
+          # AppArmor profiles (moby/profiles: kernel crypto API mitigation).
+          # Swift probes AF_ALG for kernel crc32c at import and only expects
+          # ENOENT or EAFNOSUPPORT, so the denial's EPERM crash-loops the
+          # proxy-server.  This throwaway emulator needs no confinement.
           docker run -d --name swift -p 8080:8080 \
+            --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
             openstackswift/saio@sha256:e507743c9be31581f0045c6d43352414b50b51e77a2d8ae39b7d8fec7386985d
           # The proxy answers /healthcheck before the account, container and
           # object servers behind it are all up, so wait on the credentials
