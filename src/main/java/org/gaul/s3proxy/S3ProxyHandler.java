@@ -3804,16 +3804,22 @@ public class S3ProxyHandler {
         FlexChecksum checksum = null;
         String checksumValue = null;
         var parser = new MultiPartFormData.Parser(boundary);
+        // A fallback should the bounds below ever diverge; no part reaches it
+        // while they agree.
         parser.setFilesDirectory(java.nio.file.Path.of(
                 System.getProperty("java.io.tmpdir")));
         // Jetty bounds the number of parts and nothing else, so say how large
         // a body may be.  Nothing has authorized this one -- a form POST
         // carries no Authorization header, and the policy that speaks for it
         // is inside the body still being read -- so an unbounded body is one
-        // anyone who can reach the proxy may send, and it is spilled to the
-        // filesystem on its way to being held whole in memory.  Bound it
-        // where the other body read into memory is bounded.
+        // anyone who can reach the proxy may send.  Bound it where the other
+        // body read into memory is bounded, and hold parts in memory up to
+        // the same bound rather than Jetty's default of writing every file
+        // part to disk: the payload is about to be buffered whole anyway, and
+        // the write turns a read-only temporary directory into a baffling 400
+        // for every form upload.
         parser.setMaxLength(v4MaxNonChunkedRequestSize);
+        parser.setMaxMemoryFileSize(v4MaxNonChunkedRequestSize);
         var futureParts = new CompletableFuture<MultiPartFormData.Parts>();
         parser.parse(new InputStreamContentSource(is,
                 ByteBufferPool.SIZED_NON_POOLING),
