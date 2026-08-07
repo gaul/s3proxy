@@ -402,16 +402,31 @@ jobs:
           # The proxy answers /healthcheck before the account, container and
           # object servers behind it are all up, so wait on the credentials
           # actually buying a token -- which is the first thing the lane does.
-          for i in $(seq 60); do
+          # The budget is generous because first boot builds the rings and
+          # object filesystem, which the runner's network-backed disk serves
+          # far slower than a workstation; a ready container exits the loop
+          # in seconds regardless.
+          for i in $(seq 300); do
             if curl --silent --fail --output /dev/null \
                 --header 'X-Auth-User: test:tester' \
                 --header 'X-Auth-Key: testing' \
                 http://127.0.0.1:8080/auth/v1.0; then
               break
             fi
-            if [ "$i" -eq 60 ]; then
-              echo "Swift did not authenticate within 60 seconds" >&2
-              docker logs swift >&2
+            if [ "$i" -eq 300 ]; then
+              echo "Swift did not authenticate within 300 seconds" >&2
+              # The image sends every service's output to files under
+              # /var/log, so docker logs shows nothing even from a healthy
+              # container; name the state and read the files instead.
+              docker ps --all >&2
+              docker inspect --format '{{json .State}}' swift >&2 || true
+              curl --verbose --max-time 5 \
+                  --header 'X-Auth-User: test:tester' \
+                  --header 'X-Auth-Key: testing' \
+                  http://127.0.0.1:8080/auth/v1.0 >&2 || true
+              docker exec swift sh -c \
+                  'find /var/log -type f | while read -r f; do
+                       echo "== $f"; tail -n 25 "$f"; done' >&2 || true
               exit 1
             fi
             sleep 1
