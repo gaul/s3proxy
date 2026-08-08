@@ -245,7 +245,7 @@ public final class TransientVersioningTest {
     public void testDeletingAVersionRemovesItsData() {
         enableVersioning();
         String first = put("blob", FIRST);
-        String second = put("blob", SECOND);
+        put("blob", SECOND);
 
         client.deleteObject(b -> b.bucket(containerName).key("blob")
                 .versionId(first));
