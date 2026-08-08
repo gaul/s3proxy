@@ -504,6 +504,29 @@ public class S3ProxyHandler {
     }
 
     /**
+     * Removes the stub outright.  On a versioning store an ordinary delete
+     * would leave the stub's version under a delete marker, which is right
+     * for an object a client wrote and wrong for bookkeeping: nothing would
+     * ever remove either, and a bucket carrying them could not be deleted.
+     * The stub is written once and never overwritten, so its one version is
+     * the whole of it.
+     */
+    private static void removeMultipartStub(BlobStore blobStore,
+            String containerName, String uploadId) {
+        String stubName = multipartStubName(uploadId);
+        if (!blobStore.supportsVersioning()) {
+            blobStore.removeBlob(containerName, stubName);
+            return;
+        }
+        HeadObjectResponse stub = blobStore.blobMetadata(containerName,
+                stubName);
+        if (stub == null) {
+            return;
+        }
+        blobStore.removeBlob(containerName, stubName, stub.versionId());
+    }
+
+    /**
      * Refuse a key naming the multipart stub.  That object carries the
      * Content-Type, user metadata, checksum and ACL that
      * CompleteMultipartUpload hands the finished object, so a client able to
@@ -1853,7 +1876,11 @@ public class S3ProxyHandler {
         }
         VersioningConfigurationRequest vcr = readXmlBody(body,
                 VersioningConfigurationRequest.class);
-        if (vcr.mfaDelete() != null) {
+        // Disabled is what S3 answers for a bucket that has never asked for
+        // MFA delete, so a configuration restating it asks for nothing this
+        // does not already do.  Only turning it on is unsupported.
+        if (vcr.mfaDelete() != null &&
+                !vcr.mfaDelete().equalsIgnoreCase("Disabled")) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "MFA delete is not supported.");
         }
@@ -1959,6 +1986,13 @@ public class S3ProxyHandler {
         ListObjectVersionsResponse page = blobStore.listVersions(
                 versionsRequest.build());
 
+        // The multipart stub is hidden from ListObjects, so it has to be
+        // hidden here too: a client that empties a bucket by listing it and
+        // deleting what it finds would otherwise be handed a key it is not
+        // allowed to name.
+        boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
+                getBlobStoreType(blobStore));
+
         // The service interleaves Version and DeleteMarker elements in one
         // ordered document, but the SDK models them as two lists, each still
         // in that order.  Merge them back by S3's order -- keys ascending,
@@ -1966,9 +2000,13 @@ public class S3ProxyHandler {
         // for a version and a marker of the same key stamped in the same
         // millisecond.
         var versionEntries = page.versions().stream()
+                .filter(version -> !filterStub || !version.key().startsWith(
+                        MULTIPART_STUB_PREFIX))
                 .map(VersionEntry::of)
                 .toList();
         var markerEntries = page.deleteMarkers().stream()
+                .filter(marker -> !filterStub || !marker.key().startsWith(
+                        MULTIPART_STUB_PREFIX))
                 .map(VersionEntry::of)
                 .toList();
         var merged = new ArrayList<VersionEntry>(
@@ -2822,9 +2860,11 @@ public class S3ProxyHandler {
 
         // A request naming versions or conditions deletes key by key for
         // the per-key results; one naming neither keeps the store's bulk
-        // delete, whose response reports no version information.
+        // delete, whose response reports no version information.  On a
+        // versioning store every delete has version information to report --
+        // the marker it just wrote -- so it takes the same path.
         List<DeletedObjectResult> results = null;
-        if (anyVersion || anyCondition) {
+        if (anyVersion || anyCondition || supportsVersioning) {
             results = new ArrayList<>();
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
@@ -4664,8 +4704,7 @@ public class S3ProxyHandler {
             syncResult = blobStore.completeMultipartUpload(completeMpu,
                     sdkComplete);
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
-                blobStore.removeBlob(containerName,
-                        multipartStubName(uploadId));
+                removeMultipartStub(blobStore, containerName, uploadId);
             }
         }
         final CompleteMultipartUploadResponse completedResult =
@@ -4756,8 +4795,7 @@ public class S3ProxyHandler {
             if (completedResult == null &&
                     Quirks.MULTIPART_REQUIRES_STUB.contains(
                             getBlobStoreType(blobStore))) {
-                blobStore.removeBlob(containerName,
-                        multipartStubName(uploadId));
+                removeMultipartStub(blobStore, containerName, uploadId);
             }
 
             xml.writeStartElement("CompleteMultipartUploadResult");
@@ -5322,7 +5360,7 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
 
-            blobStore.removeBlob(containerName, stubName);
+            removeMultipartStub(blobStore, containerName, uploadId);
         }
 
         addCorsResponseHeader(request, response);

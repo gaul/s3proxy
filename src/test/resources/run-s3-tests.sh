@@ -122,7 +122,20 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
 elif [ "${S3PROXY_CONF}" = "s3proxy-filesystem.conf" ] ||
         [ "${S3PROXY_CONF}" = "s3proxy.conf" ]; then
     # s3proxy.conf defaults to the transient backend.
-    backend="nio2"
+    # Both nio2 stores, named apart as well so that a test can record a
+    # limitation of one: they share almost everything and part company over
+    # versioning.
+    if [ "${S3PROXY_CONF}" = "s3proxy.conf" ]; then
+        backend="nio2,transient"
+        # The transient store implements object versioning, so run the tests
+        # for it rather than deselecting them.  The filesystem store shares
+        # the code but reports supportsVersioning() == false, since its
+        # versions would outlive the process and settle a layout S3Proxy
+        # would owe its users; there the requests are still 501.
+        tags="${tags/ and not versioning/}"
+    else
+        backend="nio2,filesystem"
+    fi
 fi
 
 # execute s3-tests.  FORCE_COLOR is unset because a value other than 0 or 1 --

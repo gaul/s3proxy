@@ -36,8 +36,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
@@ -45,10 +47,13 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -75,23 +80,32 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -132,6 +146,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // it an ordinary directory-marker blob while isolating it from the
     // container inode. Hidden from listings and reserved from client keys.
     private static final String SLASH_BLOB_NAME = ".s3proxy-slash";
+    // Reserved container-level directory holding every version of a key but
+    // the current one, plus delete markers. The current version stays at its
+    // natural path so that reads, listings and multipart assembly need to
+    // know nothing about versioning. Hidden from list() and reserved from
+    // client keys, like the multipart names above.
+    private static final String VERSIONS_DIR = ".s3proxy-versions";
+    private static final String XATTR_VERSION_ID = "user.version-id";
+    private static final String XATTR_VERSION_KEY = "user.version-key";
+    private static final String XATTR_DELETE_MARKER = "user.delete-marker";
+    private static final String XATTR_VERSIONING = "user.versioning";
+    /** The version id every write to an unversioned container carries. */
+    private static final String NULL_VERSION_ID = "null";
     private static final int UUID_STRING_LENGTH =
             UUID.randomUUID().toString().length();
     @SuppressWarnings("deprecation")
@@ -139,7 +165,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final byte[] DIRECTORY_MD5 =
             md5.hashBytes(new byte[0]).asBytes();
 
+    /**
+     * Orders the versions of one key.  A file name carries it rather than the
+     * version id, because the id of every write to a suspended container is
+     * "null" and orders nothing; and rather than the modification time,
+     * because that is the version's own timestamp, which two writes in one
+     * millisecond share.
+     */
+    private static final AtomicLong VERSION_SEQUENCE = new AtomicLong();
+    /**
+     * A strictly increasing timestamp.  The frontend interleaves versions and
+     * delete markers by (key, lastModified desc), so two of them stamped in
+     * the same millisecond would list in an arbitrary order.
+     */
+    private static final AtomicLong LAST_MILLIS = new AtomicLong();
+
     private final Path root;
+    /**
+     * Serializes the read-then-rename that moves a key's current version
+     * aside and publishes its successor.  Two writers racing there both find
+     * the same current version, and the second one's rename replaces the
+     * first's -- losing a version the caller was told had been stored.
+     * Within one process this closes it; across processes nothing here
+     * could, which is why only the transient store offers versioning.
+     */
+    private final Object versionLock = new Object();
 
     protected AbstractNio2BlobStore(Path root) {
         this.root = root;
@@ -338,6 +388,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (path.getFileName().toString().equals(SLASH_BLOB_NAME)) {
                         continue;
                     }
+                    // Non-current versions are objects of ListObjectVersions
+                    // alone; ListObjects reports what is current.
+                    if (path.getFileName().toString().equals(VERSIONS_DIR) &&
+                            containerPath.equals(path.getParent())) {
+                        continue;
+                    }
                     if (!path.toAbsolutePath().toString().startsWith(
                             pathPrefixString)) {
                         // ignore
@@ -472,10 +528,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Nullable
     public final ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
-        if (request.versionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         Blob blob = getBlobInternal(request.bucket(), request.key(), request,
                 /*openStream=*/ true);
         if (blob == null) {
@@ -492,6 +544,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             GetObjectRequest options, boolean openStream) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, key);
+        String versionId = null;
+        if (supportsVersioning() &&
+                readContainerStatus(containerPath) != null) {
+            var resolved = resolveVersion(container, containerPath, path, key,
+                    options.versionId());
+            if (resolved == null) {
+                return null;
+            }
+            path = resolved.path();
+            versionId = resolved.versionId();
+        } else if (options.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         logger.debug("Getting blob at: {}", path);
 
         try {
@@ -737,6 +803,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .expires(expires)
                     .storageClass(storageClass)
                     .container(container)
+                    .versionId(versionId)
                     .lastModified(lastModifiedTime);
             if (contentRange != null) {
                 builder.contentRange(contentRange);
@@ -761,11 +828,42 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
         checkNotReserved(request.key());
-        return SdkResponses.putResponse(putBlob(request.bucket(),
+        var result = putBlob(request.bucket(),
                 toBlobBuilder(request).payload(payload).build(),
                 SdkRequests.aclOrPrivate(request.acl()),
                 request.ifNoneMatch(),
-                /*parts=*/ null));
+                /*parts=*/ null);
+        return PutObjectResponse.builder()
+                .eTag(result.eTag())
+                .versionId(result.reportedVersionId())
+                .build();
+    }
+
+    /** What a write reports back: its ETag, and its version where kept. */
+    private record PutResult(String eTag, @Nullable String versionId) {
+        /**
+         * The version a write announces.  A suspended container mints the
+         * "null" id, which S3 keeps addressable but does not name in the
+         * response -- there is no version to point a caller at.
+         */
+        @Nullable String reportedVersionId() {
+            return NULL_VERSION_ID.equals(versionId) ? null : versionId;
+        }
+    }
+
+    /**
+     * The current object's metadata, or null where there is no current
+     * object.  A key whose current version is a delete marker has none, and
+     * a conditional write has to read that as absence: {@link #blobMetadata}
+     * reports it as the 404 that a client's GET deserves instead.
+     */
+    @Nullable
+    private HeadObjectResponse currentMetadata(String container, String key) {
+        try {
+            return blobMetadata(container, key);
+        } catch (NoSuchKeyException nske) {
+            return null;
+        }
     }
 
     /**
@@ -777,8 +875,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Reading the payload instead would cost a full read and write of an
      * object that has already been written once as parts.
      */
-    private String putBlob(String container, Blob blob, ObjectCannedACL access,
-            @Nullable String ifNoneMatch, @Nullable List<Path> parts) {
+    private PutResult putBlob(String container, Blob blob,
+            ObjectCannedACL access, @Nullable String ifNoneMatch,
+            @Nullable List<Path> parts) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
         // TODO: should we use a known suffix to filter these out during list?
@@ -805,7 +904,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
-            return HexFormat.of().formatHex(DIRECTORY_MD5);
+            // A directory marker is the directory itself, which the versions
+            // of the keys below it live in; it is not versioned.
+            return new PutResult(HexFormat.of().formatHex(DIRECTORY_MD5),
+                    /*versionId=*/ null);
         }
 
         // Create parent directories.
@@ -884,6 +986,27 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             setBlobAccessHelper(tmpPath, access);
 
+            // The id this write carries, minted before publishing so that the
+            // file is never briefly current without one.  A store that does
+            // not version, or a container never enabled, mints nothing and
+            // leaves every path below exactly as it was.  Nor is this store's
+            // own multipart bookkeeping versioned: a re-uploaded part would
+            // leave its predecessor archived behind a name no client can see
+            // to delete, and completing the upload removes the parts outright
+            // rather than through anything that understands versions.
+            String versionId = null;
+            if (supportsVersioning() &&
+                    !blob.getMetadata().name().startsWith(MULTIPART_PREFIX)) {
+                var status = readContainerStatus(containerPath);
+                if (status != null) {
+                    versionId = mintVersionId(status);
+                    writeVersionAttributes(tmpPath, blob.getMetadata().name(),
+                            versionId, /*deleteMarker=*/ false);
+                    Files.setLastModifiedTime(tmpPath, FileTime.fromMillis(
+                            mintTime().getTime()));
+                }
+            }
+
             if ("*".equals(ifNoneMatch)) {
                 // Claiming a key: publish by linking rather than renaming, so
                 // that two writers racing cannot both believe they created the
@@ -906,15 +1029,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         throw returnResponseException(412);
                     }
                     Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE);
-                    return storedETag;
+                    return new PutResult(storedETag, versionId);
                 }
-                return storedETag;
+                // Nothing was displaced: the condition held only because the
+                // key had no current version to displace.
+                return new PutResult(storedETag, versionId);
             }
             if (ifNoneMatch != null) {
                 // A named ETag cannot be resolved by the move, and the
                 // filesystem offers no compare-and-swap, so this remains a
                 // read followed by a write.
-                var current = blobMetadata(container,
+                var current = currentMetadata(container,
                         blob.getMetadata().name());
                 if (current != null && current.eTag() != null &&
                         maybeQuoteETag(ifNoneMatch).equals(
@@ -923,9 +1048,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
+            if (versionId != null) {
+                synchronized (versionLock) {
+                    archiveCurrentVersion(containerPath, path,
+                            blob.getMetadata().name(), versionId);
+                    Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
+                return new PutResult(storedETag, versionId);
+            }
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-            return storedETag;
+            return new PutResult(storedETag, versionId);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         } finally {
@@ -969,7 +1103,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final CopyObjectResponse copyBlob(CopyObjectRequest request) {
-        if (request.sourceVersionId() != null) {
+        if (request.sourceVersionId() != null && !supportsVersioning()) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
@@ -984,11 +1118,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 GetObjectRequest.builder()
                         .bucket(fromContainer)
                         .key(fromName)
+                        .versionId(request.sourceVersionId())
                         .build(),
                 /*openStream=*/ true);
         if (blob == null) {
             throw S3Exceptions.noSuchKey(fromContainer, fromName, "while copying");
         }
+        // The version read, which the response reports even when the copy
+        // named no version: restoring an old version is a copy of it onto
+        // itself, and the caller checks this to see which one it got.
+        String sourceVersionId = blob.getMetadata().versionId();
 
         // Evaluate preconditions inside the try-with-resources so that a
         // failing check still closes the file InputStream returned by
@@ -1060,11 +1199,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
-            return SdkResponses.copyResponse(putBlob(toContainer,
-                    builder.build(),
+            var result = putBlob(toContainer, builder.build(),
                     SdkRequests.aclOrPrivate(request.acl()),
                     /*ifNoneMatch=*/ null,
-                    /*parts=*/ null));
+                    /*parts=*/ null);
+            return CopyObjectResponse.builder()
+                    .copyObjectResult(CopyObjectResult.builder()
+                            .eTag(result.eTag())
+                            .build())
+                    .versionId(result.reportedVersionId())
+                    .copySourceVersionId(NULL_VERSION_ID.equals(
+                            sourceVersionId) ? null : sourceVersionId)
+                    .build();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -1073,7 +1219,118 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Override
     public final void removeBlob(String container, String key) {
         checkNotReserved(key);
+        if (supportsVersioning()) {
+            // A delete that names no version is still a delete marker on a
+            // versioned container; the frontend reaches this overload for it
+            // whenever it has no result to report, e.g. a conditional delete.
+            removeBlob(container, key, /*versionId=*/ null);
+            return;
+        }
         removeBlobInternal(container, key);
+    }
+
+    @Override
+    public final DeleteObjectResponse removeBlob(String container, String key,
+            @Nullable String versionId) {
+        checkNotReserved(key);
+        if (!supportsVersioning()) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        var containerPath = requireContainerPath(container);
+        var status = readContainerStatus(containerPath);
+        var path = resolveBlobPath(containerPath, key);
+
+        if (versionId != null) {
+            return removeVersion(container, containerPath, path, key,
+                    versionId);
+        }
+        // A key whose storage is a directory -- a directory marker, or a
+        // prefix other keys live under -- is not versioned, so a delete of
+        // one is the ordinary delete, which knows to keep the directory for
+        // the objects inside it.
+        if (status == null || Files.isDirectory(path)) {
+            removeBlobInternal(container, key);
+            return DeleteObjectResponse.builder().build();
+        }
+
+        // Versioned: the data stays and a marker goes on top of it.
+        var markerId = mintVersionId(status);
+        try {
+            synchronized (versionLock) {
+                archiveCurrentVersion(containerPath, path, key, markerId);
+                Files.deleteIfExists(path);
+                removeEmptyParentDirectories(containerPath, path.getParent());
+                var marker = newVersionPath(containerPath, key);
+                Files.createDirectories(marker.getParent());
+                Files.createFile(marker);
+                writeVersionAttributes(marker, key, markerId,
+                        /*deleteMarker=*/ true);
+                Files.setLastModifiedTime(marker,
+                        FileTime.fromMillis(mintTime().getTime()));
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        return DeleteObjectResponse.builder()
+                .versionId(markerId)
+                .deleteMarker(true)
+                .build();
+    }
+
+    /**
+     * Deletes the one version named, which unlike an ordinary delete removes
+     * data.  Deleting the current version promotes whatever it was hiding.
+     */
+    private DeleteObjectResponse removeVersion(String container,
+            Path containerPath, Path path, String key, String versionId) {
+        try {
+            synchronized (versionLock) {
+                if (Files.exists(path) &&
+                        currentVersionId(path).equals(versionId)) {
+                    // Removing an object at its natural path is what the
+                    // ordinary delete does, directory-marker keys included.
+                    removeBlobInternal(container, key);
+                    if (Files.notExists(path)) {
+                        promoteNewestVersion(containerPath, path, key);
+                    }
+                    if (Files.notExists(path)) {
+                        removeEmptyParentDirectories(containerPath,
+                                path.getParent());
+                    }
+                    return DeleteObjectResponse.builder()
+                            .versionId(versionId)
+                            .build();
+                }
+                for (var version : archivedVersions(containerPath, key)) {
+                    if (!version.versionId().equals(versionId)) {
+                        continue;
+                    }
+                    Files.delete(version.path());
+                    // The version removed may have been the one standing for
+                    // the key -- a delete marker on top of older versions --
+                    // in which case the next one down becomes current.
+                    if (Files.notExists(path)) {
+                        promoteNewestVersion(containerPath, path, key);
+                    }
+                    if (Files.notExists(path)) {
+                        // The last of a key like "dir/blob" leaves "dir"
+                        // behind, which nothing lists and which would keep
+                        // the bucket from ever being deleted.
+                        removeEmptyParentDirectories(containerPath,
+                                path.getParent());
+                    }
+                    return DeleteObjectResponse.builder()
+                            .versionId(versionId)
+                            .deleteMarker(version.deleteMarker() ? true : null)
+                            .build();
+                }
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        throw S3Exceptions.noSuchVersion(container, key, versionId,
+                "no such version");
     }
 
     /**
@@ -1130,14 +1387,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Override
     @Nullable
     public final HeadObjectResponse blobMetadata(HeadObjectRequest request) {
-        if (request.versionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String container = request.bucket();
         String key = request.key();
         Blob blob = getBlobInternal(container, key,
-                GetObjectRequest.builder().bucket(container).key(key).build(),
+                GetObjectRequest.builder().bucket(container).key(key)
+                        .versionId(request.versionId()).build(),
                 /*openStream=*/ false);
         if (blob == null) {
             return null;
@@ -1154,9 +1408,238 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final boolean deleteContainerIfEmpty(String container) {
+    @Nullable
+    public final BucketVersioningStatus getContainerVersioning(
+            String container) {
+        if (!supportsVersioning()) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        return readContainerStatus(requireContainerPath(container));
+    }
+
+    @Override
+    public final void setContainerVersioning(String container,
+            BucketVersioningStatus status) {
+        if (!supportsVersioning()) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        var containerPath = requireContainerPath(container);
+        var view = getXattrView(containerPath);
+        if (view == null) {
+            throw new UnsupportedOperationException(
+                    "versioning needs user attributes");
+        }
         try {
-            Files.deleteIfExists(resolveContainer(container));
+            writeStringAttributeIfPresent(view, XATTR_VERSIONING,
+                    status.toString());
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    @Override
+    public final ListObjectVersionsResponse listVersions(
+            ListObjectVersionsRequest request) {
+        if (!supportsVersioning()) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        String container = request.bucket();
+        var containerPath = requireContainerPath(container);
+        String prefix = request.prefix() == null ? "" : request.prefix();
+        String delimiter = request.delimiter();
+        int maxKeys = request.maxKeys() == null ? 1000 : request.maxKeys();
+
+        // Flatten every version of every key into S3's order -- keys
+        // ascending, newest first -- and slice one page out of it.  The
+        // current versions come from the ordinary listing, since that is
+        // where they live; the rest come from the sidecar.
+        var rows = new ArrayList<VersionRow>();
+        var commonPrefixes = new LinkedHashSet<String>();
+        for (var object : listAll(container, prefix)) {
+            var path = resolveBlobPath(containerPath, object.key());
+            if (collectCommonPrefix(object.key(), prefix, delimiter,
+                    commonPrefixes)) {
+                continue;
+            }
+            rows.add(new VersionRow(object.key(), currentVersionId(path),
+                    /*latest=*/ true, /*deleteMarker=*/ false, object.eTag(),
+                    Date.from(object.lastModified()), object.size()));
+        }
+        // A key whose newest version is a delete marker has nothing current,
+        // so the marker is what is latest.
+        var latestArchived = new TreeMap<String, String>();
+        for (var version : archivedVersions(containerPath, /*key=*/ null)) {
+            if (!version.key().startsWith(prefix)) {
+                continue;
+            }
+            latestArchived.putIfAbsent(version.key(), version.versionId());
+        }
+        for (var version : archivedVersions(containerPath, /*key=*/ null)) {
+            String key = version.key();
+            if (!key.startsWith(prefix)) {
+                continue;
+            }
+            if (collectCommonPrefix(key, prefix, delimiter, commonPrefixes)) {
+                continue;
+            }
+            boolean latest = Files.notExists(
+                    resolveBlobPath(containerPath, key)) &&
+                    version.versionId().equals(latestArchived.get(key));
+            Long size = null;
+            String eTag = null;
+            if (!version.deleteMarker()) {
+                var head = readVersionMetadata(container, key, version);
+                if (head != null) {
+                    size = head.contentLength();
+                    eTag = head.eTag();
+                }
+            }
+            rows.add(new VersionRow(key, version.versionId(), latest,
+                    version.deleteMarker(), eTag, version.lastModified(),
+                    size));
+        }
+        rows.sort(Comparator.comparing(VersionRow::key)
+                .thenComparing(Comparator.comparing(
+                        VersionRow::lastModified).reversed()));
+
+        int start = 0;
+        String keyMarker = request.keyMarker();
+        if (keyMarker != null) {
+            String versionIdMarker = request.versionIdMarker();
+            for (int i = 0; i < rows.size(); i++) {
+                var candidate = rows.get(i);
+                if (versionIdMarker == null) {
+                    if (candidate.key().compareTo(keyMarker) > 0) {
+                        start = i;
+                        break;
+                    }
+                } else if (candidate.key().equals(keyMarker) &&
+                        candidate.versionId().equals(versionIdMarker)) {
+                    start = i + 1;
+                    break;
+                }
+                start = i + 1;
+            }
+        }
+        int end = Math.min(rows.size(), start + maxKeys);
+        var page = rows.subList(start, end);
+        String nextKeyMarker = null;
+        String nextVersionIdMarker = null;
+        if (end < rows.size() && !page.isEmpty()) {
+            var last = page.get(page.size() - 1);
+            nextKeyMarker = last.key();
+            nextVersionIdMarker = last.versionId();
+        }
+
+        var versions = new ArrayList<ObjectVersion>();
+        var markers = new ArrayList<DeleteMarkerEntry>();
+        for (var row : page) {
+            if (row.deleteMarker()) {
+                markers.add(DeleteMarkerEntry.builder()
+                        .key(row.key())
+                        .versionId(row.versionId())
+                        .isLatest(row.latest())
+                        .lastModified(row.lastModified().toInstant())
+                        .build());
+            } else {
+                versions.add(ObjectVersion.builder()
+                        .key(row.key())
+                        .versionId(row.versionId())
+                        .isLatest(row.latest())
+                        .eTag(row.eTag())
+                        .lastModified(row.lastModified().toInstant())
+                        .size(row.size())
+                        .storageClass(ObjectVersionStorageClass.STANDARD)
+                        .build());
+            }
+        }
+        return ListObjectVersionsResponse.builder()
+                .versions(versions)
+                .deleteMarkers(markers)
+                .commonPrefixes(commonPrefixes.stream()
+                        .map(value -> CommonPrefix.builder().prefix(value)
+                                .build())
+                        .toList())
+                .nextKeyMarker(nextKeyMarker)
+                .nextVersionIdMarker(nextVersionIdMarker)
+                .isTruncated(nextKeyMarker != null)
+                .build();
+    }
+
+    /** One row of the flattened versions listing. */
+    private record VersionRow(String key, String versionId, boolean latest,
+            boolean deleteMarker, @Nullable String eTag, Date lastModified,
+            @Nullable Long size) {
+    }
+
+    /**
+     * Records the common prefix a key rolls up into, answering whether it
+     * did -- in which case the key itself is not listed.
+     */
+    private static boolean collectCommonPrefix(String key, String prefix,
+            @Nullable String delimiter, Set<String> commonPrefixes) {
+        if (delimiter == null || delimiter.isEmpty()) {
+            return false;
+        }
+        int index = key.indexOf(delimiter, prefix.length());
+        if (index == -1) {
+            return false;
+        }
+        commonPrefixes.add(key.substring(0, index + delimiter.length()));
+        return true;
+    }
+
+    /** Every current object under a prefix, following the listing's pages. */
+    private List<S3Object> listAll(String container, String prefix) {
+        var objects = new ArrayList<S3Object>();
+        var options = ListObjectsV2Request.builder()
+                .bucket(container)
+                .prefix(prefix.isEmpty() ? null : prefix)
+                .build();
+        while (true) {
+            var page = list(options, /*includeMultipart=*/ false);
+            objects.addAll(page.contents());
+            var token = page.nextContinuationToken();
+            if (token == null) {
+                break;
+            }
+            options = options.toBuilder().continuationToken(token).build();
+        }
+        return objects;
+    }
+
+    /** The size and ETag a non-current version reports to a listing. */
+    @Nullable
+    private HeadObjectResponse readVersionMetadata(String container,
+            String key, StoredVersion version) {
+        var blob = getBlobInternal(container, key,
+                GetObjectRequest.builder().bucket(container).key(key)
+                        .versionId(version.versionId()).build(),
+                /*openStream=*/ false);
+        if (blob == null) {
+            return null;
+        }
+        return SdkResponses.toHead(SdkResponses.toGetResponse(
+                blob.getMetadata(), /*contentRange=*/ null));
+    }
+
+    @Override
+    public final boolean deleteContainerIfEmpty(String container) {
+        var containerPath = resolveContainer(container);
+        try {
+            // Versions and delete markers keep a bucket alive, as on S3 --
+            // they are the directory's remaining entries.  The directory
+            // itself, once emptied of them, is bookkeeping and not a reason
+            // to refuse.
+            try {
+                Files.deleteIfExists(versionsDir(containerPath));
+            } catch (DirectoryNotEmptyException dnee) {
+                return false;
+            }
+            Files.deleteIfExists(containerPath);
         } catch (DirectoryNotEmptyException dnee) {
             return false;
         } catch (IOException ioe) {
@@ -1417,7 +1900,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             partPaths.add(resolveBlobPath(containerPath, multipartPartName(
                     mpu.id(), mpu.blobName(), part.partNumber())));
         }
-        putBlob(mpu.containerName(), blobBuilder.build(),
+        var result = putBlob(mpu.containerName(), blobBuilder.build(),
                 ObjectCannedACL.PRIVATE, request.ifNoneMatch(),
                 partPaths.build());
 
@@ -1431,7 +1914,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         setBlobAccess(mpu.containerName(), mpu.blobName(),
                 SdkRequests.aclOrPrivate(mpuRequest.acl()));
 
-        return SdkResponses.completeResponse(mpuETag);
+        return CompleteMultipartUploadResponse.builder()
+                .eTag(mpuETag)
+                .versionId(result.reportedVersionId())
+                .build();
     }
 
     @Override
@@ -1443,7 +1929,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentMD5(contentMD5)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob,
-                ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null);
+                ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null)
+                .eTag();
         return SdkResponses.uploadedPart(partETag);
     }
 
@@ -1890,6 +2377,266 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return path;
     }
 
+    // Versioning.  The current version of a key is the ordinary file at its
+    // natural path, carrying its version id in an xattr; every other version
+    // and every delete marker is a file under VERSIONS_DIR named
+    // "<hash of key>-<sequence>", carrying the key it belongs to in an xattr
+    // of its own.  Keeping the current version where it always was is what
+    // lets reads, listings, multipart assembly and the ACL paths stay
+    // oblivious to versioning; the flat sidecar keeps a version file from
+    // ever colliding with an object whose key happens to look like one.
+    //
+    // The invariant the rest of this relies on: when the natural path exists
+    // it holds the newest version, and when it does not, either the key has
+    // no versions at all or the newest one is a delete marker.
+
+    @Nullable
+    private BucketVersioningStatus readContainerStatus(Path containerPath) {
+        var xattrs = safeGetXattrs(containerPath);
+        var view = xattrs.view();
+        if (view == null) {
+            return null;
+        }
+        try {
+            var value = readStringAttributeIfPresent(view, xattrs.attributes(),
+                    XATTR_VERSIONING);
+            return value == null ? null :
+                    BucketVersioningStatus.fromValue(value);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    /**
+     * A fresh version id on an enabled container, or the "null" id every
+     * write mints while versioning is off or suspended.
+     */
+    private static String mintVersionId(
+            @Nullable BucketVersioningStatus status) {
+        return status == BucketVersioningStatus.ENABLED ?
+                "v%016d".formatted(VERSION_SEQUENCE.incrementAndGet()) :
+                NULL_VERSION_ID;
+    }
+
+    private static Date mintTime() {
+        return new Date(LAST_MILLIS.updateAndGet(
+                last -> Math.max(last + 1, System.currentTimeMillis())));
+    }
+
+    private static Path versionsDir(Path containerPath) {
+        return containerPath.resolve(VERSIONS_DIR);
+    }
+
+    /**
+     * Groups a key's versions under one file-name prefix without letting the
+     * key's own characters -- slashes above all -- shape the layout.
+     */
+    private static String keyHash(String key) {
+        return Hashing.sha256().hashString(key, StandardCharsets.UTF_8)
+                .toString().substring(0, 32);
+    }
+
+    /** One version of one key, held outside its natural path. */
+    private record StoredVersion(Path path, String key, String versionId,
+            boolean deleteMarker, Date lastModified) {
+    }
+
+    /** Which file a read of a version resolves to, and the id it carries. */
+    private record ResolvedVersion(Path path, String versionId) {
+    }
+
+    /**
+     * The file a read names, or null when the key holds nothing to read.
+     * Throws the way S3 answers a read whose current version is a delete
+     * marker (404 naming the marker), one that names a delete marker
+     * outright (405), and one that names a version that does not exist.
+     */
+    @Nullable
+    private ResolvedVersion resolveVersion(String container,
+            Path containerPath, Path path, String key,
+            @Nullable String versionId) {
+        if (versionId == null) {
+            if (Files.exists(path)) {
+                return new ResolvedVersion(path, currentVersionId(path));
+            }
+            var archived = archivedVersions(containerPath, key);
+            if (!archived.isEmpty() && archived.get(0).deleteMarker()) {
+                throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                        archived.get(0).versionId(),
+                        "current version is a delete marker");
+            }
+            return null;
+        }
+        if (Files.exists(path) && currentVersionId(path).equals(versionId)) {
+            return new ResolvedVersion(path, versionId);
+        }
+        for (var version : archivedVersions(containerPath, key)) {
+            if (version.versionId().equals(versionId)) {
+                if (version.deleteMarker()) {
+                    // As on S3: a delete marker has no content to read, and
+                    // saying so is not the same as saying the key is gone.
+                    throw S3Exceptions.fromStatusCode(405, /*eTag=*/ null,
+                            Map.of("x-amz-delete-marker", "true",
+                                    "x-amz-version-id", version.versionId()),
+                            /*cause=*/ null);
+                }
+                return new ResolvedVersion(version.path(), versionId);
+            }
+        }
+        throw S3Exceptions.noSuchVersion(container, key, versionId,
+                "no such version");
+    }
+
+    @Nullable
+    private static String readVersionId(Path path) {
+        var xattrs = safeGetXattrs(path);
+        var view = xattrs.view();
+        if (view == null) {
+            return null;
+        }
+        try {
+            return readStringAttributeIfPresent(view, xattrs.attributes(),
+                    XATTR_VERSION_ID);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    /** The version id of the object at its natural path. */
+    private static String currentVersionId(Path path) {
+        var versionId = readVersionId(path);
+        return versionId == null ? NULL_VERSION_ID : versionId;
+    }
+
+    /**
+     * The versions of {@code key} kept outside its natural path, newest
+     * first.  A null key reads every key's, for listVersions.
+     */
+    private List<StoredVersion> archivedVersions(Path containerPath,
+            @Nullable String key) {
+        var dir = versionsDir(containerPath);
+        var prefix = key == null ? null : keyHash(key) + "-";
+        var versions = new ArrayList<StoredVersion>();
+        try (var stream = openDirectoryStreamIfPresent(dir)) {
+            if (stream == null) {
+                return versions;
+            }
+            for (var path : stream) {
+                var name = path.getFileName().toString();
+                if (prefix != null && !name.startsWith(prefix)) {
+                    continue;
+                }
+                var xattrs = safeGetXattrs(path);
+                var view = xattrs.view();
+                if (view == null) {
+                    continue;
+                }
+                var versionKey = readStringAttributeIfPresent(view,
+                        xattrs.attributes(), XATTR_VERSION_KEY);
+                var versionId = readStringAttributeIfPresent(view,
+                        xattrs.attributes(), XATTR_VERSION_ID);
+                if (versionKey == null || versionId == null ||
+                        (key != null && !versionKey.equals(key))) {
+                    // Not one of ours, or one whose key the hash only
+                    // appeared to match.
+                    continue;
+                }
+                var attr = Files.readAttributes(path,
+                        BasicFileAttributes.class);
+                versions.add(new StoredVersion(path, versionKey, versionId,
+                        xattrs.attributes().contains(XATTR_DELETE_MARKER),
+                        new Date(attr.lastModifiedTime().toMillis())));
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        // The sequence in the name orders them; it is monotonic where the
+        // version id and the timestamp are not.
+        versions.sort(Comparator.comparing(
+                (StoredVersion version) ->
+                        version.path().getFileName().toString()).reversed());
+        return versions;
+    }
+
+    /** Where the next version of {@code key} goes. */
+    private static Path newVersionPath(Path containerPath, String key) {
+        return versionsDir(containerPath).resolve("%s-%016d".formatted(
+                keyHash(key), VERSION_SEQUENCE.incrementAndGet()));
+    }
+
+    private static void writeVersionAttributes(Path path, String key,
+            String versionId, boolean deleteMarker) throws IOException {
+        var view = getXattrView(path);
+        if (view == null) {
+            throw new IOException("versioning needs user attributes: " + path);
+        }
+        writeStringAttributeIfPresent(view, XATTR_VERSION_KEY, key);
+        writeStringAttributeIfPresent(view, XATTR_VERSION_ID, versionId);
+        if (deleteMarker) {
+            writeStringAttributeIfPresent(view, XATTR_DELETE_MARKER, "true");
+        }
+    }
+
+    /**
+     * Makes room for a new version of {@code key}: the current version, if
+     * any, becomes non-current.  A write minting the "null" id instead
+     * replaces whatever null version the key has, since S3 keeps only one.
+     */
+    private void archiveCurrentVersion(Path containerPath, Path path,
+            String key, String newVersionId) throws IOException {
+        boolean mintingNull = NULL_VERSION_ID.equals(newVersionId);
+        if (mintingNull) {
+            for (var version : archivedVersions(containerPath, key)) {
+                if (NULL_VERSION_ID.equals(version.versionId())) {
+                    Files.deleteIfExists(version.path());
+                }
+            }
+        }
+        if (!Files.exists(path)) {
+            return;
+        }
+        if (Files.isDirectory(path)) {
+            // A directory-marker key's "file" is the directory the keys
+            // below it live in, and moving it aside would take them with it.
+            // Such a key is not versioned at all, which is also why putBlob
+            // gives one no version id.
+            return;
+        }
+        // Read before the move, which is what makes the file unreadable
+        // under its old name.
+        var currentId = currentVersionId(path);
+        if (mintingNull && NULL_VERSION_ID.equals(currentId)) {
+            // The write that follows replaces it where it lies.
+            return;
+        }
+        var archived = newVersionPath(containerPath, key);
+        Files.createDirectories(archived.getParent());
+        Files.move(path, archived, StandardCopyOption.ATOMIC_MOVE);
+        // A version written before its container was enabled carries no id
+        // or key of its own, and could not be found again without them.
+        writeVersionAttributes(archived, key, currentId,
+                /*deleteMarker=*/ false);
+    }
+
+    /**
+     * Restores the invariant after the current version is deleted: the
+     * newest remaining version moves back to the natural path, unless it is
+     * a delete marker, which is current precisely by that path's absence.
+     */
+    private void promoteNewestVersion(Path containerPath, Path path,
+            String key) throws IOException {
+        var versions = archivedVersions(containerPath, key);
+        if (versions.isEmpty()) {
+            return;
+        }
+        var newest = versions.get(0);
+        if (newest.deleteMarker()) {
+            return;
+        }
+        Files.createDirectories(path.getParent());
+        Files.move(newest.path(), path, StandardCopyOption.ATOMIC_MOVE);
+    }
+
     /**
      * Refuse a client key naming the store's private multipart bookkeeping.
      * Writing one lets a client replace a part of an upload it does not own,
@@ -1906,6 +2653,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (key.startsWith(MULTIPART_PREFIX)) {
             throw S3Exceptions.invalidArgument("The key " + MULTIPART_PREFIX +
                     "... is reserved for multipart uploads.");
+        }
+        if (key.equals(VERSIONS_DIR) || key.startsWith(VERSIONS_DIR + "/")) {
+            throw S3Exceptions.invalidArgument("The key " + VERSIONS_DIR +
+                    " is reserved for object versions.");
         }
     }
 

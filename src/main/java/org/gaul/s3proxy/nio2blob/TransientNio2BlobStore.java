@@ -30,6 +30,18 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
                 .build()));
     }
 
+    /**
+     * Versioning is answered here and refused by the filesystem store, whose
+     * versions would have to survive a restart: where this one keeps them is
+     * a detail of a filesystem that lives and dies with the process, while
+     * anything written to a real disk is a format S3Proxy would owe its users
+     * from then on.  See issue #74.
+     */
+    @Override
+    public boolean supportsVersioning() {
+        return true;
+    }
+
     // Helper to create Path
     private TransientNio2BlobStore(FileSystem fs) {
         // TODO: close fs?
