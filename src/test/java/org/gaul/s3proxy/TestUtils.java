@@ -35,6 +35,11 @@ import com.google.common.io.Resources;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 
 final class TestUtils {
     @SuppressWarnings("deprecation")
@@ -376,6 +381,33 @@ final class TestUtils {
         props.setProperty(Constants.PROPERTY_IDENTITY, "identity");
         props.setProperty(Constants.PROPERTY_CREDENTIAL, "credential");
         return BlobStores.create("transient", props);
+    }
+
+    /**
+     * A store standing in for a backend that judges the delete conditions
+     * itself, which is what routes a request through
+     * {@link BlobStore#removeBlob(DeleteObjectRequest)}.  The nio2 stores the
+     * other tests build on implement only the unconditional overloads, so a
+     * middleware forwarding the request one untranslated could not be caught
+     * without this.  Records what it was asked to delete and deletes it.
+     */
+    static final class ConditionalDeleteRecorder extends ForwardingBlobStore {
+        @Nullable private DeleteObjectRequest lastRequest;
+
+        ConditionalDeleteRecorder(BlobStore blobStore) {
+            super(blobStore);
+        }
+
+        @Override
+        public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+            lastRequest = request;
+            delegate().removeBlob(request.bucket(), request.key());
+            return DeleteObjectResponse.builder().build();
+        }
+
+        @Nullable DeleteObjectRequest lastRequest() {
+            return lastRequest;
+        }
     }
 
     static String createRandomContainerName() {

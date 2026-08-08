@@ -33,6 +33,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -90,6 +91,11 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     @Override
     public DeleteObjectResponse removeBlob(final String containerName,
             final String blobName, final @Nullable String versionId) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public DeleteObjectResponse removeBlob(final DeleteObjectRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

@@ -59,6 +59,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -496,6 +498,13 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     @Override
     public void removeBlob(String container, String name) {
         this.delegate().removeBlob(this.getShard(container, name), name);
+    }
+
+    @Override
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        return this.delegate().removeBlob(request.toBuilder()
+                .bucket(this.getShard(request.bucket(), request.key()))
+                .build());
     }
 
     @Override

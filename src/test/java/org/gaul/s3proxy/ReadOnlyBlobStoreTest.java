@@ -18,15 +18,22 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
+import java.util.Set;
 
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
 public final class ReadOnlyBlobStoreTest {
     private BlobStore blobStore;
@@ -100,6 +107,65 @@ public final class ReadOnlyBlobStoreTest {
         } catch (UnsupportedOperationException ne) {
             // expected
         }
+    }
+
+    @Test
+    public void testConditionalRemoveBlob() throws Exception {
+        var recorder = new TestUtils.ConditionalDeleteRecorder(blobStore);
+        BlobStore readOnly = ReadOnlyBlobStore.newReadOnlyBlobStore(recorder);
+        TestUtils.putBlob(blobStore, containerName, "blob", ByteSource.empty());
+
+        try {
+            readOnly.removeBlob(DeleteObjectRequest.builder()
+                    .bucket(containerName)
+                    .key("blob")
+                    .ifMatch("\"d41d8cd98f00b204e9800998ecf8427e\"")
+                    .build());
+            Fail.failBecauseExceptionWasNotThrown(
+                    UnsupportedOperationException.class);
+        } catch (UnsupportedOperationException ne) {
+            // expected
+        }
+
+        assertThat(recorder.lastRequest()).isNull();
+        assertThat(blobStore.blobExists(containerName, "blob")).isTrue();
+    }
+
+    /**
+     * Every mutating operation ForwardingBlobStore passes to its delegate
+     * has to be refused here, or the middleware stops meaning anything for
+     * whichever operation was missed -- a conditional delete once reached the
+     * backend of a read-only proxy this way.  Overloads count separately:
+     * two of the three removeBlob spellings were refused and the third was
+     * not.  A new mutating operation fails this until it is refused; a new
+     * read-only one belongs in the set below.
+     */
+    @Test
+    public void testRefusesEveryForwardedMutation() throws Exception {
+        var readOnlyOperations = Set.of(
+                "blobExists", "blobMetadata", "close", "containerExists",
+                "delegate", "getBlob", "getBlobAccess", "getContainerAccess",
+                "getContainerVersioning", "getMinimumMultipartPartSize",
+                "list", "listMultipartUpload", "listMultipartUploads",
+                "listV1", "listVersions", "supportsCopyMultipartPart",
+                "supportsVersioning");
+
+        var missing = new ArrayList<String>();
+        for (Method method : ForwardingBlobStore.class.getDeclaredMethods()) {
+            if (method.isSynthetic() ||
+                    readOnlyOperations.contains(method.getName())) {
+                continue;
+            }
+            try {
+                var unused = ReadOnlyBlobStore.class.getDeclaredMethod(
+                        method.getName(), method.getParameterTypes());
+            } catch (NoSuchMethodException nsme) {
+                missing.add(method.getName() + Arrays.toString(
+                        method.getParameterTypes()));
+            }
+        }
+
+        assertThat(missing).isEmpty();
     }
 
     private static String createRandomContainerName() {

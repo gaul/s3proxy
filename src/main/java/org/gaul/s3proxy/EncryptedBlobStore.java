@@ -56,6 +56,8 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -393,6 +395,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public void removeBlob(String container, String name) {
         name = blobNameWithSuffix(container, name);
         delegate().removeBlob(container, name);
+    }
+
+    @Override
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        return delegate().removeBlob(request.toBuilder()
+                .key(blobNameWithSuffix(request.bucket(), request.key()))
+                .build());
     }
 
     @Override

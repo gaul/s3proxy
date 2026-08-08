@@ -44,6 +44,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -161,6 +163,22 @@ final class EventualBlobStore extends ForwardingBlobStore {
                     return null;
                 }
             });
+    }
+
+    @Override
+    public DeleteObjectResponse removeBlob(final DeleteObjectRequest request) {
+        // The near store holds the freshest state, so it is the one that
+        // judges the condition; the far copy follows unconditionally, as it
+        // does for the plain removal above.
+        DeleteObjectResponse result = writeStore.removeBlob(request);
+        schedule(new Callable<Void>() {
+                @Override
+                public Void call() {
+                    delegate().removeBlob(request.bucket(), request.key());
+                    return null;
+                }
+            });
+        return result;
     }
 
     @Override

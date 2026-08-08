@@ -34,6 +34,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -147,6 +148,32 @@ public final class PrefixBlobStoreTest {
         } finally {
             prefixBlobStore.abortMultipartUpload(mpu);
         }
+    }
+
+    @Test
+    public void testConditionalRemoveBlobUsesPrefix() throws IOException {
+        var recorder = new TestUtils.ConditionalDeleteRecorder(blobStore);
+        BlobStore prefixed = PrefixBlobStore.newPrefixBlobStore(
+                recorder, Map.of(containerName, prefix));
+        ByteSource content = TestUtils.randomByteSource().slice(0, 64);
+        TestUtils.putBlob(blobStore, containerName, prefix + "object.txt",
+                content);
+        TestUtils.putBlob(blobStore, containerName, "object.txt", content);
+
+        prefixed.removeBlob(DeleteObjectRequest.builder()
+                .bucket(containerName)
+                .key("object.txt")
+                .ifMatch("\"etag\"")
+                .build());
+
+        var request = recorder.lastRequest();
+        assertThat(request).isNotNull();
+        assertThat(request.key()).isEqualTo(prefix + "object.txt");
+        assertThat(request.ifMatch()).isEqualTo("\"etag\"");
+        // The object outside the prefix is not this store's to delete.
+        assertThat(blobStore.blobExists(containerName, "object.txt")).isTrue();
+        assertThat(blobStore.blobExists(containerName,
+                prefix + "object.txt")).isFalse();
     }
 
     @Test
