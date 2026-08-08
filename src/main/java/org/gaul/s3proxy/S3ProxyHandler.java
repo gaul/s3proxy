@@ -2899,6 +2899,15 @@ public class S3ProxyHandler {
                     results.add(new DeletedObjectResult(key, versionId,
                             result, null));
                 } catch (AwsServiceException e) {
+                    // One key's failure is that key's to report: DeleteObjects
+                    // answers 200 carrying an Error element per key that could
+                    // not be deleted.  Failing the whole request instead would
+                    // tell a client nothing was deleted while the keys before
+                    // this one already had been -- and the codes worth
+                    // reporting are not a list this can know in advance, since
+                    // they come from the backing service.  LocalStack, for
+                    // one, refuses a version it does not have with
+                    // InvalidArgument where S3 reports NoSuchVersion.
                     String code = S3Exceptions.errorCode(e);
                     String message;
                     if ("NoSuchVersion".equals(code)) {
@@ -2907,13 +2916,19 @@ public class S3ProxyHandler {
                         message = S3ErrorCode.PRECONDITION_FAILED
                                 .getMessage();
                     } else {
-                        throw e;
+                        var details = e.awsErrorDetails();
+                        message = details == null ||
+                                details.errorMessage() == null ?
+                                S3ErrorCode.INTERNAL_ERROR.getMessage() :
+                                details.errorMessage();
                     }
                     results.add(new DeletedObjectResult(key, versionId,
                             null, S3Error.builder()
                                     .key(key)
                                     .versionId(versionId)
-                                    .code(code)
+                                    .code(code == null ?
+                                            S3ErrorCode.INTERNAL_ERROR
+                                                    .getErrorCode() : code)
                                     .message(message)
                                     .build()));
                 }
