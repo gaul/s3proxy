@@ -34,6 +34,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -231,6 +232,18 @@ public interface BlobStore extends AutoCloseable {
     default DeleteObjectResponse removeBlob(String container, String name,
             @Nullable String versionId) {
         throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /**
+     * Deletes only when the request's conditions hold -- If-Match and the
+     * size and last-modified-time forms -- evaluated by the backing
+     * service, which is what makes them atomic.  Only meaningful on a
+     * store whose service deletes conditionally; the default
+     * implementation throws UnsupportedOperationException.
+     */
+    default DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        throw new UnsupportedOperationException(
+                "conditional delete not supported");
     }
 
     /**

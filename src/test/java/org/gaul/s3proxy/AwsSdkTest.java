@@ -698,8 +698,20 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * Whether the backend offers a conditional delete naming an ETag:
+     * aws-s3 evaluates it on the backend and the nio2 stores compare
+     * against their own metadata, except sftp which persists no ETag.
+     */
+    private boolean supportsIfMatchDeletes() {
+        return blobStoreType.equals("aws-s3") ||
+                blobStoreType.equals("filesystem") ||
+                blobStoreType.equals("transient");
+    }
+
     @Test
     public void testConditionalDeleteNotImplemented() throws Exception {
+        assumeTrue(!supportsIfMatchDeletes());
         var key = "testConditionalDelete";
         client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromString("body"));
@@ -727,6 +739,144 @@ public final class AwsSdkTest {
         // the object survived both, and an unconditional delete still works
         client.headObject(b -> b.bucket(containerName).key(key));
         client.deleteObject(b -> b.bucket(containerName).key(key));
+    }
+
+    @Test
+    public void testConditionalDelete() throws Exception {
+        assumeTrue(supportsIfMatchDeletes());
+        var key = "testConditionalDelete";
+        String eTag = client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body")).eTag();
+
+        // a mismatched ETag must not delete the object
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatch("\"badetag\""));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "PreconditionFailed");
+        }
+        client.headObject(b -> b.bucket(containerName).key(key));
+
+        // the matching ETag deletes it
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatch(eTag));
+        try {
+            client.headObject(b -> b.bucket(containerName).key(key));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+
+        // the wildcard matches any existing object
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatch("*"));
+    }
+
+    @Test
+    public void testConditionalDeleteMissingKey() throws Exception {
+        // the emulated model, which the Ceph s3-tests pin: delete stays
+        // idempotent, so an absent object satisfies any condition
+        assumeTrue(supportsIfMatchDeletes() &&
+                Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        var key = "conditional-delete-missing";
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatch("\"badetag\""));
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatch("*"));
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatchSize(9999L));
+    }
+
+    @Test
+    public void testConditionalDeleteSize() throws Exception {
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        var key = "conditional-delete-size";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatchSize(9999L));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+        client.headObject(b -> b.bucket(containerName).key(key));
+
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatchSize(4L));
+        try {
+            client.headObject(b -> b.bucket(containerName).key(key));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    public void testConditionalDeleteLastModifiedTime() throws Exception {
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        var key = "conditional-delete-mtime";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+        Instant mtime = client.headObject(
+                b -> b.bucket(containerName).key(key)).lastModified();
+
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatchLastModifiedTime(Instant.EPOCH));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+        client.headObject(b -> b.bucket(containerName).key(key));
+
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatchLastModifiedTime(mtime));
+        try {
+            client.headObject(b -> b.bucket(containerName).key(key));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    public void testMultiDeleteConditional() throws Exception {
+        assumeTrue(supportsIfMatchDeletes());
+        var key = "multi-delete-conditional";
+        String eTag = client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body")).eTag();
+
+        // the mismatch reports per-key and must not delete the object
+        var mismatch = client.deleteObjects(b -> b.bucket(containerName)
+                .delete(d -> d.objects(ObjectIdentifier.builder().key(key)
+                        .eTag("\"badetag\"").build())));
+        assertThat(mismatch.deleted()).isEmpty();
+        assertThat(mismatch.errors()).hasSize(1);
+        assertThat(mismatch.errors().get(0).key()).isEqualTo(key);
+        assertThat(mismatch.errors().get(0).code()).isEqualTo(
+                "PreconditionFailed");
+        client.headObject(b -> b.bucket(containerName).key(key));
+
+        // the matching ETag deletes it
+        var deleted = client.deleteObjects(b -> b.bucket(containerName)
+                .delete(d -> d.objects(ObjectIdentifier.builder().key(key)
+                        .eTag(eTag).build())));
+        assertThat(deleted.errors()).isEmpty();
+        assertThat(deleted.deleted()).hasSize(1);
+        assertThat(deleted.deleted().get(0).key()).isEqualTo(key);
+        try {
+            client.headObject(b -> b.bucket(containerName).key(key));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+        }
     }
 
     @Test

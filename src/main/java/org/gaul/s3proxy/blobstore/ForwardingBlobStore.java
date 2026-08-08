@@ -36,6 +36,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -154,6 +155,11 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public DeleteObjectResponse removeBlob(String container, String name,
             @Nullable String versionId) {
         return delegate().removeBlob(container, name, versionId);
+    }
+
+    @Override
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        return delegate().removeBlob(request);
     }
 
     @Override

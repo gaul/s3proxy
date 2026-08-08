@@ -16,7 +16,13 @@
 
 package org.gaul.s3proxy;
 
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Collection;
+
+import org.jspecify.annotations.Nullable;
 
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
@@ -29,15 +35,11 @@ record DeleteMultipleObjectsRequest(
 
     record S3Object(
             @JacksonXmlProperty(localName = "Key") String key,
-            // Parsed so handleMultiBlobRemove can reject a version-scoped
-            // delete instead of removing the current object; the value itself
-            // is never used.  The element is VersionId, not VersionID: the
-            // mapper matches case sensitively, so the latter never bound and
-            // every version named here was silently ignored.
+            // The element is VersionId, not VersionID: the mapper matches
+            // case sensitively, so the latter never bound and every version
+            // named here was silently ignored.
             @JacksonXmlProperty(localName = "VersionId") String versionId,
-            // Delete conditions that only directory buckets honor.  Parsed
-            // so handleMultiBlobRemove can reject them instead of deleting
-            // unconditionally; the values themselves are never used.
+            // Delete conditions, evaluated per object.
             @JacksonXmlProperty(localName = "ETag") String eTag,
             @JacksonXmlProperty(localName = "LastModifiedTime")
             String lastModifiedTime,
@@ -50,6 +52,37 @@ record DeleteMultipleObjectsRequest(
         /** "null" names the current object in an unversioned bucket. */
         boolean hasVersion() {
             return versionId != null && !versionId.equals("null");
+        }
+
+        /** The Size condition as a number, or null when absent. */
+        @Nullable
+        Long parsedSize() {
+            if (size == null) {
+                return null;
+            }
+            try {
+                return Long.valueOf(size);
+            } catch (NumberFormatException nfe) {
+                throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L, nfe);
+            }
+        }
+
+        /**
+         * The LastModifiedTime condition as an instant, or null when
+         * absent.  The service model formats this element as rfc822 like
+         * its header twin, not as the ISO 8601 of most XML timestamps.
+         */
+        @Nullable
+        Instant parsedLastModifiedTime() {
+            if (lastModifiedTime == null) {
+                return null;
+            }
+            try {
+                return ZonedDateTime.parse(lastModifiedTime,
+                        DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            } catch (DateTimeParseException dtpe) {
+                throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L, dtpe);
+            }
         }
     }
 }

@@ -34,6 +34,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -120,6 +121,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -278,6 +280,8 @@ public class S3ProxyHandler {
             AwsHttpHeaders.COPY_SOURCE_RANGE,
             AwsHttpHeaders.DATE,
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
+            AwsHttpHeaders.IF_MATCH_LAST_MODIFIED_TIME,
+            AwsHttpHeaders.IF_MATCH_SIZE,
             AwsHttpHeaders.METADATA_DIRECTIVE,
             AwsHttpHeaders.OBJECT_ATTRIBUTES,
             AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
@@ -2591,30 +2595,56 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException {
-        // Only directory buckets delete conditionally.  Reject the condition
-        // rather than honor the delete and discard it, which would report
-        // success for a delete the caller asked not to happen.  The
-        // x-amz-if-match-size and x-amz-if-match-last-modified-time forms
-        // are already refused as unknown x-amz- headers.
-        if (request.getHeader(HttpHeaders.IF_MATCH) != null) {
-            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        Long ifMatchSize = parseIfMatchSize(request);
+        Instant ifMatchTime = parseIfMatchLastModifiedTime(request);
+        boolean hasCondition = ifMatch != null || ifMatchSize != null ||
+                ifMatchTime != null;
+        String blobStoreType = getBlobStoreType(blobStore);
+        if (hasCondition) {
+            checkConditionalDeleteSupport(blobStoreType, ifMatch);
         }
-        if (blobStore.supportsVersioning()) {
+        if (hasCondition && blobStoreType.equals("aws-s3")) {
+            // The backend evaluates the conditions atomically and decides
+            // which it honors: Amazon general purpose buckets take only
+            // If-Match, directory buckets all three.
+            DeleteObjectResponse result = blobStore.removeBlob(
+                    DeleteObjectRequest.builder()
+                            .bucket(containerName)
+                            .key(blobName)
+                            .versionId(request.getParameter("versionId"))
+                            .ifMatch(ifMatch)
+                            .ifMatchSize(ifMatchSize)
+                            .ifMatchLastModifiedTime(ifMatchTime)
+                            .build());
+            addDeleteResultHeaders(response, result);
+        } else if (hasCondition) {
+            // The nio2 stores compare against their own metadata, bounded
+            // by this process like their emulated If-Match put.
+            checkConditionalDelete(blobStore.blobMetadata(containerName,
+                    blobName), ifMatch, ifMatchSize, ifMatchTime);
+            blobStore.removeBlob(containerName, blobName);
+        } else if (blobStore.supportsVersioning()) {
             DeleteObjectResponse result = blobStore.removeBlob(
                     containerName, blobName,
                     request.getParameter("versionId"));
-            String versionId = result.versionId();
-            if (versionId != null) {
-                response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
-            }
-            if (Boolean.TRUE.equals(result.deleteMarker())) {
-                response.addHeader(AwsHttpHeaders.DELETE_MARKER, "true");
-            }
+            addDeleteResultHeaders(response, result);
         } else {
             blobStore.removeBlob(containerName, blobName);
         }
         addCorsResponseHeader(request, response);
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+    }
+
+    private static void addDeleteResultHeaders(HttpServletResponse response,
+            DeleteObjectResponse result) {
+        String versionId = result.versionId();
+        if (versionId != null) {
+            response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
+        }
+        if (Boolean.TRUE.equals(result.deleteMarker())) {
+            response.addHeader(AwsHttpHeaders.DELETE_MARKER, "true");
+        }
     }
 
     /**
@@ -2731,7 +2761,9 @@ public class S3ProxyHandler {
         }
 
         boolean supportsVersioning = blobStore.supportsVersioning();
+        String blobStoreType = getBlobStoreType(blobStore);
         boolean anyVersion = false;
+        boolean anyCondition = false;
         Collection<String> blobNames = new ArrayList<>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects()) {
@@ -2739,7 +2771,13 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
             }
             if (s3Object.hasCondition()) {
-                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+                checkConditionalDeleteSupport(blobStoreType,
+                        s3Object.eTag());
+                // Parse eagerly so a malformed value fails the request
+                // before any key is deleted.
+                s3Object.parsedSize();
+                s3Object.parsedLastModifiedTime();
+                anyCondition = true;
             }
             // On a versioning store even the literal "null" names a version
             // -- the one written while the bucket was unversioned -- so any
@@ -2753,32 +2791,61 @@ public class S3ProxyHandler {
             blobNames.add(s3Object.key());
         }
 
-        // A request naming versions deletes key by key for the per-key
-        // results; one naming none keeps the store's bulk delete, whose
-        // response reports no version information.
+        // A request naming versions or conditions deletes key by key for
+        // the per-key results; one naming neither keeps the store's bulk
+        // delete, whose response reports no version information.
         List<DeletedObjectResult> results = null;
-        if (anyVersion) {
+        if (anyVersion || anyCondition) {
             results = new ArrayList<>();
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
+                String key = s3Object.key();
+                String versionId = s3Object.versionId();
                 try {
-                    DeleteObjectResponse result = blobStore.removeBlob(
-                            containerName, s3Object.key(),
-                            s3Object.versionId());
-                    results.add(new DeletedObjectResult(s3Object.key(),
-                            s3Object.versionId(), result, null));
+                    DeleteObjectResponse result = null;
+                    if (s3Object.hasCondition() &&
+                            !blobStoreType.equals("aws-s3")) {
+                        checkConditionalDelete(
+                                blobStore.blobMetadata(containerName, key),
+                                s3Object.eTag(), s3Object.parsedSize(),
+                                s3Object.parsedLastModifiedTime());
+                        blobStore.removeBlob(containerName, key);
+                    } else if (s3Object.hasCondition()) {
+                        result = blobStore.removeBlob(
+                                DeleteObjectRequest.builder()
+                                        .bucket(containerName)
+                                        .key(key)
+                                        .versionId(versionId)
+                                        .ifMatch(s3Object.eTag())
+                                        .ifMatchSize(s3Object.parsedSize())
+                                        .ifMatchLastModifiedTime(s3Object
+                                                .parsedLastModifiedTime())
+                                        .build());
+                    } else if (supportsVersioning) {
+                        result = blobStore.removeBlob(containerName, key,
+                                versionId);
+                    } else {
+                        blobStore.removeBlob(containerName, key);
+                    }
+                    results.add(new DeletedObjectResult(key, versionId,
+                            result, null));
                 } catch (AwsServiceException e) {
-                    if (!"NoSuchVersion".equals(S3Exceptions.errorCode(e))) {
+                    String code = S3Exceptions.errorCode(e);
+                    String message;
+                    if ("NoSuchVersion".equals(code)) {
+                        message = "The specified version does not exist.";
+                    } else if ("PreconditionFailed".equals(code)) {
+                        message = S3ErrorCode.PRECONDITION_FAILED
+                                .getMessage();
+                    } else {
                         throw e;
                     }
-                    results.add(new DeletedObjectResult(s3Object.key(),
-                            s3Object.versionId(), null,
-                            S3Error.builder()
-                                    .key(s3Object.key())
-                                    .versionId(s3Object.versionId())
-                                    .code("NoSuchVersion")
-                                    .message("The specified version does" +
-                                            " not exist.")
+                    results.add(new DeletedObjectResult(key, versionId,
+                            null, S3Error.builder()
+                                    .key(key)
+                                    .versionId(versionId)
+                                    .code(code)
+                                    .message(message)
                                     .build()));
                 }
             }
@@ -6130,6 +6197,91 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
+    }
+
+    /**
+     * Where a conditional delete can be answered: aws-s3 evaluates the
+     * condition on the backend, and the nio2 stores compare against their
+     * own metadata -- except a condition naming an ETag on sftp, which
+     * persists none to compare against.  Everywhere else the condition is
+     * refused rather than honored by discarding it.
+     */
+    private static void checkConditionalDeleteSupport(String blobStoreType,
+            @Nullable String ifMatch) {
+        if (blobStoreType.equals("aws-s3")) {
+            return;
+        }
+        if (Quirks.NIO2_BACKENDS.contains(blobStoreType) &&
+                !(Quirks.NO_PERSISTED_METADATA.contains(blobStoreType) &&
+                        ifMatch != null && !ifMatch.equals("*"))) {
+            return;
+        }
+        throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                "Conditional deletes are not supported by this backend.");
+    }
+
+    /**
+     * The emulated conditional delete, following Ceph RGW: delete stays
+     * idempotent, so an absent object satisfies any condition and the
+     * conditions only guard an object that exists.  HTTP dates carry whole
+     * seconds, so the stored time is compared at that granularity.
+     */
+    private static void checkConditionalDelete(
+            @Nullable HeadObjectResponse metadata, @Nullable String ifMatch,
+            @Nullable Long ifMatchSize, @Nullable Instant ifMatchTime) {
+        if (metadata == null) {
+            return;
+        }
+        if (ifMatch != null && !ifMatch.equals("*")) {
+            String eTag = metadata.eTag();
+            if (eTag == null || !equalsIgnoringSurroundingQuotes(ifMatch,
+                    maybeQuoteETag(eTag))) {
+                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
+            }
+        }
+        if (ifMatchSize != null &&
+                !ifMatchSize.equals(metadata.contentLength())) {
+            throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
+        }
+        if (ifMatchTime != null) {
+            Instant lastModified = metadata.lastModified();
+            if (lastModified == null ||
+                    !lastModified.truncatedTo(ChronoUnit.SECONDS).equals(
+                            ifMatchTime.truncatedTo(ChronoUnit.SECONDS))) {
+                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
+            }
+        }
+    }
+
+    /** The x-amz-if-match-size header as a number, or null when absent. */
+    @Nullable
+    private static Long parseIfMatchSize(HttpServletRequest request) {
+        String value = request.getHeader(AwsHttpHeaders.IF_MATCH_SIZE);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException nfe) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
+        }
+    }
+
+    /**
+     * The x-amz-if-match-last-modified-time header as an instant, or null
+     * when absent.
+     */
+    @Nullable
+    private static Instant parseIfMatchLastModifiedTime(
+            HttpServletRequest request) {
+        long value;
+        try {
+            value = request.getDateHeader(
+                    AwsHttpHeaders.IF_MATCH_LAST_MODIFIED_TIME);
+        } catch (IllegalArgumentException iae) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, iae);
+        }
+        return value == -1 ? null : Instant.ofEpochMilli(value);
     }
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {

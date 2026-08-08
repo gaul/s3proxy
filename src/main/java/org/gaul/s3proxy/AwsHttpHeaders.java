@@ -45,6 +45,9 @@ final class AwsHttpHeaders {
     static final String DECODED_CONTENT_LENGTH =
             "x-amz-decoded-content-length";
     static final String DELETE_MARKER = "x-amz-delete-marker";
+    static final String IF_MATCH_LAST_MODIFIED_TIME =
+            "x-amz-if-match-last-modified-time";
+    static final String IF_MATCH_SIZE = "x-amz-if-match-size";
     static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
     static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
     static final String REQUEST_ID = "x-amz-request-id";

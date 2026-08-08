@@ -136,7 +136,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * bucket policies
 * bucket policy status
 * bucket replication
-* conditional delete using If-Match, `x-amz-if-match-size` or `x-amz-if-match-last-modified-time`
 * [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration (see below).
 * hosting static websites
 * object lock, including legal hold and retention
@@ -198,6 +197,17 @@ nothing else is writing that key, and a conditional PUT is asked for
 precisely because something might be.  Set
 `s3proxy.aws-s3.conditional-writes=emulated` for an S3-compatible endpoint
 that does not implement conditional writes itself.
+
+`aws-s3` also deletes conditionally on the backend -- `If-Match`,
+`x-amz-if-match-size`, and `x-amz-if-match-last-modified-time`, on
+DeleteObject and DeleteObjects alike -- and the backend decides what it
+honors: Amazon general purpose buckets accept only `If-Match`, directory
+buckets all three.  The `filesystem` and `transient` backends compare all
+three against their own metadata, and `sftp` all but a condition naming
+an ETag, with the same single-process bound as their emulated `If-Match`
+put.  A conditional delete of an absent object succeeds like an
+unconditional one, as Ceph RGW answers it.  Other backends refuse
+conditional deletes.
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
 file (and corresponding ENV variables for Docker):

@@ -404,6 +404,18 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        // The service judges the conditions, so its answer -- including a
+        // 404 for an absent key, unlike the idempotent forms above --
+        // relays verbatim.
+        try {
+            return s3Client.deleteObject(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), request.key());
+        }
+    }
+
+    @Override
     @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         try {
