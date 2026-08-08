@@ -142,7 +142,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * object ownership controls
 * object server-side encryption, see [#402](https://github.com/gaul/s3proxy/issues/402)
 * object tagging
-* object versioning on backends other than aws-s3-sdk, see [#74](https://github.com/gaul/s3proxy/issues/74)
 * paginating ListParts with `part-number-marker`
 * public access block
 * reading a single part of a multipart object with `partNumber`, unless the object has only one part
@@ -170,6 +169,14 @@ Some limitations depend on the storage backend:
 | `max-keys=0` not honored | `azureblob` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
+| no object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74) | `azureblob`, `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
+
+The two backends that do version objects come by it differently.  `aws-s3`
+passes the requests through to a service that already versions, while
+`transient` implements them itself, keeping every version but the current one
+as a hidden object.  `filesystem` shares that implementation and declines it:
+its versions would outlive the process, settling a layout on disk that
+S3Proxy would owe its users from then on.
 
 Two backends copy a part on the server but fall back to streaming it through
 S3Proxy in one case each: `google-cloud-storage` for a range covering less
