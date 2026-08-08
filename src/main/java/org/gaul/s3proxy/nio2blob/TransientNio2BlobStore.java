@@ -30,6 +30,15 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
                 .build()));
     }
 
+    // Helper to create Path
+    private TransientNio2BlobStore(FileSystem fs) {
+        // TODO: close fs?
+        // Use Jimfs's actual root rather than the empty path: Path.startsWith
+        // against the empty path returns false in Jimfs, which would defeat
+        // the path-traversal check in AbstractNio2BlobStore.
+        super(fs.getPath("/"));
+    }
+
     /**
      * Versioning is answered here and refused by the filesystem store, whose
      * versions would have to survive a restart: where this one keeps them is
@@ -40,14 +49,5 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
     @Override
     public boolean supportsVersioning() {
         return true;
-    }
-
-    // Helper to create Path
-    private TransientNio2BlobStore(FileSystem fs) {
-        // TODO: close fs?
-        // Use Jimfs's actual root rather than the empty path: Path.startsWith
-        // against the empty path returns false in Jimfs, which would defeat
-        // the path-traversal check in AbstractNio2BlobStore.
-        super(fs.getPath("/"));
     }
 }

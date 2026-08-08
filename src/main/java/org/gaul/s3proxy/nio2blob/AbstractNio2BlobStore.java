@@ -839,33 +839,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .build();
     }
 
-    /** What a write reports back: its ETag, and its version where kept. */
-    private record PutResult(String eTag, @Nullable String versionId) {
-        /**
-         * The version a write announces.  A suspended container mints the
-         * "null" id, which S3 keeps addressable but does not name in the
-         * response -- there is no version to point a caller at.
-         */
-        @Nullable String reportedVersionId() {
-            return NULL_VERSION_ID.equals(versionId) ? null : versionId;
-        }
-    }
-
-    /**
-     * The current object's metadata, or null where there is no current
-     * object.  A key whose current version is a delete marker has none, and
-     * a conditional write has to read that as absence: {@link #blobMetadata}
-     * reports it as the 404 that a client's GET deserves instead.
-     */
-    @Nullable
-    private HeadObjectResponse currentMetadata(String container, String key) {
-        try {
-            return blobMetadata(container, key);
-        } catch (NoSuchKeyException nske) {
-            return null;
-        }
-    }
-
     /**
      * Stores a blob, optionally assembling it from part files already in the
      * store rather than from the payload stream.  Naming the parts lets the
@@ -1071,6 +1044,33 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } catch (IOException ioe) {
                 logger.debug("unable to delete temp file {}", tmpPath, ioe);
             }
+        }
+    }
+
+    /** What a write reports back: its ETag, and its version where kept. */
+    private record PutResult(String eTag, @Nullable String versionId) {
+        /**
+         * The version a write announces.  A suspended container mints the
+         * "null" id, which S3 keeps addressable but does not name in the
+         * response -- there is no version to point a caller at.
+         */
+        @Nullable String reportedVersionId() {
+            return NULL_VERSION_ID.equals(versionId) ? null : versionId;
+        }
+    }
+
+    /**
+     * The current object's metadata, or null where there is no current
+     * object.  A key whose current version is a delete marker has none, and
+     * a conditional write has to read that as absence: {@link #blobMetadata}
+     * reports it as the 404 that a client's GET deserves instead.
+     */
+    @Nullable
+    private HeadObjectResponse currentMetadata(String container, String key) {
+        try {
+            return blobMetadata(container, key);
+        } catch (NoSuchKeyException nske) {
+            return null;
         }
     }
 
