@@ -110,6 +110,8 @@ tags='not appendobject'\
 ' and not webidentity_test'
 
 backend=""
+# A -k expression for tests a marker cannot describe, empty for most lanes.
+deselect_by_name=""
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     backend="azureblob"
 elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
@@ -119,6 +121,17 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
     tags="${tags} and not fails_on_aws"
+    # The aws-s3 backend passes versioning through to a service that has it,
+    # so run the tests for it here as well as on the transient lane.  This is
+    # the only lane that covers the pass-through path.
+    tags="${tags/ and not versioning/}"
+    # Five threads delete the same versions at once and each expects to have
+    # deleted them all.  LocalStack refuses a version it no longer has, where
+    # S3 counts deleting one that is already gone as a success -- so whether
+    # this passes depends on whether the threads overlap.  Neither expecting
+    # a pass nor expecting a failure describes it, which is what a marker
+    # would have to do.
+    deselect_by_name="not test_versioning_concurrent_multi_object_delete"
 elif [ "${S3PROXY_CONF}" = "s3proxy-filesystem.conf" ] ||
         [ "${S3PROXY_CONF}" = "s3proxy.conf" ]; then
     # s3proxy.conf defaults to the transient backend.
@@ -142,5 +155,10 @@ fi
 # which some terminals and CI runners set -- makes tox reject its own
 # arguments.
 pushd s3-tests
+deselect_args=()
+if [ -n "${deselect_by_name}" ]; then
+    deselect_args=(-k "${deselect_by_name}")
+fi
 env -u FORCE_COLOR tox -- -m "${tags}" --s3proxy-backend="${backend}" \
+        "${deselect_args[@]}" \
         --junitxml="${S3PROXY_JUNIT_XML}" "${TOX_TEST_ARGS[@]}"
