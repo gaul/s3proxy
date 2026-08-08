@@ -104,6 +104,72 @@ public final class ChunkedInputStreamTest {
         }
     }
 
+    /**
+     * Only the zero-length chunk says the body is over, so a stream that
+     * stops before it is one that was cut short rather than one that ended.
+     */
+    @Test
+    public void bodyWithoutItsFinalChunkIsRejected() throws IOException {
+        var out = new ByteArrayOutputStream();
+        appendUnsignedChunk(out, "hello".getBytes(StandardCharsets.UTF_8));
+
+        try (var in = new ChunkedInputStream(new ByteArrayInputStream(
+                out.toByteArray()), MAX_CHUNK_SIZE)) {
+            assertThatThrownBy(in::readAllBytes)
+                    .isInstanceOf(IOException.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
+                    .cause()
+                    .extracting(c -> ((S3ProxyException) c).getError())
+                    .isEqualTo(S3ErrorCode.INCOMPLETE_BODY);
+        }
+    }
+
+    @Test
+    public void chunkShorterThanItsHeaderIsRejected() throws IOException {
+        byte[] body = "20\r\nhello".getBytes(StandardCharsets.UTF_8);
+
+        try (var in = new ChunkedInputStream(new ByteArrayInputStream(body),
+                MAX_CHUNK_SIZE)) {
+            assertThatThrownBy(in::readAllBytes)
+                    .isInstanceOf(IOException.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
+                    .cause()
+                    .extracting(c -> ((S3ProxyException) c).getError())
+                    .isEqualTo(S3ErrorCode.INCOMPLETE_BODY);
+        }
+    }
+
+    /** A body with no framing at all is missing the same chunk. */
+    @Test
+    public void emptyBodyIsRejected() throws IOException {
+        try (var in = new ChunkedInputStream(
+                new ByteArrayInputStream(new byte[0]), MAX_CHUNK_SIZE)) {
+            assertThatThrownBy(in::read)
+                    .isInstanceOf(IOException.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
+                    .cause()
+                    .extracting(c -> ((S3ProxyException) c).getError())
+                    .isEqualTo(S3ErrorCode.INCOMPLETE_BODY);
+        }
+    }
+
+    /**
+     * Reading on past the end must keep answering EOF rather than looking
+     * for another chunk header and finding the stream over.
+     */
+    @Test
+    public void readAfterFinalChunkKeepsReturningEof() throws IOException {
+        byte[] body = unsignedChunked(new byte[][] {
+                "hello".getBytes(StandardCharsets.UTF_8)});
+        try (var in = new ChunkedInputStream(new ByteArrayInputStream(body),
+                MAX_CHUNK_SIZE)) {
+            assertThat(in.readAllBytes()).isEqualTo(
+                    "hello".getBytes(StandardCharsets.UTF_8));
+            assertThat(in.read()).isEqualTo(-1);
+            assertThat(in.read(new byte[4], 0, 4)).isEqualTo(-1);
+        }
+    }
+
     @Test
     public void chunkLargerThanMaxIsRejected() {
         byte[] tooBig = new byte[16];

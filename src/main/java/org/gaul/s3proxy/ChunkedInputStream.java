@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import java.io.EOFException;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,6 +54,9 @@ final class ChunkedInputStream extends FilterInputStream {
      * them. */
     @Nullable private MessageDigest sha256;
     @Nullable private Mac mac;
+    /** Whether the zero-length chunk that ends the body has been read, which
+     * is the only thing that makes end of stream here a complete body. */
+    private boolean finished;
     @Nullable private String currentSignature;
     private final int maxChunkSize;
     @Nullable private final SdkChecksum checksum;
@@ -127,9 +131,18 @@ final class ChunkedInputStream extends FilterInputStream {
     @Override
     public int read() throws IOException {
         while (currentIndex == currentLength) {
-            String line = readLine(in);
-            if (line.equals("")) {
+            if (finished) {
                 return -1;
+            }
+            String line = readLine(in);
+            // A body that stops where the next chunk header belongs is one
+            // the sender did not finish: aws-chunked says it is over with a
+            // zero-length chunk, and without that this cannot tell an upload
+            // that ended from one that was cut short.  Answering EOF here
+            // stores whatever arrived as though it were the whole object.
+            if (line == null || line.isEmpty()) {
+                throw new IOException(new S3ProxyException(
+                        S3ErrorCode.INCOMPLETE_BODY));
             }
             String[] parts = line.split(";", 2);
             if (parts[0].startsWith("x-amz-checksum-")) {
@@ -175,7 +188,13 @@ final class ChunkedInputStream extends FilterInputStream {
                 chunk = new byte[currentLength];
             }
             currentIndex = 0;
-            ByteStreams.readFully(in, chunk, 0, currentLength);
+            try {
+                ByteStreams.readFully(in, chunk, 0, currentLength);
+            } catch (EOFException eofe) {
+                // The chunk header promised bytes the body does not carry.
+                throw new IOException(new S3ProxyException(
+                        S3ErrorCode.INCOMPLETE_BODY, eofe));
+            }
             if (checksum != null) {
                 checksum.update(chunk, 0, currentLength);
             }
@@ -185,16 +204,19 @@ final class ChunkedInputStream extends FilterInputStream {
             if (currentLength == 0) {
                 // AWS aws-chunked sends trailing-headers AFTER the zero-
                 // length chunk, terminated by an empty line.  Drain and
-                // validate them before signaling EOF.
+                // validate them before signaling EOF.  The body is complete
+                // either way by now, so a stream that stops among them is
+                // one missing its terminator rather than one cut short.
                 if (checksum != null) {
                     while (true) {
                         String trailerLine = readLine(in);
-                        if (trailerLine.isEmpty()) {
+                        if (trailerLine == null || trailerLine.isEmpty()) {
                             break;
                         }
                         validateTrailerHash(checksum, trailerLine);
                     }
                 }
+                finished = true;
                 return -1;
             }
             // consume trailing \r\n
@@ -305,8 +327,14 @@ final class ChunkedInputStream extends FilterInputStream {
     /**
      * Read a \r\n terminated line from an InputStream.
      *
-     * @return line without the newline or empty String if InputStream is empty
+     * @return the line without its newline, or null at end of stream.  The
+     *     two are distinct: a line with nothing on it terminates the
+     *     trailing headers, while end of stream means the sender stopped,
+     *     which is only ever complete after the zero-length chunk.  A line
+     *     the stream ends in the middle of is no more complete than none at
+     *     all, so it reads as end of stream too.
      */
+    @Nullable
     private static String readLine(InputStream is) throws IOException {
         var builder = new StringBuilder();
         while (true) {
@@ -319,10 +347,7 @@ final class ChunkedInputStream extends FilterInputStream {
                     throw new IOException("unexpected char after \\r: " + ch);
                 }
             } else if (ch == -1) {
-                if (builder.length() > 0) {
-                    throw new IOException("unexpected end of stream");
-                }
-                break;
+                return null;
             }
             if (builder.length() >= MAX_LINE_LENGTH) {
                 throw new IOException("chunk header too long");

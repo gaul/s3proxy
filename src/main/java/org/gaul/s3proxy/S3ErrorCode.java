@@ -44,6 +44,9 @@ public enum S3ErrorCode {
             "Your proposed upload is smaller than the minimum allowed object" +
             " size. Each part must be at least 5 MB in size, except the last" +
             " part."),
+    INCOMPLETE_BODY(HttpServletResponse.SC_BAD_REQUEST,
+            "You did not provide the number of bytes specified by the" +
+            " Content-Length HTTP header."),
     INTERNAL_ERROR(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
             "An internal error occurred. Try again."),
     INVALID_ACCESS_KEY_ID(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
