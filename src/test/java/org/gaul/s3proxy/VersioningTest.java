@@ -42,9 +42,13 @@ import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
- * Exercises the versioning API end-to-end against a versioned in-memory
- * store: bucket versioning configuration, versioned reads and deletes,
- * delete markers, version listing, and versioned copies.
+ * Exercises the versioning API end-to-end against a versioning store:
+ * bucket versioning configuration, versioned reads and deletes, delete
+ * markers, version listing, and versioned copies.  The transient store
+ * stands in for any of them, which it can since issue #74; before that
+ * these ran against a hand-written stub whose answers were whatever this
+ * file asserted, and which had already drifted from S3 over what a
+ * suspended write reports.
  */
 public final class VersioningTest {
     private BlobStore blobStore;
@@ -54,7 +58,7 @@ public final class VersioningTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        blobStore = new InMemoryVersionedBlobStore();
+        blobStore = TestUtils.createTransientBlobStore();
         containerName = TestUtils.createRandomContainerName();
 
         s3Proxy = S3Proxy.builder()
@@ -397,10 +401,12 @@ public final class VersioningTest {
                 .versioningConfiguration(v -> v.status(
                         BucketVersioningStatus.SUSPENDED)));
 
-        // suspended writes mint the "null" version and replace each other
+        // Suspended writes mint the "null" version and replace each other.
+        // S3 names no version in the response: there is no version to point
+        // the caller at, only the one the next write will replace.
         var put2 = client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromString("two"));
-        assertThat(put2.versionId()).isEqualTo("null");
+        assertThat(put2.versionId()).isNull();
         client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromString("three"));
 
