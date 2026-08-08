@@ -1571,11 +1571,14 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException {
-        // Resolves only the current object; ignoring a versionId would
-        // answer with the wrong version's ACL.
-        checkVersionId(request);
+        // Ignoring a versionId would answer with the wrong version's ACL, so
+        // a store that cannot resolve one refuses the request instead.
+        checkVersionId(request, blobStore);
 
-        ObjectCannedACL access = blobStore.getBlobAccess(containerName, blobName);
+        ObjectCannedACL access = blobStore.supportsVersioning() ?
+                blobStore.getBlobAccess(containerName, blobName,
+                        request.getParameter("versionId")) :
+                blobStore.getBlobAccess(containerName, blobName);
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -1610,9 +1613,9 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException {
-        // Resolves only the current object; ignoring a versionId would
-        // change the wrong version's ACL.
-        checkVersionId(request);
+        // Ignoring a versionId would change the wrong version's ACL, so a
+        // store that cannot resolve one refuses the request instead.
+        checkVersionId(request, blobStore);
 
         ObjectCannedACL access;
 
@@ -1644,7 +1647,12 @@ public class S3ProxyHandler {
             }
         }
 
-        blobStore.setBlobAccess(containerName, blobName, access);
+        if (blobStore.supportsVersioning()) {
+            blobStore.setBlobAccess(containerName, blobName, access,
+                    request.getParameter("versionId"));
+        } else {
+            blobStore.setBlobAccess(containerName, blobName, access);
+        }
         addCorsResponseHeader(request, response);
     }
 

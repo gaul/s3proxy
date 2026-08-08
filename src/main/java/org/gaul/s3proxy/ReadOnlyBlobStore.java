@@ -118,6 +118,12 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public void setBlobAccess(String container, String name,
+            ObjectCannedACL access, @Nullable String versionId) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }

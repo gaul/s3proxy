@@ -196,9 +196,21 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
+    public ObjectCannedACL getBlobAccess(String container, String name,
+            @Nullable String versionId) {
+        return delegate().getBlobAccess(container, name, versionId);
+    }
+
+    @Override
     public void setBlobAccess(String container, String name,
             ObjectCannedACL access) {
         delegate().setBlobAccess(container, name, access);
+    }
+
+    @Override
+    public void setBlobAccess(String container, String name,
+            ObjectCannedACL access, @Nullable String versionId) {
+        delegate().setBlobAccess(container, name, access, versionId);
     }
 
     @Override

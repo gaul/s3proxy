@@ -1751,11 +1751,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final ObjectCannedACL getBlobAccess(String container, String key) {
+        return getBlobAccess(container, key, /*versionId=*/ null);
+    }
+
+    @Override
+    public final ObjectCannedACL getBlobAccess(String container, String key,
+            @Nullable String versionId) {
         var containerPath = requireContainerPath(container);
-        if (!blobExists(container, key)) {
-            throw S3Exceptions.noSuchKey(container, key, "");
-        }
-        var path = resolveBlobPath(containerPath, key);
+        var path = aclPath(container, containerPath, key, versionId);
 
         Set<PosixFilePermission> permissions;
         try {
@@ -1772,14 +1775,45 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     @Override
     public final void setBlobAccess(String container, String key, ObjectCannedACL access) {
+        setBlobAccess(container, key, access, /*versionId=*/ null);
+    }
+
+    @Override
+    public final void setBlobAccess(String container, String key,
+            ObjectCannedACL access, @Nullable String versionId) {
         checkNotReserved(key);
         var containerPath = requireContainerPath(container);
-        if (!blobExists(container, key)) {
+        setBlobAccessHelper(
+                aclPath(container, containerPath, key, versionId), access);
+    }
+
+    /**
+     * The file an ACL request applies to: the version named, or the current
+     * one.  A key with no current object has no access to read or set, which
+     * is a missing key as far as the caller is concerned -- and where the
+     * current version is a delete marker, resolveVersion says so in the
+     * terms S3 uses rather than letting it read as an ordinary absence.
+     */
+    private Path aclPath(String container, Path containerPath, String key,
+            @Nullable String versionId) {
+        var path = resolveBlobPath(containerPath, key);
+        if (!supportsVersioning() ||
+                readContainerStatus(containerPath) == null) {
+            if (versionId != null) {
+                throw new UnsupportedOperationException(
+                        "versioning not supported");
+            }
+            if (!blobExists(container, key)) {
+                throw S3Exceptions.noSuchKey(container, key, "");
+            }
+            return path;
+        }
+        var resolved = resolveVersion(container, containerPath, path, key,
+                versionId);
+        if (resolved == null) {
             throw S3Exceptions.noSuchKey(container, key, "");
         }
-        var path = resolveBlobPath(containerPath, key);
-
-        setBlobAccessHelper(path, access);
+        return resolved.path();
     }
 
     /**

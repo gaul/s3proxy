@@ -284,7 +284,31 @@ public interface BlobStore extends AutoCloseable {
 
     ObjectCannedACL getBlobAccess(String container, String name);
 
+    /**
+     * Reads the access of the version named, or of the current version when
+     * {@code versionId} is null.  Only meaningful on a store that {@link
+     * #supportsVersioning}; the default implementation throws
+     * UnsupportedOperationException, since answering for the current version
+     * instead would report the wrong version's access.
+     */
+    default ObjectCannedACL getBlobAccess(String container, String name,
+            @Nullable String versionId) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
+
     void setBlobAccess(String container, String name, ObjectCannedACL access);
+
+    /**
+     * Sets the access of the version named, or of the current version when
+     * {@code versionId} is null.  Only meaningful on a store that {@link
+     * #supportsVersioning}; the default implementation throws
+     * UnsupportedOperationException, since changing the current version
+     * instead would re-permission the wrong version.
+     */
+    default void setBlobAccess(String container, String name,
+            ObjectCannedACL access, @Nullable String versionId) {
+        throw new UnsupportedOperationException("versioning not supported");
+    }
 
     MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request);

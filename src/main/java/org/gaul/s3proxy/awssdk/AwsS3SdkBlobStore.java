@@ -513,10 +513,17 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public ObjectCannedACL getBlobAccess(String container, String key) {
+        return getBlobAccess(container, key, /*versionId=*/ null);
+    }
+
+    @Override
+    public ObjectCannedACL getBlobAccess(String container, String key,
+            @Nullable String versionId) {
         try {
             var response = s3Client.getObjectAcl(GetObjectAclRequest.builder()
                     .bucket(container)
                     .key(key)
+                    .versionId(versionId)
                     .build());
             return hasAllUsersGrant(response.grants(), Permission.READ) ?
                     ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
@@ -556,11 +563,18 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     @Override
     public void setBlobAccess(String container, String key,
             ObjectCannedACL access) {
+        setBlobAccess(container, key, access, /*versionId=*/ null);
+    }
+
+    @Override
+    public void setBlobAccess(String container, String key,
+            ObjectCannedACL access, @Nullable String versionId) {
         try {
             s3Client.putObjectAcl(PutObjectAclRequest.builder()
                     .bucket(container)
                     .key(key)
                     .acl(access)
+                    .versionId(versionId)
                     .build());
         } catch (S3Exception e) {
             throw propagate(e, container, key);

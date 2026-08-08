@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,9 @@ import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.utils.AttributeMap;
 
 /**
@@ -369,6 +372,48 @@ public final class TransientVersioningTest {
                 .containsExactly("dir/");
         assertThat(rolled.versions().stream().map(v -> v.key()))
                 .containsExactly("top");
+    }
+
+    /** Whether the ACL grants AllUsers READ, which is public-read. */
+    private boolean isPublic(String key, @Nullable String versionId) {
+        return client.getObjectAcl(b -> b.bucket(containerName).key(key)
+                        .versionId(versionId)).grants().stream()
+                .anyMatch(grant -> grant.permission() == Permission.READ &&
+                        grant.grantee().type() == Type.GROUP);
+    }
+
+    /** An ACL belongs to one version, not to the key. */
+    @Test
+    public void testAclAppliesToOneVersion() {
+        enableVersioning();
+        String first = put("blob", FIRST);
+        String second = put("blob", SECOND);
+
+        client.putObjectAcl(b -> b.bucket(containerName).key("blob")
+                .versionId(first).acl("public-read"));
+
+        assertThat(isPublic("blob", first)).isTrue();
+        assertThat(isPublic("blob", second)).isFalse();
+        // naming no version reads and writes the current one
+        assertThat(isPublic("blob", null)).isFalse();
+
+        client.putObjectAcl(b -> b.bucket(containerName).key("blob")
+                .acl("public-read"));
+        assertThat(isPublic("blob", null)).isTrue();
+        assertThat(isPublic("blob", second)).isTrue();
+    }
+
+    @Test
+    public void testAclOfAVersionThatDoesNotExistIsRefused() {
+        enableVersioning();
+        put("blob", FIRST);
+
+        assertThatThrownBy(() -> client.getObjectAcl(b ->
+                b.bucket(containerName).key("blob").versionId("v0000000009")))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).awsErrorDetails().errorCode())
+                        .isEqualTo("NoSuchVersion"));
     }
 
     /** Versions and markers keep a bucket from being deleted, as on S3. */
