@@ -2917,6 +2917,14 @@ public class S3ProxyHandler {
                     // one, refuses a version it does not have with
                     // InvalidArgument where S3 reports NoSuchVersion.
                     String code = S3Exceptions.errorCode(e);
+                    if ("NotImplemented".equals(code)) {
+                        // Not this key's failure but the request's: the
+                        // service does not do what was asked of it, and would
+                        // answer every other key the same way.  Reporting it
+                        // per key would read as though those keys in
+                        // particular could not be deleted.
+                        throw e;
+                    }
                     String message;
                     if ("NoSuchVersion".equals(code)) {
                         message = "The specified version does not exist.";
