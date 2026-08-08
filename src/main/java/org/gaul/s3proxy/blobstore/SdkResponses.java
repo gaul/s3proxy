@@ -93,6 +93,7 @@ public final class SdkResponses {
     @SuppressWarnings("deprecation")
     public static HeadObjectResponse toHead(GetObjectResponse response) {
         return HeadObjectResponse.builder()
+                .bucketKeyEnabled(response.bucketKeyEnabled())
                 .cacheControl(response.cacheControl())
                 .contentDisposition(response.contentDisposition())
                 .contentEncoding(response.contentEncoding())
@@ -103,6 +104,8 @@ public final class SdkResponses {
                 .expires(response.expires())
                 .lastModified(response.lastModified())
                 .metadata(response.metadata())
+                .serverSideEncryption(response.serverSideEncryptionAsString())
+                .ssekmsKeyId(response.ssekmsKeyId())
                 .storageClass(response.storageClassAsString())
                 .versionId(response.versionId())
                 .build();
