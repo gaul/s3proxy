@@ -503,6 +503,24 @@ public class S3ProxyHandler {
         return MULTIPART_STUB_PREFIX + uploadId;
     }
 
+    /**
+     * Refuse a key naming the multipart stub.  That object carries the
+     * Content-Type, user metadata, checksum and ACL that
+     * CompleteMultipartUpload hands the finished object, so a client able to
+     * write another upload's stub -- upload ids are not secret, being what
+     * ListMultipartUploads returns -- decides what that upload publishes; and
+     * since the stub is hidden from list(), whatever it leaves behind cannot
+     * be seen or removed by the bucket's owner.  S3Proxy writes these names
+     * itself, never from a request, so no legitimate request carries one.
+     */
+    private static void checkReservedBlobName(@Nullable String blobName) {
+        if (blobName != null && blobName.startsWith(MULTIPART_STUB_PREFIX)) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "The key " + MULTIPART_STUB_PREFIX +
+                    "... is reserved by S3Proxy.");
+        }
+    }
+
     private static boolean isValidContainer(String containerName) {
         if (containerName == null ||
                 containerName.length() < 3 || containerName.length() > 255 ||
@@ -1033,6 +1051,10 @@ public class S3ProxyHandler {
 
         checkVersionId(request, blobStore);
 
+        if (path.length > 2) {
+            checkReservedBlobName(path[2]);
+        }
+
         String uploadId = request.getParameter("uploadId");
 
         if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
@@ -1307,6 +1329,10 @@ public class S3ProxyHandler {
         }
 
         checkVersionId(request, blobStore);
+
+        if (path.length > 2) {
+            checkReservedBlobName(path[2]);
+        }
 
         switch (method) {
         case "GET" -> {
@@ -2770,6 +2796,9 @@ public class S3ProxyHandler {
             if (Strings.isNullOrEmpty(s3Object.key())) {
                 throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
             }
+            // These keys arrive in the body, not the URI, so they have not
+            // passed the check in doHandle.
+            checkReservedBlobName(s3Object.key());
             if (s3Object.hasCondition()) {
                 checkConditionalDeleteSupport(blobStoreType,
                         s3Object.eTag());
@@ -3458,6 +3487,9 @@ public class S3ProxyHandler {
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
+        // The source names an object in a header rather than the URI, so it
+        // has not passed the check in doHandle either.
+        checkReservedBlobName(sourceBlobName);
         authorizeCopySource(requestIdentity, sourceContainerName,
                 sourceBlobName);
         boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
@@ -3960,6 +3992,9 @@ public class S3ProxyHandler {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
+        // This key comes from the form rather than the URI, so it has not
+        // passed the check in doHandle.
+        checkReservedBlobName(blobName);
 
         // A POST carries no Authorization header -- doHandle routes a request
         // without one here -- so either the policy or the bucket's own
@@ -5402,6 +5437,9 @@ public class S3ProxyHandler {
         }
         String sourceContainerName = path[0];
         String sourceBlobName = path[1];
+        // The source names an object in a header rather than the URI, so it
+        // has not passed the check in doHandle either.
+        checkReservedBlobName(sourceBlobName);
         authorizeCopySource(requestIdentity, sourceContainerName,
                 sourceBlobName);
 

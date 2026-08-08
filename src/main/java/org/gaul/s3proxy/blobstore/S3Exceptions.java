@@ -110,6 +110,20 @@ public final class S3Exceptions {
     }
 
     /**
+     * A 400 saying what about the request was wrong.  A status code alone
+     * would not: the frontend answers a bare 400 with BadDigest, which tells
+     * the caller to retry a request that will never be accepted.
+     */
+    public static S3Exception invalidArgument(String message) {
+        return (S3Exception) S3Exception.builder()
+                .message(message)
+                .statusCode(400)
+                .awsErrorDetails(details(400, "InvalidArgument", message,
+                        Map.of()))
+                .build();
+    }
+
+    /**
      * An error carrying only a status code, which the frontend maps to an
      * S3 error document by status.  Used by backends whose service reported
      * a failure with no S3 error code to pass through.
