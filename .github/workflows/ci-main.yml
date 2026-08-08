@@ -266,10 +266,10 @@ jobs:
           mvn package -DskipTests
 
       - name: Install LocalStack
-        run: docker pull localstack/localstack:4.11.1
+        run: docker pull localstack/localstack:4.14.0
       - name: Start LocalStack
         run: |
-          docker run -d --name localstack -p 4566:4566 localstack/localstack:4.11.1
+          docker run -d --name localstack -p 4566:4566 localstack/localstack:4.14.0
           # Wait for LocalStack to be ready.  Its health endpoint answers
           # before s3 is listed, so wait-for-url.sh is not enough here.
           for i in $(seq 30); do
