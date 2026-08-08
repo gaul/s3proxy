@@ -702,9 +702,11 @@ public final class AwsSdkTest {
      * Whether the backend offers a conditional delete naming an ETag:
      * aws-s3 evaluates it on the backend and the nio2 stores compare
      * against their own metadata, except sftp which persists no ETag.
+     * LocalStack accepts the request and answers NotImplemented itself.
      */
     private boolean supportsIfMatchDeletes() {
-        return blobStoreType.equals("aws-s3") ||
+        return (blobStoreType.equals("aws-s3") &&
+                blobStoreEndpoint.getPort() != LOCALSTACK_PORT) ||
                 blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient");
     }
