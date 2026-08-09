@@ -151,6 +151,11 @@ public final class Blob {
             return this;
         }
 
+        public Builder encryption(@Nullable Encryption encryption) {
+            metadataBuilder.encryption(encryption);
+            return this;
+        }
+
         public Builder userMetadata(Map<String, String> userMetadata) {
             metadataBuilder.userMetadata(userMetadata);
             return this;

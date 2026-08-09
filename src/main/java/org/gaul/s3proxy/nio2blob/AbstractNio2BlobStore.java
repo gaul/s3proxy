@@ -72,6 +72,7 @@ import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
+import org.gaul.s3proxy.blobstore.domain.Encryption;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -90,6 +91,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -156,6 +158,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_VERSION_KEY = "user.version-key";
     private static final String XATTR_DELETE_MARKER = "user.delete-marker";
     private static final String XATTR_VERSIONING = "user.versioning";
+    // The encryption an object rests under, written only by a store that
+    // answers supportsServerSideEncryption().  An object encrypted the way
+    // every unasked-for object is carries none of these: absent algorithm
+    // reads back as the default, so the common case costs no attribute.
+    private static final String XATTR_SSE_ALGORITHM = "user.sse-algorithm";
+    private static final String XATTR_SSE_KMS_KEY_ID = "user.sse-kms-key-id";
+    private static final String XATTR_SSE_KMS_CONTEXT = "user.sse-kms-context";
+    private static final String XATTR_SSE_BUCKET_KEY =
+            "user.sse-bucket-key-enabled";
     /** The version id every write to an unversioned container carries. */
     private static final String NULL_VERSION_ID = "null";
     private static final int UUID_STRING_LENGTH =
@@ -804,6 +815,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .storageClass(storageClass)
                     .container(container)
                     .versionId(versionId)
+                    .encryption(readEncryption(view, attributes))
                     .lastModified(lastModifiedTime);
             if (contentRange != null) {
                 builder.contentRange(contentRange);
@@ -828,14 +840,25 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
         checkNotReserved(request.key());
+        var encryption = requestEncryption(
+                request.serverSideEncryptionAsString(), request.ssekmsKeyId(),
+                request.ssekmsEncryptionContext(), request.bucketKeyEnabled());
         var result = putBlob(request.bucket(),
-                toBlobBuilder(request).payload(payload).build(),
+                toBlobBuilder(request).encryption(encryption).payload(payload)
+                        .build(),
                 SdkRequests.aclOrPrivate(request.acl()),
                 request.ifNoneMatch(),
                 /*parts=*/ null);
         return PutObjectResponse.builder()
                 .eTag(result.eTag())
                 .versionId(result.reportedVersionId())
+                .serverSideEncryption(encryption == null ? null :
+                        encryption.algorithm())
+                .ssekmsKeyId(encryption == null ? null : encryption.kmsKeyId())
+                .ssekmsEncryptionContext(encryption == null ? null :
+                        encryption.kmsContext())
+                .bucketKeyEnabled(encryption == null ? null :
+                        encryption.bucketKeyEnabled())
                 .build();
     }
 
@@ -952,6 +975,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     for (var entry : blob.getMetadata().userMetadata().entrySet()) {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
+                    writeEncryptionAttr(view, blob);
                 } catch (IOException | UnsupportedOperationException e) {
                     logger.debug("xattrs not supported on {}", tmpPath);
                 }
@@ -1199,7 +1223,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } else {
                 builder.userMetadata(blob.getMetadata().userMetadata());
             }
-            var result = putBlob(toContainer, builder.build(),
+            // The copy rests under what it asked for rather than under what
+            // the source rested under, the way S3 encrypts a copy: the
+            // destination is a new object, and only its own request says how.
+            var encryption = requestEncryption(
+                    request.serverSideEncryptionAsString(),
+                    request.ssekmsKeyId(), request.ssekmsEncryptionContext(),
+                    request.bucketKeyEnabled());
+            var result = putBlob(toContainer,
+                    builder.encryption(encryption).build(),
                     SdkRequests.aclOrPrivate(request.acl()),
                     /*ifNoneMatch=*/ null,
                     /*parts=*/ null);
@@ -1210,6 +1242,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .versionId(result.reportedVersionId())
                     .copySourceVersionId(NULL_VERSION_ID.equals(
                             sourceVersionId) ? null : sourceVersionId)
+                    .serverSideEncryption(encryption == null ? null :
+                            encryption.algorithm())
+                    .ssekmsKeyId(encryption == null ? null :
+                            encryption.kmsKeyId())
+                    .ssekmsEncryptionContext(encryption == null ? null :
+                            encryption.kmsContext())
+                    .bucketKeyEnabled(encryption == null ? null :
+                            encryption.bucketKeyEnabled())
                     .build();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1834,11 +1874,48 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // which is the same write putBlob refuses above.
         checkNotReserved(request.key());
         var uploadId = UUID.randomUUID().toString();
+        // The carriers built for this upload's later requests name only the
+        // bucket and key, so the encryption it was created under has to
+        // outlive the create; the stub is where the upload keeps it.
+        var encryption = requestEncryption(
+                request.serverSideEncryptionAsString(), request.ssekmsKeyId(),
+                request.ssekmsEncryptionContext(), request.bucketKeyEnabled());
         // create a stub blob
-        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).build();
+        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).encryption(encryption).build();
         putBlob(request.bucket(), blob, ObjectCannedACL.PRIVATE,
                 /*ifNoneMatch=*/ null, /*parts=*/ null);
-        return new MultipartUpload(uploadId, request);
+        return new MultipartUpload(uploadId, request,
+                encryption == null ? null :
+                        CreateMultipartUploadResponse.builder()
+                                .bucket(request.bucket())
+                                .key(request.key())
+                                .uploadId(uploadId)
+                                .serverSideEncryption(encryption.algorithm())
+                                .ssekmsKeyId(encryption.kmsKeyId())
+                                .ssekmsEncryptionContext(
+                                        encryption.kmsContext())
+                                .bucketKeyEnabled(encryption.bucketKeyEnabled())
+                                .build());
+    }
+
+    /** The encryption an upload was created under, kept on its stub. */
+    @Nullable
+    private Encryption uploadEncryption(MultipartUpload mpu) {
+        if (!supportsServerSideEncryption()) {
+            return null;
+        }
+        // The domain metadata rather than a HEAD response, which has no
+        // field for the KMS context the upload may have named.
+        String stubName = MULTIPART_PREFIX + mpu.id() + "-" +
+                mpu.blobName() + "-stub";
+        var stub = getBlobInternal(mpu.containerName(), stubName,
+                GetObjectRequest.builder()
+                        .bucket(mpu.containerName())
+                        .key(stubName)
+                        .build(),
+                /*openStream=*/ false);
+        return stub == null ? Encryption.forRequest(null, null, null, null) :
+                stub.getMetadata().encryption();
     }
 
     @Override
@@ -1916,6 +1993,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (storageClass != null) {
             blobBuilder.storageClass(storageClass);
         }
+        // The assembled object rests under what the upload was created
+        // under, which the stub has carried since; this request's carrier
+        // names only the bucket and key.
+        var encryption = uploadEncryption(mpu);
+        blobBuilder.encryption(encryption);
 
         // Publishing the assembled object is the write the condition applies
         // to, so hand it to putBlob rather than checking it beforehand.  A
@@ -1951,6 +2033,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return CompleteMultipartUploadResponse.builder()
                 .eTag(mpuETag)
                 .versionId(result.reportedVersionId())
+                .serverSideEncryption(encryption == null ? null :
+                        encryption.algorithm())
+                .ssekmsKeyId(encryption == null ? null : encryption.kmsKeyId())
+                .bucketKeyEnabled(encryption == null ? null :
+                        encryption.bucketKeyEnabled())
                 .build();
     }
 
@@ -1965,7 +2052,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var partETag = putBlob(mpu.containerName(), blob,
                 ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null)
                 .eTag();
-        return SdkResponses.uploadedPart(partETag);
+        var encryption = uploadEncryption(mpu);
+        if (encryption == null) {
+            return SdkResponses.uploadedPart(partETag);
+        }
+        return UploadPartResponse.builder()
+                .eTag(partETag)
+                .serverSideEncryption(encryption.algorithm())
+                .ssekmsKeyId(encryption.kmsKeyId())
+                .bucketKeyEnabled(encryption.bucketKeyEnabled())
+                .build();
     }
 
     @Override
@@ -2241,6 +2337,70 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
+    /**
+     * What a write request's encryption fields come to rest as, or null
+     * where this store does not encrypt -- there the frontend has refused
+     * anything naming them, so the request carries none to record.
+     */
+    @Nullable
+    private Encryption requestEncryption(@Nullable String algorithm,
+            @Nullable String kmsKeyId, @Nullable String kmsContext,
+            @Nullable Boolean bucketKeyEnabled) {
+        return supportsServerSideEncryption() ? Encryption.forRequest(
+                algorithm, kmsKeyId, kmsContext, bucketKeyEnabled) : null;
+    }
+
+    /**
+     * The encryption an object rests under, or null where the store does not
+     * encrypt -- there the frontend has already refused every request naming
+     * any of it, so reporting one would answer a question nobody asked.  An
+     * object written without an algorithm attribute rests under the default,
+     * the way S3 encrypts what nobody asked it to.
+     */
+    @Nullable
+    private Encryption readEncryption(
+            @Nullable UserDefinedFileAttributeView view,
+            Set<String> attributes) throws IOException {
+        if (!supportsServerSideEncryption()) {
+            return null;
+        }
+        if (view == null) {
+            return Encryption.forRequest(null, null, null, null);
+        }
+        var bucketKey = readStringAttributeIfPresent(view, attributes,
+                XATTR_SSE_BUCKET_KEY);
+        var algorithm = readStringAttributeIfPresent(view, attributes,
+                XATTR_SSE_ALGORITHM);
+        return new Encryption(
+                algorithm == null ? Encryption.DEFAULT_ALGORITHM : algorithm,
+                readStringAttributeIfPresent(view, attributes,
+                        XATTR_SSE_KMS_KEY_ID),
+                readStringAttributeIfPresent(view, attributes,
+                        XATTR_SSE_KMS_CONTEXT),
+                bucketKey == null ? null : Boolean.valueOf(bucketKey));
+    }
+
+    /**
+     * Records an object's encryption, writing nothing for the default that
+     * an absent algorithm already reads back as.
+     */
+    private static void writeEncryptionAttr(
+            UserDefinedFileAttributeView view, Blob blob) throws IOException {
+        var encryption = blob.getMetadata().encryption();
+        if (encryption == null || encryption.isDefault()) {
+            return;
+        }
+        writeStringAttributeIfPresent(view, XATTR_SSE_ALGORITHM,
+                encryption.algorithm());
+        writeStringAttributeIfPresent(view, XATTR_SSE_KMS_KEY_ID,
+                encryption.kmsKeyId());
+        writeStringAttributeIfPresent(view, XATTR_SSE_KMS_CONTEXT,
+                encryption.kmsContext());
+        writeStringAttributeIfPresent(view, XATTR_SSE_BUCKET_KEY,
+                encryption.bucketKeyEnabled() == null ? null :
+                        encryption.bucketKeyEnabled().toString());
+    }
+
     // TODO: call in other places
     private static void writeCommonMetadataAttr(UserDefinedFileAttributeView view, Blob blob) throws IOException {
         var metadata = blob.getMetadata().contentMetadata();
@@ -2259,6 +2419,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         for (var entry : blob.getMetadata().userMetadata().entrySet()) {
             writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
         }
+        writeEncryptionAttr(view, blob);
     }
 
     private record XattrState(@Nullable UserDefinedFileAttributeView view,

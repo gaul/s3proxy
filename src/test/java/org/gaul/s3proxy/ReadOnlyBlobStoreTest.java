@@ -148,7 +148,7 @@ public final class ReadOnlyBlobStoreTest {
                 "getContainerVersioning", "getMinimumMultipartPartSize",
                 "list", "listMultipartUpload", "listMultipartUploads",
                 "listV1", "listVersions", "supportsCopyMultipartPart",
-                "supportsVersioning");
+                "supportsServerSideEncryption", "supportsVersioning");
 
         var missing = new ArrayList<String>();
         for (Method method : ForwardingBlobStore.class.getDeclaredMethods()) {

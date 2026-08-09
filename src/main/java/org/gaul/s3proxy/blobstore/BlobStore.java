@@ -295,6 +295,18 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
+     * Whether this store forwards the requests' server-side encryption
+     * fields -- the x-amz-server-side-encryption header family on put,
+     * copy and initiate-multipart -- to a backend that performs the
+     * encryption and reports the outcome on its responses.  The frontend
+     * refuses such requests to any other store up front, rather than
+     * storing plaintext that asked to be encrypted.
+     */
+    default boolean supportsServerSideEncryption() {
+        return false;
+    }
+
+    /**
      * Removes the objects named, reporting each one's outcome the way
      * DeleteObjects does: a Deleted entry naming any marker the delete wrote,
      * or an Error entry carrying the code the store refused it with.  A

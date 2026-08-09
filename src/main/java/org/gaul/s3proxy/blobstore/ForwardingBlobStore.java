@@ -168,6 +168,11 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
+    public boolean supportsServerSideEncryption() {
+        return delegate().supportsServerSideEncryption();
+    }
+
+    @Override
     @Nullable
     public BucketVersioningStatus getContainerVersioning(String container) {
         return delegate().getContainerVersioning(container);
