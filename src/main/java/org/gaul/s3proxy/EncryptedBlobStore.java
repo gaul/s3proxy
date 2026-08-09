@@ -518,7 +518,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
         return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
             .key(blobNameWithSuffix(blobName))
-            .build());
+            .build(),
+            mpu.response());
     }
 
     @Override

@@ -43,7 +43,8 @@ public record BlobMetadata(
         StorageClass storageClass,
         @Nullable String container,
         ContentMetadata contentMetadata,
-        @Nullable String versionId) {
+        @Nullable String versionId,
+        @Nullable Encryption encryption) {
 
     public BlobMetadata {
         userMetadata = ImmutableMap.copyOf(userMetadata);
@@ -55,7 +56,8 @@ public record BlobMetadata(
             @Nullable Date lastModified, StorageClass storageClass,
             @Nullable String container, ContentMetadata contentMetadata) {
         this(name, userMetadata, eTag, lastModified, storageClass,
-                container, contentMetadata, /*versionId=*/ null);
+                container, contentMetadata, /*versionId=*/ null,
+                /*encryption=*/ null);
     }
 
     public @Nullable Long size() {
@@ -75,7 +77,8 @@ public record BlobMetadata(
                 .storageClass(storageClass)
                 .container(container)
                 .contentMetadata(contentMetadata)
-                .versionId(versionId);
+                .versionId(versionId)
+                .encryption(encryption);
     }
 
     public static final class Builder {
@@ -88,6 +91,7 @@ public record BlobMetadata(
         private ContentMetadata contentMetadata =
                 ContentMetadata.builder().build();
         private @Nullable String versionId;
+        private @Nullable Encryption encryption;
 
         private Builder() {
         }
@@ -141,11 +145,16 @@ public record BlobMetadata(
             return this;
         }
 
+        public Builder encryption(@Nullable Encryption encryption) {
+            this.encryption = encryption;
+            return this;
+        }
+
         public BlobMetadata build() {
             return new BlobMetadata(requireNonNull(name, "name"),
                     userMetadata, eTag,
                     lastModified, storageClass, container, contentMetadata,
-                    versionId);
+                    versionId, encryption);
         }
     }
 }

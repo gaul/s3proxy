@@ -487,6 +487,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
+    public boolean supportsServerSideEncryption() {
+        return true;
+    }
+
+    @Override
     @Nullable
     public BucketVersioningStatus getContainerVersioning(String container) {
         try {
@@ -600,7 +605,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             CreateMultipartUploadRequest request) {
         try {
             var response = s3Client.createMultipartUpload(request);
-            return new MultipartUpload(response.uploadId(), request);
+            return new MultipartUpload(response.uploadId(), request, response);
         } catch (S3Exception e) {
             throw propagate(e, request.bucket(), request.key());
         }

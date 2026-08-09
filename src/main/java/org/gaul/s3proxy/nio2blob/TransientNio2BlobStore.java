@@ -50,4 +50,20 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
     public boolean supportsVersioning() {
         return true;
     }
+
+    /**
+     * Server-side encryption is answered here and refused by the filesystem
+     * store, on the same line versioning is drawn.  What this store holds
+     * never rests anywhere a caller could read it: the filesystem it keeps
+     * objects in lives and dies with the process, so an object's encryption
+     * is the header family and nothing else, which is all S3 lets a caller
+     * observe of SSE-S3 anyway.  Bytes written to a real disk are another
+     * matter -- reporting AES256 over plaintext a caller could go and read
+     * would be a claim S3Proxy has no business making -- so the filesystem
+     * store answers those requests NotImplemented instead.
+     */
+    @Override
+    public boolean supportsServerSideEncryption() {
+        return true;
+    }
 }

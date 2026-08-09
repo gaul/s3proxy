@@ -290,6 +290,10 @@ public class S3ProxyHandler {
             AwsHttpHeaders.METADATA_DIRECTIVE,
             AwsHttpHeaders.OBJECT_ATTRIBUTES,
             AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID,
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED,
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT,
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.TRAILER,
             AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
@@ -1078,6 +1082,7 @@ public class S3ProxyHandler {
         }
 
         checkVersionId(request, blobStore);
+        checkServerSideEncryption(request, blobStore);
 
         if (path.length > 2) {
             checkReservedBlobName(path[2]);
@@ -3137,6 +3142,69 @@ public class S3ProxyHandler {
     }
 
     /**
+     * Vet the x-amz-server-side-encryption request family: only a store
+     * that forwards it to a backend performing the encryption may see it,
+     * on any method, as before these headers were understood at all.
+     * SSE-C stays refused everywhere by its headers' absence from
+     * SUPPORTED_X_AMZ_HEADERS -- silently dropping a caller's key would
+     * claim an encryption nobody performed.
+     */
+    private static void checkServerSideEncryption(HttpServletRequest request,
+            BlobStore blobStore) {
+        if (blobStore.supportsServerSideEncryption()) {
+            return;
+        }
+        if (request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION) != null ||
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID) != null ||
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED) != null ||
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CONTEXT) != null) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Server-side encryption is not supported.");
+        }
+    }
+
+    /**
+     * The x-amz-server-side-encryption-bucket-key-enabled request header
+     * as the SDK's Boolean, or null when the request does not state one --
+     * an explicit false and an absent header differ, since only the
+     * former overrides the backend bucket's own configuration.
+     */
+    @Nullable
+    private static Boolean parseBucketKeyEnabled(HttpServletRequest request) {
+        String value = request.getHeader(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED);
+        return value == null ? null : Boolean.valueOf(value);
+    }
+
+    /** Report the encryption the backend answered, field by field. */
+    private static void addServerSideEncryptionHeaders(
+            HttpServletResponse response, @Nullable String algorithm,
+            @Nullable String kmsKeyId, @Nullable String kmsContext,
+            @Nullable Boolean bucketKeyEnabled) {
+        if (algorithm != null) {
+            response.addHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
+                    algorithm);
+        }
+        if (kmsKeyId != null) {
+            response.addHeader(
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID,
+                    kmsKeyId);
+        }
+        if (kmsContext != null) {
+            response.addHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT,
+                    kmsContext);
+        }
+        if (bucketKeyEnabled != null) {
+            response.addHeader(
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED,
+                    bucketKeyEnabled.toString());
+        }
+    }
+
+    /**
      * Vet a partNumber read.  S3 answers with that part of a multipart
      * object, or with the whole object when the object has just one part.
      * s3proxy does not record where the parts ended once the upload
@@ -3626,6 +3694,16 @@ public class S3ProxyHandler {
                     Instant.ofEpochMilli(ifUnmodifiedSince));
         }
 
+        // The destination's encryption, applied whatever the metadata
+        // directive says, as on S3.
+        copyRequest.serverSideEncryption(
+                request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION))
+                .ssekmsKeyId(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID))
+                .ssekmsEncryptionContext(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT))
+                .bucketKeyEnabled(parseBucketKeyEnabled(request));
+
         if (replaceMetadata) {
             copyRequest.metadataDirective(MetadataDirective.REPLACE);
             var userMetadata = ImmutableMap.<String, String>builder();
@@ -3682,6 +3760,11 @@ public class S3ProxyHandler {
         if (destVersionId != null) {
             response.addHeader(AwsHttpHeaders.VERSION_ID, destVersionId);
         }
+        addServerSideEncryptionHeaders(response,
+                copyResult.serverSideEncryptionAsString(),
+                copyResult.ssekmsKeyId(),
+                copyResult.ssekmsEncryptionContext(),
+                copyResult.bucketKeyEnabled());
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -3870,6 +3953,16 @@ public class S3ProxyHandler {
             }
         }
 
+        // Rides verbatim: the backend performs the encryption and judges
+        // the values, and its answer rides back on the response below.
+        putRequest.serverSideEncryption(
+                request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION))
+                .ssekmsKeyId(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID))
+                .ssekmsEncryptionContext(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT))
+                .bucketKeyEnabled(parseBucketKeyEnabled(request));
+
         var contentHeaders = parseContentMetadata(request, checksum,
                 checksumValue);
         putRequest.cacheControl(contentHeaders.cacheControl())
@@ -3896,6 +3989,9 @@ public class S3ProxyHandler {
         if (versionId != null) {
             response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
         }
+        addServerSideEncryptionHeaders(response,
+                result.serverSideEncryptionAsString(), result.ssekmsKeyId(),
+                result.ssekmsEncryptionContext(), result.bucketKeyEnabled());
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
         }
@@ -4380,7 +4476,14 @@ public class S3ProxyHandler {
                 .contentLanguage(contentHeaders.contentLanguage())
                 .contentType(contentHeaders.contentType())
                 .expires(contentHeaders.expires())
-                .metadata(contentHeaders.userMetadata());
+                .metadata(contentHeaders.userMetadata())
+                .serverSideEncryption(
+                        request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION))
+                .ssekmsKeyId(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID))
+                .ssekmsEncryptionContext(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT))
+                .bucketKeyEnabled(parseBucketKeyEnabled(request));
 
         StorageClass parsedStorageClass = null;
         String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
@@ -4465,6 +4568,14 @@ public class S3ProxyHandler {
                     mpuAlgorithm.name());
             response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
                     fullObject ? FULL_OBJECT : COMPOSITE);
+        }
+        var createResponse = mpu.response();
+        if (createResponse != null) {
+            addServerSideEncryptionHeaders(response,
+                    createResponse.serverSideEncryptionAsString(),
+                    createResponse.ssekmsKeyId(),
+                    createResponse.ssekmsEncryptionContext(),
+                    createResponse.bucketKeyEnabled());
         }
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
@@ -4757,6 +4868,16 @@ public class S3ProxyHandler {
         if (completedResult != null && completedResult.versionId() != null) {
             response.addHeader(AwsHttpHeaders.VERSION_ID,
                     completedResult.versionId());
+        }
+        // The asynchronous completion below commits the response before the
+        // outcome is known, so only the synchronous path can report the
+        // encryption -- and a store that supports it always takes it, since
+        // it also supports versioning.
+        if (completedResult != null) {
+            addServerSideEncryptionHeaders(response,
+                    completedResult.serverSideEncryptionAsString(),
+                    completedResult.ssekmsKeyId(), /*kmsContext=*/ null,
+                    completedResult.bucketKeyEnabled());
         }
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
@@ -5709,15 +5830,24 @@ public class S3ProxyHandler {
 
         long contentLength = requireNonNull(blobMetadata.contentLength());
 
+        UploadPartResponse part;
         try (InputStream is = blob) {
-            UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
-                    partNumber, is, contentLength, null);
+            part = blobStore.uploadMultipartPart(mpu, partNumber, is,
+                    contentLength, null);
             eTag = part.eTag();
         }
 
+        // The part was written by the same call a plain part upload uses, so
+        // it rests under the upload's encryption and reports it the same way;
+        // emulating the copy must not lose what the write already answered.
         writeCopyPartResponse(request, response,
                 SdkResponses.copiedPart(eTag, lastModified,
-                        blobMetadata.versionId()));
+                        blobMetadata.versionId()).toBuilder()
+                        .serverSideEncryption(
+                                part.serverSideEncryptionAsString())
+                        .ssekmsKeyId(part.ssekmsKeyId())
+                        .bucketKeyEnabled(part.bucketKeyEnabled())
+                        .build());
     }
 
     private void writeCopyPartResponse(HttpServletRequest request,
@@ -5730,6 +5860,9 @@ public class S3ProxyHandler {
             response.addHeader(AwsHttpHeaders.COPY_SOURCE_VERSION_ID,
                     copySourceVersionId);
         }
+        addServerSideEncryptionHeaders(response,
+                part.serverSideEncryptionAsString(), part.ssekmsKeyId(),
+                /*kmsContext=*/ null, part.bucketKeyEnabled());
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -5852,6 +5985,9 @@ public class S3ProxyHandler {
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
         }
+        addServerSideEncryptionHeaders(response,
+                part.serverSideEncryptionAsString(), part.ssekmsKeyId(),
+                /*kmsContext=*/ null, part.bucketKeyEnabled());
 
         addCorsResponseHeader(request, response);
     }
@@ -5928,6 +6064,10 @@ public class S3ProxyHandler {
         if (storageClass != null) {
             response.addHeader(AwsHttpHeaders.STORAGE_CLASS, storageClass);
         }
+        addServerSideEncryptionHeaders(response,
+                metadata.serverSideEncryptionAsString(),
+                metadata.ssekmsKeyId(), /*kmsContext=*/ null,
+                metadata.bucketKeyEnabled());
         FlexChecksum storedChecksum = null;
         String storedChecksumValue = null;
         for (var entry : metadata.metadata().entrySet()) {

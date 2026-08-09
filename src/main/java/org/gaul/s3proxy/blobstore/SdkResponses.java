@@ -59,7 +59,13 @@ public final class SdkResponses {
     public static GetObjectResponse toGetResponse(BlobMetadata metadata,
             @Nullable String contentRange) {
         var contentMetadata = metadata.contentMetadata();
+        var encryption = metadata.encryption();
         return GetObjectResponse.builder()
+                .serverSideEncryption(encryption == null ? null :
+                        encryption.algorithm())
+                .ssekmsKeyId(encryption == null ? null : encryption.kmsKeyId())
+                .bucketKeyEnabled(encryption == null ? null :
+                        encryption.bucketKeyEnabled())
                 .metadata(metadata.userMetadata())
                 .cacheControl(contentMetadata.cacheControl())
                 .contentDisposition(contentMetadata.contentDisposition())
@@ -93,6 +99,7 @@ public final class SdkResponses {
     @SuppressWarnings("deprecation")
     public static HeadObjectResponse toHead(GetObjectResponse response) {
         return HeadObjectResponse.builder()
+                .bucketKeyEnabled(response.bucketKeyEnabled())
                 .cacheControl(response.cacheControl())
                 .contentDisposition(response.contentDisposition())
                 .contentEncoding(response.contentEncoding())
@@ -103,6 +110,8 @@ public final class SdkResponses {
                 .expires(response.expires())
                 .lastModified(response.lastModified())
                 .metadata(response.metadata())
+                .serverSideEncryption(response.serverSideEncryptionAsString())
+                .ssekmsKeyId(response.ssekmsKeyId())
                 .storageClass(response.storageClassAsString())
                 .versionId(response.versionId())
                 .build();
