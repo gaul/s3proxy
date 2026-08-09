@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HexFormat;
@@ -39,12 +40,15 @@ import java.util.function.Function;
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.rest.PagedResponse;
+import com.azure.core.http.rest.Response;
 import com.azure.core.util.Context;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.BlobServiceVersion;
+import com.azure.storage.blob.batch.BlobBatchClient;
+import com.azure.storage.blob.batch.BlobBatchClientBuilder;
 import com.azure.storage.blob.models.AccessTier;
 import com.azure.storage.blob.models.BlobBeginCopySourceRequestConditions;
 import com.azure.storage.blob.models.BlobErrorCode;
@@ -74,6 +78,7 @@ import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
@@ -101,6 +106,10 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -110,9 +119,11 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
@@ -141,6 +152,9 @@ public final class AzureBlobStore implements BlobStore {
      * suffix and arrives at a condition wearing it.
      */
     private static final String OPAQUE_ETAG_SUFFIX = "-1";
+    private static final int STATUS_NOT_FOUND = 404;
+    /** How many deletes Azure accepts in one batch request. */
+    private static final int MAX_BATCH_DELETES = 256;
     // S3 requires MD5 for ETag and Content-MD5 interoperability.
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
@@ -152,6 +166,7 @@ public final class AzureBlobStore implements BlobStore {
             /*secondaryHost=*/ null);
 
     private final BlobServiceClient blobServiceClient;
+    private final BlobBatchClient blobBatchClient;
     private final BlobServiceAsyncClient blobServiceAsyncClient;
     private final String endpoint;
     private final Supplier<Credentials> creds;
@@ -208,6 +223,8 @@ public final class AzureBlobStore implements BlobStore {
         // fresh IMDS token acquisition on every multipart part upload.
         blobServiceClient = blobServiceClientBuilder.buildClient();
         blobServiceAsyncClient = blobServiceClientBuilder.buildAsyncClient();
+        blobBatchClient = new BlobBatchClientBuilder(blobServiceClient)
+                .buildClient();
     }
 
     /**
@@ -857,11 +874,91 @@ public final class AzureBlobStore implements BlobStore {
         try {
             client.delete();
         } catch (BlobStorageException bse) {
-            if (!bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND) &&
-                    !bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
+            if (!isAbsent(bse)) {
                 throw bse;
             }
         }
+    }
+
+    /**
+     * Deletes the objects a batch at a time, which Azure answers in one
+     * request each -- where the interface default would spend a request per
+     * object.
+     *
+     * <p>A batch that any object refused is asked again one object at a
+     * time: the batch reports a bare status per subrequest, while the single
+     * delete raises the typed failure the frontend turns into that object's
+     * error code.  Refusals are rare, so the second pass is too.
+     */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        var objects = request.delete() == null ? List.<ObjectIdentifier>of() :
+                request.delete().objects();
+        if (objects.isEmpty()) {
+            return DeleteObjectsResponse.builder().build();
+        }
+        var containerClient =
+                blobServiceClient.getBlobContainerClient(request.bucket());
+        var deleted = new ImmutableList.Builder<DeletedObject>();
+        var errors = new ImmutableList.Builder<S3Error>();
+
+        for (List<ObjectIdentifier> chunk :
+                Lists.partition(objects, MAX_BATCH_DELETES)) {
+            var batch = blobBatchClient.getBlobBatch();
+            var responses = new ArrayList<Response<Void>>(chunk.size());
+            for (ObjectIdentifier object : chunk) {
+                // Name the blob by its full URL rather than by container and
+                // name: that overload builds the subrequest path as though
+                // the account were in the hostname, which drops the account
+                // segment of a path-style endpoint like Azurite's.
+                responses.add(batch.deleteBlob(containerClient
+                        .getBlobClient(object.key()).getBlobUrl()));
+            }
+
+            boolean refused = false;
+            try {
+                blobBatchClient.submitBatchWithResponse(batch,
+                        /*throwOnAnyFailure=*/ false, /*timeout=*/ null,
+                        Context.NONE);
+                for (Response<Void> response : responses) {
+                    int status = response.getStatusCode();
+                    // An object already gone satisfies an idempotent delete.
+                    if (status / 100 != 2 && status != STATUS_NOT_FOUND) {
+                        refused = true;
+                        break;
+                    }
+                }
+            } catch (BlobStorageException bse) {
+                // The batch as a whole was refused, so no object was deleted.
+                refused = true;
+            }
+
+            if (refused) {
+                var oneByOne = BlobStore.super.removeBlobs(request.toBuilder()
+                        .delete(Delete.builder().objects(chunk).build())
+                        .build());
+                deleted.addAll(oneByOne.deleted());
+                errors.addAll(oneByOne.errors());
+                continue;
+            }
+            for (ObjectIdentifier object : chunk) {
+                deleted.add(DeletedObject.builder()
+                        .key(object.key())
+                        .build());
+            }
+        }
+
+        return DeleteObjectsResponse.builder()
+                .deleted(deleted.build())
+                .errors(errors.build())
+                .build();
+    }
+
+    /** Whether the failure only says the blob was not there to delete. */
+    private static boolean isAbsent(BlobStorageException bse) {
+        BlobErrorCode code = bse.getErrorCode();
+        return BlobErrorCode.BLOB_NOT_FOUND.equals(code) ||
+                BlobErrorCode.CONTAINER_NOT_FOUND.equals(code);
     }
 
     @Override

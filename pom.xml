@@ -650,13 +650,27 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <version>1.81.0</version>
       <scope>runtime</scope>
     </dependency>
-    <!-- Both Azure artifacts swap the default Netty HTTP transport for the
+    <!-- Each Azure artifact swaps the default Netty HTTP transport for the
          JDK HttpClient one below, dropping Netty, reactor-netty, and
          boringssl natives for five platforms from the assembled jar. -->
     <dependency>
       <groupId>com.azure</groupId>
       <artifactId>azure-storage-blob</artifactId>
       <version>12.35.0</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.azure</groupId>
+          <artifactId>azure-core-http-netty</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- Blob Batch is a separate artifact from azure-storage-blob; this
+         version names that exact one as its own dependency.  It carries the
+         batch delete AzureBlobStore.removeBlobs sends. -->
+    <dependency>
+      <groupId>com.azure</groupId>
+      <artifactId>azure-storage-blob-batch</artifactId>
+      <version>12.31.0</version>
       <exclusions>
         <exclusion>
           <groupId>com.azure</groupId>
