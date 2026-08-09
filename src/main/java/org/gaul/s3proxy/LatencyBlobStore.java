@@ -27,7 +27,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
@@ -54,6 +53,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class LatencyBlobStore extends ForwardingBlobStore {
@@ -257,9 +257,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
+    public UploadPartResponse uploadMultipartPart(MultipartUpload mpu, UploadPartRequest request, InputStream is) {
         simulateLatency(OP_UPLOAD_PART);
-        return super.uploadMultipartPart(mpu, partNumber, new ThrottledInputStream(is, getSpeed(OP_UPLOAD_PART)), contentLength, contentMD5);
+        return super.uploadMultipartPart(mpu, request, new ThrottledInputStream(is, getSpeed(OP_UPLOAD_PART)));
     }
 
     @Override

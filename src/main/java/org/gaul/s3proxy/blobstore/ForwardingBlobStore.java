@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Objects;
 
 import com.google.common.collect.ForwardingObject;
-import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
@@ -51,6 +50,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public abstract class ForwardingBlobStore extends ForwardingObject
@@ -232,10 +232,8 @@ public abstract class ForwardingBlobStore extends ForwardingObject
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
-        return delegate().uploadMultipartPart(mpu, partNumber, is,
-                contentLength, contentMD5);
+            UploadPartRequest request, InputStream is) {
+        return delegate().uploadMultipartPart(mpu, request, is);
     }
 
     @Override

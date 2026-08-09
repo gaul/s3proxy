@@ -18,8 +18,6 @@ package org.gaul.s3proxy;
 
 import java.io.InputStream;
 
-import com.google.common.hash.HashCode;
-
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -41,6 +39,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /** This class is a BlobStore wrapper which prevents mutating operations. */
@@ -148,8 +147,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
+            UploadPartRequest request, InputStream is) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 }

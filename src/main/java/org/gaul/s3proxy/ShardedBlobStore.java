@@ -72,6 +72,7 @@ import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
@@ -547,12 +548,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
+            UploadPartRequest request, InputStream is) {
         if (!this.buckets.containsKey(mpu.containerName())) {
-            return this.delegate()
-                    .uploadMultipartPart(mpu, partNumber, is, contentLength,
-                            contentMD5);
+            return this.delegate().uploadMultipartPart(mpu, request, is);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }

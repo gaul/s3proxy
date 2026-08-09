@@ -16,7 +16,10 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.util.Base64;
 import java.util.List;
+
+import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
@@ -25,6 +28,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 /**
  * Helpers for the SDK request types the {@link BlobStore} SPI consumes.
@@ -57,6 +61,18 @@ public final class SdkRequests {
             @Nullable ObjectCannedACL acl) {
         return acl == ObjectCannedACL.PUBLIC_READ ? acl :
                 ObjectCannedACL.PRIVATE;
+    }
+
+    /**
+     * A part request's Content-MD5 as the bytes it names, or null when the
+     * request carries none.  The frontend has already rejected anything
+     * that does not decode to an MD5.
+     */
+    @Nullable
+    public static HashCode contentMD5(UploadPartRequest request) {
+        String contentMD5 = request.contentMD5();
+        return contentMD5 == null ? null : HashCode.fromBytes(
+                Base64.getDecoder().decode(contentMD5));
     }
 
     /** An unconditional completion request asserting {@code parts}. */

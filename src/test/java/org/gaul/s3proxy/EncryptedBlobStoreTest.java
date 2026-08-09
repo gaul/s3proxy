@@ -108,8 +108,8 @@ public final class EncryptedBlobStoreTest {
         int partNumber = 1;
         for (String part : new String[] {MPU_PART1, MPU_PART2, MPU_PART3}) {
             byte[] bytes = part.getBytes(StandardCharsets.UTF_8);
-            encryptedBlobStore.uploadMultipartPart(mpu, partNumber++,
-                new ByteArrayInputStream(bytes), bytes.length, null);
+            TestUtils.uploadPart(encryptedBlobStore, mpu, partNumber++,
+                new ByteArrayInputStream(bytes), bytes.length);
         }
 
         encryptedBlobStore.completeMultipartUpload(mpu,
@@ -337,12 +337,12 @@ public final class EncryptedBlobStoreTest {
         byte[] bytes2 = contentParts[1].getBytes(StandardCharsets.UTF_8);
         byte[] bytes3 = contentParts[2].getBytes(StandardCharsets.UTF_8);
 
-        encryptedBlobStore.uploadMultipartPart(mpu, 1,
-            new ByteArrayInputStream(bytes1), bytes1.length, null);
-        encryptedBlobStore.uploadMultipartPart(mpu, 2,
-            new ByteArrayInputStream(bytes2), bytes2.length, null);
-        encryptedBlobStore.uploadMultipartPart(mpu, 3,
-            new ByteArrayInputStream(bytes3), bytes3.length, null);
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
+            new ByteArrayInputStream(bytes1), bytes1.length);
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 2,
+            new ByteArrayInputStream(bytes2), bytes2.length);
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 3,
+            new ByteArrayInputStream(bytes3), bytes3.length);
 
         var parts = encryptedBlobStore.listMultipartUpload(mpu);
 
@@ -383,8 +383,8 @@ public final class EncryptedBlobStoreTest {
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
             TestUtils.createRequest(containerName, blobName));
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-        var uploaded = encryptedBlobStore.uploadMultipartPart(mpu, 1,
-            new ByteArrayInputStream(bytes), bytes.length, null);
+        var uploaded = TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
+            new ByteArrayInputStream(bytes), bytes.length);
         var completeRequest = SdkRequests.completeRequest(mpu,
             List.of(TestUtils.completedPart(1, uploaded)));
 
@@ -633,12 +633,12 @@ public final class EncryptedBlobStoreTest {
         byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
         byte[] bytes3 = content3.getBytes(StandardCharsets.UTF_8);
 
-        encryptedBlobStore.uploadMultipartPart(mpu, 1,
-            new ByteArrayInputStream(bytes1), bytes1.length, null);
-        encryptedBlobStore.uploadMultipartPart(mpu, 2,
-            new ByteArrayInputStream(bytes2), bytes2.length, null);
-        encryptedBlobStore.uploadMultipartPart(mpu, 3,
-            new ByteArrayInputStream(bytes3), bytes3.length, null);
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
+            new ByteArrayInputStream(bytes1), bytes1.length);
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 2,
+            new ByteArrayInputStream(bytes2), bytes2.length);
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 3,
+            new ByteArrayInputStream(bytes3), bytes3.length);
 
         var mpus =
             encryptedBlobStore.listMultipartUploads(containerName);

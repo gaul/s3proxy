@@ -24,7 +24,6 @@ import java.util.List;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -646,16 +645,15 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
+            UploadPartRequest request, InputStream is) {
         try (is) {
-            return s3Client.uploadPart(UploadPartRequest.builder()
+            return s3Client.uploadPart(request.toBuilder()
                     .bucket(mpu.containerName())
                     .key(mpu.blobName())
                     .uploadId(mpu.id())
-                    .partNumber(partNumber)
                     .build(),
-                    RequestBody.fromInputStream(is, contentLength));
+                    RequestBody.fromInputStream(is,
+                            request.contentLength()));
         } catch (IOException e) {
             throw new RuntimeException("Failed to upload part", e);
         } catch (S3Exception e) {

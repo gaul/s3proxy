@@ -109,16 +109,14 @@ tags='not appendobject'\
 ' and not versioning'\
 ' and not webidentity_test'
 
-# Admits the SSE-S3 tests on a lane whose store encrypts.  Dropping the tag
-# is not enough on its own: eighteen of the twenty-one tests carry the
-# encryption tag as well, so the expression has to let sse_s3 back through
-# that exclusion rather than lift it.  What the encryption tag covers beyond
-# SSE-S3 stays out, being SSE-C, which s3proxy refuses everywhere by design;
-# so does bucket_encryption, whose tests ask a bucket to encrypt by default
-# -- the unimplemented ?encryption subresource rather than the header family.
-enable_sse_s3_tests() {
+# Admits the server-side encryption tests on a lane whose store encrypts:
+# the sse_s3 tag and the encryption tag whole, whose remainder beyond
+# SSE-S3 is SSE-C, answered now on the same stores.  bucket_encryption
+# stays out, its tests asking a bucket to encrypt by default -- the
+# unimplemented ?encryption subresource rather than the header families.
+enable_sse_tests() {
     tags="${tags/ and not sse_s3/}"
-    tags="${tags/ and not encryption/ and not (encryption and not sse_s3)}"
+    tags="${tags/ and not encryption/}"
     tags="${tags} and not bucket_encryption"
 }
 
@@ -144,9 +142,9 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     # the only lane that covers the pass-through path.
     tags="${tags/ and not versioning/}"
     # The same goes for server-side encryption: LocalStack encrypts, so the
-    # SSE-S3 tests exercise the pass-through here rather than watching a
+    # SSE tests exercise the pass-through here rather than watching a
     # store that cannot encrypt refuse it.
-    enable_sse_s3_tests
+    enable_sse_tests
     # Five threads delete the same versions at once and each expects to have
     # deleted them all.  LocalStack refuses a version it no longer has, where
     # S3 counts deleting one that is already gone as a success -- so whether
@@ -169,11 +167,11 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-filesystem.conf" ] ||
         # would owe its users; there the requests are still 501.
         tags="${tags/ and not versioning/}"
         # Server-side encryption parts the two stores on the same line: the
-        # transient store answers the header family, since what it holds
+        # transient store answers the header families, since what it holds
         # never rests anywhere a caller could read it, while the filesystem
         # store would be reporting AES256 over plaintext on a real disk and
         # answers 501 instead.  So these run here and not below.
-        enable_sse_s3_tests
+        enable_sse_tests
     else
         backend="nio2,filesystem"
     fi

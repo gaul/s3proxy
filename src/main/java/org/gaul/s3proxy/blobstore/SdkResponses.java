@@ -66,6 +66,10 @@ public final class SdkResponses {
                 .ssekmsKeyId(encryption == null ? null : encryption.kmsKeyId())
                 .bucketKeyEnabled(encryption == null ? null :
                         encryption.bucketKeyEnabled())
+                .sseCustomerAlgorithm(encryption == null ? null :
+                        encryption.customerAlgorithm())
+                .sseCustomerKeyMD5(encryption == null ? null :
+                        encryption.customerKeyMD5())
                 .metadata(metadata.userMetadata())
                 .cacheControl(contentMetadata.cacheControl())
                 .contentDisposition(contentMetadata.contentDisposition())
@@ -112,6 +116,8 @@ public final class SdkResponses {
                 .metadata(response.metadata())
                 .serverSideEncryption(response.serverSideEncryptionAsString())
                 .ssekmsKeyId(response.ssekmsKeyId())
+                .sseCustomerAlgorithm(response.sseCustomerAlgorithm())
+                .sseCustomerKeyMD5(response.sseCustomerKeyMD5())
                 .storageClass(response.storageClassAsString())
                 .versionId(response.versionId())
                 .build();

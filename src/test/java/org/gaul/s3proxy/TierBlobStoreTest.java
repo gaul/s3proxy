@@ -78,8 +78,8 @@ public final class TierBlobStoreTest {
         var mpu = tierBlobStore.initiateMultipartUpload(
                 TestUtils.createRequest(containerName, blobName));
 
-        tierBlobStore.uploadMultipartPart(mpu, 1, content.openStream(),
-                content.size(), null);
+        TestUtils.uploadPart(tierBlobStore, mpu, 1, content.openStream(),
+                content.size());
 
         var parts = tierBlobStore.listMultipartUpload(mpu);
         tierBlobStore.completeMultipartUpload(mpu,
@@ -96,8 +96,8 @@ public final class TierBlobStoreTest {
         var mpu = blobStore.initiateMultipartUpload(
                 TestUtils.createRequest(containerName, blobName));
 
-        blobStore.uploadMultipartPart(mpu, 1, content.openStream(),
-                content.size(), null);
+        TestUtils.uploadPart(blobStore, mpu, 1, content.openStream(),
+                content.size());
 
         var parts = blobStore.listMultipartUpload(mpu);
         blobStore.completeMultipartUpload(mpu,

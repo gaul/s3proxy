@@ -36,7 +36,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
@@ -70,6 +69,7 @@ import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 @SuppressWarnings("UnstableApiUsage")
@@ -494,21 +494,24 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-        int partNumber, InputStream is, long contentLength,
-        @Nullable HashCode contentMD5) {
+        UploadPartRequest request, InputStream is) {
 
         mpu = filterMultipartUpload(mpu);
         InputStream encrypted;
         try {
             // pass the stream through the encryption
-            encrypted = new Encryption(secretKey, is, partNumber).openStream();
+            encrypted = new Encryption(secretKey, is, request.partNumber())
+                .openStream();
         } catch (IOException | GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
         // adjust the encrypted content length by adding the padding block
         // size; also drop the MD5 since encryption changes the bytes
-        return delegate().uploadMultipartPart(mpu, partNumber, encrypted,
-            contentLength + Constants.PADDING_BLOCK_SIZE, null);
+        return delegate().uploadMultipartPart(mpu, request.toBuilder()
+            .contentLength(request.contentLength() +
+                Constants.PADDING_BLOCK_SIZE)
+            .contentMD5(null)
+            .build(), encrypted);
     }
 
     private MultipartUpload filterMultipartUpload(MultipartUpload mpu) {

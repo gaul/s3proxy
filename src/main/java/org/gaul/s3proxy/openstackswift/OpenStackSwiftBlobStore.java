@@ -56,6 +56,7 @@ import com.google.common.net.HttpHeaders;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -110,6 +111,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
@@ -1249,12 +1251,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
-        var segment = Blob.builder(mpuSegmentKey(mpu.id(), partNumber))
+            UploadPartRequest request, InputStream is) {
+        var segment = Blob.builder(
+                mpuSegmentKey(mpu.id(), request.partNumber()))
                 .payload(is)
-                .contentLength(contentLength)
-                .contentMD5(contentMD5)
+                .contentLength(request.contentLength())
+                .contentMD5(SdkRequests.contentMD5(request))
                 .build();
         String eTag = putBlobInternal(mpu.containerName(), segment,
                 /*ifNoneMatch=*/ null).eTag();

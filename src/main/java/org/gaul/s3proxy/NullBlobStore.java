@@ -27,7 +27,6 @@ import java.util.Arrays;
 import java.util.List;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.HashCode;
 import com.google.common.io.ByteSource;
 import com.google.common.primitives.Longs;
 
@@ -52,6 +51,7 @@ import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 final class NullBlobStore extends ForwardingBlobStore {
@@ -181,8 +181,14 @@ final class NullBlobStore extends ForwardingBlobStore {
         // Re-initiate a single-part upload holding the logical length.
         MultipartUpload mpu2 = super.initiateMultipartUpload(mpu.request());
 
-        var part = super.uploadMultipartPart(mpu2, 1,
-                new ByteArrayInputStream(array), array.length, null);
+        var part = super.uploadMultipartPart(mpu2, UploadPartRequest.builder()
+                        .bucket(mpu2.containerName())
+                        .key(mpu2.blobName())
+                        .uploadId(mpu2.id())
+                        .partNumber(1)
+                        .contentLength((long) array.length)
+                        .build(),
+                new ByteArrayInputStream(array));
 
         return super.completeMultipartUpload(mpu2,
                 SdkRequests.completeRequest(mpu2, List.of(
@@ -204,8 +210,7 @@ final class NullBlobStore extends ForwardingBlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
+            UploadPartRequest request, InputStream is) {
         long length;
         try (is) {
             length = is.transferTo(OutputStream.nullOutputStream());
@@ -219,13 +224,16 @@ final class NullBlobStore extends ForwardingBlobStore {
         // list and complete will read later
         super.putBlob(PutObjectRequest.builder()
                         .bucket(mpu.containerName())
-                        .key(mpu.id() + "-" + partNumber)
+                        .key(mpu.id() + "-" + request.partNumber())
                         .contentLength((long) array.length)
                         .build(),
                 new ByteArrayInputStream(array));
 
-        return super.uploadMultipartPart(mpu, partNumber,
-                new ByteArrayInputStream(array), array.length, null);
+        return super.uploadMultipartPart(mpu, request.toBuilder()
+                        .contentLength((long) array.length)
+                        .contentMD5(null)
+                        .build(),
+                new ByteArrayInputStream(array));
     }
 
     @Override

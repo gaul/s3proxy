@@ -115,6 +115,23 @@ final class TestUtils {
                 completedParts(parts));
     }
 
+    /** Uploads one part of {@code mpu} with a plain carrier request. */
+    static software.amazon.awssdk.services.s3.model
+            .UploadPartResponse uploadPart(BlobStore blobStore,
+            org.gaul.s3proxy.blobstore.domain.MultipartUpload mpu,
+            int partNumber, InputStream is, long contentLength) {
+        return blobStore.uploadMultipartPart(mpu,
+                software.amazon.awssdk.services.s3.model.UploadPartRequest
+                        .builder()
+                        .bucket(mpu.containerName())
+                        .key(mpu.blobName())
+                        .uploadId(mpu.id())
+                        .partNumber(partNumber)
+                        .contentLength(contentLength)
+                        .build(),
+                is);
+    }
+
     static ByteSource randomByteSource() {
         return randomByteSource(0);
     }

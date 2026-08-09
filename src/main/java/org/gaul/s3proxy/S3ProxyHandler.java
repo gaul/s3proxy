@@ -96,6 +96,7 @@ import org.eclipse.jetty.io.content.InputStreamContentSource;
 import org.eclipse.jetty.util.Promise;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -148,10 +149,12 @@ import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
@@ -283,6 +286,11 @@ public class S3ProxyHandler {
             AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH,
             AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE,
             AwsHttpHeaders.COPY_SOURCE_RANGE,
+            AwsHttpHeaders
+                    .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM,
+            AwsHttpHeaders.COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY,
+            AwsHttpHeaders
+                    .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5,
             AwsHttpHeaders.DATE,
             AwsHttpHeaders.DECODED_CONTENT_LENGTH,
             AwsHttpHeaders.IF_MATCH_LAST_MODIFIED_TIME,
@@ -294,11 +302,30 @@ public class S3ProxyHandler {
             AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID,
             AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED,
             AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT,
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM,
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY,
+            AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5,
             AwsHttpHeaders.STORAGE_CLASS,
             AwsHttpHeaders.TRAILER,
             AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
             AwsHttpHeaders.USER_AGENT
     );
+    /** The request family checkServerSideEncryption vets, whole. */
+    private static final List<String> SERVER_SIDE_ENCRYPTION_HEADERS =
+            List.of(
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID,
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED,
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT,
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM,
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY,
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5,
+                    AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM,
+                    AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY,
+                    AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5);
     private static final Set<String> CANNED_ACLS = Set.of(
             "private",
             "public-read",
@@ -3042,9 +3069,16 @@ public class S3ProxyHandler {
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
             String blobName) throws IOException {
+        checkNoWriteEncryptionHeaders(request);
         var headRequest = HeadObjectRequest.builder()
                 .bucket(containerName)
-                .key(blobName);
+                .key(blobName)
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
         if (blobStore.supportsVersioning()) {
             headRequest.versionId(request.getParameter("versionId"));
         }
@@ -3053,6 +3087,9 @@ public class S3ProxyHandler {
         if (metadata == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
         }
+        // Judged here rather than in the store, whose blobMetadata also
+        // serves the frontend's own bookkeeping reads, which carry no key.
+        enforceCustomerKey(request, metadata.sseCustomerKeyMD5());
         checkPartNumber(request, metadata);
 
         if (checkConditionalHeaders(request, response, metadata)) {
@@ -3142,27 +3179,77 @@ public class S3ProxyHandler {
     }
 
     /**
-     * Vet the x-amz-server-side-encryption request family: only a store
-     * that forwards it to a backend performing the encryption may see it,
-     * on any method, as before these headers were understood at all.
-     * SSE-C stays refused everywhere by its headers' absence from
-     * SUPPORTED_X_AMZ_HEADERS -- silently dropping a caller's key would
-     * claim an encryption nobody performed.
+     * Vet the x-amz-server-side-encryption request family, the customer-key
+     * triple and its copy-source variants included: only a store that
+     * forwards them to a backend performing the encryption -- or performs
+     * it itself -- may see them, on any method, as before these headers
+     * were understood at all.  Silently dropping them would claim an
+     * encryption nobody performed, or read around a key the write named.
      */
     private static void checkServerSideEncryption(HttpServletRequest request,
             BlobStore blobStore) {
-        if (blobStore.supportsServerSideEncryption()) {
+        if (!blobStore.supportsServerSideEncryption()) {
+            for (String header : SERVER_SIDE_ENCRYPTION_HEADERS) {
+                if (request.getHeader(header) != null) {
+                    throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                            "Server-side encryption is not supported.");
+                }
+            }
             return;
         }
+        // Vet what any request may say against itself: an algorithm S3
+        // does not have, or a KMS key under an algorithm that does not
+        // name one, is malformed wherever it lands.  S3 refuses both and
+        // LocalStack accepts them, so the pass-through lane needs the
+        // refusal here to answer as S3 does.
+        String algorithm = request.getHeader(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION);
+        boolean kms = algorithm != null && algorithm.startsWith("aws:kms");
+        if (algorithm != null && !kms && !algorithm.equals("AES256")) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "The encryption algorithm specified is not valid.");
+        }
+        if (!kms && (request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID) != null ||
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CONTEXT) != null)) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "A KMS key or context requires" +
+                    " x-amz-server-side-encryption: aws:kms.");
+        }
+    }
+
+    /**
+     * Judge a caller's read against the customer key its headers present,
+     * from the key MD5 the store reports the object resting under.
+     */
+    private static void enforceCustomerKey(HttpServletRequest request,
+            @Nullable String storedKeyMD5) {
+        CustomerKeys.enforce(storedKeyMD5,
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM),
+                request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY),
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
+    }
+
+    /**
+     * The write-side encryption headers mean nothing on a read -- an
+     * object's encryption is reported, not asked for -- and S3 refuses
+     * them rather than ignoring them.  The customer-key triple is the
+     * exception, being how a read presents the key an object rests under.
+     */
+    private static void checkNoWriteEncryptionHeaders(
+            HttpServletRequest request) {
         if (request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION) != null ||
                 request.getHeader(AwsHttpHeaders
                         .SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID) != null ||
                 request.getHeader(AwsHttpHeaders
-                        .SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED) != null ||
-                request.getHeader(AwsHttpHeaders
                         .SERVER_SIDE_ENCRYPTION_CONTEXT) != null) {
-            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
-                    "Server-side encryption is not supported.");
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                    "Server-side encryption headers do not apply to a" +
+                    " read.");
         }
     }
 
@@ -3179,11 +3266,17 @@ public class S3ProxyHandler {
         return value == null ? null : Boolean.valueOf(value);
     }
 
-    /** Report the encryption the backend answered, field by field. */
+    /**
+     * Report the encryption the backend answered, field by field.  A
+     * customer-key response carries the algorithm and the key's MD5 and
+     * never the key, which S3 does not echo either.
+     */
     private static void addServerSideEncryptionHeaders(
             HttpServletResponse response, @Nullable String algorithm,
             @Nullable String kmsKeyId, @Nullable String kmsContext,
-            @Nullable Boolean bucketKeyEnabled) {
+            @Nullable Boolean bucketKeyEnabled,
+            @Nullable String customerAlgorithm,
+            @Nullable String customerKeyMD5) {
         if (algorithm != null) {
             response.addHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
                     algorithm);
@@ -3201,6 +3294,16 @@ public class S3ProxyHandler {
             response.addHeader(
                     AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED,
                     bucketKeyEnabled.toString());
+        }
+        if (customerAlgorithm != null) {
+            response.addHeader(
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM,
+                    customerAlgorithm);
+        }
+        if (customerKeyMD5 != null) {
+            response.addHeader(
+                    AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5,
+                    customerKeyMD5);
         }
     }
 
@@ -3466,11 +3569,22 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException {
+        checkNoWriteEncryptionHeaders(request);
         if (request.getParameter("partNumber") != null) {
             // needs the ETag to tell a multipart object apart, and the body
             // must not be fetched only to be thrown away on the error path
-            checkPartNumber(request,
-                    blobStore.blobMetadata(containerName, blobName));
+            checkPartNumber(request, blobStore.blobMetadata(
+                    HeadObjectRequest.builder()
+                            .bucket(containerName)
+                            .key(blobName)
+                            .sseCustomerAlgorithm(request.getHeader(
+                                    AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                            .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                            .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                            .build()));
         }
 
         int status = HttpServletResponse.SC_OK;
@@ -3484,6 +3598,13 @@ public class S3ProxyHandler {
 
         getRequest.ifMatch(request.getHeader(HttpHeaders.IF_MATCH));
         getRequest.ifNoneMatch(request.getHeader(HttpHeaders.IF_NONE_MATCH));
+
+        getRequest.sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
 
         long ifModifiedSince = request.getDateHeader(
                 HttpHeaders.IF_MODIFIED_SINCE);
@@ -3536,6 +3657,22 @@ public class S3ProxyHandler {
                 getRequest.build());
         if (blob == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
+        }
+
+        // Judged here rather than in the store, whose reads also serve the
+        // frontend's own bookkeeping -- the stub before a completion, the
+        // ETag before a conditional write -- which reads without a key the
+        // way S3's own internals do.  The aws-s3 backend's service has
+        // already judged, and this recheck of its verdict passes.
+        try {
+            enforceCustomerKey(request, blob.response().sseCustomerKeyMD5());
+        } catch (S3Exception e) {
+            try {
+                blob.close();
+            } catch (IOException ioe) {
+                // The stream is being abandoned; ignore close failures.
+            }
+            throw e;
         }
 
         response.setStatus(status);
@@ -3695,14 +3832,28 @@ public class S3ProxyHandler {
         }
 
         // The destination's encryption, applied whatever the metadata
-        // directive says, as on S3.
+        // directive says, as on S3; the copy-source variants present the
+        // key the source rests under.
         copyRequest.serverSideEncryption(
                 request.getHeader(AwsHttpHeaders.SERVER_SIDE_ENCRYPTION))
                 .ssekmsKeyId(request.getHeader(
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID))
                 .ssekmsEncryptionContext(request.getHeader(
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT))
-                .bucketKeyEnabled(parseBucketKeyEnabled(request));
+                .bucketKeyEnabled(parseBucketKeyEnabled(request))
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                .copySourceSSECustomerAlgorithm(request.getHeader(
+                        AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .copySourceSSECustomerKey(request.getHeader(AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .copySourceSSECustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
 
         if (replaceMetadata) {
             copyRequest.metadataDirective(MetadataDirective.REPLACE);
@@ -3764,7 +3915,9 @@ public class S3ProxyHandler {
                 copyResult.serverSideEncryptionAsString(),
                 copyResult.ssekmsKeyId(),
                 copyResult.ssekmsEncryptionContext(),
-                copyResult.bucketKeyEnabled());
+                copyResult.bucketKeyEnabled(),
+                copyResult.sseCustomerAlgorithm(),
+                copyResult.sseCustomerKeyMD5());
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -3961,7 +4114,13 @@ public class S3ProxyHandler {
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID))
                 .ssekmsEncryptionContext(request.getHeader(
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT))
-                .bucketKeyEnabled(parseBucketKeyEnabled(request));
+                .bucketKeyEnabled(parseBucketKeyEnabled(request))
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
 
         var contentHeaders = parseContentMetadata(request, checksum,
                 checksumValue);
@@ -3991,7 +4150,8 @@ public class S3ProxyHandler {
         }
         addServerSideEncryptionHeaders(response,
                 result.serverSideEncryptionAsString(), result.ssekmsKeyId(),
-                result.ssekmsEncryptionContext(), result.bucketKeyEnabled());
+                result.ssekmsEncryptionContext(), result.bucketKeyEnabled(),
+                result.sseCustomerAlgorithm(), result.sseCustomerKeyMD5());
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
         }
@@ -4353,6 +4513,42 @@ public class S3ProxyHandler {
         if (contentType != null) {
             putRequest.contentType(contentType);
         }
+        // The form's encryption fields ride the way the header family does
+        // on a PUT: the backend performs the encryption and judges the
+        // values.  A store that cannot encrypt refuses them here the way
+        // checkServerSideEncryption refuses the headers, rather than
+        // storing plaintext that asked to be encrypted.
+        String serverSideEncryption = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION);
+        String ssekmsKeyId = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID);
+        String ssekmsContext = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT);
+        String bucketKeyEnabled = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED);
+        String customerAlgorithm = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM);
+        String customerKey = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY);
+        String customerKeyMD5 = fields.get(
+                AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5);
+        if (serverSideEncryption != null || ssekmsKeyId != null ||
+                ssekmsContext != null || bucketKeyEnabled != null ||
+                customerAlgorithm != null || customerKey != null ||
+                customerKeyMD5 != null) {
+            if (!blobStore.supportsServerSideEncryption()) {
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                        "Server-side encryption is not supported.");
+            }
+            putRequest.serverSideEncryption(serverSideEncryption)
+                    .ssekmsKeyId(ssekmsKeyId)
+                    .ssekmsEncryptionContext(ssekmsContext)
+                    .bucketKeyEnabled(bucketKeyEnabled == null ? null :
+                            Boolean.valueOf(bucketKeyEnabled))
+                    .sseCustomerAlgorithm(customerAlgorithm)
+                    .sseCustomerKey(customerKey)
+                    .sseCustomerKeyMD5(customerKeyMD5);
+        }
         var userMetadata = new TreeMap<String, String>();
         for (var entry : fields.entrySet()) {
             if (entry.getKey().startsWith(USER_METADATA_PREFIX)) {
@@ -4381,6 +4577,10 @@ public class S3ProxyHandler {
         if (versionId != null) {
             response.addHeader(AwsHttpHeaders.VERSION_ID, versionId);
         }
+        addServerSideEncryptionHeaders(response,
+                result.serverSideEncryptionAsString(), result.ssekmsKeyId(),
+                result.ssekmsEncryptionContext(), result.bucketKeyEnabled(),
+                result.sseCustomerAlgorithm(), result.sseCustomerKeyMD5());
 
         // A browser posting a form has nowhere to display a response body, so
         // the form says where to send the user instead.  The redirect wins
@@ -4483,7 +4683,13 @@ public class S3ProxyHandler {
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID))
                 .ssekmsEncryptionContext(request.getHeader(
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CONTEXT))
-                .bucketKeyEnabled(parseBucketKeyEnabled(request));
+                .bucketKeyEnabled(parseBucketKeyEnabled(request))
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
 
         StorageClass parsedStorageClass = null;
         String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
@@ -4575,7 +4781,9 @@ public class S3ProxyHandler {
                     createResponse.serverSideEncryptionAsString(),
                     createResponse.ssekmsKeyId(),
                     createResponse.ssekmsEncryptionContext(),
-                    createResponse.bucketKeyEnabled());
+                    createResponse.bucketKeyEnabled(),
+                    createResponse.sseCustomerAlgorithm(),
+                    createResponse.sseCustomerKeyMD5());
         }
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
@@ -4842,6 +5050,14 @@ public class S3ProxyHandler {
                         .build())
                 .ifMatch(completeIfMatch)
                 .ifNoneMatch(completeIfNoneMatch)
+                // The completion must present the create-time customer key
+                // again, as every part did.
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
                 .build();
 
         // A conditional completion has to finish before anything is sent: the
@@ -4874,10 +5090,18 @@ public class S3ProxyHandler {
         // encryption -- and a store that supports it always takes it, since
         // it also supports versioning.
         if (completedResult != null) {
+            // The SDK's completion response models no customer-key fields,
+            // so their echo comes from the request: a completion that
+            // presented a key and reached this line rests under it, the
+            // store having refused every other combination.
             addServerSideEncryptionHeaders(response,
                     completedResult.serverSideEncryptionAsString(),
                     completedResult.ssekmsKeyId(), /*kmsContext=*/ null,
-                    completedResult.bucketKeyEnabled());
+                    completedResult.bucketKeyEnabled(),
+                    request.getHeader(AwsHttpHeaders
+                            .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM),
+                    request.getHeader(AwsHttpHeaders
+                            .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
         }
         try (PrintWriter writer = response.getWriter()) {
             response.setStatus(HttpServletResponse.SC_OK);
@@ -5647,7 +5871,13 @@ public class S3ProxyHandler {
         var getRequest = GetObjectRequest.builder()
                 .bucket(sourceContainerName)
                 .key(sourceBlobName)
-                .versionId(sourceVersionId);
+                .versionId(sourceVersionId)
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         String rawCopySourceRange = range;
         long expectedSize = -1;
@@ -5725,6 +5955,15 @@ public class S3ProxyHandler {
                                 .bucket(sourceContainerName)
                                 .key(sourceBlobName)
                                 .versionId(sourceVersionId)
+                                .sseCustomerAlgorithm(request.getHeader(
+                                        AwsHttpHeaders
+                                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                                .sseCustomerKey(request.getHeader(
+                                        AwsHttpHeaders
+                                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                                .sseCustomerKeyMD5(request.getHeader(
+                                        AwsHttpHeaders
+                                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
                                 .build());
                 if (sourceMetadata == null) {
                     throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
@@ -5756,6 +5995,20 @@ public class S3ProxyHandler {
                     .copySourceIfUnmodifiedSince(
                             nativeIfUnmodifiedSince == -1 ? null :
                             Instant.ofEpochMilli(nativeIfUnmodifiedSince))
+                    .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                            .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                    .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                            .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                    .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                            .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                    .copySourceSSECustomerAlgorithm(request.getHeader(
+                            AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                    .copySourceSSECustomerKey(request.getHeader(AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                    .copySourceSSECustomerKeyMD5(request.getHeader(
+                            AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
                     .build();
             UploadPartCopyResponse part;
             try {
@@ -5778,6 +6031,25 @@ public class S3ProxyHandler {
         }
 
         GetObjectResponse blobMetadata = blob.response();
+        // The source answers only to the key the copy-source headers
+        // present, judged here for the store that answers the family
+        // itself; the aws-s3 backend's service judged the read already.
+        try {
+            CustomerKeys.enforce(blobMetadata.sseCustomerKeyMD5(),
+                    request.getHeader(AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM),
+                    request.getHeader(AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY),
+                    request.getHeader(AwsHttpHeaders
+                            .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
+        } catch (S3Exception se) {
+            try {
+                blob.close();
+            } catch (IOException ioe) {
+                // The stream is being abandoned; ignore close failures.
+            }
+            throw se;
+        }
         String eTag = blobMetadata.eTag();
         Date lastModified = blobMetadata.lastModified() == null ? null :
                 Date.from(blobMetadata.lastModified());
@@ -5832,8 +6104,23 @@ public class S3ProxyHandler {
 
         UploadPartResponse part;
         try (InputStream is = blob) {
-            part = blobStore.uploadMultipartPart(mpu, partNumber, is,
-                    contentLength, null);
+            part = blobStore.uploadMultipartPart(mpu,
+                    UploadPartRequest.builder()
+                            .bucket(containerName)
+                            .key(blobName)
+                            .uploadId(uploadId)
+                            .partNumber(partNumber)
+                            .contentLength(contentLength)
+                            .sseCustomerAlgorithm(request.getHeader(
+                                    AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                            .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                            .sseCustomerKeyMD5(request.getHeader(
+                                    AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                            .build(),
+                    is);
             eTag = part.eTag();
         }
 
@@ -5847,6 +6134,8 @@ public class S3ProxyHandler {
                                 part.serverSideEncryptionAsString())
                         .ssekmsKeyId(part.ssekmsKeyId())
                         .bucketKeyEnabled(part.bucketKeyEnabled())
+                        .sseCustomerAlgorithm(part.sseCustomerAlgorithm())
+                        .sseCustomerKeyMD5(part.sseCustomerKeyMD5())
                         .build());
     }
 
@@ -5862,7 +6151,8 @@ public class S3ProxyHandler {
         }
         addServerSideEncryptionHeaders(response,
                 part.serverSideEncryptionAsString(), part.ssekmsKeyId(),
-                /*kmsContext=*/ null, part.bucketKeyEnabled());
+                /*kmsContext=*/ null, part.bucketKeyEnabled(),
+                part.sseCustomerAlgorithm(), part.sseCustomerKeyMD5());
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -5976,7 +6266,21 @@ public class S3ProxyHandler {
                 uploadId);
 
         UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
-                partNumber, is, contentLength, contentMD5);
+                UploadPartRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .uploadId(uploadId)
+                        .partNumber(partNumber)
+                        .contentLength(contentLength)
+                        .contentMD5(contentMD5String)
+                        .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                        .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                        .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                        .build(),
+                is);
 
         if (part.eTag() != null) {
             response.addHeader(HttpHeaders.ETAG,
@@ -5987,7 +6291,8 @@ public class S3ProxyHandler {
         }
         addServerSideEncryptionHeaders(response,
                 part.serverSideEncryptionAsString(), part.ssekmsKeyId(),
-                /*kmsContext=*/ null, part.bucketKeyEnabled());
+                /*kmsContext=*/ null, part.bucketKeyEnabled(),
+                part.sseCustomerAlgorithm(), part.sseCustomerKeyMD5());
 
         addCorsResponseHeader(request, response);
     }
@@ -6067,7 +6372,9 @@ public class S3ProxyHandler {
         addServerSideEncryptionHeaders(response,
                 metadata.serverSideEncryptionAsString(),
                 metadata.ssekmsKeyId(), /*kmsContext=*/ null,
-                metadata.bucketKeyEnabled());
+                metadata.bucketKeyEnabled(),
+                metadata.sseCustomerAlgorithm(),
+                metadata.sseCustomerKeyMD5());
         FlexChecksum storedChecksum = null;
         String storedChecksumValue = null;
         for (var entry : metadata.metadata().entrySet()) {

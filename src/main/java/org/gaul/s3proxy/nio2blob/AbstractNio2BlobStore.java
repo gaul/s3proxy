@@ -68,6 +68,7 @@ import com.google.common.primitives.Longs;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
+import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -114,6 +115,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public abstract class AbstractNio2BlobStore implements BlobStore {
@@ -167,6 +169,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_SSE_KMS_CONTEXT = "user.sse-kms-context";
     private static final String XATTR_SSE_BUCKET_KEY =
             "user.sse-bucket-key-enabled";
+    // A customer-key object keeps the key's MD5 and never the key: enough
+    // to recognize the key when a later request presents it, and no more
+    // than S3 itself echoes on responses.
+    private static final String XATTR_SSE_C_ALGORITHM =
+            "user.sse-c-algorithm";
+    private static final String XATTR_SSE_C_KEY_MD5 = "user.sse-c-key-md5";
     /** The version id every write to an unversioned container carries. */
     private static final String NULL_VERSION_ID = "null";
     private static final int UUID_STRING_LENGTH =
@@ -842,7 +850,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         checkNotReserved(request.key());
         var encryption = requestEncryption(
                 request.serverSideEncryptionAsString(), request.ssekmsKeyId(),
-                request.ssekmsEncryptionContext(), request.bucketKeyEnabled());
+                request.ssekmsEncryptionContext(), request.bucketKeyEnabled(),
+                request.sseCustomerAlgorithm(), request.sseCustomerKey(),
+                request.sseCustomerKeyMD5());
         var result = putBlob(request.bucket(),
                 toBlobBuilder(request).encryption(encryption).payload(payload)
                         .build(),
@@ -859,6 +869,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         encryption.kmsContext())
                 .bucketKeyEnabled(encryption == null ? null :
                         encryption.bucketKeyEnabled())
+                .sseCustomerAlgorithm(encryption == null ? null :
+                        encryption.customerAlgorithm())
+                .sseCustomerKeyMD5(encryption == null ? null :
+                        encryption.customerKeyMD5())
                 .build();
     }
 
@@ -1157,6 +1171,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // failing check still closes the file InputStream returned by
         // getBlob.
         try (var is = requireNonNull(blob.getPayload())) {
+            // Reading the source is a read like any other: it answers only
+            // to the key it rests under, presented in the copy-source
+            // variants of the customer-key headers.
+            var sourceEncryption = blob.getMetadata().encryption();
+            CustomerKeys.enforce(sourceEncryption == null ? null :
+                            sourceEncryption.customerKeyMD5(),
+                    request.copySourceSSECustomerAlgorithm(),
+                    request.copySourceSSECustomerKey(),
+                    request.copySourceSSECustomerKeyMD5());
             var eTag = blob.getMetadata().eTag();
             String ifMatch = request.copySourceIfMatch();
             String ifNoneMatch = request.copySourceIfNoneMatch();
@@ -1229,7 +1252,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             var encryption = requestEncryption(
                     request.serverSideEncryptionAsString(),
                     request.ssekmsKeyId(), request.ssekmsEncryptionContext(),
-                    request.bucketKeyEnabled());
+                    request.bucketKeyEnabled(),
+                    request.sseCustomerAlgorithm(),
+                    request.sseCustomerKey(),
+                    request.sseCustomerKeyMD5());
             var result = putBlob(toContainer,
                     builder.encryption(encryption).build(),
                     SdkRequests.aclOrPrivate(request.acl()),
@@ -1250,6 +1276,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             encryption.kmsContext())
                     .bucketKeyEnabled(encryption == null ? null :
                             encryption.bucketKeyEnabled())
+                    .sseCustomerAlgorithm(encryption == null ? null :
+                            encryption.customerAlgorithm())
+                    .sseCustomerKeyMD5(encryption == null ? null :
+                            encryption.customerKeyMD5())
                     .build();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1879,7 +1909,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // outlive the create; the stub is where the upload keeps it.
         var encryption = requestEncryption(
                 request.serverSideEncryptionAsString(), request.ssekmsKeyId(),
-                request.ssekmsEncryptionContext(), request.bucketKeyEnabled());
+                request.ssekmsEncryptionContext(), request.bucketKeyEnabled(),
+                request.sseCustomerAlgorithm(), request.sseCustomerKey(),
+                request.sseCustomerKeyMD5());
         // create a stub blob
         var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).encryption(encryption).build();
         putBlob(request.bucket(), blob, ObjectCannedACL.PRIVATE,
@@ -1895,6 +1927,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                                 .ssekmsEncryptionContext(
                                         encryption.kmsContext())
                                 .bucketKeyEnabled(encryption.bucketKeyEnabled())
+                                .sseCustomerAlgorithm(
+                                        encryption.customerAlgorithm())
+                                .sseCustomerKeyMD5(
+                                        encryption.customerKeyMD5())
                                 .build());
     }
 
@@ -1995,8 +2031,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         // The assembled object rests under what the upload was created
         // under, which the stub has carried since; this request's carrier
-        // names only the bucket and key.
+        // names only the bucket and key.  The completion must present the
+        // create-time customer key again, as every part did.
         var encryption = uploadEncryption(mpu);
+        enforceUploadCustomerKey(encryption, request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         blobBuilder.encryption(encryption);
 
         // Publishing the assembled object is the write the condition applies
@@ -2042,17 +2081,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final UploadPartResponse uploadMultipartPart(MultipartUpload mpu, int partNumber, InputStream is, long contentLength, @Nullable HashCode contentMD5) {
-        var partName = multipartPartName(mpu.id(), mpu.blobName(), partNumber);
+    public final UploadPartResponse uploadMultipartPart(MultipartUpload mpu, UploadPartRequest request, InputStream is) {
+        // Judge the part's key against the upload's before taking the
+        // bytes, the way the create-time request was judged.
+        var encryption = uploadEncryption(mpu);
+        enforceUploadCustomerKey(encryption, request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
+        var partName = multipartPartName(mpu.id(), mpu.blobName(), request.partNumber());
         var blob = Blob.builder(partName)
                 .payload(is)
-                .contentLength(contentLength)
-                .contentMD5(contentMD5)
+                .contentLength(requireNonNull(request.contentLength()))
+                .contentMD5(SdkRequests.contentMD5(request))
                 .build();
         var partETag = putBlob(mpu.containerName(), blob,
                 ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null)
                 .eTag();
-        var encryption = uploadEncryption(mpu);
         if (encryption == null) {
             return SdkResponses.uploadedPart(partETag);
         }
@@ -2061,6 +2104,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .serverSideEncryption(encryption.algorithm())
                 .ssekmsKeyId(encryption.kmsKeyId())
                 .bucketKeyEnabled(encryption.bucketKeyEnabled())
+                .sseCustomerAlgorithm(encryption.customerAlgorithm())
+                .sseCustomerKeyMD5(encryption.customerKeyMD5())
                 .build();
     }
 
@@ -2340,14 +2385,86 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     /**
      * What a write request's encryption fields come to rest as, or null
      * where this store does not encrypt -- there the frontend has refused
-     * anything naming them, so the request carries none to record.
+     * anything naming them, so the request carries none to record.  A
+     * request naming a customer key is vetted here, since this store is
+     * the backend that judges it.
      */
     @Nullable
     private Encryption requestEncryption(@Nullable String algorithm,
             @Nullable String kmsKeyId, @Nullable String kmsContext,
-            @Nullable Boolean bucketKeyEnabled) {
-        return supportsServerSideEncryption() ? Encryption.forRequest(
-                algorithm, kmsKeyId, kmsContext, bucketKeyEnabled) : null;
+            @Nullable Boolean bucketKeyEnabled,
+            @Nullable String customerAlgorithm, @Nullable String customerKey,
+            @Nullable String customerKeyMD5) {
+        if (!supportsServerSideEncryption()) {
+            return null;
+        }
+        if (customerAlgorithm != null || customerKey != null ||
+                customerKeyMD5 != null) {
+            if (algorithm != null) {
+                throw S3Exceptions.invalidArgument("Server side encryption" +
+                        " specified with both SSE-C and SSE-S3 headers.");
+            }
+            return CustomerKeys.vet(customerAlgorithm, customerKey,
+                    customerKeyMD5);
+        }
+        // Judge the SSE-S3/KMS fields against each other the way S3 does:
+        // a KMS key makes sense only under aws:kms, and aws:kms names a
+        // key or nothing at all.
+        if (Encryption.KMS_ALGORITHM.equals(algorithm)) {
+            if (kmsKeyId == null) {
+                throw S3Exceptions.invalidArgument("Server side encryption" +
+                        " with aws:kms requires" +
+                        " x-amz-server-side-encryption-aws-kms-key-id.");
+            }
+        } else {
+            if (algorithm != null &&
+                    !Encryption.DEFAULT_ALGORITHM.equals(algorithm)) {
+                throw S3Exceptions.invalidArgument("The encryption" +
+                        " algorithm specified is not valid.");
+            }
+            if (kmsKeyId != null || kmsContext != null) {
+                throw S3Exceptions.invalidArgument("A KMS key or context" +
+                        " requires x-amz-server-side-encryption: aws:kms.");
+            }
+        }
+        return Encryption.forRequest(algorithm, kmsKeyId, kmsContext,
+                bucketKeyEnabled);
+    }
+
+    /**
+     * Judges an upload's later requests -- each part, and the completion
+     * -- against the key the upload was created under.  S3 requires the
+     * create-time key presented again on every one and answers 400 to
+     * anything else.
+     */
+    private static void enforceUploadCustomerKey(
+            @Nullable Encryption uploadEncryption,
+            @Nullable String customerAlgorithm, @Nullable String customerKey,
+            @Nullable String customerKeyMD5) {
+        String storedKeyMD5 = uploadEncryption == null ? null :
+                uploadEncryption.customerKeyMD5();
+        if (storedKeyMD5 == null) {
+            if (customerAlgorithm != null || customerKey != null ||
+                    customerKeyMD5 != null) {
+                throw S3Exceptions.invalidRequest("The encryption" +
+                        " parameters are not applicable to this upload.");
+            }
+            return;
+        }
+        if (customerAlgorithm == null && customerKey == null &&
+                customerKeyMD5 == null) {
+            throw S3Exceptions.invalidRequest("The multipart upload was" +
+                    " created using a form of Server Side Encryption.  The" +
+                    " correct parameters must be provided.");
+        }
+        var presented = CustomerKeys.vet(customerAlgorithm, customerKey,
+                customerKeyMD5);
+        if (!CustomerKeys.matches(storedKeyMD5,
+                presented.customerKeyMD5())) {
+            throw S3Exceptions.invalidArgument("The provided customer key" +
+                    " does not match the key the multipart upload was" +
+                    " created with.");
+        }
     }
 
     /**
@@ -2367,6 +2484,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (view == null) {
             return Encryption.forRequest(null, null, null, null);
         }
+        var customerKeyMD5 = readStringAttributeIfPresent(view, attributes,
+                XATTR_SSE_C_KEY_MD5);
+        if (customerKeyMD5 != null) {
+            var customerAlgorithm = readStringAttributeIfPresent(view,
+                    attributes, XATTR_SSE_C_ALGORITHM);
+            return Encryption.forCustomerKey(customerAlgorithm == null ?
+                    Encryption.DEFAULT_ALGORITHM : customerAlgorithm,
+                    customerKeyMD5);
+        }
         var bucketKey = readStringAttributeIfPresent(view, attributes,
                 XATTR_SSE_BUCKET_KEY);
         var algorithm = readStringAttributeIfPresent(view, attributes,
@@ -2377,7 +2503,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         XATTR_SSE_KMS_KEY_ID),
                 readStringAttributeIfPresent(view, attributes,
                         XATTR_SSE_KMS_CONTEXT),
-                bucketKey == null ? null : Boolean.valueOf(bucketKey));
+                bucketKey == null ? null : Boolean.valueOf(bucketKey),
+                /*customerAlgorithm=*/ null, /*customerKeyMD5=*/ null);
     }
 
     /**
@@ -2399,6 +2526,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         writeStringAttributeIfPresent(view, XATTR_SSE_BUCKET_KEY,
                 encryption.bucketKeyEnabled() == null ? null :
                         encryption.bucketKeyEnabled().toString());
+        writeStringAttributeIfPresent(view, XATTR_SSE_C_ALGORITHM,
+                encryption.customerAlgorithm());
+        writeStringAttributeIfPresent(view, XATTR_SSE_C_KEY_MD5,
+                encryption.customerKeyMD5());
     }
 
     // TODO: call in other places
