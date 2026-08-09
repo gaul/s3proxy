@@ -159,10 +159,10 @@ public final class NullBlobStoreTest {
                 0, nullBlobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
                 nullBlobStore.getMinimumMultipartPartSize(), 1);
-        var part1 = nullBlobStore.uploadMultipartPart(mpu, 1,
-                byteSource1.openStream(), byteSource1.size(), null);
-        var part2 = nullBlobStore.uploadMultipartPart(mpu, 2,
-                byteSource2.openStream(), byteSource2.size(), null);
+        var part1 = TestUtils.uploadPart(nullBlobStore, mpu, 1,
+                byteSource1.openStream(), byteSource1.size());
+        var part2 = TestUtils.uploadPart(nullBlobStore, mpu, 2,
+                byteSource2.openStream(), byteSource2.size());
 
         var parts = nullBlobStore.listMultipartUpload(mpu);
         assertThat(parts.get(0).partNumber()).isEqualTo(1);
@@ -211,10 +211,10 @@ public final class NullBlobStoreTest {
                 0, nullBlobStore.getMinimumMultipartPartSize());
         ByteSource byteSource2 = byteSource.slice(
                 nullBlobStore.getMinimumMultipartPartSize(), 1);
-        nullBlobStore.uploadMultipartPart(initiated, 1,
-                byteSource1.openStream(), byteSource1.size(), null);
-        nullBlobStore.uploadMultipartPart(initiated, 2,
-                byteSource2.openStream(), byteSource2.size(), null);
+        TestUtils.uploadPart(nullBlobStore, initiated, 1,
+                byteSource1.openStream(), byteSource1.size());
+        TestUtils.uploadPart(nullBlobStore, initiated, 2,
+                byteSource2.openStream(), byteSource2.size());
         var parts = nullBlobStore.listMultipartUpload(
                 initiated);
 

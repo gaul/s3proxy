@@ -125,8 +125,8 @@ public final class PrefixBlobStoreTest {
         assertThat(mpu.containerName()).isEqualTo(containerName);
         assertThat(mpu.blobName()).isEqualTo("archive.bin");
 
-        var part = prefixBlobStore.uploadMultipartPart(
-                mpu, 1, content.openStream(), content.size(), null);
+        var part = TestUtils.uploadPart(prefixBlobStore,
+                mpu, 1, content.openStream(), content.size());
         prefixBlobStore.completeMultipartUpload(mpu,
                 SdkRequests.completeRequest(mpu,
                         List.of(TestUtils.completedPart(1, part))));

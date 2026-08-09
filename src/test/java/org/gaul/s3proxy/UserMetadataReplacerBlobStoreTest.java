@@ -159,8 +159,8 @@ public final class UserMetadataReplacerBlobStoreTest {
                 TestUtils.createRequest(containerName, blobName).toBuilder()
                         .metadata(Map.of("my-key", "my-value-"))
                         .build());
-        var part = userMetadataReplacerBlobStore.uploadMultipartPart(
-                mpu, 1, content.openStream(), content.size(), null);
+        var part = TestUtils.uploadPart(userMetadataReplacerBlobStore,
+                mpu, 1, content.openStream(), content.size());
         userMetadataReplacerBlobStore.completeMultipartUpload(mpu,
                 SdkRequests.completeRequest(mpu,
                         List.of(TestUtils.completedPart(1, part))));

@@ -79,7 +79,6 @@ import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashingInputStream;
@@ -128,6 +127,7 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class AzureBlobStore implements BlobStore {
@@ -1316,8 +1316,10 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5) {
+            UploadPartRequest request, InputStream is) {
+        int partNumber = request.partNumber();
+        long contentLength = request.contentLength();
+        var contentMD5 = SdkRequests.contentMD5(request);
 
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(

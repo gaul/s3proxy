@@ -30,7 +30,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -64,6 +63,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
@@ -408,8 +408,7 @@ public final class RemoveBlobsTest {
 
         @Override
         public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-                int partNumber, InputStream payload, long contentLength,
-                @Nullable HashCode contentMD5) {
+                UploadPartRequest request, InputStream payload) {
             throw new UnsupportedOperationException();
         }
 

@@ -140,7 +140,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * hosting static websites
 * object lock, including legal hold and retention
 * object ownership controls
-* object server-side encryption with a customer-provided key (SSE-C), see [#402](https://github.com/gaul/s3proxy/issues/402)
 * object tagging
 * paginating ListParts with `part-number-marker`
 * public access block
@@ -180,13 +179,18 @@ its versions would outlive the process, settling a layout on disk that
 S3Proxy would owe its users from then on.
 
 Server-side encryption divides the same two from the rest, and divides the
-two nio2 stores on the same line.  `aws-s3` forwards the header family to a
-service that encrypts, while `transient` answers it itself: what it holds
-rests in a filesystem that dies with the process, so an object's encryption
-is the headers and nothing besides, which is all S3 lets a caller observe of
-SSE-S3 anyway.  `filesystem` writes to a real disk, where reporting AES256
-over plaintext someone could go and read would be a claim S3Proxy has no
-business making, so it refuses those headers instead.
+two nio2 stores on the same line.  `aws-s3` forwards the header families --
+SSE-S3, SSE-KMS and SSE-C alike -- to a service that encrypts, while
+`transient` answers them itself: what it holds rests in a filesystem that
+dies with the process, so an object's encryption is the headers and nothing
+besides, which is all S3 lets a caller observe of SSE-S3 anyway.  SSE-C has
+an observable half beyond the headers -- an object stored under a customer's
+key answers only to that key -- and `transient` enforces it, keeping the
+key's MD5 and never the key.  Unlike S3, S3Proxy accepts SSE-C over plain
+HTTP, its TLS commonly terminating elsewhere.  `filesystem` writes to a real
+disk, where reporting AES256 over plaintext someone could go and read would
+be a claim S3Proxy has no business making, so it refuses every one of these
+headers instead.
 
 Two backends copy a part on the server but fall back to streaming it through
 S3Proxy in one case each: `google-cloud-storage` for a range covering less

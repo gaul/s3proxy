@@ -152,9 +152,9 @@ public final class EventualBlobStoreTest {
                         .contentType(MediaType.MP4_AUDIO.toString())
                         .metadata(Map.of("key", "value"))
                         .build());
-        var part = eventualBlobStore.uploadMultipartPart(mpu,
+        var part = TestUtils.uploadPart(eventualBlobStore, mpu,
                 /*partNumber=*/ 1, BYTE_SOURCE.openStream(),
-                BYTE_SOURCE.size(), null);
+                BYTE_SOURCE.size());
         eventualBlobStore.completeMultipartUpload(mpu,
                 SdkRequests.completeRequest(mpu,
                         List.of(TestUtils.completedPart(1, part))));

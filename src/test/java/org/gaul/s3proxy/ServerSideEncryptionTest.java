@@ -65,6 +65,13 @@ public final class ServerSideEncryptionTest {
     private static final String KMS_CONTEXT = Base64.getEncoder()
             .encodeToString("{\"purpose\":\"testing\"}"
                     .getBytes(StandardCharsets.UTF_8));
+    /** Two customer keys, alike in everything but their bytes. */
+    private static final byte[] KEY_A =
+            "0123456789abcdef0123456789abcdef"
+                    .getBytes(StandardCharsets.UTF_8);
+    private static final byte[] KEY_B =
+            "fedcba9876543210fedcba9876543210"
+                    .getBytes(StandardCharsets.UTF_8);
 
     @TempDir
     private Path root;
@@ -317,6 +324,17 @@ public final class ServerSideEncryptionTest {
                 HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(501);
 
+        // The customer-key family is refused the same way: silently
+        // dropping it would read around a key the caller presented.
+        response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(uri)
+                        .header("x-amz-server-side-encryption-customer-" +
+                                "algorithm", "AES256")
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(501);
+
         response = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(uri).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -324,27 +342,280 @@ public final class ServerSideEncryptionTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
-    public void testCustomerKeysStayRefused() throws Exception {
-        // SSE-C stays out even on a store that encrypts: dropping the
-        // caller's key would claim an encryption nobody performed.
-        startEncrypting();
+    public void testCustomerKeysRefusedWhereBackendCannot() throws Exception {
+        startRefusing();
 
-        byte[] key = "0123456789abcdef0123456789abcdef"
-                .getBytes(StandardCharsets.UTF_8);
         assertRefused(() -> client.putObject(
                 b -> b.bucket(containerName).key("blob")
                         .sseCustomerAlgorithm("AES256")
-                        .sseCustomerKey(Base64.getEncoder()
-                                .encodeToString(key))
-                        .sseCustomerKeyMD5(Base64.getEncoder().encodeToString(
-                                Hashing.md5().hashBytes(key).asBytes())),
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
                 RequestBody.fromString("payload")));
     }
 
+    @Test
+    public void testCustomerKeyRoundTrip() throws Exception {
+        startEncrypting();
+
+        // The object rests under the caller's key and reports the key's
+        // MD5 rather than an algorithm in x-amz-server-side-encryption:
+        // SSE-C and SSE-S3 exclude each other on responses as on requests.
+        var put = client.putObject(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        assertThat(put.serverSideEncryption()).isNull();
+        assertThat(put.sseCustomerAlgorithm()).isEqualTo("AES256");
+        assertThat(put.sseCustomerKeyMD5()).isEqualTo(keyMD5(KEY_A));
+
+        var head = client.headObject(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(head.serverSideEncryption()).isNull();
+        assertThat(head.sseCustomerAlgorithm()).isEqualTo("AES256");
+        assertThat(head.sseCustomerKeyMD5()).isEqualTo(keyMD5(KEY_A));
+
+        var get = client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(get.response().serverSideEncryption()).isNull();
+        assertThat(get.response().sseCustomerAlgorithm())
+                .isEqualTo("AES256");
+        assertThat(get.response().sseCustomerKeyMD5())
+                .isEqualTo(keyMD5(KEY_A));
+        assertThat(get.asUtf8String()).isEqualTo("payload");
+    }
+
+    @Test
+    public void testCustomerKeyAnswersOnlyToItself() throws Exception {
+        startEncrypting();
+        client.putObject(b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+
+        // Reading without the key is a request the object cannot answer,
+        // and reading with another key is one it must not.
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")));
+        assertStatus(400, () -> client.headObject(
+                b -> b.bucket(containerName).key("blob")));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_B))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B))));
+
+        // An object resting under no key refuses any key offered.
+        client.putObject(b -> b.bucket(containerName).key("plain"),
+                RequestBody.fromString("payload"));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("plain")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))));
+    }
+
+    @Test
+    public void testCustomerKeyVetted() throws Exception {
+        startEncrypting();
+
+        // An MD5 that is not the key's.
+        assertStatus(400, () -> client.putObject(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B)),
+                RequestBody.fromString("payload")));
+        // A key shorter than 256 bits.
+        assertStatus(400, () -> client.putObject(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(Base64.getEncoder().encodeToString(
+                                "short".getBytes(StandardCharsets.UTF_8)))
+                        .sseCustomerKeyMD5(keyMD5(
+                                "short".getBytes(StandardCharsets.UTF_8))),
+                RequestBody.fromString("payload")));
+        // An algorithm with no key to go with it.
+        assertStatus(400, () -> client.putObject(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256"),
+                RequestBody.fromString("payload")));
+        // Both modes at once.
+        assertStatus(400, () -> client.putObject(
+                b -> b.bucket(containerName).key("blob")
+                        .serverSideEncryption(ServerSideEncryption.AES256)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload")));
+
+        // Nothing above may have stored anything readable.
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName))
+                .contents()).isEmpty();
+    }
+
+    @Test
+    public void testCustomerKeyCopy() throws Exception {
+        startEncrypting();
+        client.putObject(b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+
+        // Reading the source needs its key; the destination rests under
+        // its own, named in the plain variants of the same headers.
+        assertStatus(400, () -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("copy")));
+        assertStatus(400, () -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("copy")
+                .copySourceSSECustomerAlgorithm("AES256")
+                .copySourceSSECustomerKey(encodeKey(KEY_B))
+                .copySourceSSECustomerKeyMD5(keyMD5(KEY_B))));
+
+        var copy = client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("copy")
+                .copySourceSSECustomerAlgorithm("AES256")
+                .copySourceSSECustomerKey(encodeKey(KEY_A))
+                .copySourceSSECustomerKeyMD5(keyMD5(KEY_A))
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(encodeKey(KEY_B))
+                .sseCustomerKeyMD5(keyMD5(KEY_B)));
+        assertThat(copy.sseCustomerAlgorithm()).isEqualTo("AES256");
+        assertThat(copy.sseCustomerKeyMD5()).isEqualTo(keyMD5(KEY_B));
+
+        var get = client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("copy")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_B))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B)));
+        assertThat(get.asUtf8String()).isEqualTo("payload");
+
+        // A copy asking for no encryption rests under the default, which
+        // any later read may have without a key.
+        client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("decrypted")
+                .copySourceSSECustomerAlgorithm("AES256")
+                .copySourceSSECustomerKey(encodeKey(KEY_A))
+                .copySourceSSECustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("decrypted"))
+                .asUtf8String()).isEqualTo("payload");
+    }
+
+    @Test
+    public void testCustomerKeyMultipart() throws Exception {
+        startEncrypting();
+
+        var create = client.createMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(create.serverSideEncryption()).isNull();
+        assertThat(create.sseCustomerAlgorithm()).isEqualTo("AES256");
+        assertThat(create.sseCustomerKeyMD5()).isEqualTo(keyMD5(KEY_A));
+
+        // Every part must present the create-time key again, and any
+        // other request is malformed rather than merely denied.
+        assertStatus(400, () -> client.uploadPart(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId()).partNumber(1),
+                RequestBody.fromString("payload")));
+        assertStatus(400, () -> client.uploadPart(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId()).partNumber(1)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_B))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B)),
+                RequestBody.fromString("payload")));
+
+        var part = client.uploadPart(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId()).partNumber(1)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        assertThat(part.sseCustomerAlgorithm()).isEqualTo("AES256");
+        assertThat(part.sseCustomerKeyMD5()).isEqualTo(keyMD5(KEY_A));
+
+        // A part copied in needs the create-time key like an uploaded one,
+        // before any bytes move.
+        client.putObject(b -> b.bucket(containerName).key("src"),
+                RequestBody.fromString("payload"));
+        assertStatus(400, () -> client.uploadPartCopy(b -> b
+                .sourceBucket(containerName).sourceKey("src")
+                .destinationBucket(containerName).destinationKey("mpu")
+                .uploadId(create.uploadId()).partNumber(2)));
+
+        // The completion must present the create-time key again, as every
+        // part did; the object then answers only to that key.
+        assertStatus(400, () -> client.completeMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId())
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(CompletedPart.builder()
+                                        .partNumber(1)
+                                        .eTag(part.eTag())
+                                        .build())
+                                .build())));
+        client.completeMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId())
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(CompletedPart.builder()
+                                        .partNumber(1)
+                                        .eTag(part.eTag())
+                                        .build())
+                                .build())
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("mpu")));
+        var get = client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("mpu")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(get.response().sseCustomerAlgorithm())
+                .isEqualTo("AES256");
+        assertThat(get.response().sseCustomerKeyMD5())
+                .isEqualTo(keyMD5(KEY_A));
+        assertThat(get.asUtf8String()).isEqualTo("payload");
+    }
+
+    private static String encodeKey(byte[] key) {
+        return Base64.getEncoder().encodeToString(key);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static String keyMD5(byte[] key) {
+        return Base64.getEncoder().encodeToString(
+                Hashing.md5().hashBytes(key).asBytes());
+    }
+
     private static void assertRefused(ThrowingCallable callable) {
+        assertStatus(501, callable);
+    }
+
+    private static void assertStatus(int status, ThrowingCallable callable) {
         assertThatThrownBy(callable)
                 .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(501));
+                        e -> assertThat(e.statusCode()).isEqualTo(status));
     }
 }

@@ -39,6 +39,12 @@ final class AwsHttpHeaders {
     static final String COPY_SOURCE_IF_UNMODIFIED_SINCE =
             "x-amz-copy-source-if-unmodified-since";
     static final String COPY_SOURCE_RANGE = "x-amz-copy-source-range";
+    static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM =
+            "x-amz-copy-source-server-side-encryption-customer-algorithm";
+    static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY =
+            "x-amz-copy-source-server-side-encryption-customer-key";
+    static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5 =
+            "x-amz-copy-source-server-side-encryption-customer-key-md5";
     static final String COPY_SOURCE_VERSION_ID =
             "x-amz-copy-source-version-id";
     static final String DATE = "x-amz-date";
@@ -60,6 +66,12 @@ final class AwsHttpHeaders {
             "x-amz-server-side-encryption-bucket-key-enabled";
     static final String SERVER_SIDE_ENCRYPTION_CONTEXT =
             "x-amz-server-side-encryption-context";
+    static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM =
+            "x-amz-server-side-encryption-customer-algorithm";
+    static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY =
+            "x-amz-server-side-encryption-customer-key";
+    static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5 =
+            "x-amz-server-side-encryption-customer-key-md5";
     static final String STORAGE_CLASS = "x-amz-storage-class";
     static final String TRAILER = "x-amz-trailer";
     static final String TRANSFER_ENCODING = "x-amz-te";

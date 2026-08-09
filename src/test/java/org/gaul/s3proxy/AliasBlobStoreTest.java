@@ -129,8 +129,8 @@ public final class AliasBlobStoreTest {
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 TestUtils.createRequest(aliasContainerName, blobName));
         assertThat(mpu.containerName()).isEqualTo(aliasContainerName);
-        var part = aliasBlobStore.uploadMultipartPart(
-                mpu, 1, content.openStream(), content.size(), null);
+        var part = TestUtils.uploadPart(aliasBlobStore,
+                mpu, 1, content.openStream(), content.size());
         assertThat(part.eTag()).isEqualTo(contentHash.toString());
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
                 SdkRequests.completeRequest(mpu,
@@ -172,8 +172,8 @@ public final class AliasBlobStoreTest {
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 TestUtils.createRequest(aliasContainerName, blobName));
-        aliasBlobStore.uploadMultipartPart(
-                mpu, 1, content.openStream(), content.size(), null);
+        TestUtils.uploadPart(aliasBlobStore,
+                mpu, 1, content.openStream(), content.size());
 
         var parts = aliasBlobStore.listMultipartUpload(mpu);
         assertThat(parts).hasSize(1);

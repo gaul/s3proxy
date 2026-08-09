@@ -24,7 +24,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
@@ -65,6 +64,7 @@ import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /** Synchronous access to a BlobStore such as Amazon S3. */
@@ -469,14 +469,15 @@ public interface BlobStore extends AutoCloseable {
 
     /**
      * Uploads a part of a multipart upload, consuming and closing
-     * {@code is}.
-     *
-     * @param contentMD5 MD5 of the part content, used for integrity
-     *        validation where the backend supports it
+     * {@code is}.  The request carries the part number, the content
+     * length and MD5, and the customer key when the upload was created
+     * under one -- S3 requires every part to present the create-time key
+     * again.  {@code mpu} carries the upload itself, and its names say
+     * where the part lands; wrappers that rename do so through it, so the
+     * request's own bucket and key are not consulted.
      */
     UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-            int partNumber, InputStream is, long contentLength,
-            @Nullable HashCode contentMD5);
+            UploadPartRequest request, InputStream is);
 
     /**
      * Whether {@link #copyMultipartPart} copies server-side on the backend.
