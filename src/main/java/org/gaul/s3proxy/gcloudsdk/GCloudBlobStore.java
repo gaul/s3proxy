@@ -25,6 +25,7 @@ import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -56,10 +57,12 @@ import com.google.cloud.storage.Storage.BucketField;
 import com.google.cloud.storage.Storage.BucketGetOption;
 import com.google.cloud.storage.Storage.ComposeRequest;
 import com.google.cloud.storage.Storage.CopyRequest;
+import com.google.cloud.storage.StorageBatchResult;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
@@ -83,6 +86,10 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -92,9 +99,11 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -117,6 +126,8 @@ public final class GCloudBlobStore implements BlobStore {
             BlobWriteOption.md5Match();
     // GCS compose supports up to 32 source objects
     private static final int MAX_COMPOSE_PARTS = 32;
+    /** How many deletes GCS accepts in one batch request. */
+    private static final int MAX_BATCH_DELETES = 100;
     // The chunk an upload buffers, which the SDK defaults to 15 MiB and
     // allocates twice: once as the ByteBuffer it reads the payload into and
     // again as the write channel's own array.
@@ -749,6 +760,74 @@ public final class GCloudBlobStore implements BlobStore {
                 throw se;
             }
         }
+    }
+
+    /**
+     * Deletes the objects a batch at a time, which GCS answers in one
+     * request each -- where the interface default would spend a request per
+     * object.
+     *
+     * <p>A batch that any object refused is asked again one object at a
+     * time: the batch raises a GCS exception, while the single delete raises
+     * the typed failure the frontend turns into that object's error code.
+     * Refusals are rare, so the second pass is too.
+     */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        var objects = request.delete() == null ? List.<ObjectIdentifier>of() :
+                request.delete().objects();
+        if (objects.isEmpty()) {
+            return DeleteObjectsResponse.builder().build();
+        }
+        String container = request.bucket();
+        var deleted = new ImmutableList.Builder<DeletedObject>();
+        var errors = new ImmutableList.Builder<S3Error>();
+
+        for (List<ObjectIdentifier> chunk :
+                Lists.partition(objects, MAX_BATCH_DELETES)) {
+            var batch = storage.batch();
+            var results = new ArrayList<StorageBatchResult<Boolean>>(
+                    chunk.size());
+            for (ObjectIdentifier object : chunk) {
+                results.add(batch.delete(
+                        BlobId.of(container, object.key())));
+            }
+            batch.submit();
+
+            boolean refused = false;
+            for (StorageBatchResult<Boolean> result : results) {
+                try {
+                    // The Boolean reports whether the object was there, which
+                    // an idempotent delete does not care about; only a
+                    // failure to carry it out matters.
+                    result.get();
+                } catch (StorageException se) {
+                    if (se.getCode() != 404) {
+                        refused = true;
+                        break;
+                    }
+                }
+            }
+
+            if (refused) {
+                var oneByOne = BlobStore.super.removeBlobs(request.toBuilder()
+                        .delete(Delete.builder().objects(chunk).build())
+                        .build());
+                deleted.addAll(oneByOne.deleted());
+                errors.addAll(oneByOne.errors());
+                continue;
+            }
+            for (ObjectIdentifier object : chunk) {
+                deleted.add(DeletedObject.builder()
+                        .key(object.key())
+                        .build());
+            }
+        }
+
+        return DeleteObjectsResponse.builder()
+                .deleted(deleted.build())
+                .errors(errors.build())
+                .build();
     }
 
     @Override
