@@ -182,19 +182,6 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlobs(final String containerName,
-            final Iterable<String> blobNames) {
-        writeStore.removeBlobs(containerName, blobNames);
-        schedule(new Callable<Void>() {
-                @Override
-                public Void call() {
-                    delegate().removeBlobs(containerName, blobNames);
-                    return null;
-                }
-            });
-    }
-
-    @Override
     public CopyObjectResponse copyBlob(final CopyObjectRequest request) {
         CopyObjectResponse nearResult = writeStore.copyBlob(request);
         schedule(new Callable<CopyObjectResponse>() {

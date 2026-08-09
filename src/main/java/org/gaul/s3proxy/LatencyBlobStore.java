@@ -227,12 +227,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlobs(String container, Iterable<String> iterable) {
-        simulateLatency(OP_REMOVE_BLOB);
-        super.removeBlobs(container, iterable);
-    }
-
-    @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         simulateLatency(OP_BLOB_ACCESS);
         return super.getBlobAccess(container, name);

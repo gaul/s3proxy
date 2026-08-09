@@ -244,19 +244,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlobs(String container, Iterable<String> names) {
-        if (!hasPrefix(container)) {
-            super.removeBlobs(container, names);
-            return;
-        }
-        var builder = ImmutableList.<String>builder();
-        for (String name : names) {
-            builder.add(addPrefix(container, name));
-        }
-        super.removeBlobs(container, builder.build());
-    }
-
-    @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         return super.getBlobAccess(container, addPrefix(container, name));
     }

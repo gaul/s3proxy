@@ -186,11 +186,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public void removeBlobs(String container, Iterable<String> iterable) {
-        delegate().removeBlobs(container, iterable);
-    }
-
-    @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         return delegate().getBlobAccess(container, name);
     }

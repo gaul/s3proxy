@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,9 +51,12 @@ import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -360,9 +362,16 @@ public final class EncryptedBlobStoreTest {
 
         assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
 
-        List<String> singleList = new ArrayList<>();
-        singleList.add(blobName);
-        encryptedBlobStore.removeBlobs(containerName, singleList);
+        // The batch delete reaches the encrypted name through the wrapper's
+        // own single delete, which is what carries the suffix.
+        encryptedBlobStore.removeBlobs(DeleteObjectsRequest.builder()
+                .bucket(containerName)
+                .delete(Delete.builder()
+                        .objects(ObjectIdentifier.builder()
+                                .key(blobName)
+                                .build())
+                        .build())
+                .build());
         blobs = encryptedBlobStore.list(containerName);
         assertThat(blobs.contents()).isEmpty();
     }

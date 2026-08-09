@@ -22,8 +22,6 @@ import static java.util.Objects.requireNonNull;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -505,26 +503,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         return this.delegate().removeBlob(request.toBuilder()
                 .bucket(this.getShard(request.bucket(), request.key()))
                 .build());
-    }
-
-    @Override
-    public void removeBlobs(String container, Iterable<String> iterable) {
-        if (!this.buckets.containsKey(container)) {
-            this.delegate().removeBlobs(container, iterable);
-            return;
-        }
-
-        Map<String, List<String>> shardMap = new HashMap<>();
-        for (String blob : iterable) {
-            List<String> shardBlobs =
-                    shardMap.computeIfAbsent(this.getShard(container, blob),
-                        k -> new ArrayList<>());
-            shardBlobs.add(blob);
-        }
-
-        for (var entry : shardMap.entrySet()) {
-            this.delegate().removeBlobs(entry.getKey(), entry.getValue());
-        }
     }
 
     @Override

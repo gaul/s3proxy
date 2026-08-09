@@ -227,12 +227,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlobs(final String containerName,
-                            final Iterable<String> blobNames) {
-        delegate().removeBlobs(getContainer(containerName), blobNames);
-    }
-
-    @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         return delegate().copyBlob(request.toBuilder()
                 .sourceBucket(getContainer(request.sourceBucket()))

@@ -405,20 +405,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlobs(String container, Iterable<String> names) {
-        List<String> filteredNames = new ArrayList<>();
-
-        // filter the list of blobs to determine
-        // if we need to delete encrypted blobs
-        for (String name : names) {
-            name = blobNameWithSuffix(container, name);
-            filteredNames.add(name);
-        }
-
-        delegate().removeBlobs(container, filteredNames);
-    }
-
-    @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         name = blobNameWithSuffix(container, name);
         return delegate().getBlobAccess(container, name);

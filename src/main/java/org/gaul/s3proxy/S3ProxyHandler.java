@@ -37,7 +37,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -75,6 +74,7 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
@@ -120,9 +120,13 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -138,6 +142,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -2834,9 +2839,8 @@ public class S3ProxyHandler {
 
         boolean supportsVersioning = blobStore.supportsVersioning();
         String blobStoreType = getBlobStoreType(blobStore);
-        boolean anyVersion = false;
         boolean anyCondition = false;
-        Collection<String> blobNames = new ArrayList<>();
+        var objects = new ImmutableList.Builder<ObjectIdentifier>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects()) {
             if (Strings.isNullOrEmpty(s3Object.key())) {
@@ -2856,24 +2860,29 @@ public class S3ProxyHandler {
             }
             // On a versioning store even the literal "null" names a version
             // -- the one written while the bucket was unversioned -- so any
-            // VersionId element routes the delete through the versioned path.
-            if (s3Object.versionId() != null && supportsVersioning) {
-                anyVersion = true;
-            } else if (s3Object.hasVersion()) {
+            // VersionId element rides along to the store.
+            if (!(s3Object.versionId() != null && supportsVersioning) &&
+                    s3Object.hasVersion()) {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
             }
-            blobNames.add(s3Object.key());
+            objects.add(ObjectIdentifier.builder()
+                    .key(s3Object.key())
+                    .versionId(s3Object.versionId())
+                    .build());
         }
 
-        // A request naming versions or conditions deletes key by key for
-        // the per-key results; one naming neither keeps the store's bulk
-        // delete, whose response reports no version information.  On a
-        // versioning store every delete has version information to report --
-        // the marker it just wrote -- so it takes the same path.
-        List<DeletedObjectResult> results = null;
-        if (anyVersion || anyCondition || supportsVersioning) {
-            results = new ArrayList<>();
+        // A request naming conditions deletes key by key.  A batch delete
+        // carries no precondition that every store answers alike -- LocalStack
+        // ignores one and deletes the object anyway -- so both the emulation
+        // and the aws-s3 passthrough stay here, one key at a time.  Every
+        // other request goes to the store's batch delete, which answers for
+        // each key and lets a store with a bulk delete of its own spend one
+        // round trip rather than a thousand.
+        DeleteObjectsResponse deleteResponse;
+        if (anyCondition) {
+            var deleted = new ImmutableList.Builder<DeletedObject>();
+            var errors = new ImmutableList.Builder<S3Error>();
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
                 String key = s3Object.key();
@@ -2904,20 +2913,22 @@ public class S3ProxyHandler {
                     } else {
                         blobStore.removeBlob(containerName, key);
                     }
-                    results.add(new DeletedObjectResult(key, versionId,
-                            result, null));
+                    var builder = DeletedObject.builder()
+                            .key(key)
+                            .versionId(versionId);
+                    if (result != null &&
+                            Boolean.TRUE.equals(result.deleteMarker())) {
+                        builder.deleteMarker(true)
+                                .deleteMarkerVersionId(result.versionId());
+                    }
+                    deleted.add(builder.build());
                 } catch (AwsServiceException e) {
                     // One key's failure is that key's to report: DeleteObjects
                     // answers 200 carrying an Error element per key that could
                     // not be deleted.  Failing the whole request instead would
                     // tell a client nothing was deleted while the keys before
-                    // this one already had been -- and the codes worth
-                    // reporting are not a list this can know in advance, since
-                    // they come from the backing service.  LocalStack, for
-                    // one, refuses a version it does not have with
-                    // InvalidArgument where S3 reports NoSuchVersion.
-                    String code = S3Exceptions.errorCode(e);
-                    if ("NotImplemented".equals(code)) {
+                    // this one already had been.
+                    if ("NotImplemented".equals(S3Exceptions.errorCode(e))) {
                         // Not this key's failure but the request's: the
                         // service does not do what was asked of it, and would
                         // answer every other key the same way.  Reporting it
@@ -2925,32 +2936,28 @@ public class S3ProxyHandler {
                         // particular could not be deleted.
                         throw e;
                     }
-                    String message;
-                    if ("NoSuchVersion".equals(code)) {
-                        message = "The specified version does not exist.";
-                    } else if ("PreconditionFailed".equals(code)) {
-                        message = S3ErrorCode.PRECONDITION_FAILED
-                                .getMessage();
-                    } else {
-                        var details = e.awsErrorDetails();
-                        message = details == null ||
-                                details.errorMessage() == null ?
-                                S3ErrorCode.INTERNAL_ERROR.getMessage() :
-                                details.errorMessage();
-                    }
-                    results.add(new DeletedObjectResult(key, versionId,
-                            null, S3Error.builder()
-                                    .key(key)
-                                    .versionId(versionId)
-                                    .code(code == null ?
-                                            S3ErrorCode.INTERNAL_ERROR
-                                                    .getErrorCode() : code)
-                                    .message(message)
-                                    .build()));
+                    var details = e.awsErrorDetails();
+                    errors.add(S3Error.builder()
+                            .key(key)
+                            .versionId(versionId)
+                            .code(S3Exceptions.errorCode(e))
+                            .message(details == null ? null :
+                                    details.errorMessage())
+                            .build());
                 }
             }
+            deleteResponse = DeleteObjectsResponse.builder()
+                    .deleted(deleted.build())
+                    .errors(errors.build())
+                    .build();
         } else {
-            blobStore.removeBlobs(containerName, blobNames);
+            deleteResponse = blobStore.removeBlobs(
+                    DeleteObjectsRequest.builder()
+                            .bucket(containerName)
+                            .delete(Delete.builder()
+                                    .objects(objects.build())
+                                    .build())
+                            .build());
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -2963,51 +2970,38 @@ public class S3ProxyHandler {
             xml.writeStartElement("DeleteResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            if (results != null) {
-                for (DeletedObjectResult result : results) {
-                    S3Error error = result.error();
-                    if (error != null) {
-                        xml.writeStartElement("Error");
-                        writeSimpleElement(xml, "Key", error.key());
-                        if (error.versionId() != null) {
-                            writeSimpleElement(xml, "VersionId",
-                                    error.versionId());
-                        }
-                        writeSimpleElement(xml, "Code", error.code());
-                        writeSimpleElement(xml, "Message", error.message());
-                        xml.writeEndElement();
-                    } else if (!dmor.quiet()) {
-                        xml.writeStartElement("Deleted");
-                        writeSimpleElement(xml, "Key", result.key());
-                        String versionId = result.requestedVersionId();
-                        if (versionId != null) {
-                            writeSimpleElement(xml, "VersionId", versionId);
-                        }
-                        DeleteObjectResponse removed = result.result();
-                        if (removed != null &&
-                                Boolean.TRUE.equals(removed.deleteMarker())) {
-                            writeSimpleElement(xml, "DeleteMarker", "true");
-                            String markerVersionId = removed.versionId();
-                            if (markerVersionId != null) {
-                                writeSimpleElement(xml,
-                                        "DeleteMarkerVersionId",
-                                        markerVersionId);
-                            }
-                        }
-                        xml.writeEndElement();
-                    }
-                }
-            } else if (!dmor.quiet()) {
-                for (String blobName : blobNames) {
+            if (!dmor.quiet()) {
+                for (DeletedObject removed : deleteResponse.deleted()) {
                     xml.writeStartElement("Deleted");
-
-                    writeSimpleElement(xml, "Key", blobName);
-
+                    writeSimpleElement(xml, "Key", removed.key());
+                    if (removed.versionId() != null) {
+                        writeSimpleElement(xml, "VersionId",
+                                removed.versionId());
+                    }
+                    if (Boolean.TRUE.equals(removed.deleteMarker())) {
+                        writeSimpleElement(xml, "DeleteMarker", "true");
+                        if (removed.deleteMarkerVersionId() != null) {
+                            writeSimpleElement(xml, "DeleteMarkerVersionId",
+                                    removed.deleteMarkerVersionId());
+                        }
+                    }
                     xml.writeEndElement();
                 }
             }
+            // Reported however the request was carried out: the store answers
+            // for each key it refused, whether it deleted them one at a time
+            // or in one bulk request of its own.
+            for (S3Error error : deleteResponse.errors()) {
+                xml.writeStartElement("Error");
+                writeSimpleElement(xml, "Key", error.key());
+                if (error.versionId() != null) {
+                    writeSimpleElement(xml, "VersionId", error.versionId());
+                }
+                writeSimpleElement(xml, "Code", errorCodeOf(error));
+                writeSimpleElement(xml, "Message", errorMessageOf(error));
+                xml.writeEndElement();
+            }
 
-            // TODO: emit error stanza for the bulk path
             xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {
@@ -3015,11 +3009,28 @@ public class S3ProxyHandler {
         }
     }
 
-    /** One key's outcome in a versioned DeleteObjects. */
-    private record DeletedObjectResult(String key,
-            @Nullable String requestedVersionId,
-            @Nullable DeleteObjectResponse result,
-            @Nullable S3Error error) {
+    /**
+     * The code to report for a key DeleteObjects refused.  Which one a
+     * service uses is not a list S3Proxy can know in advance -- LocalStack
+     * refuses a version it does not have with InvalidArgument where S3 says
+     * NoSuchVersion -- so the store's own code is reported, and only a store
+     * that named none at all is called an internal error.
+     */
+    private static String errorCodeOf(S3Error error) {
+        return error.code() == null ?
+                S3ErrorCode.INTERNAL_ERROR.getErrorCode() : error.code();
+    }
+
+    /** The message for that code, naming S3's own where it has one. */
+    private static String errorMessageOf(S3Error error) {
+        String code = error.code();
+        if ("NoSuchVersion".equals(code)) {
+            return "The specified version does not exist.";
+        } else if ("PreconditionFailed".equals(code)) {
+            return S3ErrorCode.PRECONDITION_FAILED.getMessage();
+        }
+        return error.message() == null ?
+                S3ErrorCode.INTERNAL_ERROR.getMessage() : error.message();
     }
 
     private void handleBlobMetadata(HttpServletRequest request,

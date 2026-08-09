@@ -19,12 +19,17 @@ package org.gaul.s3proxy.blobstore;
 
 import java.io.InputStream;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
 
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
@@ -36,6 +41,9 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -49,9 +57,11 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -59,6 +69,14 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /** Synchronous access to a BlobStore such as Amazon S3. */
 public interface BlobStore extends AutoCloseable {
+    /**
+     * How many names {@link #removeBlobs} deletes at a time.  Ten matches the
+     * sharded store's fan-out.  The point is to overlap the round trips, not
+     * to saturate the backend: a wider pool would mostly add threads, and
+     * every concurrent request brings a pool of its own.
+     */
+    int REMOVE_BLOBS_THREADS = 10;
+
     /** Releases backend resources such as SDK clients.  No-op by default. */
     @Override
     default void close() {
@@ -276,10 +294,123 @@ public interface BlobStore extends AutoCloseable {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
-    default void removeBlobs(String container, Iterable<String> names) {
-        for (String name : names) {
-            removeBlob(container, name);
+    /**
+     * Removes the objects named, reporting each one's outcome the way
+     * DeleteObjects does: a Deleted entry naming any marker the delete wrote,
+     * or an Error entry carrying the code the store refused it with.  A
+     * MultiObjectDelete carries up to a thousand objects, so the round trip
+     * -- the whole cost against a remote store -- would otherwise be paid a
+     * thousand times over.
+     *
+     * <p>This is the floor for a store whose API deletes one object at a
+     * time: it deletes {@value #REMOVE_BLOBS_THREADS} at a time and reports
+     * each outcome.  A store with a bulk delete of its own should override
+     * this with the one request, which is the whole point of the shape --
+     * the results a caller needs are the results such an API already
+     * returns.
+     *
+     * <p>Every object is attempted even after one fails, since this answers
+     * for each of them separately.  A failure that is the request's rather
+     * than an object's -- NotImplemented, which every other object would
+     * meet the same way -- is thrown instead of being reported a thousand
+     * times.
+     */
+    default DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        String container = request.bucket();
+        var objects = request.delete() == null ? List.<ObjectIdentifier>of() :
+                request.delete().objects();
+        if (objects.isEmpty()) {
+            return DeleteObjectsResponse.builder().build();
         }
+
+        var executor = Executors.newFixedThreadPool(
+                Math.min(objects.size(), REMOVE_BLOBS_THREADS));
+        var futuresBuilder = new ImmutableList.Builder<Future<DeletedObject>>();
+        for (ObjectIdentifier object : objects) {
+            futuresBuilder.add(executor.submit(
+                    () -> removeOneBlob(container, object)));
+        }
+        // Nothing else is submitted, so the pool ends with these tasks.
+        executor.shutdown();
+
+        var deleted = new ImmutableList.Builder<DeletedObject>();
+        var errors = new ImmutableList.Builder<S3Error>();
+        // Collected only once every delete has finished: answering while some
+        // are still in flight would describe a container the store is still
+        // changing.
+        AwsServiceException requestFailure = null;
+        var futures = futuresBuilder.build();
+        for (int i = 0; i < futures.size(); ++i) {
+            ObjectIdentifier object = objects.get(i);
+            try {
+                deleted.add(futures.get(i).get());
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ie);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (!(cause instanceof AwsServiceException ase)) {
+                    if (cause instanceof RuntimeException re) {
+                        throw re;
+                    } else if (cause instanceof Error error) {
+                        throw error;
+                    }
+                    throw new RuntimeException(cause);
+                }
+                if ("NotImplemented".equals(S3Exceptions.errorCode(ase))) {
+                    if (requestFailure == null) {
+                        requestFailure = ase;
+                    }
+                    continue;
+                }
+                errors.add(toError(object, ase));
+            }
+        }
+        if (requestFailure != null) {
+            throw requestFailure;
+        }
+
+        return DeleteObjectsResponse.builder()
+                .deleted(deleted.build())
+                .errors(errors.build())
+                .build();
+    }
+
+    /** Deletes one object, reporting the marker a versioned delete wrote. */
+    private DeletedObject removeOneBlob(String container,
+            ObjectIdentifier object) {
+        var builder = DeletedObject.builder()
+                .key(object.key())
+                .versionId(object.versionId());
+        if (supportsVersioning()) {
+            DeleteObjectResponse result = removeBlob(container, object.key(),
+                    object.versionId());
+            if (Boolean.TRUE.equals(result.deleteMarker())) {
+                builder.deleteMarker(true)
+                        .deleteMarkerVersionId(result.versionId());
+            }
+        } else {
+            removeBlob(container, object.key());
+        }
+        return builder.build();
+    }
+
+    /**
+     * Describes one object's refusal.  The code comes from the store, since
+     * which one a service uses is not something to assume: LocalStack
+     * refuses a version it does not have with InvalidArgument where S3 says
+     * NoSuchVersion.
+     */
+    private static S3Error toError(ObjectIdentifier object,
+            AwsServiceException exception) {
+        String code = S3Exceptions.errorCode(exception);
+        var details = exception.awsErrorDetails();
+        return S3Error.builder()
+                .key(object.key())
+                .versionId(object.versionId())
+                .code(code)
+                .message(details == null ? null : details.errorMessage())
+                .build();
     }
 
     ObjectCannedACL getBlobAccess(String container, String name);

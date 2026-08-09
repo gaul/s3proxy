@@ -184,15 +184,6 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlobs(String container, Iterable<String> iterable) {
-        List<String> blobs = new ArrayList<>();
-        for (String name : iterable) {
-            blobs.add(replaceBlobName(name));
-        }
-        super.removeBlobs(container, blobs);
-    }
-
-    @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         return super.getBlobAccess(container, replaceBlobName(name));
     }
