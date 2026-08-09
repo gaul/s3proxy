@@ -60,6 +60,8 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -413,6 +415,18 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         } catch (S3Exception e) {
             throw propagate(e, request.bucket(), request.key());
         }
+    }
+
+    /**
+     * Passes the batch through as the DeleteObjects it already is: S3 answers
+     * a thousand keys in one round trip, and its answer carries the per-key
+     * Deleted and Error entries the frontend reports, delete markers and all.
+     * The interface default would spend a round trip per key against a
+     * service that is not local.
+     */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        return s3Client.deleteObjects(request);
     }
 
     @Override
