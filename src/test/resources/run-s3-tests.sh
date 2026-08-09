@@ -120,7 +120,12 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
     backend="swift"
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
-    tags="${tags} and not fails_on_aws"
+    # fails_on_aws marks what real S3 refuses, and this lane used to deselect
+    # the tag on the reasoning that LocalStack emulates S3.  It is more
+    # permissive than S3 in places, though, so a good number of them pass;
+    # the markers record the ones that do not.  Deselecting the tag hid the
+    # conditional writes that only this lane sends to a service that answers
+    # them natively.
     # The aws-s3 backend passes versioning through to a service that has it,
     # so run the tests for it here as well as on the transient lane.  This is
     # the only lane that covers the pass-through path.
