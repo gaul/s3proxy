@@ -124,6 +124,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -519,6 +520,7 @@ public final class AzureBlobStore implements BlobStore {
         @SuppressWarnings("deprecation")
         var builder = GetObjectResponse.builder()
                 .metadata(properties.getMetadata())
+                .serverSideEncryption(ServerSideEncryption.AES256)
                 .cacheControl(properties.getCacheControl())
                 .contentDisposition(properties.getContentDisposition())
                 .contentEncoding(properties.getContentEncoding())
@@ -540,10 +542,36 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
+    public boolean supportsServerSideEncryption() {
+        // Azure Blob always encrypts at rest with Microsoft-managed keys, so
+        // acknowledging SSE-S3 (AES256) is truthful. SSE-C and SSE-KMS are
+        // refused (see refuseUnsupportedSse) rather than silently accepted.
+        return true;
+    }
+
+    /**
+     * Refuse the SSE modes Azure Blob cannot honor: customer-provided keys
+     * (we do not encrypt with the caller's key) and KMS. Refusing beats
+     * silently storing data the requested key never protected.
+     */
+    private static void refuseUnsupportedSse(String algorithm,
+            String kmsKeyId, String customerAlgorithm, String customerKey,
+            String customerKeyMD5) {
+        if (customerAlgorithm != null || customerKey != null ||
+                customerKeyMD5 != null || kmsKeyId != null ||
+                "aws:kms".equals(algorithm)) {
+            throw S3Exceptions.fromStatusCode(501);
+        }
+    }
+
+    @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
         String container = request.bucket();
         String key = request.key();
+        refuseUnsupportedSse(request.serverSideEncryptionAsString(),
+                request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key)
                 .getBlockBlobClient();
@@ -593,7 +621,10 @@ public final class AzureBlobStore implements BlobStore {
                 return SdkResponses.putResponse(reportETag(
                         client.uploadWithResponse(uploadOptions,
                                 /*timeout=*/ null, /*context=*/ null)
-                        .getValue().getETag()));
+                        .getValue().getETag()))
+                        .toBuilder()
+                        .serverSideEncryption(ServerSideEncryption.AES256)
+                        .build();
             }
 
             // Content-Length is unknown, so fall back to the output stream,
@@ -617,7 +648,10 @@ public final class AzureBlobStore implements BlobStore {
                     .getBlobContainerClient(container)
                     .getBlobClient(key)
                     .getProperties()
-                    .getETag()));
+                    .getETag()))
+                    .toBuilder()
+                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .build();
         } catch (BlobStorageException bse) {
             throw translate(bse, container, key);
         } catch (IOException ioe) {
@@ -708,6 +742,9 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        refuseUnsupportedSse(request.serverSideEncryptionAsString(),
+                request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
@@ -819,7 +856,10 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             return SdkResponses.copyResponse(reportETag(
-                    response.getValue().getETag()));
+                    response.getValue().getETag()))
+                    .toBuilder()
+                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .build();
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
                 throw translate(bse, fromContainer, fromName);
@@ -860,7 +900,10 @@ public final class AzureBlobStore implements BlobStore {
                     client.setHttpHeaders(headers);
                 }
                 return SdkResponses.copyResponse(reportETag(
-                        client.getProperties().getETag()));
+                        client.getProperties().getETag()))
+                        .toBuilder()
+                        .serverSideEncryption(ServerSideEncryption.AES256)
+                        .build();
             } catch (BlobStorageException bse2) {
                 throw translate(bse2, fromContainer, fromName);
             }
@@ -983,6 +1026,7 @@ public final class AzureBlobStore implements BlobStore {
         @SuppressWarnings("deprecation")
         HeadObjectResponse head = HeadObjectResponse.builder()
                 .metadata(properties.getMetadata())
+                .serverSideEncryption(ServerSideEncryption.AES256)
                 .eTag(reportETag(properties.getETag()))
                 .lastModified(properties.getLastModified() == null ? null :
                         properties.getLastModified().toInstant())
@@ -1041,6 +1085,9 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
+        refuseUnsupportedSse(request.serverSideEncryptionAsString(),
+                request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         String container = request.bucket();
         var containerClient = blobServiceClient.getBlobContainerClient(container);
         try {
@@ -1290,7 +1337,10 @@ public final class AzureBlobStore implements BlobStore {
             stubBlobClient.delete();
 
             String finalETag = reportETag(response.getValue().getETag());
-            return SdkResponses.completeResponse(finalETag);
+            return SdkResponses.completeResponse(finalETag)
+                    .toBuilder()
+                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .build();
         } catch (BlobStorageException bse) {
             var errorCode = bse.getErrorCode();
             if (errorCode.equals(BlobErrorCode.BLOB_NOT_FOUND) ||
