@@ -222,7 +222,7 @@ jobs:
             'http://127.0.0.1:10000/devstoreaccount1?comp=list'
       - name: Maven Test with Azurite
         run: |
-          mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest,MultipartUploadKeyCharacterTest
+          mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest,MultipartUploadKeyCharacterTest,ServerSideEncryptionAzuriteTest
       - uses: actions/upload-artifact@v7
         if: always()
         with:
