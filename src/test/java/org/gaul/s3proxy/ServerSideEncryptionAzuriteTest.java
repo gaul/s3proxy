@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
 
+import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,6 +63,7 @@ public final class ServerSideEncryptionAzuriteTest {
                     .getBytes(StandardCharsets.UTF_8);
 
     private S3Proxy s3Proxy;
+    private BlobStore blobStore;
     private S3Client client;
     private String containerName;
 
@@ -73,6 +75,7 @@ public final class ServerSideEncryptionAzuriteTest {
 
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(conf);
         s3Proxy = info.getS3Proxy();
+        blobStore = info.getBlobStore();
         var creds = AwsBasicCredentials.create(
                 info.getS3Identity(), info.getS3Credential());
         var endpoint = URI.create(
@@ -101,6 +104,12 @@ public final class ServerSideEncryptionAzuriteTest {
         }
         if (s3Proxy != null) {
             s3Proxy.stop();
+        }
+        // Delete the container so it does not leak into the s3-tests run,
+        // which shares the same Azurite instance and requires an account
+        // that owns no buckets.
+        if (blobStore != null && containerName != null) {
+            blobStore.deleteContainer(containerName);
         }
     }
 
