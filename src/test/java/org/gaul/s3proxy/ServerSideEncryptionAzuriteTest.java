@@ -117,6 +117,10 @@ public final class ServerSideEncryptionAzuriteTest {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
+    private static String customerKeyMD5() throws Exception {
+        return base64(MessageDigest.getInstance("MD5").digest(CUSTOMER_KEY));
+    }
+
     @Test
     public void testSseS3AcceptedAndEchoed() throws Exception {
         PutObjectResponse put = client.putObject(b -> b
@@ -175,5 +179,74 @@ public final class ServerSideEncryptionAzuriteTest {
                 RequestBody.fromString("payload")))
                 .isInstanceOfSatisfying(S3Exception.class,
                         e -> assertThat(e.statusCode()).isEqualTo(501));
+    }
+
+    /** aws:kms:dsse names no key but is still KMS, refused all the same. */
+    @Test
+    public void testDsseKmsRefused() throws Exception {
+        assertThatThrownBy(() -> client.putObject(b -> b
+                        .bucket(containerName).key(KEY)
+                        .serverSideEncryption(
+                                ServerSideEncryption.AWS_KMS_DSSE),
+                RequestBody.fromString("payload")))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(501));
+    }
+
+    /** A key presented for an object resting under none is not applicable. */
+    @Test
+    public void testCustomerKeyReadOfPlainObjectRefused() throws Exception {
+        client.putObject(b -> b.bucket(containerName).key(KEY),
+                RequestBody.fromString("payload"));
+        String keyB64 = base64(CUSTOMER_KEY);
+        String md5B64 = customerKeyMD5();
+        assertThatThrownBy(() -> client.getObjectAsBytes(b -> b
+                        .bucket(containerName).key(KEY)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(keyB64)
+                        .sseCustomerKeyMD5(md5B64)))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(400));
+    }
+
+    /** Uploads never rest under a customer key, so no part may present one. */
+    @Test
+    public void testCustomerKeyPartRefused() throws Exception {
+        var create = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(KEY));
+        String keyB64 = base64(CUSTOMER_KEY);
+        String md5B64 = customerKeyMD5();
+        try {
+            assertThatThrownBy(() -> client.uploadPart(b -> b
+                            .bucket(containerName).key(KEY)
+                            .uploadId(create.uploadId()).partNumber(1)
+                            .sseCustomerAlgorithm("AES256")
+                            .sseCustomerKey(keyB64)
+                            .sseCustomerKeyMD5(md5B64),
+                    RequestBody.fromString("payload")))
+                    .isInstanceOfSatisfying(S3Exception.class,
+                            e -> assertThat(e.statusCode()).isEqualTo(400));
+        } finally {
+            client.abortMultipartUpload(b -> b.bucket(containerName)
+                    .key(KEY).uploadId(create.uploadId()));
+        }
+    }
+
+    /** A source key over a source resting under none is not applicable. */
+    @Test
+    public void testCustomerKeyCopySourceRefused() throws Exception {
+        client.putObject(b -> b.bucket(containerName).key(KEY),
+                RequestBody.fromString("payload"));
+        String keyB64 = base64(CUSTOMER_KEY);
+        String md5B64 = customerKeyMD5();
+        assertThatThrownBy(() -> client.copyObject(b -> b
+                        .sourceBucket(containerName).sourceKey(KEY)
+                        .destinationBucket(containerName)
+                        .destinationKey(KEY + "-copy")
+                        .copySourceSSECustomerAlgorithm("AES256")
+                        .copySourceSSECustomerKey(keyB64)
+                        .copySourceSSECustomerKeyMD5(md5B64)))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(400));
     }
 }

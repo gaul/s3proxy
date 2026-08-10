@@ -86,6 +86,7 @@ import com.google.common.hash.HashingInputStream;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -553,16 +554,33 @@ public final class AzureBlobStore implements BlobStore {
 
     /**
      * Refuse the SSE modes Azure Blob cannot honor: customer-provided keys
-     * (we do not encrypt with the caller's key) and KMS. Refusing beats
-     * silently storing data the requested key never protected.
+     * (we do not encrypt with the caller's key) and KMS in any variant,
+     * aws:kms:dsse included. Refusing beats silently storing data the
+     * requested key never protected.
      */
-    private static void refuseUnsupportedSse(String algorithm,
-            String kmsKeyId, String customerAlgorithm, String customerKey,
-            String customerKeyMD5) {
+    private static void refuseUnsupportedSse(@Nullable String algorithm,
+            @Nullable String kmsKeyId, @Nullable String customerAlgorithm,
+            @Nullable String customerKey, @Nullable String customerKeyMD5) {
         if (customerAlgorithm != null || customerKey != null ||
                 customerKeyMD5 != null || kmsKeyId != null ||
-                "aws:kms".equals(algorithm)) {
+                (algorithm != null && !"AES256".equals(algorithm))) {
             throw S3Exceptions.fromStatusCode(501);
+        }
+    }
+
+    /**
+     * Refuse the customer-key triple on an upload's later requests -- a
+     * part, a part copy, the completion.  Uploads on this store never rest
+     * under a customer key, their creation refuses one, so any key a later
+     * request presents is not applicable, as S3 answers.
+     */
+    private static void refuseUploadCustomerKey(
+            @Nullable String customerAlgorithm, @Nullable String customerKey,
+            @Nullable String customerKeyMD5) {
+        if (customerAlgorithm != null || customerKey != null ||
+                customerKeyMD5 != null) {
+            throw S3Exceptions.invalidRequest("The encryption parameters" +
+                    " are not applicable to this upload.");
         }
     }
 
@@ -762,6 +780,12 @@ public final class AzureBlobStore implements BlobStore {
         refuseUnsupportedSse(request.serverSideEncryptionAsString(),
                 request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
+        // The source never rests under a customer key on this store, so a
+        // copy-source triple is judged against none, as S3 does.
+        CustomerKeys.enforce(/*storedKeyMD5=*/ null,
+                request.copySourceSSECustomerAlgorithm(),
+                request.copySourceSSECustomerKey(),
+                request.copySourceSSECustomerKeyMD5());
         if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
@@ -1250,6 +1274,8 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             CompleteMultipartUploadRequest request) {
+        refuseUploadCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         List<CompletedPart> parts = request.multipartUpload() == null ?
                 List.of() : request.multipartUpload().parts();
         String uploadKey = mpu.id();
@@ -1390,6 +1416,8 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             UploadPartRequest request, InputStream is) {
+        refuseUploadCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         int partNumber = request.partNumber();
         long contentLength = request.contentLength();
         var contentMD5 = SdkRequests.contentMD5(request);
@@ -1445,6 +1473,14 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
             UploadPartCopyRequest request) {
+        refuseUploadCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
+        // The source never rests under a customer key on this store, so a
+        // copy-source triple is judged against none, as S3 does.
+        CustomerKeys.enforce(/*storedKeyMD5=*/ null,
+                request.copySourceSSECustomerAlgorithm(),
+                request.copySourceSSECustomerKey(),
+                request.copySourceSSECustomerKeyMD5());
         if (request.sourceVersionId() != null) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
