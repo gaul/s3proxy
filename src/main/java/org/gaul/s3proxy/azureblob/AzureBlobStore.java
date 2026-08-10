@@ -520,7 +520,8 @@ public final class AzureBlobStore implements BlobStore {
         @SuppressWarnings("deprecation")
         var builder = GetObjectResponse.builder()
                 .metadata(properties.getMetadata())
-                .serverSideEncryption(ServerSideEncryption.AES256)
+                .serverSideEncryption(
+                        reportedSse(properties.isServerEncrypted()))
                 .cacheControl(properties.getCacheControl())
                 .contentDisposition(properties.getContentDisposition())
                 .contentEncoding(properties.getContentEncoding())
@@ -543,9 +544,10 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public boolean supportsServerSideEncryption() {
-        // Azure Blob always encrypts at rest with Microsoft-managed keys, so
-        // acknowledging SSE-S3 (AES256) is truthful. SSE-C and SSE-KMS are
-        // refused (see refuseUnsupportedSse) rather than silently accepted.
+        // Azure Blob encrypts at rest with service-managed keys and reports
+        // the fact on every response, which reportedSse relays as SSE-S3
+        // (AES256). SSE-C and SSE-KMS are refused (see refuseUnsupportedSse)
+        // rather than silently accepted.
         return true;
     }
 
@@ -562,6 +564,18 @@ public final class AzureBlobStore implements BlobStore {
                 "aws:kms".equals(algorithm)) {
             throw S3Exceptions.fromStatusCode(501);
         }
+    }
+
+    /**
+     * The encryption a response reports the blob resting under: only when
+     * Azure answers that the service encrypted the data does the response
+     * earn the SSE-S3 (AES256) report.  Blobs from accounts that predate
+     * service encryption can answer false.
+     */
+    private static @Nullable ServerSideEncryption reportedSse(
+            @Nullable Boolean serverEncrypted) {
+        return Boolean.TRUE.equals(serverEncrypted) ?
+                ServerSideEncryption.AES256 : null;
     }
 
     @Override
@@ -618,12 +632,13 @@ public final class AzureBlobStore implements BlobStore {
                         .setMetadata(metadata)
                         .setTier(tier)
                         .setRequestConditions(requestConditions);
+                var uploaded = client.uploadWithResponse(uploadOptions,
+                        /*timeout=*/ null, /*context=*/ null).getValue();
                 return SdkResponses.putResponse(reportETag(
-                        client.uploadWithResponse(uploadOptions,
-                                /*timeout=*/ null, /*context=*/ null)
-                        .getValue().getETag()))
+                        uploaded.getETag()))
                         .toBuilder()
-                        .serverSideEncryption(ServerSideEncryption.AES256)
+                        .serverSideEncryption(
+                                reportedSse(uploaded.isServerEncrypted()))
                         .build();
             }
 
@@ -644,13 +659,15 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             // TODO: racy
-            return SdkResponses.putResponse(reportETag(blobServiceClient
+            var properties = blobServiceClient
                     .getBlobContainerClient(container)
                     .getBlobClient(key)
-                    .getProperties()
-                    .getETag()))
+                    .getProperties();
+            return SdkResponses.putResponse(reportETag(
+                    properties.getETag()))
                     .toBuilder()
-                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .serverSideEncryption(
+                            reportedSse(properties.isServerEncrypted()))
                     .build();
         } catch (BlobStorageException bse) {
             throw translate(bse, container, key);
@@ -855,10 +872,11 @@ public final class AzureBlobStore implements BlobStore {
                 client.setMetadata(request.metadata());
             }
 
-            return SdkResponses.copyResponse(reportETag(
-                    response.getValue().getETag()))
+            var copied = response.getValue();
+            return SdkResponses.copyResponse(reportETag(copied.getETag()))
                     .toBuilder()
-                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .serverSideEncryption(
+                            reportedSse(copied.isServerEncrypted()))
                     .build();
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
@@ -899,10 +917,12 @@ public final class AzureBlobStore implements BlobStore {
                 if (replace) {
                     client.setHttpHeaders(headers);
                 }
+                var properties = client.getProperties();
                 return SdkResponses.copyResponse(reportETag(
-                        client.getProperties().getETag()))
+                        properties.getETag()))
                         .toBuilder()
-                        .serverSideEncryption(ServerSideEncryption.AES256)
+                        .serverSideEncryption(
+                                reportedSse(properties.isServerEncrypted()))
                         .build();
             } catch (BlobStorageException bse2) {
                 throw translate(bse2, fromContainer, fromName);
@@ -1026,7 +1046,8 @@ public final class AzureBlobStore implements BlobStore {
         @SuppressWarnings("deprecation")
         HeadObjectResponse head = HeadObjectResponse.builder()
                 .metadata(properties.getMetadata())
-                .serverSideEncryption(ServerSideEncryption.AES256)
+                .serverSideEncryption(
+                        reportedSse(properties.isServerEncrypted()))
                 .eTag(reportETag(properties.getETag()))
                 .lastModified(properties.getLastModified() == null ? null :
                         properties.getLastModified().toInstant())
@@ -1336,10 +1357,12 @@ public final class AzureBlobStore implements BlobStore {
 
             stubBlobClient.delete();
 
-            String finalETag = reportETag(response.getValue().getETag());
+            var committed = response.getValue();
+            String finalETag = reportETag(committed.getETag());
             return SdkResponses.completeResponse(finalETag)
                     .toBuilder()
-                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .serverSideEncryption(
+                            reportedSse(committed.isServerEncrypted()))
                     .build();
         } catch (BlobStorageException bse) {
             var errorCode = bse.getErrorCode();
@@ -1739,7 +1762,7 @@ public final class AzureBlobStore implements BlobStore {
      * returning the original BlobStorageException unchanged if no
      * translation applies.
      */
-    private RuntimeException translate(BlobStorageException bse,
+    static RuntimeException translate(BlobStorageException bse,
             String container, @Nullable String key) {
         var code = bse.getErrorCode();
         if (code == null) {
@@ -1761,6 +1784,14 @@ public final class AzureBlobStore implements BlobStore {
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);
+        } else if (code.equals(
+                BlobErrorCode.BLOB_USES_CUSTOMER_SPECIFIED_ENCRYPTION)) {
+            // A blob written out of band with an Azure customer-provided key
+            // answers a keyless read 409; S3 answers 400 InvalidRequest,
+            // which is what clients key their retry-with-key logic off.
+            return S3Exceptions.invalidRequest("The object was stored using" +
+                    " a form of Server Side Encryption.  The correct" +
+                    " parameters must be provided to retrieve the object.");
         } else if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
             // Surface a permission failure as 403 AccessDenied rather than a
             // generic 500.
