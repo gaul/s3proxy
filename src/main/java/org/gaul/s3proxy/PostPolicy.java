@@ -208,6 +208,13 @@ final class PostPolicy {
         for (Condition condition : conditions) {
             String actual = fields.get(condition.field());
             if (actual == null) {
+                // An empty starts-with is S3's spelling of a field the
+                // document allows any content in, and S3 counts never
+                // sending the field as content it allows.  A condition
+                // that actually constrains still has to be answered.
+                if (condition.startsWith() && condition.value().isEmpty()) {
+                    continue;
+                }
                 throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Invalid according to Policy: Policy Condition" +
                         " failed: the form did not send " +

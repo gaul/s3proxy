@@ -107,6 +107,23 @@ public final class PostPolicyTest {
     }
 
     /**
+     * An empty starts-with allows the field any content, which S3 reads as
+     * covering a form that never sends it -- the idiom the s3-tests use to
+     * admit an optional x-amz-server-side-encryption field.  Present or
+     * absent, the form conforms; only a constraining condition has to be
+     * answered.
+     */
+    @Test
+    public void testEmptyStartsWithCoversAnAbsentField() throws Exception {
+        PostPolicy policy = parse(policy(
+                "{\"bucket\": \"buck\"}," +
+                "[\"starts-with\", \"$x-amz-server-side-encryption\", \"\"]"));
+        policy.evaluate(fields("bucket", "buck"), 0);
+        policy.evaluate(fields("bucket", "buck",
+                "x-amz-server-side-encryption", "AES256"), 0);
+    }
+
+    /**
      * The other direction, which is the one that matters: a policy that
      * constrained only the fields it happened to list would let a form add
      * anything beside them.
