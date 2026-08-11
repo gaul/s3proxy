@@ -169,7 +169,8 @@ Some limitations depend on the storage backend:
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
 | no object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74) | `azureblob`, `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
-| no server-side encryption, see [#402](https://github.com/gaul/s3proxy/issues/402) | `azureblob`, `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
+| no server-side encryption, see [#402](https://github.com/gaul/s3proxy/issues/402) | `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
+| SSE-S3 only: AES256 relayed from Azure's own at-rest encryption; SSE-C and SSE-KMS refused | `azureblob` |
 
 The two backends that do version objects come by it differently.  `aws-s3`
 passes the requests through to a service that already versions, while
@@ -178,8 +179,8 @@ as a hidden object.  `filesystem` shares that implementation and declines it:
 its versions would outlive the process, settling a layout on disk that
 S3Proxy would owe its users from then on.
 
-Server-side encryption divides the same two from the rest, and divides the
-two nio2 stores on the same line.  `aws-s3` forwards the header families --
+Server-side encryption divides the same two from most of the rest, and
+divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
 SSE-S3, SSE-KMS and SSE-C alike -- to a service that encrypts, while
 `transient` answers them itself: what it holds rests in a filesystem that
 dies with the process, so an object's encryption is the headers and nothing
@@ -190,7 +191,10 @@ key's MD5 and never the key.  Unlike S3, S3Proxy accepts SSE-C over plain
 HTTP, its TLS commonly terminating elsewhere.  `filesystem` writes to a real
 disk, where reporting AES256 over plaintext someone could go and read would
 be a claim S3Proxy has no business making, so it refuses every one of these
-headers instead.
+headers instead.  `azureblob` stands halfway in: Azure encrypts everything
+at rest and says so on each response, which the store relays as SSE-S3 --
+an object's AES256 is Azure's answer, not S3Proxy's assertion -- while
+SSE-C and SSE-KMS are refused rather than silently accepted.
 
 Bucket default encryption, the `?encryption` subresource, rides the same
 divide.  `aws-s3` passes the configuration through, `transient` keeps it and
