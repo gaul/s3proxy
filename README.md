@@ -169,8 +169,9 @@ Some limitations depend on the storage backend:
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
 | no object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74) | `azureblob`, `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
-| no server-side encryption, see [#402](https://github.com/gaul/s3proxy/issues/402) | `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
-| SSE-S3 only: AES256 relayed from Azure's own at-rest encryption; SSE-C and SSE-KMS refused | `azureblob` |
+| no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
+| no server-side encryption, by design or for want of a service analog | `filesystem`, `openstack-swift`, `sftp` |
+| SSE-S3 only: AES256 relayed from Azure's own at-rest encryption; SSE-C ([#1135](https://github.com/gaul/s3proxy/issues/1135)) and SSE-KMS refused | `azureblob` |
 
 The two backends that do version objects come by it differently.  `aws-s3`
 passes the requests through to a service that already versions, while
