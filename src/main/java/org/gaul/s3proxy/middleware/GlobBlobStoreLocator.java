@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.middleware;
 
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.gaul.s3proxy.AccessGrant;
+import org.gaul.s3proxy.BlobStoreLocator;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.jspecify.annotations.Nullable;
 

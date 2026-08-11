@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,6 +25,7 @@ import java.util.Map;
 
 import com.google.common.io.ByteSource;
 
+import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

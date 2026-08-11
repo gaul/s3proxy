@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

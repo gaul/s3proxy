@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.middleware;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableMap;
 
+import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;

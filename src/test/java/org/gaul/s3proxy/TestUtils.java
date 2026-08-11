@@ -36,14 +36,15 @@ import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.middleware.EncryptedBlobStore;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 
-final class TestUtils {
+public final class TestUtils {
     @SuppressWarnings("deprecation")
-    static final HashFunction MD5 = Hashing.md5();
+    public static final HashFunction MD5 = Hashing.md5();
 
     private TestUtils() {
         throw new AssertionError("intentionally unimplemented");
@@ -63,7 +64,7 @@ final class TestUtils {
                 .toList();
     }
 
-    static software.amazon.awssdk.services.s3.model.CompletedPart
+    public static software.amazon.awssdk.services.s3.model.CompletedPart
             completedPart(int partNumber,
             software.amazon.awssdk.services.s3.model
                     .UploadPartResponse part) {
@@ -75,7 +76,7 @@ final class TestUtils {
     }
 
     /** Stores {@code content} as one object without further options. */
-    static software.amazon.awssdk.services.s3.model.PutObjectResponse putBlob(
+    public static software.amazon.awssdk.services.s3.model.PutObjectResponse putBlob(
             BlobStore blobStore, String containerName, String blobName,
             ByteSource content) throws IOException {
         return blobStore.putBlob(putRequest(containerName, blobName, content),
@@ -83,7 +84,7 @@ final class TestUtils {
     }
 
     /** A bare write request sized to {@code content}. */
-    static software.amazon.awssdk.services.s3.model.PutObjectRequest
+    public static software.amazon.awssdk.services.s3.model.PutObjectRequest
             putRequest(String containerName, String blobName,
             ByteSource content) throws IOException {
         return software.amazon.awssdk.services.s3.model.PutObjectRequest
@@ -95,7 +96,7 @@ final class TestUtils {
     }
 
     /** A bare create-upload request. */
-    static software.amazon.awssdk.services.s3.model
+    public static software.amazon.awssdk.services.s3.model
             .CreateMultipartUploadRequest createRequest(
             String containerName, String blobName) {
         return software.amazon.awssdk.services.s3.model
@@ -106,7 +107,7 @@ final class TestUtils {
     }
 
     /** The unconditional completion of {@code mpu} from listed parts. */
-    static software.amazon.awssdk.services.s3.model
+    public static software.amazon.awssdk.services.s3.model
             .CompleteMultipartUploadRequest completeRequest(
             org.gaul.s3proxy.blobstore.domain.MultipartUpload mpu,
             java.util.List<software.amazon.awssdk.services.s3.model
@@ -116,7 +117,7 @@ final class TestUtils {
     }
 
     /** Uploads one part of {@code mpu} with a plain carrier request. */
-    static software.amazon.awssdk.services.s3.model
+    public static software.amazon.awssdk.services.s3.model
             .UploadPartResponse uploadPart(BlobStore blobStore,
             org.gaul.s3proxy.blobstore.domain.MultipartUpload mpu,
             int partNumber, InputStream is, long contentLength) {
@@ -132,11 +133,11 @@ final class TestUtils {
                 is);
     }
 
-    static ByteSource randomByteSource() {
+    public static ByteSource randomByteSource() {
         return randomByteSource(0);
     }
 
-    static ByteSource randomByteSource(long seed) {
+    public static ByteSource randomByteSource(long seed) {
         return new RandomByteSource(seed);
     }
 
@@ -242,7 +243,7 @@ final class TestUtils {
 
     /** Returns the provider which the s3proxy.test.conf system property
      * configures, resolved to its current name. */
-    static String testBlobStoreProvider() throws IOException {
+    public static String testBlobStoreProvider() throws IOException {
         var properties = new Properties();
         String configFile = System.getProperty("s3proxy.test.conf",
                 "s3proxy.conf");
@@ -258,7 +259,7 @@ final class TestUtils {
      * Creates the backend blobstore which the s3proxy.test.conf system
      * property configures, defaulting to transient.
      */
-    static BlobStore createTestBlobStore() throws IOException {
+    public static BlobStore createTestBlobStore() throws IOException {
         var properties = new Properties();
         String configFile = System.getProperty("s3proxy.test.conf",
                 "s3proxy.conf");
@@ -393,7 +394,7 @@ final class TestUtils {
         return info;
     }
 
-    static BlobStore createTransientBlobStore() {
+    public static BlobStore createTransientBlobStore() {
         var props = new Properties();
         props.setProperty(Constants.PROPERTY_IDENTITY, "identity");
         props.setProperty(Constants.PROPERTY_CREDENTIAL, "credential");
@@ -408,10 +409,10 @@ final class TestUtils {
      * middleware forwarding the request one untranslated could not be caught
      * without this.  Records what it was asked to delete and deletes it.
      */
-    static final class ConditionalDeleteRecorder extends ForwardingBlobStore {
+    public static final class ConditionalDeleteRecorder extends ForwardingBlobStore {
         @Nullable private DeleteObjectRequest lastRequest;
 
-        ConditionalDeleteRecorder(BlobStore blobStore) {
+        public ConditionalDeleteRecorder(BlobStore blobStore) {
             super(blobStore);
         }
 
@@ -422,16 +423,16 @@ final class TestUtils {
             return DeleteObjectResponse.builder().build();
         }
 
-        @Nullable DeleteObjectRequest lastRequest() {
+        public @Nullable DeleteObjectRequest lastRequest() {
             return lastRequest;
         }
     }
 
-    static String createRandomContainerName() {
+    public static String createRandomContainerName() {
         return "container-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 
-    static String createRandomBlobName() {
+    public static String createRandomBlobName() {
         return "blob-" + new Random().nextInt(Integer.MAX_VALUE);
     }
 }

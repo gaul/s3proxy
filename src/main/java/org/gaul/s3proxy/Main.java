@@ -29,21 +29,18 @@ import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.MoreFiles;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
+import org.gaul.s3proxy.middleware.GlobBlobStoreLocator;
+import org.gaul.s3proxy.middleware.Middlewares;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -110,7 +107,8 @@ public final class Main {
                 throw e;
             }
 
-            blobStore = parseMiddlewareProperties(blobStore, properties);
+            blobStore = Middlewares.wrap(blobStore, properties,
+                    Main::createBlobStore);
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
@@ -194,134 +192,6 @@ public final class Main {
         }, "s3proxy-shutdown"));
     }
 
-    private static BlobStore parseMiddlewareProperties(BlobStore blobStore,
-            Properties properties) throws IOException {
-        var altProperties = new Properties();
-        for (var entry : properties.entrySet()) {
-            String key = (String) entry.getKey();
-            if (key.startsWith(S3ProxyConstants.PROPERTY_ALT_JCLOUDS_PREFIX)) {
-                key = key.substring(
-                        S3ProxyConstants.PROPERTY_ALT_JCLOUDS_PREFIX.length());
-                altProperties.put(key, (String) entry.getValue());
-            }
-        }
-
-        String eventualConsistency = properties.getProperty(
-                S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY);
-        if ("true".equalsIgnoreCase(eventualConsistency)) {
-            BlobStore altBlobStore = createBlobStore(altProperties);
-            int delay = Integer.parseInt(properties.getProperty(
-                    S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_DELAY,
-                    "5"));
-            double probability = Double.parseDouble(properties.getProperty(
-                    S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY,
-                    "1.0"));
-            System.err.println("Emulating eventual consistency with delay " +
-                    delay + " seconds and probability " + (probability * 100) +
-                    "%");
-            blobStore = EventualBlobStore.newEventualBlobStore(
-                    blobStore, altBlobStore,
-                    Executors.newScheduledThreadPool(1),
-                    delay, TimeUnit.SECONDS, probability);
-        }
-
-        String nullBlobStore = properties.getProperty(
-                S3ProxyConstants.PROPERTY_NULL_BLOBSTORE);
-        if ("true".equalsIgnoreCase(nullBlobStore)) {
-            System.err.println("Using null storage backend");
-            blobStore = NullBlobStore.newNullBlobStore(blobStore);
-        }
-
-        String readOnlyBlobStore = properties.getProperty(
-                S3ProxyConstants.PROPERTY_READ_ONLY_BLOBSTORE);
-        if ("true".equalsIgnoreCase(readOnlyBlobStore)) {
-            System.err.println("Using read-only storage backend");
-            blobStore = ReadOnlyBlobStore.newReadOnlyBlobStore(blobStore);
-        }
-
-        ImmutableBiMap<String, String> aliases = AliasBlobStore.parseAliases(
-                properties);
-        if (!aliases.isEmpty()) {
-            System.err.println("Using alias backend");
-            blobStore = AliasBlobStore.newAliasBlobStore(blobStore, aliases);
-        }
-
-        Map<String, String> prefixMap = PrefixBlobStore.parsePrefixes(properties);
-        if (!prefixMap.isEmpty()) {
-            System.err.println("Using prefix backend");
-            blobStore = PrefixBlobStore.newPrefixBlobStore(blobStore,
-                    prefixMap);
-        }
-
-        List<Map.Entry<Pattern, String>> regexs =
-                RegexBlobStore.parseRegexs(properties);
-        if (!regexs.isEmpty()) {
-            System.err.println("Using regex backend");
-            blobStore = RegexBlobStore.newRegexBlobStore(blobStore, regexs);
-        }
-
-        Map<String, Integer> shards =
-                ShardedBlobStore.parseBucketShards(properties);
-        Map<String, String> prefixes =
-                ShardedBlobStore.parsePrefixes(properties);
-        if (!shards.isEmpty()) {
-            System.err.println("Using sharded buckets backend");
-            blobStore = ShardedBlobStore.newShardedBlobStore(blobStore,
-                    shards, prefixes);
-        }
-
-        String encryptedBlobStore = properties.getProperty(
-            S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE);
-        if ("true".equalsIgnoreCase(encryptedBlobStore)) {
-            System.err.println("Using encrypted storage backend");
-            blobStore = EncryptedBlobStore.newEncryptedBlobStore(blobStore,
-                properties);
-        }
-
-        var storageClass = properties.getProperty(
-                S3ProxyConstants.PROPERTY_STORAGE_CLASS_BLOBSTORE);
-        if (!Strings.isNullOrEmpty(storageClass)) {
-            System.err.println("Using storage class override backend");
-            var storageClassBlobStore =
-                    StorageClassBlobStore.newStorageClassBlobStore(
-                            blobStore, storageClass);
-            blobStore = storageClassBlobStore;
-            System.err.println("Configuration storage class: " + storageClass);
-            // TODO: This only makes sense for S3 backends.
-            System.err.println("Mapping storage storage class to: " +
-                    storageClassBlobStore.getStorageClass());
-        }
-
-        String userMetadataReplacerBlobStore = properties.getProperty(
-                S3ProxyConstants.PROPERTY_USER_METADATA_REPLACER);
-        if ("true".equalsIgnoreCase(userMetadataReplacerBlobStore)) {
-            System.err.println("Using user metadata replacers storage backend");
-            String fromChars = properties.getProperty(S3ProxyConstants
-                    .PROPERTY_USER_METADATA_REPLACER_FROM_CHARS);
-            String toChars = properties.getProperty(S3ProxyConstants
-                    .PROPERTY_USER_METADATA_REPLACER_TO_CHARS);
-            blobStore = UserMetadataReplacerBlobStore
-                    .newUserMetadataReplacerBlobStore(
-                            blobStore, fromChars, toChars);
-        }
-
-        Map<String, Long> latencies = LatencyBlobStore.parseLatencies(properties);
-        Map<String, Long> speeds = LatencyBlobStore.parseSpeeds(properties);
-        if (!latencies.isEmpty() || !speeds.isEmpty()) {
-            System.err.println("Using latency storage backend");
-            blobStore = LatencyBlobStore.newLatencyBlobStore(blobStore, latencies, speeds);
-        }
-
-        String noCacheBlobStore = properties.getProperty(
-              S3ProxyConstants.PROPERTY_NO_CACHE_BLOBSTORE);
-        if  ("true".equalsIgnoreCase(noCacheBlobStore)) {
-            System.err.println("Using no-cache storage backend middleware");
-            blobStore = NoCacheBlobStore
-                    .newNoCacheBlobStore(blobStore);
-        }
-
-        return blobStore;
-    }
 
     private static PrintStream createLoggerErrorPrintStream() {
         return new PrintStream(System.err) {

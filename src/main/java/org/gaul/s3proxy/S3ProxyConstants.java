@@ -165,7 +165,7 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_METRICS_HOST =
             "s3proxy.metrics.host";
 
-    static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
+    public static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
         throw new AssertionError("Cannot instantiate utility constructor");

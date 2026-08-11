@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,8 +25,10 @@ import java.util.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 
-import org.gaul.s3proxy.GlobBlobStoreLocator.GlobTarget;
+import org.gaul.s3proxy.AccessGrant;
+import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.middleware.GlobBlobStoreLocator.GlobTarget;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

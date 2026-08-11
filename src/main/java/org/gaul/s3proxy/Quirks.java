@@ -18,28 +18,28 @@ package org.gaul.s3proxy;
 
 import java.util.Set;
 
-final class Quirks {
+public final class Quirks {
     /** Blobstores which do not support blob-level access control. */
-    static final Set<String> NO_BLOB_ACCESS_CONTROL = Set.of(
+    public static final Set<String> NO_BLOB_ACCESS_CONTROL = Set.of(
             "azureblob",
             "openstack-swift"
     );
 
     /** Blobstores which do not support the Cache-Control header. */
-    static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
+    public static final Set<String> NO_CACHE_CONTROL_SUPPORT = Set.of(
             "google-cloud-storage",
             "openstack-swift",
             "sftp"
     );
 
     /** Blobstores which do not support the Content-Encoding header. */
-    static final Set<String> NO_CONTENT_ENCODING = Set.of(
+    public static final Set<String> NO_CONTENT_ENCODING = Set.of(
             "google-cloud-storage",
             "sftp"
     );
 
     /** Blobstores which do not support the Content-Language header. */
-    static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
+    public static final Set<String> NO_CONTENT_LANGUAGE = Set.of(
             "openstack-swift",
             "sftp"
     );
@@ -51,7 +51,7 @@ final class Quirks {
      * storage class, and directory-marker identity -- does not survive the
      * write, and reads report defaults instead.
      */
-    static final Set<String> NO_PERSISTED_METADATA = Set.of(
+    public static final Set<String> NO_PERSISTED_METADATA = Set.of(
             "sftp"
     );
 
@@ -61,7 +61,7 @@ final class Quirks {
      * relative-path rejection -- which the nio2-specific tests pin on
      * every member.
      */
-    static final Set<String> NIO2_BACKENDS = Set.of(
+    public static final Set<String> NIO2_BACKENDS = Set.of(
             "filesystem",
             "sftp",
             "transient"
@@ -75,7 +75,7 @@ final class Quirks {
      * Note: azureblob also uses stubs for multipart uploads but handles
      * this internally in AzureBlobStore rather than in S3ProxyHandler.
      */
-    static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
+    public static final Set<String> MULTIPART_REQUIRES_STUB = Set.of(
             "filesystem",
             "sftp",
             "transient"
@@ -86,7 +86,7 @@ final class Quirks {
      * S3Proxy must not check the condition itself beforehand.  If-Match is not
      * among them: it needs a compare-and-swap the filesystem cannot offer.
      */
-    static final Set<String> NATIVE_IF_NONE_MATCH = Set.of(
+    public static final Set<String> NATIVE_IF_NONE_MATCH = Set.of(
             "filesystem",
             "transient"
     );
@@ -98,7 +98,7 @@ final class Quirks {
      * manifest PUT only honours If-None-Match: *, so neither can answer a
      * condition naming an ETag.
      */
-    static final Set<String> NATIVE_CONDITIONAL_COMPLETE = Set.of(
+    public static final Set<String> NATIVE_CONDITIONAL_COMPLETE = Set.of(
             "aws-s3",
             "azureblob",
             "filesystem",
@@ -106,7 +106,7 @@ final class Quirks {
     );
 
     /** Blobstores with opaque ETags. */
-    static final Set<String> OPAQUE_ETAG = Set.of(
+    public static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob",
             "google-cloud-storage"
     );
@@ -116,7 +116,7 @@ final class Quirks {
      * so that a caller paging with the last key it was given needs the
      * frontend to substitute the marker that produced it.
      */
-    static final Set<String> OPAQUE_MARKERS = Set.of(
+    public static final Set<String> OPAQUE_MARKERS = Set.of(
             "azureblob"
     );
 
@@ -125,7 +125,7 @@ final class Quirks {
      * read-only by definition and Swift write ACLs cannot name a referrer.
      * Both refuse public-read-write rather than grant half of it.
      */
-    static final Set<String> NO_PUBLIC_WRITE_ACCESS = Set.of(
+    public static final Set<String> NO_PUBLIC_WRITE_ACCESS = Set.of(
             "azureblob",
             "openstack-swift"
     );

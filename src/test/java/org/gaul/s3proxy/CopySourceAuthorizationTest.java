@@ -29,9 +29,10 @@ import java.util.Random;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteSource;
 
-import org.gaul.s3proxy.GlobBlobStoreLocator.GlobTarget;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
+import org.gaul.s3proxy.middleware.GlobBlobStoreLocator;
+import org.gaul.s3proxy.middleware.GlobBlobStoreLocator.GlobTarget;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
