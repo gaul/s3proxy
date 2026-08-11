@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Date;
 
@@ -144,13 +145,12 @@ public final class SdkResponses {
 
     /** A server-side part copy's result. */
     public static UploadPartCopyResponse copiedPart(@Nullable String eTag,
-            @Nullable Date lastModified,
+            @Nullable Instant lastModified,
             @Nullable String copySourceVersionId) {
         return UploadPartCopyResponse.builder()
                 .copyPartResult(CopyPartResult.builder()
                         .eTag(eTag)
-                        .lastModified(lastModified == null ? null :
-                                lastModified.toInstant())
+                        .lastModified(lastModified)
                         .build())
                 .copySourceVersionId(copySourceVersionId)
                 .build();

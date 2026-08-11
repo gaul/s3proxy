@@ -30,27 +30,28 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.SortedMap;
-import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -364,13 +365,19 @@ public class S3ProxyHandler {
     private static final HashFunction MD5 = Hashing.md5();
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final String GIT_HASH = loadGitHash();
-    private static final java.text.SimpleDateFormat ISO8601_DATE_FORMAT;
-    static {
-        ISO8601_DATE_FORMAT = new java.text.SimpleDateFormat(
-                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US);
-        ISO8601_DATE_FORMAT.setTimeZone(
-                java.util.TimeZone.getTimeZone("UTC"));
-    }
+    /**
+     * Millisecond-precision ISO 8601, which CreationDate and Initiated
+     * carry; LastModified carries whole seconds.
+     */
+    private static final DateTimeFormatter ISO8601_MILLIS_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSS'Z'",
+                    Locale.US).withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter ISO8601_SECONDS_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss'Z'",
+                    Locale.US).withZone(ZoneOffset.UTC);
+    /** The compact form SigV4 stamps X-Amz-Date with. */
+    private static final DateTimeFormatter AMZ_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmss'Z'", Locale.US);
 
     private final Instant launchTime = Instant.now();
     private final boolean anonymousIdentity;
@@ -496,12 +503,6 @@ public class S3ProxyHandler {
 
     private <T> T readXmlBody(byte[] body, Class<T> type) {
         return readXmlBody(new ByteArrayInputStream(body), type);
-    }
-
-    private static String formatIso8601Date(Date date) {
-        synchronized (ISO8601_DATE_FORMAT) {
-            return ISO8601_DATE_FORMAT.format(date);
-        }
     }
 
     private static String getBlobStoreType(BlobStore blobStore) {
@@ -1833,16 +1834,15 @@ public class S3ProxyHandler {
 
                 writeSimpleElement(xml, "Name", bucket.name());
 
-                Date creationDate = bucket.creationDate() == null ? null :
-                        Date.from(bucket.creationDate());
+                Instant creationDate = bucket.creationDate();
                 if (creationDate == null) {
                     // Some providers, e.g., Swift, do not provide container
                     // creation date.  Emit a bogus one to satisfy clients like
                     // s3cmd which require one.
-                    creationDate = new Date(0);
+                    creationDate = Instant.EPOCH;
                 }
                 writeSimpleElement(xml, "CreationDate",
-                        formatIso8601Date(creationDate).trim());
+                        ISO8601_MILLIS_FORMAT.format(creationDate));
 
                 xml.writeEndElement();
             }
@@ -2100,14 +2100,13 @@ public class S3ProxyHandler {
      */
     private record VersionEntry(String name, String versionId, boolean latest,
             boolean deleteMarker, @Nullable String eTag,
-            @Nullable Date lastModified, @Nullable Long size,
+            @Nullable Instant lastModified, @Nullable Long size,
             @Nullable String storageClass) {
         static VersionEntry of(ObjectVersion version) {
             return new VersionEntry(version.key(), version.versionId(),
                     Boolean.TRUE.equals(version.isLatest()),
                     /*deleteMarker=*/ false, version.eTag(),
-                    version.lastModified() == null ? null :
-                            Date.from(version.lastModified()),
+                    version.lastModified(),
                     version.size(),
                     version.storageClassAsString() == null ?
                             StorageClass.STANDARD.toString() :
@@ -2118,8 +2117,7 @@ public class S3ProxyHandler {
             return new VersionEntry(marker.key(), marker.versionId(),
                     Boolean.TRUE.equals(marker.isLatest()),
                     /*deleteMarker=*/ true, /*eTag=*/ null,
-                    marker.lastModified() == null ? null :
-                            Date.from(marker.lastModified()),
+                    marker.lastModified(),
                     /*size=*/ null, /*storageClass=*/ null);
         }
 
@@ -2132,8 +2130,8 @@ public class S3ProxyHandler {
             var leftModified = left.lastModified();
             var rightModified = right.lastModified();
             return Long.compare(
-                    rightModified == null ? 0 : rightModified.getTime(),
-                    leftModified == null ? 0 : leftModified.getTime());
+                    rightModified == null ? 0 : rightModified.toEpochMilli(),
+                    leftModified == null ? 0 : leftModified.toEpochMilli());
         }
     }
 
@@ -2292,10 +2290,10 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "VersionId", version.versionId());
                 writeSimpleElement(xml, "IsLatest",
                         String.valueOf(version.latest()));
-                Date lastModified = version.lastModified();
+                Instant lastModified = version.lastModified();
                 if (lastModified != null) {
                     writeSimpleElement(xml, "LastModified",
-                            formatDate(lastModified));
+                            ISO8601_SECONDS_FORMAT.format(lastModified));
                 }
 
                 if (!version.deleteMarker()) {
@@ -2461,7 +2459,7 @@ public class S3ProxyHandler {
 
                 // TODO: bogus value
                 writeSimpleElement(xml, "Initiated",
-                        formatIso8601Date(new Date()));
+                        ISO8601_MILLIS_FORMAT.format(Instant.now()));
 
                 xml.writeEndElement();
             }
@@ -2809,7 +2807,8 @@ public class S3ProxyHandler {
 
                 if (object.lastModified() != null) {
                     writeSimpleElement(xml, "LastModified",
-                            formatDate(Date.from(object.lastModified())));
+                            ISO8601_SECONDS_FORMAT.format(
+                                    object.lastModified()));
                 }
 
                 String eTag = object.eTag();
@@ -3533,16 +3532,15 @@ public class S3ProxyHandler {
             }
         }
 
-        Date lastModified = metadata.lastModified() == null ? null :
-                Date.from(metadata.lastModified());
+        Instant lastModified = metadata.lastModified();
         if (lastModified != null) {
-            if (ifModifiedSince != -1 && lastModified.compareTo(
-                    new Date(ifModifiedSince)) <= 0) {
+            if (ifModifiedSince != -1 &&
+                    lastModified.toEpochMilli() <= ifModifiedSince) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
                 return true;
             }
-            if (ifUnmodifiedSince != -1 && lastModified.compareTo(
-                    new Date(ifUnmodifiedSince)) > 0) {
+            if (ifUnmodifiedSince != -1 &&
+                    lastModified.toEpochMilli() > ifUnmodifiedSince) {
                 throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
@@ -4084,7 +4082,7 @@ public class S3ProxyHandler {
                     blobMetadata.lastModified();
             if (lastModified != null) {
                 writeSimpleElement(xml, "LastModified",
-                        formatDate(Date.from(lastModified)));
+                        ISO8601_SECONDS_FORMAT.format(lastModified));
             }
 
             String eTag = copyResult.copyObjectResult() == null ?
@@ -5974,7 +5972,8 @@ public class S3ProxyHandler {
 
                 if (part.lastModified() != null) {
                     writeSimpleElement(xml, "LastModified",
-                            formatDate(Date.from(part.lastModified())));
+                            ISO8601_SECONDS_FORMAT.format(
+                                    part.lastModified()));
                 }
 
                 String eTag = part.eTag();
@@ -6205,8 +6204,7 @@ public class S3ProxyHandler {
             throw se;
         }
         String eTag = blobMetadata.eTag();
-        Date lastModified = blobMetadata.lastModified() == null ? null :
-                Date.from(blobMetadata.lastModified());
+        Instant lastModified = blobMetadata.lastModified();
         try {
             // HTTP GET allow overlong ranges but S3 CopyPart does not
             Long size = blobMetadata.contentLength();
@@ -6233,12 +6231,12 @@ public class S3ProxyHandler {
             }
 
             if (lastModified != null) {
-                if (ifModifiedSince != -1 && lastModified.compareTo(
-                        new Date(ifModifiedSince)) <= 0) {
+                if (ifModifiedSince != -1 &&
+                        lastModified.toEpochMilli() <= ifModifiedSince) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
-                if (ifUnmodifiedSince != -1 && lastModified.compareTo(
-                        new Date(ifUnmodifiedSince)) > 0) {
+                if (ifUnmodifiedSince != -1 &&
+                        lastModified.toEpochMilli() > ifUnmodifiedSince) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }
@@ -6318,7 +6316,7 @@ public class S3ProxyHandler {
             var result = part.copyPartResult();
             if (result != null && result.lastModified() != null) {
                 writeSimpleElement(xml, "LastModified",
-                        formatDate(Date.from(result.lastModified())));
+                        ISO8601_SECONDS_FORMAT.format(result.lastModified()));
             }
             String eTag = result == null ? null : result.eTag();
             if (eTag != null) {
@@ -6568,13 +6566,11 @@ public class S3ProxyHandler {
 
     /** Parse ISO 8601 timestamp into seconds since 1970. */
     private static long parseIso8601(String date) {
-        var formatter = new SimpleDateFormat(
-                "yyyyMMdd'T'HHmmss'Z'");
-        formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
         try {
-            return formatter.parse(date).getTime() / 1000;
-        } catch (ParseException pe) {
-            throw new IllegalArgumentException(pe);
+            return LocalDateTime.parse(date, AMZ_DATE_FORMAT)
+                    .toEpochSecond(ZoneOffset.UTC);
+        } catch (DateTimeParseException dtpe) {
+            throw new IllegalArgumentException(dtpe);
         }
     }
 
@@ -6597,17 +6593,8 @@ public class S3ProxyHandler {
         }
     }
 
-    // cannot call BlobStore.getContext().utils().date().iso8601DateFormat since
-    // it has unwanted millisecond precision
     static String generateRequestId() {
         return "%016X".formatted(ThreadLocalRandom.current().nextLong());
-    }
-
-    private static String formatDate(Date date) {
-        var formatter = new SimpleDateFormat(
-                "yyyy-MM-dd'T'HH:mm:ss'Z'");
-        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
-        return formatter.format(date);
     }
 
     protected final void sendSimpleErrorResponse(
