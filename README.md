@@ -168,7 +168,10 @@ Some limitations depend on the storage backend:
 | `max-keys=0` not honored | `azureblob` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
-| no object versioning, see [#74](https://github.com/gaul/s3proxy/issues/74) | `azureblob`, `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp` |
+| no object versioning, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
+| no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
+| no object versioning, see [#1136](https://github.com/gaul/s3proxy/issues/1136) | `google-cloud-storage` |
+| no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
 | no server-side encryption, by design or for want of a service analog | `filesystem`, `openstack-swift`, `sftp` |
 | SSE-S3 only: AES256 relayed from Azure's own at-rest encryption; SSE-C ([#1135](https://github.com/gaul/s3proxy/issues/1135)) and SSE-KMS refused | `azureblob` |
