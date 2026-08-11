@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
@@ -78,14 +79,12 @@ import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingInputStream;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -156,9 +155,6 @@ public final class AzureBlobStore implements BlobStore {
     private static final int STATUS_NOT_FOUND = 404;
     /** How many deletes Azure accepts in one batch request. */
     private static final int MAX_BATCH_DELETES = 256;
-    // S3 requires MD5 for ETag and Content-MD5 interoperability.
-    @SuppressWarnings("deprecation")
-    private static final HashFunction MD5 = Hashing.md5();
     // Disable retries since client should retry on errors.
     private static final RequestRetryOptions NO_RETRY_OPTIONS = new RequestRetryOptions(
             RetryPolicyType.FIXED, /*maxTries=*/ 1,
@@ -1439,12 +1435,13 @@ public final class AzureBlobStore implements BlobStore {
                 mpu.containerName(), mpu.blobName());
 
         byte[] md5Hash;
-        try (var his = new HashingInputStream(MD5, is)) {
-            Flux<ByteBuffer> body = chunkedByteBufferFlux(his, contentLength);
+        var digest = MD5.newDigest();
+        try (var dis = new DigestInputStream(is, digest)) {
+            Flux<ByteBuffer> body = chunkedByteBufferFlux(dis, contentLength);
 
             asyncClient.stageBlock(blockId, body, contentLength).block();
 
-            md5Hash = his.hash().asBytes();
+            md5Hash = digest.digest();
 
             if (contentMD5 != null) {
                 if (!MessageDigest.isEqual(md5Hash, contentMD5.asBytes())) {

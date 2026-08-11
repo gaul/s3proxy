@@ -21,18 +21,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Properties;
 
 import com.google.common.collect.ImmutableBiMap;
-import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
@@ -106,8 +106,8 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        @SuppressWarnings("deprecation")
-        String contentMD5 = Hashing.md5().hashBytes(content.read()).toString();
+        String contentMD5 = HexFormat.of().formatHex(
+                MD5.hash(content.read()));
         String eTag = TestUtils.putBlob(aliasBlobStore, aliasContainerName,
                 blobName, content).eTag();
         assertThat(eTag).isEqualTo(contentMD5);
@@ -126,21 +126,20 @@ public final class AliasBlobStoreTest {
         createContainer(aliasContainerName);
         String blobName = TestUtils.createRandomBlobName();
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        @SuppressWarnings("deprecation")
-        HashCode contentHash = Hashing.md5().hashBytes(content.read());
+        byte[] contentHash = MD5.hash(content.read());
         MultipartUpload mpu = aliasBlobStore.initiateMultipartUpload(
                 TestUtils.createRequest(aliasContainerName, blobName));
         assertThat(mpu.containerName()).isEqualTo(aliasContainerName);
         var part = TestUtils.uploadPart(aliasBlobStore,
                 mpu, 1, content.openStream(), content.size());
-        assertThat(part.eTag()).isEqualTo(contentHash.toString());
+        assertThat(part.eTag()).isEqualTo(
+                HexFormat.of().formatHex(contentHash));
         String mpuETag = aliasBlobStore.completeMultipartUpload(mpu,
                 SdkRequests.completeRequest(mpu,
                         List.of(TestUtils.completedPart(1, part)))).eTag();
-        @SuppressWarnings("deprecation")
-        HashCode contentHash2 = Hashing.md5().hashBytes(contentHash.asBytes());
-        assertThat(mpuETag).isEqualTo(
-                "\"%s-1\"".formatted(contentHash2));
+        byte[] contentHash2 = MD5.hash(contentHash);
+        assertThat(mpuETag).isEqualTo("\"%s-1\"".formatted(
+                HexFormat.of().formatHex(contentHash2)));
         var got = aliasBlobStore.getBlob(aliasContainerName, blobName);
         try (InputStream actual = got;
              InputStream expected = content.openStream()) {

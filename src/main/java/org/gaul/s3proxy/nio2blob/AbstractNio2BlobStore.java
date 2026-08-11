@@ -39,6 +39,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.security.DigestInputStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -59,9 +60,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingInputStream;
 import com.google.common.io.ByteSource;
 import com.google.common.io.ByteStreams;
 import com.google.common.primitives.Longs;
@@ -69,6 +68,7 @@ import com.google.common.primitives.Longs;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -191,10 +191,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String NULL_VERSION_ID = "null";
     private static final int UUID_STRING_LENGTH =
             UUID.randomUUID().toString().length();
-    @SuppressWarnings("deprecation")
-    private static final HashFunction md5 = Hashing.md5();
-    private static final byte[] DIRECTORY_MD5 =
-            md5.hashBytes(new byte[0]).asBytes();
+    private static final byte[] DIRECTORY_MD5 = MD5.hash(new byte[0]);
 
     /**
      * Orders the versions of one key.  A file name carries it rather than the
@@ -957,12 +954,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (parts != null) {
                 concatenate(parts, tmpPath);
             } else {
-                try (var is = new HashingInputStream(md5,
-                        requireNonNull(blob.getPayload()));
+                var digest = MD5.newDigest();
+                try (var is = new DigestInputStream(
+                        requireNonNull(blob.getPayload()), digest);
                      var os = Files.newOutputStream(tmpPath)) {
                     is.transferTo(os);
-                    actualHashCode = is.hash();
                 }
+                actualHashCode = HashCode.fromBytes(digest.digest());
                 var expectedHashCode = metadata.contentMD5();
                 if (expectedHashCode != null &&
                         !actualHashCode.equals(expectedHashCode)) {
@@ -2122,7 +2120,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 List.of() : request.multipartUpload().parts();
         var partNames = ImmutableList.<String>builder();
         long contentLength = 0;
-        var md5Hasher = md5.newHasher();
+        var md5Hasher = MD5.newDigest();
 
         for (var part : parts) {
             var partName = multipartPartName(mpu.id(), mpu.blobName(),
@@ -2141,10 +2139,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                        eTag.length() >= 2) {
                     eTag = eTag.substring(1, eTag.length() - 1);
                 }
-                md5Hasher.putBytes(HexFormat.of().parseHex(eTag));
+                md5Hasher.update(HexFormat.of().parseHex(eTag));
             }
         }
-        var mpuETag = "\"" + md5Hasher.hash() + "-" + parts.size() + "\"";
+        var mpuETag = "\"" + HexFormat.of().formatHex(md5Hasher.digest()) +
+                "-" + parts.size() + "\"";
         var blobBuilder = Blob.builder(mpu.blobName())
                 .payload(new MultiBlobInputStream(this, mpu.containerName(),
                         partNames.build()))

@@ -20,8 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
 
-import com.google.common.hash.Hashing;
-
 import org.gaul.s3proxy.blobstore.domain.Encryption;
 import org.jspecify.annotations.Nullable;
 
@@ -35,10 +33,6 @@ import org.jspecify.annotations.Nullable;
  * backend forwards the triple verbatim and its service judges instead.
  */
 public final class CustomerKeys {
-    @SuppressWarnings("deprecation")
-    private static final com.google.common.hash.HashFunction MD5 =
-            Hashing.md5();
-
     private CustomerKeys() {
     }
 
@@ -77,7 +71,7 @@ public final class CustomerKeys {
             throw S3Exceptions.invalidArgument("The calculated MD5 hash of" +
                     " the key did not match the hash that was provided.");
         }
-        if (!MessageDigest.isEqual(MD5.hashBytes(key).asBytes(), keyMD5)) {
+        if (!MessageDigest.isEqual(MD5.hash(key), keyMD5)) {
             throw S3Exceptions.invalidArgument("The calculated MD5 hash of" +
                     " the key did not match the hash that was provided.");
         }

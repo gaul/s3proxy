@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -63,12 +64,10 @@ import com.google.cloud.storage.StorageOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingInputStream;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -116,9 +115,6 @@ public final class GCloudBlobStore implements BlobStore {
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";
     private static final String BLOB_ACCESS_KEY = "s3proxy_blob_access";
-    // S3 requires MD5 for ETag and Content-MD5 interoperability.
-    @SuppressWarnings("deprecation")
-    private static final HashFunction MD5 = Hashing.md5();
     // GCS deprecated md5Match in favor of crc32cMatch but the client
     // supplies a Content-MD5 to validate, not a CRC32C.
     @SuppressWarnings("deprecation")
@@ -1256,13 +1252,14 @@ public final class GCloudBlobStore implements BlobStore {
         String partBlobName = makePartBlobName(nonce, partNumber);
 
         byte[] md5Hash;
-        try (var his = new HashingInputStream(MD5, is)) {
+        var digest = MD5.newDigest();
+        try (var dis = new DigestInputStream(is, digest)) {
             var partInfo = BlobInfo.newBuilder(
                     BlobId.of(mpu.containerName(), partBlobName)).build();
-            storage.createFrom(partInfo, his,
+            storage.createFrom(partInfo, dis,
                     uploadChunkSize(contentLength));
 
-            md5Hash = his.hash().asBytes();
+            md5Hash = digest.digest();
 
             if (contentMD5 != null) {
                 if (!MessageDigest.isEqual(md5Hash,

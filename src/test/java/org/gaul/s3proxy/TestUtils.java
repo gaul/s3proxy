@@ -19,17 +19,13 @@ package org.gaul.s3proxy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.util.Properties;
 import java.util.Random;
 
 import com.google.common.base.Strings;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
-import com.google.common.io.MoreFiles;
 import com.google.common.io.Resources;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
@@ -43,9 +39,6 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 
 public final class TestUtils {
-    @SuppressWarnings("deprecation")
-    public static final HashFunction MD5 = Hashing.md5();
-
     private TestUtils() {
         throw new AssertionError("intentionally unimplemented");
     }
@@ -281,8 +274,7 @@ public final class TestUtils {
             if (credential != null && !credential.isEmpty()) {
                 var path = FileSystems.getDefault().getPath(credential);
                 if (Files.exists(path)) {
-                    credential = MoreFiles.asCharSource(path,
-                            StandardCharsets.UTF_8).read();
+                    credential = Files.readString(path);
                 }
             }
             identity = Strings.nullToEmpty(identity);

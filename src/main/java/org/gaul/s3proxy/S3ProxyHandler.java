@@ -80,9 +80,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hasher;
-import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
@@ -98,6 +95,7 @@ import org.eclipse.jetty.util.Promise;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -361,8 +359,6 @@ public class S3ProxyHandler {
     /** URLEncoder escapes / which we do not want. */
     private static final Escaper urlEscaper = new PercentEscaper(
             "*-./_", /*plusForSpace=*/ false);
-    @SuppressWarnings("deprecation")
-    private static final HashFunction MD5 = Hashing.md5();
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final String GIT_HASH = loadGitHash();
     /**
@@ -2914,22 +2910,20 @@ public class S3ProxyHandler {
      * x-amz-checksum-* header (modern AWS SDKs).  Throws if no checksum is
      * present or if validation fails.
      */
-    @SuppressWarnings("deprecation")
     private static void validateMultiBlobRemoveChecksum(
             HttpServletRequest request, byte[] body) {
         String contentMD5 = request.getHeader(HttpHeaders.CONTENT_MD5);
         if (contentMD5 != null) {
-            HashCode expected;
+            byte[] expected;
             try {
-                expected = HashCode.fromBytes(
-                        Base64.getDecoder().decode(contentMD5));
+                expected = Base64.getDecoder().decode(contentMD5);
             } catch (IllegalArgumentException iae) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
             }
-            if (expected.bits() != MD5.bits()) {
+            if (expected.length != MD5.LENGTH) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
             }
-            if (!expected.equals(MD5.hashBytes(body))) {
+            if (!MessageDigest.isEqual(expected, MD5.hash(body))) {
                 throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
             }
             return;
@@ -4131,7 +4125,7 @@ public class S3ProxyHandler {
             } catch (IllegalArgumentException iae) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
             }
-            if (contentMD5.bits() != MD5.bits()) {
+            if (contentMD5.bits() != MD5.LENGTH * Byte.SIZE) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
             }
         }
@@ -5428,7 +5422,7 @@ public class S3ProxyHandler {
             eTag = eTag.replace("\"", "").toLowerCase();
             try {
                 byte[] digest = HexFormat.of().parseHex(eTag);
-                if (digest.length != MD5.bits() / Byte.SIZE) {
+                if (digest.length != MD5.LENGTH) {
                     return null;
                 }
                 digests.put(part.partNumber(), digest);
@@ -5436,11 +5430,12 @@ public class S3ProxyHandler {
                 return null;
             }
         }
-        Hasher hasher = MD5.newHasher();
+        var hasher = MD5.newDigest();
         for (byte[] digest : digests.values()) {
-            hasher.putBytes(digest);
+            hasher.update(digest);
         }
-        return hasher.hash() + "-" + digests.size();
+        return HexFormat.of().formatHex(hasher.digest()) + "-" +
+                digests.size();
     }
 
     /**
@@ -6362,7 +6357,7 @@ public class S3ProxyHandler {
             } catch (IllegalArgumentException iae) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
             }
-            if (contentMD5.bits() != MD5.bits()) {
+            if (contentMD5.bits() != MD5.LENGTH * Byte.SIZE) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
             }
         }

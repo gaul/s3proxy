@@ -21,7 +21,6 @@ import static java.util.Objects.requireNonNull;
 import java.io.Console;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,7 +34,6 @@ import java.util.Set;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.io.MoreFiles;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
@@ -249,8 +247,7 @@ public final class Main {
             if (credential != null && !credential.isEmpty()) {
                 var path = FileSystems.getDefault().getPath(credential);
                 if (Files.exists(path)) {
-                    credential = MoreFiles.asCharSource(path,
-                            StandardCharsets.UTF_8).read();
+                    credential = Files.readString(path);
                 }
             }
             identity = Strings.nullToEmpty(identity);

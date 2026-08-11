@@ -33,6 +33,7 @@ import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
@@ -241,7 +242,7 @@ public final class EventualBlobStoreTest {
                 .contentLength(BYTE_SOURCE.size())
                 .contentType(MediaType.MP4_AUDIO.toString())
                 .contentMD5(Base64.getEncoder().encodeToString(
-                        BYTE_SOURCE.hash(TestUtils.MD5).asBytes()))
+                        MD5.hash(BYTE_SOURCE.read())))
                 .metadata(Map.of("key", "value"))
                 .build();
     }

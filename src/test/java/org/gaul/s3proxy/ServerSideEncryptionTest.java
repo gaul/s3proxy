@@ -27,10 +27,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
 
-import com.google.common.hash.Hashing;
-
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.nio2blob.FilesystemNio2BlobStore;
 import org.gaul.s3proxy.nio2blob.TransientNio2BlobStore;
 import org.junit.jupiter.api.AfterEach;
@@ -795,10 +794,8 @@ public final class ServerSideEncryptionTest {
         return Base64.getEncoder().encodeToString(key);
     }
 
-    @SuppressWarnings("deprecation")
     private static String keyMD5(byte[] key) {
-        return Base64.getEncoder().encodeToString(
-                Hashing.md5().hashBytes(key).asBytes());
+        return Base64.getEncoder().encodeToString(MD5.hash(key));
     }
 
     private static void assertRefused(ThrowingCallable callable) {

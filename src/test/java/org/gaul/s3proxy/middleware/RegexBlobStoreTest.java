@@ -21,19 +21,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.AbstractMap.SimpleEntry;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.regex.Pattern;
 
-import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,8 +70,8 @@ public final class RegexBlobStoreTest {
         String initialBlobName = "test/remove:badchars-folder/blob.txt";
         String targetBlobName = "test/remove_badchars_folder/blob.txt";
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
-        @SuppressWarnings("deprecation")
-        String contentHash = Hashing.md5().hashBytes(content.read()).toString();
+        String contentHash = HexFormat.of().formatHex(
+                MD5.hash(content.read()));
         String eTag = TestUtils.putBlob(regexBlobStore, containerName,
                 initialBlobName, content).eTag();
         assertThat(eTag).isEqualTo(contentHash);
