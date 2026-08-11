@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.checksum;
 
 import java.io.EOFException;
 import java.io.FilterInputStream;
@@ -32,6 +32,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.io.ByteStreams;
 
+import org.gaul.s3proxy.S3ErrorCode;
+import org.gaul.s3proxy.S3ProxyException;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.checksums.SdkChecksum;
@@ -40,7 +42,7 @@ import software.amazon.awssdk.checksums.SdkChecksum;
  * Parse an AWS v4 signature chunked stream.  Reference:
  * https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
  */
-final class ChunkedInputStream extends FilterInputStream {
+public final class ChunkedInputStream extends FilterInputStream {
     private static final int MAX_LINE_LENGTH = 4096;
     private static final String EMPTY_SHA256 =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -66,7 +68,7 @@ final class ChunkedInputStream extends FilterInputStream {
     @Nullable private final String scope;
     @Nullable private String previousSignature;
 
-    ChunkedInputStream(InputStream is, int maxChunkSize) {
+    public ChunkedInputStream(InputStream is, int maxChunkSize) {
         super(is);
         this.maxChunkSize = maxChunkSize;
         checksum = null;
@@ -76,13 +78,12 @@ final class ChunkedInputStream extends FilterInputStream {
         scope = null;
     }
 
-    @SuppressWarnings("deprecation")
-    ChunkedInputStream(InputStream is, int maxChunkSize,
+    public ChunkedInputStream(InputStream is, int maxChunkSize,
             @Nullable String trailer) {
         super(is);
         this.maxChunkSize = maxChunkSize;
         var algorithm = trailer == null ? null :
-                S3ProxyHandler.FlexChecksum.fromHeaderName(trailer);
+                FlexChecksum.fromHeaderName(trailer);
         checksum = algorithm == null ? null : algorithm.newChecksum();
         signingKey = null;
         hmacAlgorithm = null;
@@ -100,7 +101,7 @@ final class ChunkedInputStream extends FilterInputStream {
      * @param timestamp     full ISO8601 request timestamp (x-amz-date)
      * @param scope         credential scope (date/region/service/aws4_request)
      */
-    ChunkedInputStream(InputStream is, int maxChunkSize,
+    public ChunkedInputStream(InputStream is, int maxChunkSize,
             String seedSignature, byte[] signingKey, String hmacAlgorithm,
             String timestamp, String scope) {
         this(is, maxChunkSize, seedSignature, signingKey, hmacAlgorithm,
@@ -112,14 +113,13 @@ final class ChunkedInputStream extends FilterInputStream {
      * AND validates the flexible-checksum trailer used by
      * STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER.
      */
-    @SuppressWarnings("deprecation")
-    ChunkedInputStream(InputStream is, int maxChunkSize,
+    public ChunkedInputStream(InputStream is, int maxChunkSize,
             String seedSignature, byte[] signingKey, String hmacAlgorithm,
             String timestamp, String scope, @Nullable String trailer) {
         super(is);
         this.maxChunkSize = maxChunkSize;
         var algorithm = trailer == null ? null :
-                S3ProxyHandler.FlexChecksum.fromHeaderName(trailer);
+                FlexChecksum.fromHeaderName(trailer);
         checksum = algorithm == null ? null : algorithm.newChecksum();
         this.signingKey = signingKey.clone();
         this.hmacAlgorithm = hmacAlgorithm;
@@ -159,7 +159,7 @@ final class ChunkedInputStream extends FilterInputStream {
                             S3ErrorCode.INVALID_REQUEST));
                 }
                 var expectedHash = checksumParts[1];
-                if (S3ProxyHandler.FlexChecksum.fromHeaderName(
+                if (FlexChecksum.fromHeaderName(
                         checksumParts[0]) == null) {
                     throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
                 }
@@ -303,7 +303,7 @@ final class ChunkedInputStream extends FilterInputStream {
             return;
         }
         String expectedHash = parts[1];
-        if (S3ProxyHandler.FlexChecksum.fromHeaderName(parts[0]) == null) {
+        if (FlexChecksum.fromHeaderName(parts[0]) == null) {
             throw new IOException("unknown trailer: " + parts[0]);
         }
         var actualHash = checksum.getChecksumBytes();

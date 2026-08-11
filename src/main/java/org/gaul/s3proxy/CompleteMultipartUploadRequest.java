@@ -21,12 +21,12 @@ import java.util.Collection;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
-record CompleteMultipartUploadRequest(
+public record CompleteMultipartUploadRequest(
         @JacksonXmlProperty(localName = "Part")
         @JacksonXmlElementWrapper(useWrapping = false)
         Collection<Part> parts) {
 
-    record Part(
+    public record Part(
             @JacksonXmlProperty(localName = "PartNumber") int partNumber,
             @JacksonXmlProperty(localName = "ETag") String eTag,
             // Per-part flexible checksums, enforced in

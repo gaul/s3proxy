@@ -14,12 +14,15 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.checksum;
 
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+
+import org.gaul.s3proxy.S3ErrorCode;
+import org.gaul.s3proxy.S3ProxyException;
 
 import software.amazon.awssdk.checksums.SdkChecksum;
 
@@ -36,7 +39,7 @@ import software.amazon.awssdk.checksums.SdkChecksum;
  * rather than only at end of stream is necessary because some consumers read
  * exactly the declared number of bytes and never read the trailing -1.
  */
-final class ChecksumValidatingInputStream extends FilterInputStream {
+public final class ChecksumValidatingInputStream extends FilterInputStream {
     private final SdkChecksum checksum;
     private final byte[] expected;
     private final long contentLength;
@@ -44,12 +47,12 @@ final class ChecksumValidatingInputStream extends FilterInputStream {
     private long bytesRead;
     private boolean validated;
 
-    ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
+    public ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
             byte[] expected, long contentLength) {
         this(is, checksum, expected, contentLength, S3ErrorCode.BAD_DIGEST);
     }
 
-    ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
+    public ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
             byte[] expected, long contentLength, S3ErrorCode errorCode) {
         super(is);
         this.checksum = checksum;

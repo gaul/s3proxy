@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.checksum;
 
 /**
  * Combine the CRCs of two byte ranges into the CRC of their concatenation,

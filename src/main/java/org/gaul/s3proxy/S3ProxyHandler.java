@@ -59,7 +59,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -103,15 +102,16 @@ import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
+import org.gaul.s3proxy.checksum.ChecksumValidatingInputStream;
+import org.gaul.s3proxy.checksum.ChunkedInputStream;
+import org.gaul.s3proxy.checksum.FlexChecksum;
+import org.gaul.s3proxy.checksum.MpuChecksums;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
-import software.amazon.awssdk.checksums.DefaultChecksumAlgorithm;
 import software.amazon.awssdk.checksums.SdkChecksum;
-import software.amazon.awssdk.checksums.spi.ChecksumAlgorithm;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
@@ -349,17 +349,6 @@ public class S3ProxyHandler {
     // rather than matching the UUID-shaped upload id avoids hiding legitimate
     // user objects whose keys happen to look like a UUID.
     private static final String MULTIPART_STUB_PREFIX = ".s3proxy-mpu-stub-";
-    // Reserved user-metadata key prefix persisting the flexible checksum
-    // asserted at upload time so HEAD/GET with x-amz-checksum-mode: ENABLED
-    // can return it.  Underscores rather than hyphens since Azure metadata
-    // keys must be valid C# identifiers.  Never exposed as x-amz-meta- and
-    // stripped from incoming user metadata so clients cannot forge it.
-    private static final String CHECKSUM_METADATA_PREFIX = "s3proxy_checksum_";
-    /** Records an upload's checksum type; never copied onto the object. */
-    private static final String CHECKSUM_TYPE_METADATA_KEY =
-            CHECKSUM_METADATA_PREFIX + "type";
-    private static final String COMPOSITE = "COMPOSITE";
-    private static final String FULL_OBJECT = "FULL_OBJECT";
     /** URLEncoder escapes / which we do not want. */
     private static final Escaper urlEscaper = new PercentEscaper(
             "*-./_", /*plusForSpace=*/ false);
@@ -2936,65 +2925,12 @@ public class S3ProxyHandler {
         // place of Content-MD5.  Try each algorithm we recognise; the SDK
         // sends only one.
         for (FlexChecksum checksum : FlexChecksum.values()) {
-            if (validateChecksumHeader(request, body, checksum)) {
+            if (checksum.validateHeader(request, body)) {
                 return;
             }
         }
         throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                 "Missing required header for this request: Content-Md5");
-    }
-
-    private static boolean validateChecksumHeader(HttpServletRequest request,
-            byte[] body, FlexChecksum checksum) {
-        String value = request.getHeader(checksum.header());
-        if (value == null) {
-            return false;
-        }
-        byte[] expected;
-        try {
-            expected = Base64.getDecoder().decode(value);
-        } catch (IllegalArgumentException iae) {
-            throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
-        }
-        SdkChecksum digest = checksum.newChecksum();
-        digest.update(body);
-        if (!java.util.Arrays.equals(expected, digest.getChecksumBytes())) {
-            throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
-        }
-        return true;
-    }
-
-    /**
-     * The single flexible checksum carried as a regular x-amz-checksum-*
-     * request header, or null.  Modern AWS SDKs send these on non-streaming
-     * PutObject and UploadPart requests; the aws-chunked trailer variant is
-     * validated by ChunkedInputStream instead.  S3 rejects requests
-     * asserting more than one algorithm.
-     */
-    @Nullable
-    private static FlexChecksum requestChecksumHeader(
-            HttpServletRequest request) {
-        FlexChecksum found = null;
-        for (FlexChecksum candidate : FlexChecksum.values()) {
-            if (request.getHeader(candidate.header()) != null) {
-                if (found != null) {
-                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                            "Expecting a single x-amz-checksum- header.");
-                }
-                found = candidate;
-            }
-        }
-        return found;
-    }
-
-    /**
-     * Wrap {@code is} so the body is validated against the client-asserted
-     * checksum as the stream is consumed.
-     */
-    private static InputStream wrapChecksumValidator(InputStream is,
-            FlexChecksum checksum, String expectedBase64, long contentLength) {
-        return new ChecksumValidatingInputStream(is, checksum.newChecksum(),
-                checksum.decodeValue(expectedBase64), contentLength);
     }
 
     private void handleMultiBlobRemove(HttpServletRequest request,
@@ -3655,7 +3591,8 @@ public class S3ProxyHandler {
             String value = entry.getValue();
             xml.writeStartElement("Checksum");
             writeSimpleElement(xml, checksum.element(), value);
-            writeSimpleElement(xml, "ChecksumType", checksumType(value));
+            writeSimpleElement(xml, "ChecksumType",
+                    MpuChecksums.checksumType(value));
             xml.writeEndElement();
             return;
         }
@@ -4154,12 +4091,11 @@ public class S3ProxyHandler {
         if (decodedContentLengthString != null) {
             is = ByteStreams.limit(is, contentLength);
         }
-        FlexChecksum checksum = requestChecksumHeader(request);
+        FlexChecksum checksum = FlexChecksum.fromRequest(request);
         String checksumValue = null;
         if (checksum != null) {
             checksumValue = request.getHeader(checksum.header());
-            is = wrapChecksumValidator(is, checksum, checksumValue,
-                    contentLength);
+            is = checksum.wrapValidator(is, checksumValue, contentLength);
         }
 
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
@@ -4894,7 +4830,8 @@ public class S3ProxyHandler {
                 // Remember the choice, since the completion request does not
                 // reliably restate it and the two types are computed
                 // differently.
-                stubMetadata.put(CHECKSUM_TYPE_METADATA_KEY, FULL_OBJECT);
+                stubMetadata.put(MpuChecksums.TYPE_METADATA_KEY,
+                        MpuChecksums.FULL_OBJECT);
             }
             var stub = PutObjectRequest.builder()
                     .bucket(containerName)
@@ -4923,7 +4860,8 @@ public class S3ProxyHandler {
             response.addHeader(AwsHttpHeaders.CHECKSUM_ALGORITHM,
                     mpuAlgorithm.name());
             response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
-                    fullObject ? FULL_OBJECT : COMPOSITE);
+                    fullObject ? MpuChecksums.FULL_OBJECT :
+                            MpuChecksums.COMPOSITE);
         }
         var createResponse = mpu.response();
         if (createResponse != null) {
@@ -4960,7 +4898,7 @@ public class S3ProxyHandler {
             String uploadId) throws IOException {
         // S3 rejects malformed checksum headers before considering their
         // meaning, even when the completion would fail for other reasons.
-        validateChecksumHeaderValues(request);
+        MpuChecksums.validateHeaderValues(request);
 
         CompleteMultipartUploadRequest cmu = readXmlBody(
                 is, CompleteMultipartUploadRequest.class);
@@ -5151,9 +5089,9 @@ public class S3ProxyHandler {
 
         boolean requiresStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
                 blobStoreType);
-        MpuChecksum mpuChecksum = null;
+        MpuChecksums.Result mpuChecksum = null;
         FlexChecksum mpuAlgorithm =
-                cmu == null ? null : mpuChecksumAlgorithm(cmu);
+                cmu == null ? null : MpuChecksums.algorithm(cmu);
         if (cmu != null && mpuAlgorithm != null) {
             // S3 computes the checksum from the values recorded when the
             // parts were uploaded, ignoring the ones the completion request
@@ -5161,14 +5099,15 @@ public class S3ProxyHandler {
             // hidden blobs, so recover the true per-part checksums from the
             // part content; other backends fall back to the asserted values
             // and to the part sizes the backend reports.
-            Map<Integer, PartChecksum> partChecksums = requiresStub ?
-                    hashMultipartPartContents(blobStore, containerName,
+            Map<Integer, MpuChecksums.PartChecksum> partChecksums =
+                    requiresStub ?
+                    MpuChecksums.hashPartContents(blobStore, containerName,
                             blobName, uploadId, mpuAlgorithm, cmu) :
                     null;
-            mpuChecksum = computeMpuChecksum(request, cmu, mpuAlgorithm,
+            mpuChecksum = MpuChecksums.compute(request, cmu, mpuAlgorithm,
                     partChecksums, listedPartSizes,
-                    fullObjectUpload(carrierRequest.metadata(), request,
-                            mpuAlgorithm));
+                    MpuChecksums.fullObjectUpload(carrierRequest.metadata(),
+                            request, mpuAlgorithm));
         }
 
         // Persist the composite checksum onto the final object for stub
@@ -5179,7 +5118,7 @@ public class S3ProxyHandler {
             var userMetadata = new LinkedHashMap<>(carrierRequest.metadata());
             // the upload's bookkeeping does not belong on the object; the
             // stored value's shape already says which type it is
-            userMetadata.remove(CHECKSUM_TYPE_METADATA_KEY);
+            userMetadata.remove(MpuChecksums.TYPE_METADATA_KEY);
             userMetadata.put(mpuChecksum.algorithm().metadataKey(),
                     mpuChecksum.value());
             completeCarrier = carrierRequest.toBuilder()
@@ -5259,7 +5198,7 @@ public class S3ProxyHandler {
 
             if (mpuChecksum != null) {
                 response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
-                        checksumType(mpuChecksum.value()));
+                        MpuChecksums.checksumType(mpuChecksum.value()));
                 response.addHeader(mpuChecksum.algorithm().header(),
                         mpuChecksum.value());
             }
@@ -5354,7 +5293,7 @@ public class S3ProxyHandler {
 
             if (mpuChecksum != null) {
                 writeSimpleElement(xml, "ChecksumType",
-                        checksumType(mpuChecksum.value()));
+                        MpuChecksums.checksumType(mpuChecksum.value()));
                 writeSimpleElement(xml, mpuChecksum.algorithm().element(),
                         mpuChecksum.value());
             }
@@ -5363,46 +5302,6 @@ public class S3ProxyHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
-        }
-    }
-
-    /**
-     * Reject malformed x-amz-checksum-* request header values before
-     * considering their meaning.  A valid value is either a bare base64
-     * digest of the algorithm's length or a composite
-     * "&lt;base64&gt;-&lt;partCount&gt;".  Base64 never contains '-', so its
-     * presence always marks the composite suffix.  A digest that is not
-     * valid base64 of the right length is 400 BadDigest, the same answer a
-     * well formed digest that does not match the body gets; a malformed
-     * part count describes the request rather than the digest and stays
-     * 400 InvalidRequest.
-     */
-    private static void validateChecksumHeaderValues(
-            HttpServletRequest request) {
-        for (FlexChecksum checksum : FlexChecksum.values()) {
-            String value = request.getHeader(checksum.header());
-            if (value == null) {
-                continue;
-            }
-            String base64Part = value;
-            int dash = value.indexOf('-');
-            if (dash >= 0) {
-                base64Part = value.substring(0, dash);
-                int count;
-                try {
-                    count = Integer.parseInt(value.substring(dash + 1));
-                } catch (NumberFormatException nfe) {
-                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                            "Value for " + checksum.header() +
-                            " header is invalid.", nfe, Map.of());
-                }
-                if (count < 1 || count > 10_000) {
-                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                            "Value for " + checksum.header() +
-                            " header is invalid.");
-                }
-            }
-            checksum.decodeValue(base64Part);
         }
     }
 
@@ -5472,7 +5371,7 @@ public class S3ProxyHandler {
         String checksumValue = null;
         for (var entry : metadata.metadata().entrySet()) {
             if (startsWithIgnoreCase(entry.getKey(),
-                    CHECKSUM_METADATA_PREFIX)) {
+                    FlexChecksum.METADATA_PREFIX)) {
                 FlexChecksum candidate = FlexChecksum.fromMetadataKey(
                         entry.getKey());
                 if (candidate != null) {
@@ -5514,7 +5413,7 @@ public class S3ProxyHandler {
                     maybeQuoteETag(metadata.eTag()));
             if (checksum != null && checksumValue != null) {
                 writeSimpleElement(xml, "ChecksumType",
-                        checksumType(checksumValue));
+                        MpuChecksums.checksumType(checksumValue));
                 writeSimpleElement(xml, checksum.element(), checksumValue);
             }
             xml.writeEndElement();
@@ -5523,368 +5422,6 @@ public class S3ProxyHandler {
             throw new IOException(xse);
         }
         return true;
-    }
-
-    /**
-     * The single checksum algorithm the CompleteMultipartUpload request's
-     * parts declare, null when no part carries a checksum, rejecting a mix
-     * of algorithms.
-     */
-    @Nullable
-    private static FlexChecksum mpuChecksumAlgorithm(
-            CompleteMultipartUploadRequest cmu) {
-        if (cmu.parts() == null) {
-            return null;
-        }
-        FlexChecksum algorithm = null;
-        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
-            for (FlexChecksum candidate : FlexChecksum.values()) {
-                if (candidate.value(part) != null) {
-                    if (algorithm != null && algorithm != candidate) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                                "More than one checksum algorithm was" +
-                                " supplied for the parts.");
-                    }
-                    algorithm = candidate;
-                }
-            }
-        }
-        return algorithm;
-    }
-
-    /**
-     * Compute each referenced part's true checksum by re-reading the hidden
-     * part blobs that MULTIPART_REQUIRES_STUB backends store, so the result
-     * matches the uploaded content no matter what per-part values the
-     * completion request asserts (S3 ignores those beyond presence).  The
-     * length comes back too, since combining CRCs into a full-object
-     * checksum needs it.
-     */
-    private static Map<Integer, PartChecksum> hashMultipartPartContents(
-            BlobStore blobStore, String containerName, String blobName,
-            String uploadId, FlexChecksum algorithm,
-            CompleteMultipartUploadRequest cmu) throws IOException {
-        var digests = new HashMap<Integer, PartChecksum>();
-        var partNumbers = new TreeSet<Integer>();
-        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
-            partNumbers.add(part.partNumber());
-        }
-        for (int partNumber : partNumbers) {
-            var blob = blobStore.getBlob(containerName,
-                    AbstractNio2BlobStore.multipartPartName(uploadId,
-                            blobName, partNumber));
-            if (blob == null) {
-                // a missing part is rejected elsewhere; fall back to the
-                // client-asserted value
-                continue;
-            }
-            SdkChecksum digest = algorithm.newChecksum();
-            long length = 0;
-            try (InputStream partIs = blob) {
-                byte[] buffer = new byte[16384];
-                while (true) {
-                    int count = partIs.read(buffer);
-                    if (count == -1) {
-                        break;
-                    }
-                    digest.update(buffer, 0, count);
-                    length += count;
-                }
-            }
-            digests.put(partNumber, new PartChecksum(
-                    digest.getChecksumBytes(), length));
-        }
-        return digests;
-    }
-
-    /**
-     * Whether the upload asked for a checksum describing the whole object
-     * rather than the parts.  The stub records the choice made at initiation;
-     * backends without one have only the completion request to go on, where a
-     * value carrying no "-<partCount>" suffix implies a full object.
-     */
-    private static boolean fullObjectUpload(
-            Map<String, String> recordedMetadata,
-            HttpServletRequest request, FlexChecksum algorithm) {
-        if (!algorithm.supportsFullObject()) {
-            return false;
-        }
-        String recorded = recordedMetadata.get(CHECKSUM_TYPE_METADATA_KEY);
-        if (recorded != null) {
-            return recorded.equals(FULL_OBJECT);
-        }
-        String type = request.getHeader(AwsHttpHeaders.CHECKSUM_TYPE);
-        if (type != null) {
-            return type.equalsIgnoreCase(FULL_OBJECT);
-        }
-        String provided = request.getHeader(algorithm.header());
-        return provided != null && provided.indexOf('-') < 0;
-    }
-
-    /**
-     * Enforce the per-part flexible checksums carried by a
-     * CompleteMultipartUpload request and compute the composite checksum S3
-     * returns for the finished object.  Modern AWS SDKs attach a per-part
-     * checksum for every part when the upload was created with a checksum
-     * algorithm; S3 rejects the completion when those checksums are missing
-     * from some parts or are malformed.  Returns the composite checksum
-     * (base64(hash(concatenated part digests)) plus a "-&lt;partCount&gt;"
-     * suffix), preferring the true digests in {@code partDigests} over the
-     * client-asserted values.
-     */
-    @Nullable
-    private static MpuChecksum computeMpuChecksum(HttpServletRequest request,
-            CompleteMultipartUploadRequest cmu, FlexChecksum algorithm,
-            @Nullable Map<Integer, PartChecksum> partChecksums,
-            Map<Integer, Long> partSizes, boolean fullObject) {
-        // Deduplicate by part number (last wins) and sort ascending so the
-        // parts are folded together in canonical order.
-        SortedMap<Integer, CompleteMultipartUploadRequest.Part> sorted =
-                new TreeMap<>();
-        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
-            sorted.put(part.partNumber(), part);
-        }
-
-        // Every part must supply the checksum, matching S3's requirement that
-        // a checksum-initiated upload include a per-part checksum for each
-        // part.  A composite hashes the concatenated part digests; a full
-        // object folds the part CRCs into the CRC of the whole.
-        SdkChecksum composite = algorithm.newChecksum();
-        byte[] combined = null;
-        for (var entry : sorted.entrySet()) {
-            String value = algorithm.value(entry.getValue());
-            if (value == null) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                        "The upload was created using a " + algorithm.lower() +
-                        " checksum. The complete request must include the" +
-                        " checksum for each part. It was missing for part " +
-                        entry.getKey() + " in the request.");
-            }
-            PartChecksum part = partChecksums != null ?
-                    partChecksums.get(entry.getKey()) : null;
-            byte[] digest = part != null ? part.digest() :
-                    algorithm.decodeValue(value);
-            if (!fullObject) {
-                composite.update(digest);
-                continue;
-            }
-            long length = part != null ? part.length() :
-                    partSizes.getOrDefault(entry.getKey(), -1L);
-            if (length < 0) {
-                // without the part's length the CRCs cannot be folded, so
-                // report no checksum rather than a wrong one
-                return null;
-            }
-            combined = combined == null ? digest :
-                    algorithm.combine(combined, digest, length);
-        }
-
-        String computed;
-        if (fullObject) {
-            if (combined == null) {
-                return null;
-            }
-            computed = algorithm.encodeRaw(combined);
-        } else {
-            computed = algorithm.encodeRaw(composite.getChecksumBytes()) +
-                    "-" + sorted.size();
-        }
-
-        // If the client asserted the expected checksum on the completion
-        // request, validate our computation against it.  Only a composite
-        // carries the "-<partCount>" suffix; for a composite upload a bare
-        // value in this header is the SDK's request-body integrity checksum,
-        // which is unrelated to the completed object.
-        String provided = request.getHeader(algorithm.header());
-        if (provided != null && (fullObject || provided.indexOf('-') >= 0) &&
-                !provided.equals(computed)) {
-            throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
-        }
-
-        return new MpuChecksum(algorithm, computed);
-    }
-
-    private record MpuChecksum(FlexChecksum algorithm, String value) {
-    }
-
-    /**
-     * Which kind of checksum a stored value is.  Only a composite carries the
-     * "-<partCount>" suffix, base64 having no use for a hyphen.
-     */
-    private static String checksumType(String value) {
-        return value.indexOf('-') >= 0 ? COMPOSITE : FULL_OBJECT;
-    }
-
-    /** An uploaded part's true digest and length. */
-    @SuppressWarnings("ArrayRecordComponent")
-    private record PartChecksum(byte[] digest, long length) {
-    }
-
-    // The suppliers are stateless singletons or method references; the
-    // accumulators they hand out are the mutable part.
-    @SuppressWarnings("ImmutableEnumChecker")
-    enum FlexChecksum {
-        CRC32("crc32", "ChecksumCRC32", AwsHttpHeaders.CHECKSUM_CRC32, 4,
-                sdk(DefaultChecksumAlgorithm.CRC32), 0xedb88320L),
-        CRC32C("crc32c", "ChecksumCRC32C", AwsHttpHeaders.CHECKSUM_CRC32C, 4,
-                sdk(DefaultChecksumAlgorithm.CRC32C), 0x82f63b78L),
-        // The SDK names CRC64NVME but computes it only through the optional
-        // aws-crt native module; Crc64Nvme supplies it instead.
-        CRC64NVME("crc64nvme", "ChecksumCRC64NVME",
-                AwsHttpHeaders.CHECKSUM_CRC64NVME, 8,
-                Crc64Nvme::new, 0x9a6c9329ac4bc9b5L),
-        SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20,
-                sdk(DefaultChecksumAlgorithm.SHA1), 0),
-        SHA256("sha256", "ChecksumSHA256", AwsHttpHeaders.CHECKSUM_SHA256, 32,
-                sdk(DefaultChecksumAlgorithm.SHA256), 0);
-
-        private final String lower;
-        private final String element;
-        private final String header;
-        private final int length;
-        private final Supplier<SdkChecksum> checksums;
-        /** Reflected CRC polynomial, or zero for a hash that cannot combine. */
-        private final long polynomial;
-
-        FlexChecksum(String lower, String element, String header, int length,
-                Supplier<SdkChecksum> checksums, long polynomial) {
-            this.lower = lower;
-            this.element = element;
-            this.header = header;
-            this.length = length;
-            this.checksums = checksums;
-            this.polynomial = polynomial;
-        }
-
-        private static Supplier<SdkChecksum> sdk(ChecksumAlgorithm algorithm) {
-            return () -> SdkChecksum.forAlgorithm(algorithm);
-        }
-
-        /**
-         * Whether S3 allows this algorithm's multipart checksum to describe
-         * the whole object rather than the parts, which needs the CRCs of two
-         * ranges to combine into the CRC of their concatenation.
-         */
-        boolean supportsFullObject() {
-            return polynomial != 0;
-        }
-
-        /**
-         * The digest of a || b, given their digests and the length of b.
-         * Only valid when {@link #supportsFullObject}.
-         */
-        byte[] combine(byte[] a, byte[] b, long lengthB) {
-            long combined = CrcCombine.combine(toLong(a), toLong(b), lengthB,
-                    polynomial, length * Byte.SIZE);
-            var buffer = java.nio.ByteBuffer.allocate(length);
-            if (length == Integer.BYTES) {
-                buffer.putInt((int) combined);
-            } else {
-                buffer.putLong(combined);
-            }
-            return buffer.array();
-        }
-
-        /** A big-endian wire digest as an unsigned value. */
-        private static long toLong(byte[] digest) {
-            long value = 0;
-            for (byte b : digest) {
-                value = (value << Byte.SIZE) | (b & 0xffL);
-            }
-            return value;
-        }
-
-        String lower() {
-            return lower;
-        }
-
-        String element() {
-            return element;
-        }
-
-        String header() {
-            return header;
-        }
-
-        /**
-         * A fresh accumulator for this algorithm.  Its getChecksumBytes
-         * answers in the wire byte order S3 base64-encodes, for the CRCs as
-         * well as the SHAs, so nothing downstream reorders bytes.
-         */
-        SdkChecksum newChecksum() {
-            return checksums.get();
-        }
-
-        String value(CompleteMultipartUploadRequest.Part part) {
-            return switch (this) {
-            case CRC32 -> part.checksumCRC32();
-            case CRC32C -> part.checksumCRC32C();
-            case CRC64NVME -> part.checksumCRC64NVME();
-            case SHA1 -> part.checksumSHA1();
-            case SHA256 -> part.checksumSHA256();
-            };
-        }
-
-        /** User-metadata key persisting this checksum with the object. */
-        String metadataKey() {
-            return CHECKSUM_METADATA_PREFIX + lower;
-        }
-
-        /** Base64 of a digest already in AWS wire form. */
-        String encodeRaw(byte[] digest) {
-            return Base64.getEncoder().encodeToString(digest);
-        }
-
-        /**
-         * Decode a client-asserted checksum value, rejecting values that are
-         * not base64 of exactly this algorithm's digest length the way S3
-         * does: 400 InvalidRequest rather than a digest mismatch.
-         */
-        byte[] decodeValue(String value) {
-            byte[] decoded;
-            try {
-                decoded = Base64.getDecoder().decode(value);
-            } catch (IllegalArgumentException iae) {
-                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST,
-                        "Value for " + header + " header is invalid.", iae,
-                        Map.of());
-            }
-            if (decoded.length != length) {
-                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST,
-                        "Value for " + header + " header is invalid.");
-            }
-            return decoded;
-        }
-
-        @Nullable
-        static FlexChecksum fromAlgorithmName(String name) {
-            for (FlexChecksum checksum : values()) {
-                if (checksum.name().equalsIgnoreCase(name)) {
-                    return checksum;
-                }
-            }
-            return null;
-        }
-
-        @Nullable
-        static FlexChecksum fromHeaderName(String header) {
-            for (FlexChecksum checksum : values()) {
-                if (checksum.header().equalsIgnoreCase(header)) {
-                    return checksum;
-                }
-            }
-            return null;
-        }
-
-        @Nullable
-        static FlexChecksum fromMetadataKey(String key) {
-            for (FlexChecksum checksum : values()) {
-                if (checksum.metadataKey().equalsIgnoreCase(key)) {
-                    return checksum;
-                }
-            }
-            return null;
-        }
     }
 
     private void handleAbortMultipartUpload(HttpServletRequest request,
@@ -6383,12 +5920,11 @@ public class S3ProxyHandler {
         if (decodedContentLengthString != null) {
             is = ByteStreams.limit(is, contentLength);
         }
-        FlexChecksum checksum = requestChecksumHeader(request);
+        FlexChecksum checksum = FlexChecksum.fromRequest(request);
         String checksumValue = null;
         if (checksum != null) {
             checksumValue = request.getHeader(checksum.header());
-            is = wrapChecksumValidator(is, checksum, checksumValue,
-                    contentLength);
+            is = checksum.wrapValidator(is, checksumValue, contentLength);
         }
 
         String partNumberString = request.getParameter("partNumber");
@@ -6530,7 +6066,7 @@ public class S3ProxyHandler {
         String storedChecksumValue = null;
         for (var entry : metadata.metadata().entrySet()) {
             String key = entry.getKey();
-            if (startsWithIgnoreCase(key, CHECKSUM_METADATA_PREFIX)) {
+            if (startsWithIgnoreCase(key, FlexChecksum.METADATA_PREFIX)) {
                 FlexChecksum candidate = FlexChecksum.fromMetadataKey(key);
                 if (candidate != null) {
                     storedChecksum = candidate;
@@ -6549,7 +6085,7 @@ public class S3ProxyHandler {
                         request.getHeader(AwsHttpHeaders.CHECKSUM_MODE))) {
             response.addHeader(storedChecksum.header(), storedChecksumValue);
             response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
-                    checksumType(storedChecksumValue));
+                    MpuChecksums.checksumType(storedChecksumValue));
         }
     }
 
@@ -6751,7 +6287,7 @@ public class S3ProxyHandler {
                 String key = headerName.substring(
                         USER_METADATA_PREFIX.length());
                 // reserved for the validated checksum persisted below
-                if (startsWithIgnoreCase(key, CHECKSUM_METADATA_PREFIX)) {
+                if (startsWithIgnoreCase(key, FlexChecksum.METADATA_PREFIX)) {
                     continue;
                 }
                 userMetadata.put(key,
