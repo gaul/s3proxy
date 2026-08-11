@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.auth;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -26,6 +26,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import org.gaul.s3proxy.S3ErrorCode;
+import org.gaul.s3proxy.S3ProxyException;
 import org.jspecify.annotations.Nullable;
 
 import tools.jackson.core.exc.StreamReadException;
@@ -45,7 +47,7 @@ import tools.jackson.databind.ObjectMapper;
  * the document allows is a 400 naming which end it fell off.  That split is
  * what S3 answers and what a browser upload library expects.
  */
-final class PostPolicy {
+public final class PostPolicy {
     /**
      * Fields a policy need not mention.  The first four carry the
      * authorization itself and cannot be constrained by what they authorize;
@@ -98,7 +100,7 @@ final class PostPolicy {
      * the document is the caller's own and a malformed one is a mistake in
      * building the form rather than a refusal to serve it.
      */
-    static PostPolicy parse(byte[] base64) {
+    public static PostPolicy parse(byte[] base64) {
         byte[] decoded;
         try {
             decoded = Base64.getMimeDecoder().decode(base64);
@@ -199,7 +201,7 @@ final class PostPolicy {
      *     {@code bucket} taken from the request URI rather than the form
      * @param contentLength the length of the payload actually uploaded
      */
-    void evaluate(Map<String, String> fields, long contentLength) {
+    public void evaluate(Map<String, String> fields, long contentLength) {
         if (Instant.now().isAfter(expiration)) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                     "Invalid according to Policy: Policy expired.");

@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 
 import com.google.common.net.HttpHeaders;
 
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

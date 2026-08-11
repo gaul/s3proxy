@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.auth;
 
 import java.util.List;
 import java.util.Map;
@@ -23,7 +23,7 @@ import com.google.common.base.Splitter;
 
 import org.jspecify.annotations.Nullable;
 
-final class S3AuthorizationHeader {
+public final class S3AuthorizationHeader {
     private static final Map<String, String> DIGEST_MAP = Map.of(
             "SHA256", "SHA-256",
             "SHA1", "SHA-1",
@@ -42,7 +42,7 @@ final class S3AuthorizationHeader {
     private final String identity;
     private final String signature;
 
-    S3AuthorizationHeader(String header) {
+    public S3AuthorizationHeader(String header) {
         if (header.startsWith(V2_SCHEME)) {
             authenticationType = AuthenticationType.AWS_V2;
             hmacAlgorithm = null;
@@ -112,7 +112,7 @@ final class S3AuthorizationHeader {
      * talking to and carries nothing for us to check; one naming ours but
      * failing to parse is malformed and belongs in an error.
      */
-    static boolean hasAwsScheme(String header) {
+    public static boolean hasAwsScheme(String header) {
         return header.startsWith(V2_SCHEME) || header.startsWith(V4_SCHEME);
     }
 

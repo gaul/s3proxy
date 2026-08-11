@@ -18,7 +18,7 @@ package org.gaul.s3proxy.junit;
 
 import java.net.URI;
 
-import org.gaul.s3proxy.AuthenticationType;
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;

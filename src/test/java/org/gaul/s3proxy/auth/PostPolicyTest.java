@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +27,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.gaul.s3proxy.S3ErrorCode;
+import org.gaul.s3proxy.S3ProxyException;
 import org.junit.jupiter.api.Test;
 
 /**

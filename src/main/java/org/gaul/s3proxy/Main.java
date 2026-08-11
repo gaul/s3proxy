@@ -35,6 +35,7 @@ import java.util.Set;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.middleware.GlobBlobStoreLocator;

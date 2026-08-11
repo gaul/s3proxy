@@ -20,7 +20,7 @@ import java.net.URI;
 
 import com.google.common.annotations.Beta;
 
-import org.gaul.s3proxy.AuthenticationType;
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.jspecify.annotations.Nullable;
 import org.junit.rules.ExternalResource;
 

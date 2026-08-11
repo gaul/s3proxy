@@ -27,9 +27,9 @@ import java.util.Properties;
 import com.google.common.io.MoreFiles;
 
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
-import org.gaul.s3proxy.AuthenticationType;
 import org.gaul.s3proxy.BlobStores;
 import org.gaul.s3proxy.S3Proxy;
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.jspecify.annotations.Nullable;

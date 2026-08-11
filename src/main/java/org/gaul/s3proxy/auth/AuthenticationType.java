@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.auth;
 
 import com.google.common.base.CaseFormat;
 
@@ -24,7 +24,7 @@ public enum AuthenticationType {
     AWS_V2_OR_V4,
     NONE;
 
-    static AuthenticationType fromString(String string) {
+    public static AuthenticationType fromString(String string) {
         return AuthenticationType.valueOf(CaseFormat.LOWER_HYPHEN.to(
                 CaseFormat.UPPER_UNDERSCORE, string));
     }

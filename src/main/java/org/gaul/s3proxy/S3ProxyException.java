@@ -35,29 +35,29 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
  * StringToSign on SignatureDoesNotMatch.
  */
 @SuppressWarnings("serial")
-final class S3ProxyException extends S3Exception {
+public final class S3ProxyException extends S3Exception {
     private final transient S3ErrorCode error;
     private final transient Map<String, String> elements;
     private final String rawMessage;
 
-    S3ProxyException(S3ErrorCode error) {
+    public S3ProxyException(S3ErrorCode error) {
         this(error, error.getMessage(), (Throwable) null, Map.of());
     }
 
-    S3ProxyException(S3ErrorCode error, String message) {
+    public S3ProxyException(S3ErrorCode error, String message) {
         this(error, message, (Throwable) null, Map.of());
     }
 
-    S3ProxyException(S3ErrorCode error, @Nullable Throwable cause) {
+    public S3ProxyException(S3ErrorCode error, @Nullable Throwable cause) {
         this(error, error.getMessage(), cause, Map.of());
     }
 
-    S3ProxyException(S3ErrorCode error, String message,
+    public S3ProxyException(S3ErrorCode error, String message,
             @Nullable Throwable cause) {
         this(error, message, cause, Map.of());
     }
 
-    S3ProxyException(S3ErrorCode error, String message,
+    public S3ProxyException(S3ErrorCode error, String message,
             @Nullable Throwable cause, Map<String, String> elements) {
         super(builder(error, requireNonNull(message), cause));
         this.error = error;
@@ -81,7 +81,7 @@ final class S3ProxyException extends S3Exception {
         return builder;
     }
 
-    S3ErrorCode getError() {
+    public S3ErrorCode getError() {
         return error;
     }
 

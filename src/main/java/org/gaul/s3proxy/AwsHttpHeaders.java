@@ -16,67 +16,69 @@
 
 package org.gaul.s3proxy;
 
-final class AwsHttpHeaders {
-    static final String ACL = "x-amz-acl";
-    static final String API_VERSION = "x-amz-api-version";
-    static final String BUCKET_OBJECT_LOCK_ENABLED =
+public final class AwsHttpHeaders {
+    public static final String ACL = "x-amz-acl";
+    public static final String API_VERSION = "x-amz-api-version";
+    public static final String BUCKET_OBJECT_LOCK_ENABLED =
             "x-amz-bucket-object-lock-enabled";
-    static final String CHECKSUM_ALGORITHM = "x-amz-checksum-algorithm";
-    static final String CHECKSUM_CRC32 = "x-amz-checksum-crc32";
-    static final String CHECKSUM_CRC32C = "x-amz-checksum-crc32c";
-    static final String CHECKSUM_CRC64NVME = "x-amz-checksum-crc64nvme";
-    static final String CHECKSUM_MODE = "x-amz-checksum-mode";
-    static final String CHECKSUM_SHA1 = "x-amz-checksum-sha1";
-    static final String CHECKSUM_SHA256 = "x-amz-checksum-sha256";
-    static final String CHECKSUM_TYPE = "x-amz-checksum-type";
-    static final String CONTENT_SHA256 = "x-amz-content-sha256";
-    static final String COPY_SOURCE = "x-amz-copy-source";
-    static final String COPY_SOURCE_IF_MATCH = "x-amz-copy-source-if-match";
-    static final String COPY_SOURCE_IF_MODIFIED_SINCE =
+    public static final String CHECKSUM_ALGORITHM = "x-amz-checksum-algorithm";
+    public static final String CHECKSUM_CRC32 = "x-amz-checksum-crc32";
+    public static final String CHECKSUM_CRC32C = "x-amz-checksum-crc32c";
+    public static final String CHECKSUM_CRC64NVME = "x-amz-checksum-crc64nvme";
+    public static final String CHECKSUM_MODE = "x-amz-checksum-mode";
+    public static final String CHECKSUM_SHA1 = "x-amz-checksum-sha1";
+    public static final String CHECKSUM_SHA256 = "x-amz-checksum-sha256";
+    public static final String CHECKSUM_TYPE = "x-amz-checksum-type";
+    public static final String CONTENT_SHA256 = "x-amz-content-sha256";
+    public static final String COPY_SOURCE = "x-amz-copy-source";
+    public static final String COPY_SOURCE_IF_MATCH =
+            "x-amz-copy-source-if-match";
+    public static final String COPY_SOURCE_IF_MODIFIED_SINCE =
             "x-amz-copy-source-if-modified-since";
-    static final String COPY_SOURCE_IF_NONE_MATCH =
+    public static final String COPY_SOURCE_IF_NONE_MATCH =
             "x-amz-copy-source-if-none-match";
-    static final String COPY_SOURCE_IF_UNMODIFIED_SINCE =
+    public static final String COPY_SOURCE_IF_UNMODIFIED_SINCE =
             "x-amz-copy-source-if-unmodified-since";
-    static final String COPY_SOURCE_RANGE = "x-amz-copy-source-range";
-    static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM =
+    public static final String COPY_SOURCE_RANGE = "x-amz-copy-source-range";
+    public static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM =
             "x-amz-copy-source-server-side-encryption-customer-algorithm";
-    static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY =
+    public static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY =
             "x-amz-copy-source-server-side-encryption-customer-key";
-    static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5 =
+    public static final String COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5 =
             "x-amz-copy-source-server-side-encryption-customer-key-md5";
-    static final String COPY_SOURCE_VERSION_ID =
+    public static final String COPY_SOURCE_VERSION_ID =
             "x-amz-copy-source-version-id";
-    static final String DATE = "x-amz-date";
-    static final String DECODED_CONTENT_LENGTH =
+    public static final String DATE = "x-amz-date";
+    public static final String DECODED_CONTENT_LENGTH =
             "x-amz-decoded-content-length";
-    static final String DELETE_MARKER = "x-amz-delete-marker";
-    static final String IF_MATCH_LAST_MODIFIED_TIME =
+    public static final String DELETE_MARKER = "x-amz-delete-marker";
+    public static final String IF_MATCH_LAST_MODIFIED_TIME =
             "x-amz-if-match-last-modified-time";
-    static final String IF_MATCH_SIZE = "x-amz-if-match-size";
-    static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
-    static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
-    static final String REQUEST_ID = "x-amz-request-id";
-    static final String SDK_CHECKSUM_ALGORITHM = "x-amz-sdk-checksum-algorithm";
-    static final String SERVER_SIDE_ENCRYPTION =
+    public static final String IF_MATCH_SIZE = "x-amz-if-match-size";
+    public static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
+    public static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
+    public static final String REQUEST_ID = "x-amz-request-id";
+    public static final String SDK_CHECKSUM_ALGORITHM =
+            "x-amz-sdk-checksum-algorithm";
+    public static final String SERVER_SIDE_ENCRYPTION =
             "x-amz-server-side-encryption";
-    static final String SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID =
+    public static final String SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID =
             "x-amz-server-side-encryption-aws-kms-key-id";
-    static final String SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED =
+    public static final String SERVER_SIDE_ENCRYPTION_BUCKET_KEY_ENABLED =
             "x-amz-server-side-encryption-bucket-key-enabled";
-    static final String SERVER_SIDE_ENCRYPTION_CONTEXT =
+    public static final String SERVER_SIDE_ENCRYPTION_CONTEXT =
             "x-amz-server-side-encryption-context";
-    static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM =
+    public static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM =
             "x-amz-server-side-encryption-customer-algorithm";
-    static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY =
+    public static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY =
             "x-amz-server-side-encryption-customer-key";
-    static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5 =
+    public static final String SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5 =
             "x-amz-server-side-encryption-customer-key-md5";
-    static final String STORAGE_CLASS = "x-amz-storage-class";
-    static final String TRAILER = "x-amz-trailer";
-    static final String TRANSFER_ENCODING = "x-amz-te";
-    static final String USER_AGENT = "x-amz-user-agent";
-    static final String VERSION_ID = "x-amz-version-id";
+    public static final String STORAGE_CLASS = "x-amz-storage-class";
+    public static final String TRAILER = "x-amz-trailer";
+    public static final String TRANSFER_ENCODING = "x-amz-te";
+    public static final String USER_AGENT = "x-amz-user-agent";
+    public static final String VERSION_ID = "x-amz-version-id";
 
     private AwsHttpHeaders() {
         throw new AssertionError("intentionally unimplemented");

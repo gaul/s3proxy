@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gaul.s3proxy;
+package org.gaul.s3proxy.auth;
 
 import static java.util.Objects.requireNonNull;
 
@@ -45,11 +45,14 @@ import com.google.common.net.PercentEscaper;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.gaul.s3proxy.AwsHttpHeaders;
+import org.gaul.s3proxy.S3ErrorCode;
+import org.gaul.s3proxy.S3ProxyException;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-final class AwsSignature {
+public final class AwsSignature {
     private static final Logger logger = LoggerFactory.getLogger(
             AwsSignature.class);
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
@@ -93,14 +96,14 @@ final class AwsSignature {
      * ways, which is otherwise invisible: every mismatch, whatever its cause,
      * looks the same from outside.
      */
-    record SignatureDetail(String signature, String stringToSign,
+    public record SignatureDetail(String signature, String stringToSign,
             @Nullable String canonicalRequest) { }
 
     /**
      * Create Amazon V2 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-2.html
      */
-    static SignatureDetail createAuthorizationSignature(
+    public static SignatureDetail createAuthorizationSignature(
             HttpServletRequest request, String uri, String credential,
             boolean queryAuth, boolean bothDateHeader) {
         // sort Amazon headers
@@ -207,7 +210,7 @@ final class AwsSignature {
     /**
      * Derive the AWS SigV4 signing key from the credential and auth header.
      */
-    static byte[] deriveSigningKeyV4(S3AuthorizationHeader authHeader,
+    public static byte[] deriveSigningKeyV4(S3AuthorizationHeader authHeader,
             String credential)
             throws InvalidKeyException, NoSuchAlgorithmException {
         // V4 headers always carry these fields
@@ -248,7 +251,7 @@ final class AwsSignature {
      * of the streaming tokens, whose chunked body this path does not decode.
      */
     @Nullable
-    static String pinnedPayloadHash(HttpServletRequest request) {
+    public static String pinnedPayloadHash(HttpServletRequest request) {
         String signedHeaders = request.getParameter("X-Amz-SignedHeaders");
         if (signedHeaders == null) {
             return null;
@@ -301,7 +304,7 @@ final class AwsSignature {
      * so the signatures cannot agree.  The comparison alone cannot say that,
      * so name the absent headers instead of leaving the caller to guess.
      */
-    static List<String> missingSignedHeaders(HttpServletRequest request,
+    public static List<String> missingSignedHeaders(HttpServletRequest request,
             boolean presignedUrl) {
         List<String> signedHeaders = signedHeaderNames(request, presignedUrl);
         if (signedHeaders == null) {
@@ -466,7 +469,7 @@ final class AwsSignature {
      * Create v4 signature.  Reference:
      * http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
      */
-    static SignatureDetail createAuthorizationSignatureV4(
+    public static SignatureDetail createAuthorizationSignatureV4(
             HttpServletRequest request, S3AuthorizationHeader authHeader,
             byte[] payload, String uri, String credential,
             boolean presignedUrl, @Nullable String pinnedHash,

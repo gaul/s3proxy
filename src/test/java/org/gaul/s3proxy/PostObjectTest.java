@@ -34,6 +34,7 @@ import java.util.Random;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +46,8 @@ import software.amazon.awssdk.services.s3.model.BucketCannedACL;
  * A browser cannot set headers on a form submission, so everything a PUT says
  * in headers a POST says in form fields instead -- where the object goes, what
  * metadata it carries, and what the browser should be shown afterwards.  These
- * cover the fields the handler acts on; {@link PostPolicyTest} covers the
+ * cover the fields the handler acts on;
+ * {@link org.gaul.s3proxy.auth.PostPolicyTest} covers the
  * document that says which of them are allowed.
  */
 public final class PostObjectTest {
