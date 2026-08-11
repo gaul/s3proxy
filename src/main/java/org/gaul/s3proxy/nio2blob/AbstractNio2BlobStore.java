@@ -39,10 +39,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -248,7 +248,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                     throw ioe;
                 }
-                var creationTime = new Date(attr.creationTime().toMillis());
+                var creationTime =
+                        Instant.ofEpochMilli(attr.creationTime().toMillis());
                 set.add(SdkResponses.bucket(
                         path.getFileName().toString(), creationTime));
             }
@@ -320,7 +321,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                                 BasicFileAttributes.class);
                         set.add(ListEntry.object(SdkResponses.objectEntry(
                                 prefix, readETagXattr(markerXattrs),
-                                new Date(attr.lastModifiedTime().toMillis()),
+                                Instant.ofEpochMilli(
+                                        attr.lastModifiedTime().toMillis()),
                                 0L, StorageClass.STANDARD)));
                     }
                 } catch (IOException ioe) {
@@ -481,11 +483,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // keep null metadata since they surface only as
                 // <CommonPrefixes>.
                 String eTag = null;
-                Date lastModified = null;
+                Instant lastModified = null;
                 Long size = null;
                 if (markerExists) {
                     eTag = readETagXattr(dirXattrs);
-                    lastModified = new Date(
+                    lastModified = Instant.ofEpochMilli(
                             attr.lastModifiedTime().toMillis());
                     size = 0L;
                 }
@@ -504,7 +506,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } else {
             var name = relativeName(containerPath, path);
             logger.debug("adding: {}", name);
-            var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
+            var lastModifiedTime =
+                    Instant.ofEpochMilli(attr.lastModifiedTime().toMillis());
 
             var xattrs = safeGetXattrs(path);
             String eTag = readETagXattr(xattrs);
@@ -625,12 +628,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             String contentEncoding = null;
             String contentLanguage = null;
             String contentType = isDirectory ? "application/x-directory" : null;
-            Date expires = null;
+            Instant expires = null;
             HashCode hashCode = null;
             String eTag = null;
             var storageClass = StorageClass.STANDARD;
             var userMetadata = ImmutableMap.<String, String>builder();
-            var lastModifiedTime = new Date(attr.lastModifiedTime().toMillis());
+            var lastModifiedTime =
+                    Instant.ofEpochMilli(attr.lastModifiedTime().toMillis());
 
             if (view != null) {
                 cacheControl = readStringAttributeIfPresent(view, attributes, XATTR_CACHE_CONTROL);
@@ -679,7 +683,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES);
                     view.read(XATTR_EXPIRES, buf);
                     buf.flip();
-                    expires = new Date(buf.asLongBuffer().get());
+                    expires = Instant.ofEpochMilli(buf.asLongBuffer().get());
                 } else {
                     logger.warn("ignoring malformed {} xattr ({} bytes) on {}", XATTR_EXPIRES, xattrSize, path);
                 }
@@ -728,15 +732,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
             if (options.ifModifiedSince() != null) {
-                Date modifiedSince = Date.from(options.ifModifiedSince());
+                var modifiedSince = options.ifModifiedSince();
                 if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
                     throw conditionFailed(304, eTag);
                 }
 
             }
             if (options.ifUnmodifiedSince() != null) {
-                Date unmodifiedSince = Date.from(options.ifUnmodifiedSince());
-                if (lastModifiedTime.after(unmodifiedSince)) {
+                var unmodifiedSince = options.ifUnmodifiedSince();
+                if (lastModifiedTime.isAfter(unmodifiedSince)) {
                     throw conditionFailed(412, eTag);
                 }
             }
@@ -993,7 +997,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     writeStringAttributeIfPresent(view, XATTR_CONTENT_TYPE, metadata.contentType());
                     var expires = metadata.expires();
                     if (expires != null) {
-                        ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES).putLong(expires.getTime());
+                        ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES).putLong(expires.toEpochMilli());
                         buf.flip();
                         view.write(XATTR_EXPIRES, buf);
                     }
@@ -1025,8 +1029,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     versionId = mintVersionId(status);
                     writeVersionAttributes(tmpPath, blob.getMetadata().name(),
                             versionId, /*deleteMarker=*/ false);
-                    Files.setLastModifiedTime(tmpPath, FileTime.fromMillis(
-                            mintTime().getTime()));
+                    Files.setLastModifiedTime(tmpPath,
+                            FileTime.from(mintTime()));
                 }
             }
 
@@ -1143,7 +1147,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     Base64.getDecoder().decode(contentMD5)));
         }
         if (request.expires() != null) {
-            builder.expires(Date.from(request.expires()));
+            builder.expires(request.expires());
         }
         if (request.storageClass() != null) {
             builder.storageClass(request.storageClass());
@@ -1209,10 +1213,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (lastModified != null) {
                 var ifModifiedSince = request.copySourceIfModifiedSince();
                 var ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
-                if (ifModifiedSince != null && lastModified.compareTo(Date.from(ifModifiedSince)) <= 0) {
+                if (ifModifiedSince != null && lastModified.compareTo(ifModifiedSince) <= 0) {
                     throw returnResponseException(412);
                 }
-                if (ifUnmodifiedSince != null && lastModified.compareTo(Date.from(ifUnmodifiedSince)) > 0) {
+                if (ifUnmodifiedSince != null && lastModified.compareTo(ifUnmodifiedSince) > 0) {
                     throw returnResponseException(412);
                 }
             }
@@ -1349,7 +1353,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 writeVersionAttributes(marker, key, markerId,
                         /*deleteMarker=*/ true);
                 Files.setLastModifiedTime(marker,
-                        FileTime.fromMillis(mintTime().getTime()));
+                        FileTime.from(mintTime()));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1684,7 +1688,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             rows.add(new VersionRow(object.key(), currentVersionId(path),
                     /*latest=*/ true, /*deleteMarker=*/ false, object.eTag(),
-                    Date.from(object.lastModified()), object.size()));
+                    object.lastModified(), object.size()));
         }
         // A key whose newest version is a delete marker has nothing current,
         // so the marker is what is latest.
@@ -1760,7 +1764,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         .key(row.key())
                         .versionId(row.versionId())
                         .isLatest(row.latest())
-                        .lastModified(row.lastModified().toInstant())
+                        .lastModified(row.lastModified())
                         .build());
             } else {
                 versions.add(ObjectVersion.builder()
@@ -1768,7 +1772,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         .versionId(row.versionId())
                         .isLatest(row.latest())
                         .eTag(row.eTag())
-                        .lastModified(row.lastModified().toInstant())
+                        .lastModified(row.lastModified())
                         .size(row.size())
                         .storageClass(ObjectVersionStorageClass.STANDARD)
                         .build());
@@ -1789,7 +1793,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     /** One row of the flattened versions listing. */
     private record VersionRow(String key, String versionId, boolean latest,
-            boolean deleteMarker, @Nullable String eTag, Date lastModified,
+            boolean deleteMarker, @Nullable String eTag, Instant lastModified,
             @Nullable Long size) {
     }
 
@@ -2171,7 +2175,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         var expires = mpuRequest.expires();
         if (expires != null) {
-            blobBuilder.expires(Date.from(expires));
+            blobBuilder.expires(expires);
         }
         var storageClass = mpuRequest.storageClass();
         if (storageClass != null) {
@@ -2279,7 +2283,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
                 long partSize = requireNonNull(sm.size());
                 parts.add(SdkResponses.part(partNumber, partSize,
-                        sm.eTag(), Date.from(sm.lastModified())));
+                        sm.eTag(), sm.lastModified()));
             }
             if (pageSet.contents().isEmpty() ||
                     pageSet.nextContinuationToken() == null) {
@@ -2718,7 +2722,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         writeStringAttributeIfPresent(view, XATTR_CONTENT_TYPE, metadata.contentType());
         var expires = metadata.expires();
         if (expires != null) {
-            var buf = ByteBuffer.allocate(Longs.BYTES).putLong(expires.getTime());
+            var buf = ByteBuffer.allocate(Longs.BYTES).putLong(expires.toEpochMilli());
             buf.flip();
             view.write(XATTR_EXPIRES, buf);
         }
@@ -2920,8 +2924,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 NULL_VERSION_ID;
     }
 
-    private static Date mintTime() {
-        return new Date(LAST_MILLIS.updateAndGet(
+    private static Instant mintTime() {
+        return Instant.ofEpochMilli(LAST_MILLIS.updateAndGet(
                 last -> Math.max(last + 1, System.currentTimeMillis())));
     }
 
@@ -2940,7 +2944,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     /** One version of one key, held outside its natural path. */
     private record StoredVersion(Path path, String key, String versionId,
-            boolean deleteMarker, Date lastModified) {
+            boolean deleteMarker, Instant lastModified) {
     }
 
     /** Which file a read of a version resolves to, and the id it carries. */
@@ -3047,7 +3051,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         BasicFileAttributes.class);
                 versions.add(new StoredVersion(path, versionKey, versionId,
                         xattrs.attributes().contains(XATTR_DELETE_MARKER),
-                        new Date(attr.lastModifiedTime().toMillis())));
+                        Instant.ofEpochMilli(
+                                attr.lastModifiedTime().toMillis())));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);

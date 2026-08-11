@@ -19,7 +19,7 @@ package org.gaul.s3proxy.blobstore;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import java.util.Date;
+import java.time.Instant;
 
 import com.google.common.hash.HashCode;
 
@@ -37,7 +37,7 @@ public record ContentMetadata(
         @Nullable String contentDisposition,
         @Nullable String contentLanguage,
         @Nullable String contentEncoding,
-        @Nullable Date expires) {
+        @Nullable Instant expires) {
 
     /**
      * What S3 names an object whose upload declared no Content-Type, and what
@@ -78,7 +78,7 @@ public record ContentMetadata(
         private @Nullable String contentDisposition;
         private @Nullable String contentLanguage;
         private @Nullable String contentEncoding;
-        private @Nullable Date expires;
+        private @Nullable Instant expires;
 
         private Builder() {
         }
@@ -118,7 +118,7 @@ public record ContentMetadata(
             return this;
         }
 
-        public Builder expires(@Nullable Date expires) {
+        public Builder expires(@Nullable Instant expires) {
             this.expires = expires;
             return this;
         }

@@ -25,8 +25,8 @@ import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -211,7 +211,7 @@ public final class GCloudBlobStore implements BlobStore {
         var buckets = ImmutableList.<software.amazon.awssdk.services.s3.model.Bucket>builder();
         for (Bucket bucket : storage.list().iterateAll()) {
             buckets.add(SdkResponses.bucket(bucket.getName(),
-                    toDate(bucket.getCreateTimeOffsetDateTime())));
+                    toInstant(bucket.getCreateTimeOffsetDateTime())));
         }
         return ListBucketsResponse.builder()
                 .buckets(buckets.build())
@@ -272,7 +272,7 @@ public final class GCloudBlobStore implements BlobStore {
             } else {
                 contents.add(SdkResponses.objectEntry(blob.getName(),
                         blob.getEtag(),
-                        toDate(blob.getUpdateTimeOffsetDateTime()),
+                        toInstant(blob.getUpdateTimeOffsetDateTime()),
                         blob.getSize(),
                         fromGcsStorageClass(blob.getStorageClass())));
             }
@@ -379,7 +379,7 @@ public final class GCloudBlobStore implements BlobStore {
         // frontend (S3ProxyHandlerJetty) remaps GET/HEAD If-None-Match and
         // If-Modified-Since misses to 304 Not Modified.
         String eTag = gcsBlob.getEtag();
-        Date lastModified = toDate(gcsBlob.getUpdateTimeOffsetDateTime());
+        Instant lastModified = toInstant(gcsBlob.getUpdateTimeOffsetDateTime());
         enforceConditionalGet(request, eTag, lastModified);
 
         long blobSize = gcsBlob.getSize();
@@ -462,7 +462,7 @@ public final class GCloudBlobStore implements BlobStore {
     // S3ProxyHandlerJetty maps GET/HEAD If-None-Match and If-Modified-Since
     // misses to 304 Not Modified.
     private static void enforceConditionalGet(GetObjectRequest request,
-            @Nullable String eTag, @Nullable Date lastModified) {
+            @Nullable String eTag, @Nullable Instant lastModified) {
         String ifMatch = request.ifMatch();
         String ifNoneMatch = request.ifNoneMatch();
         // The wildcard "*" matches any existing object rather than a literal
@@ -486,15 +486,15 @@ public final class GCloudBlobStore implements BlobStore {
             }
         }
         if (lastModified != null) {
-            Date modified = truncateToSecond(lastModified);
+            Instant modified = truncateToSecond(lastModified);
             Instant ifModifiedSince = request.ifModifiedSince();
             if (ifModifiedSince != null &&
-                    modified.compareTo(Date.from(ifModifiedSince)) <= 0) {
+                    modified.compareTo(ifModifiedSince) <= 0) {
                 throw preconditionFailed(eTag);
             }
             Instant ifUnmodifiedSince = request.ifUnmodifiedSince();
             if (ifUnmodifiedSince != null &&
-                    modified.compareTo(Date.from(ifUnmodifiedSince)) > 0) {
+                    modified.compareTo(ifUnmodifiedSince) > 0) {
                 throw preconditionFailed(eTag);
             }
         }
@@ -504,22 +504,8 @@ public final class GCloudBlobStore implements BlobStore {
     // one-second granularity, but GCS timestamps carry sub-second precision.
     // Truncate to whole seconds so a conditional header compares equal to the
     // Last-Modified value the client previously saw.
-    private static Date truncateToSecond(Date date) {
-        return new Date(Math.floorDiv(date.getTime(), 1000L) * 1000L);
-    }
-
-    @Nullable
-    private static Date toDate(@Nullable Instant instant) {
-        return instant == null ? null : Date.from(instant);
-    }
-
-    @Nullable
-    private static Date toDate(
-            java.time.@Nullable OffsetDateTime offsetDateTime) {
-        if (offsetDateTime == null) {
-            return null;
-        }
-        return new Date(offsetDateTime.toInstant().toEpochMilli());
+    private static Instant truncateToSecond(Instant instant) {
+        return instant.truncatedTo(ChronoUnit.SECONDS);
     }
 
     private static String maybeQuoteETag(String eTag) {
@@ -676,8 +662,8 @@ public final class GCloudBlobStore implements BlobStore {
 
         String ifMatch = request.copySourceIfMatch();
         String ifNoneMatch = request.copySourceIfNoneMatch();
-        Date ifModifiedSince = toDate(request.copySourceIfModifiedSince());
-        Date ifUnmodifiedSince = toDate(request.copySourceIfUnmodifiedSince());
+        Instant ifModifiedSince = request.copySourceIfModifiedSince();
+        Instant ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
         List<BlobSourceOption> sourceOptions = List.of();
         if (ifMatch != null || ifNoneMatch != null ||
                 ifModifiedSince != null || ifUnmodifiedSince != null) {
@@ -713,8 +699,8 @@ public final class GCloudBlobStore implements BlobStore {
      */
     private static List<BlobSourceOption> checkCopySourceConditions(
             @Nullable Blob sourceBlob, @Nullable String ifMatch,
-            @Nullable String ifNoneMatch, @Nullable Date ifModifiedSince,
-            @Nullable Date ifUnmodifiedSince) {
+            @Nullable String ifNoneMatch, @Nullable Instant ifModifiedSince,
+            @Nullable Instant ifUnmodifiedSince) {
         var sourceOptions = new java.util.ArrayList<BlobSourceOption>();
         if (sourceBlob == null) {
             return sourceOptions;
@@ -731,10 +717,10 @@ public final class GCloudBlobStore implements BlobStore {
                 throw preconditionFailed(sourceETag);
             }
         }
-        Date lastModified = toDate(
+        Instant lastModified = toInstant(
                 sourceBlob.getUpdateTimeOffsetDateTime());
         if (lastModified != null) {
-            Date modified = truncateToSecond(lastModified);
+            Instant modified = truncateToSecond(lastModified);
             if (ifModifiedSince != null &&
                     modified.compareTo(ifModifiedSince) <= 0) {
                 throw preconditionFailed(sourceETag);
@@ -1346,8 +1332,8 @@ public final class GCloudBlobStore implements BlobStore {
 
         var sourceOptions = checkCopySourceConditions(sourceBlob,
                 request.copySourceIfMatch(), request.copySourceIfNoneMatch(),
-                toDate(request.copySourceIfModifiedSince()),
-                toDate(request.copySourceIfUnmodifiedSince()));
+                request.copySourceIfModifiedSince(),
+                request.copySourceIfUnmodifiedSince());
 
         String uploadKey = mpu.id();
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());

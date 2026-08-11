@@ -384,7 +384,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     private static boolean isExpiringSoon(Token token) {
-        Date expires = token.getExpires();
+        var expires = token.getExpires();
         return expires == null || expires.getTime() -
                 System.currentTimeMillis() < EXPIRY_MARGIN_MILLIS;
     }
@@ -497,7 +497,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     prefixes.add(SdkResponses.commonPrefix(name));
                 } else {
                     contents.add(SdkResponses.objectEntry(name,
-                            object.getETag(), object.getLastModified(),
+                            object.getETag(),
+                            toInstant(object.getLastModified()),
                             object.getSizeInBytes(), StorageClass.STANDARD));
                 }
                 visibleCount++;
@@ -743,11 +744,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         if (options.ifModifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_MODIFIED_SINCE,
-                    toHttpDate(Date.from(options.ifModifiedSince())));
+                    toHttpDate(options.ifModifiedSince()));
         }
         if (options.ifUnmodifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_UNMODIFIED_SINCE,
-                    toHttpDate(Date.from(options.ifUnmodifiedSince())));
+                    toHttpDate(options.ifUnmodifiedSince()));
         }
 
         DLPayload payload;
@@ -840,7 +841,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     Base64.getDecoder().decode(contentMD5)));
         }
         if (request.expires() != null) {
-            builder.expires(Date.from(request.expires()));
+            builder.expires(request.expires());
         }
         return putBlobInternal(request.bucket(), builder.build(),
                 request.ifNoneMatch());
@@ -933,11 +934,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             CopyObjectRequest request) {
         String ifMatch = request.copySourceIfMatch();
         String ifNoneMatch = request.copySourceIfNoneMatch();
-        Date ifModifiedSince = request.copySourceIfModifiedSince() == null ?
-                null : Date.from(request.copySourceIfModifiedSince());
-        Date ifUnmodifiedSince =
-                request.copySourceIfUnmodifiedSince() == null ?
-                null : Date.from(request.copySourceIfUnmodifiedSince());
+        Instant ifModifiedSince = request.copySourceIfModifiedSince();
+        Instant ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
         if (ifMatch == null && ifNoneMatch == null &&
                 ifModifiedSince == null && ifUnmodifiedSince == null) {
             return;
@@ -957,8 +955,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 throw preconditionFailed();
             }
         }
-        Date lastModified = metadata.lastModified() == null ? null :
-                Date.from(metadata.lastModified());
+        Instant lastModified = metadata.lastModified();
         if (lastModified != null) {
             if (ifModifiedSince != null &&
                     lastModified.compareTo(ifModifiedSince) <= 0) {
@@ -1289,7 +1286,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
             parts.add(SdkResponses.part(partNumber,
                     object.getSizeInBytes(), object.getETag(),
-                    object.getLastModified()));
+                    toInstant(object.getLastModified())));
         }
         parts.sort(Comparator.comparingInt(Part::partNumber));
         return parts;
@@ -1555,18 +1552,24 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return object != null ? object.getSizeInBytes() : 0L;
     }
 
-    static String toHttpDate(Date date) {
-        return HTTP_DATE.format(date.toInstant().atOffset(ZoneOffset.UTC));
+    static String toHttpDate(Instant instant) {
+        return HTTP_DATE.format(instant.atOffset(ZoneOffset.UTC));
+    }
+
+    /** openstack4j reports times in the legacy Date form. */
+    @Nullable
+    private static Instant toInstant(@Nullable Date date) {
+        return date == null ? null : date.toInstant();
     }
 
     @Nullable
-    private static Date parseHttpDate(@Nullable String value) {
+    private static Instant parseHttpDate(@Nullable String value) {
         if (value == null) {
             return null;
         }
         try {
-            return Date.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(
-                    value, java.time.Instant::from));
+            return DateTimeFormatter.RFC_1123_DATE_TIME.parse(
+                    value, Instant::from);
         } catch (RuntimeException re) {
             return null;
         }

@@ -18,7 +18,6 @@ package org.gaul.s3proxy.blobstore;
 
 import java.time.Instant;
 import java.util.Collection;
-import java.util.Date;
 
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.jspecify.annotations.Nullable;
@@ -78,11 +77,9 @@ public final class SdkResponses {
                 .contentLanguage(contentMetadata.contentLanguage())
                 .contentLength(contentMetadata.contentLength())
                 .contentType(contentMetadata.contentType())
-                .expires(contentMetadata.expires() == null ? null :
-                        contentMetadata.expires().toInstant())
+                .expires(contentMetadata.expires())
                 .eTag(metadata.eTag())
-                .lastModified(metadata.lastModified() == null ? null :
-                        metadata.lastModified().toInstant())
+                .lastModified(metadata.lastModified())
                 .storageClass(metadata.storageClass() == null ? null :
                         metadata.storageClass().toString())
                 .versionId(metadata.versionId())
@@ -124,15 +121,14 @@ public final class SdkResponses {
                 .build();
     }
 
-    /** A listed part, converting the legacy Date form. */
+    /** A listed part. */
     public static Part part(int partNumber, @Nullable Long size,
-            @Nullable String eTag, @Nullable Date lastModified) {
+            @Nullable String eTag, @Nullable Instant lastModified) {
         return Part.builder()
                 .partNumber(partNumber)
                 .size(size)
                 .eTag(eTag)
-                .lastModified(lastModified == null ? null :
-                        lastModified.toInstant())
+                .lastModified(lastModified)
                 .build();
     }
 
@@ -164,24 +160,22 @@ public final class SdkResponses {
                 .build();
     }
 
-    /** A listed bucket, converting the legacy Date form. */
-    public static Bucket bucket(String name, @Nullable Date creationDate) {
+    /** A listed bucket. */
+    public static Bucket bucket(String name, @Nullable Instant creationDate) {
         return Bucket.builder()
                 .name(name)
-                .creationDate(creationDate == null ? null :
-                        creationDate.toInstant())
+                .creationDate(creationDate)
                 .build();
     }
 
-    /** A listed object, converting the legacy Date and StorageClass forms. */
+    /** A listed object, converting the legacy StorageClass form. */
     public static S3Object objectEntry(String key, @Nullable String eTag,
-            @Nullable Date lastModified, @Nullable Long size,
+            @Nullable Instant lastModified, @Nullable Long size,
             @Nullable StorageClass storageClass) {
         return S3Object.builder()
                 .key(key)
                 .eTag(eTag)
-                .lastModified(lastModified == null ? null :
-                        lastModified.toInstant())
+                .lastModified(lastModified)
                 .size(size)
                 .storageClass(storageClass == null ? null :
                         ObjectStorageClass.fromValue(storageClass.toString()))

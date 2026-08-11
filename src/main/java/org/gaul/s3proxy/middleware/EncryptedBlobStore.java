@@ -485,8 +485,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 part.partNumber(),
                 part.size() - Constants.PADDING_BLOCK_SIZE,
                 part.eTag(),
-                part.lastModified() == null ? null :
-                        java.util.Date.from(part.lastModified())
+                part.lastModified()
             );
             filteredParts.add(newPart);
         }

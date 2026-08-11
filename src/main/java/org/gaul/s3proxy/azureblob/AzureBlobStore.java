@@ -30,7 +30,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -314,7 +313,7 @@ public final class AzureBlobStore implements BlobStore {
             } else {
                 contents.add(SdkResponses.objectEntry(blob.getName(),
                         reportETag(properties.getETag()),
-                        toDate(properties.getLastModified()),
+                        properties.getLastModified().toInstant(),
                         properties.getContentLength(),
                         fromAccessTier(properties.getAccessTier())));
             }
@@ -1681,7 +1680,7 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             String eTag = "";  // listBlocks does not return ETag
-            Date lastModified = null; // listBlocks does not return LastModified
+            Instant lastModified = null; // listBlocks does not return LastModified
             parts.add(SdkResponses.part(partNumber,
                     properties.getSizeLong(),
                     eTag, lastModified));
@@ -1733,10 +1732,6 @@ public final class AzureBlobStore implements BlobStore {
         return instant.atOffset(ZoneOffset.UTC);
     }
 
-    private static Date toDate(OffsetDateTime time) {
-        return new Date(time.toInstant().toEpochMilli());
-    }
-
     private static AccessTier toAccessTier(StorageClass storageClass) {
         return switch (storageClass) {
         case GLACIER, DEEP_ARCHIVE -> AccessTier.ARCHIVE;
@@ -1770,7 +1765,7 @@ public final class AzureBlobStore implements BlobStore {
                 .contentLanguage(properties.getContentLanguage())
                 .contentLength(properties.getBlobSize())
                 .contentType(properties.getContentType())
-                .expires(expires != null ? toDate(expires) : null)
+                .expires(expires != null ? expires.toInstant() : null)
                 .build();
     }
 

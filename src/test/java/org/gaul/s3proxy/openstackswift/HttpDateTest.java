@@ -19,7 +19,6 @@ package org.gaul.s3proxy.openstackswift;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
-import java.util.Date;
 import java.util.Locale;
 
 import org.junit.jupiter.api.Test;
@@ -83,7 +82,6 @@ public final class HttpDateTest {
     }
 
     private static String format(String instant) {
-        return OpenStackSwiftBlobStore.toHttpDate(
-                Date.from(Instant.parse(instant)));
+        return OpenStackSwiftBlobStore.toHttpDate(Instant.parse(instant));
     }
 }

@@ -22,7 +22,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.util.Date;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 
@@ -85,8 +85,7 @@ public final class Blob {
                 .contentLength(response.contentLength())
                 .contentType(response.contentType())
                 .eTag(response.eTag())
-                .lastModified(response.lastModified() == null ? null :
-                        java.util.Date.from(response.lastModified()))
+                .lastModified(response.lastModified())
                 .build();
     }
 
@@ -161,7 +160,7 @@ public final class Blob {
             return this;
         }
 
-        public Builder lastModified(@Nullable Date lastModified) {
+        public Builder lastModified(@Nullable Instant lastModified) {
             metadataBuilder.lastModified(lastModified);
             return this;
         }
@@ -233,7 +232,7 @@ public final class Blob {
             return this;
         }
 
-        public Builder expires(@Nullable Date expires) {
+        public Builder expires(@Nullable Instant expires) {
             contentMetadataBuilder.expires(expires);
             return this;
         }

@@ -19,7 +19,7 @@ package org.gaul.s3proxy.blobstore.domain;
 
 import static java.util.Objects.requireNonNull;
 
-import java.util.Date;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -39,7 +39,7 @@ public record BlobMetadata(
         String name,
         Map<String, String> userMetadata,
         @Nullable String eTag,
-        @Nullable Date lastModified,
+        @Nullable Instant lastModified,
         StorageClass storageClass,
         @Nullable String container,
         ContentMetadata contentMetadata,
@@ -53,7 +53,7 @@ public record BlobMetadata(
     /** Metadata without a version, as every unversioned store reports it. */
     public BlobMetadata(String name,
             Map<String, String> userMetadata, @Nullable String eTag,
-            @Nullable Date lastModified, StorageClass storageClass,
+            @Nullable Instant lastModified, StorageClass storageClass,
             @Nullable String container, ContentMetadata contentMetadata) {
         this(name, userMetadata, eTag, lastModified, storageClass,
                 container, contentMetadata, /*versionId=*/ null,
@@ -85,7 +85,7 @@ public record BlobMetadata(
         private @Nullable String name;
         private Map<String, String> userMetadata = new LinkedHashMap<>();
         private @Nullable String eTag;
-        private @Nullable Date lastModified;
+        private @Nullable Instant lastModified;
         private StorageClass storageClass = StorageClass.STANDARD;
         private @Nullable String container;
         private ContentMetadata contentMetadata =
@@ -113,7 +113,7 @@ public record BlobMetadata(
             return this;
         }
 
-        public Builder lastModified(@Nullable Date lastModified) {
+        public Builder lastModified(@Nullable Instant lastModified) {
             this.lastModified = lastModified;
             return this;
         }
