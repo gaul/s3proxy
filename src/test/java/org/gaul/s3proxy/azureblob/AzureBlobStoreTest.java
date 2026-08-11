@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.azureblob;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -30,7 +31,11 @@ import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.PagedResponseBase;
 import com.azure.storage.blob.models.BlobItem;
 
+import org.gaul.s3proxy.blobstore.Credentials;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
  * Azure can answer a listing with no blobs and a continuation token onto ones
@@ -93,6 +98,38 @@ public final class AzureBlobStoreTest {
         AzureBlobStore.firstPageWithEntries(this::next, "one");
 
         assertThat(requested).containsExactly("one", "two");
+    }
+
+    /**
+     * Versioning is off unless the operator opts in, since Azure enables it
+     * out of band and the SDK cannot read the setting back.  Opted in, the
+     * store reports the account versioned and refuses the per-bucket suspend
+     * Azure has no way to honor.
+     */
+    @Test
+    public void testVersioningIsOptIn() {
+        assertThat(store(/*versioning=*/ false).supportsVersioning()).isFalse();
+
+        AzureBlobStore on = store(/*versioning=*/ true);
+        assertThat(on.supportsVersioning()).isTrue();
+        assertThat(on.getContainerVersioning("container"))
+                .isEqualTo(BucketVersioningStatus.ENABLED);
+        // Enabling is a no-op the account already satisfies.
+        on.setContainerVersioning("container", BucketVersioningStatus.ENABLED);
+        // Suspending is refused NotImplemented (501).
+        assertThatThrownBy(() -> on.setContainerVersioning(
+                "container", BucketVersioningStatus.SUSPENDED))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(501));
+    }
+
+    private static AzureBlobStore store(boolean versioning) {
+        // The endpoint and key are never dialed: the Azure client builds
+        // lazily, and these calls read local state only.
+        return new AzureBlobStore(
+                () -> new Credentials("account", "key"),
+                "https://account.blob.core.windows.net",
+                /*eTagMode=*/ "opaque", versioning);
     }
 
     private PagedResponse<BlobItem> next(String marker) {
