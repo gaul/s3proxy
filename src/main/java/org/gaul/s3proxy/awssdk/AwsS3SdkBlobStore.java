@@ -56,12 +56,14 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -85,11 +87,13 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -491,6 +495,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
+    public boolean supportsBucketEncryption() {
+        return true;
+    }
+
+    @Override
     @Nullable
     public BucketVersioningStatus getContainerVersioning(String container) {
         try {
@@ -526,6 +535,45 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             return s3Client.listObjectVersions(request);
         } catch (S3Exception e) {
             throw propagate(e, request.bucket(), null);
+        }
+    }
+
+    @Override
+    public ServerSideEncryptionConfiguration getContainerEncryption(
+            String container) {
+        try {
+            return s3Client.getBucketEncryption(
+                    GetBucketEncryptionRequest.builder()
+                            .bucket(container)
+                            .build())
+                    .serverSideEncryptionConfiguration();
+        } catch (S3Exception e) {
+            throw propagate(e, container, null);
+        }
+    }
+
+    @Override
+    public void setContainerEncryption(String container,
+            ServerSideEncryptionConfiguration configuration) {
+        try {
+            s3Client.putBucketEncryption(PutBucketEncryptionRequest.builder()
+                    .bucket(container)
+                    .serverSideEncryptionConfiguration(configuration)
+                    .build());
+        } catch (S3Exception e) {
+            throw propagate(e, container, null);
+        }
+    }
+
+    @Override
+    public void deleteContainerEncryption(String container) {
+        try {
+            s3Client.deleteBucketEncryption(
+                    DeleteBucketEncryptionRequest.builder()
+                            .bucket(container)
+                            .build());
+        } catch (S3Exception e) {
+            throw propagate(e, container, null);
         }
     }
 

@@ -145,9 +145,10 @@ public final class ReadOnlyBlobStoreTest {
         var readOnlyOperations = Set.of(
                 "blobExists", "blobMetadata", "close", "containerExists",
                 "delegate", "getBlob", "getBlobAccess", "getContainerAccess",
-                "getContainerVersioning", "getMinimumMultipartPartSize",
-                "list", "listMultipartUpload", "listMultipartUploads",
-                "listV1", "listVersions", "supportsCopyMultipartPart",
+                "getContainerEncryption", "getContainerVersioning",
+                "getMinimumMultipartPartSize", "list", "listMultipartUpload",
+                "listMultipartUploads", "listV1", "listVersions",
+                "supportsBucketEncryption", "supportsCopyMultipartPart",
                 "supportsServerSideEncryption", "supportsVersioning");
 
         var missing = new ArrayList<String>();

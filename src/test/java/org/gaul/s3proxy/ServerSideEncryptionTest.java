@@ -47,6 +47,9 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 
 /**
  * Server-side encryption end to end over the two nio2 stores, which share
@@ -597,6 +600,195 @@ public final class ServerSideEncryptionTest {
         assertThat(get.response().sseCustomerKeyMD5())
                 .isEqualTo(keyMD5(KEY_A));
         assertThat(get.asUtf8String()).isEqualTo("payload");
+    }
+
+    @Test
+    public void testBucketEncryptionRoundTrip() throws Exception {
+        startEncrypting();
+
+        // A bucket that was never configured answers with S3's own code,
+        // not an empty configuration.
+        assertBucketEncryptionNotFound();
+
+        client.putBucketEncryption(b -> b.bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "AES256", /*kmsKeyId=*/ null,
+                        /*bucketKeyEnabled=*/ null)));
+        var rule = client.getBucketEncryption(b -> b.bucket(containerName))
+                .serverSideEncryptionConfiguration().rules().get(0);
+        assertThat(rule.applyServerSideEncryptionByDefault().sseAlgorithm())
+                .isEqualTo(ServerSideEncryption.AES256);
+        assertThat(rule.applyServerSideEncryptionByDefault()
+                .kmsMasterKeyID()).isNull();
+
+        // A new configuration replaces the last one whole.
+        client.putBucketEncryption(b -> b.bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "aws:kms", KMS_KEY_ID, /*bucketKeyEnabled=*/ true)));
+        rule = client.getBucketEncryption(b -> b.bucket(containerName))
+                .serverSideEncryptionConfiguration().rules().get(0);
+        assertThat(rule.applyServerSideEncryptionByDefault().sseAlgorithm())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        assertThat(rule.applyServerSideEncryptionByDefault()
+                .kmsMasterKeyID()).isEqualTo(KMS_KEY_ID);
+        assertThat(rule.bucketKeyEnabled()).isTrue();
+
+        // Deleting is idempotent: removing what remains and removing what
+        // is already absent both succeed.
+        client.deleteBucketEncryption(b -> b.bucket(containerName));
+        assertBucketEncryptionNotFound();
+        client.deleteBucketEncryption(b -> b.bucket(containerName));
+    }
+
+    @Test
+    public void testBucketEncryptionAppliesToUnadornedWrites()
+            throws Exception {
+        startEncrypting();
+
+        // Written before any configuration: rests under the plain default
+        // and stays there, since the configuration is not retroactive.
+        client.putObject(b -> b.bucket(containerName).key("before"),
+                RequestBody.fromString("payload"));
+
+        client.putBucketEncryption(b -> b.bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "aws:kms", KMS_KEY_ID, /*bucketKeyEnabled=*/ null)));
+
+        var before = client.headObject(
+                b -> b.bucket(containerName).key("before"));
+        assertThat(before.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AES256);
+        assertThat(before.ssekmsKeyId()).isNull();
+
+        // A put naming nothing rests under the bucket's default.
+        var put = client.putObject(b -> b.bucket(containerName).key("blob"),
+                RequestBody.fromString("payload"));
+        assertThat(put.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        assertThat(put.ssekmsKeyId()).isEqualTo(KMS_KEY_ID);
+
+        var head = client.headObject(b -> b.bucket(containerName).key("blob"));
+        assertThat(head.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        assertThat(head.ssekmsKeyId()).isEqualTo(KMS_KEY_ID);
+
+        // So does an unadorned copy's destination.
+        var copy = client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("before")
+                .destinationBucket(containerName).destinationKey("copy"));
+        assertThat(copy.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        assertThat(copy.ssekmsKeyId()).isEqualTo(KMS_KEY_ID);
+
+        // And an unadorned multipart upload, from create to completion.
+        var create = client.createMultipartUpload(
+                b -> b.bucket(containerName).key("mpu"));
+        assertThat(create.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        assertThat(create.ssekmsKeyId()).isEqualTo(KMS_KEY_ID);
+        var part = client.uploadPart(b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId()).partNumber(1),
+                RequestBody.fromString("payload"));
+        client.completeMultipartUpload(b -> b.bucket(containerName).key("mpu")
+                .uploadId(create.uploadId())
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(part.eTag()).build())
+                        .build()));
+        var mpu = client.headObject(b -> b.bucket(containerName).key("mpu"));
+        assertThat(mpu.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        assertThat(mpu.ssekmsKeyId()).isEqualTo(KMS_KEY_ID);
+
+        // A write that names its own encryption is not defaulted.
+        var explicit = client.putObject(b -> b.bucket(containerName)
+                        .key("explicit")
+                        .serverSideEncryption(ServerSideEncryption.AES256),
+                RequestBody.fromString("payload"));
+        assertThat(explicit.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AES256);
+        assertThat(explicit.ssekmsKeyId()).isNull();
+    }
+
+    @Test
+    public void testBucketEncryptionVetted() throws Exception {
+        startEncrypting();
+
+        // A KMS key under an algorithm that does not name one.
+        assertThatThrownBy(() -> client.putBucketEncryption(b -> b
+                .bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "AES256", KMS_KEY_ID, /*bucketKeyEnabled=*/ null))))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("InvalidArgument");
+                });
+
+        // aws:kms naming no key: this store has no account default key to
+        // reach for, the answer its object write path gives.
+        assertStatus(400, () -> client.putBucketEncryption(b -> b
+                .bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "aws:kms", /*kmsKeyId=*/ null,
+                        /*bucketKeyEnabled=*/ null))));
+
+        // An algorithm S3 has never had fails the schema.
+        assertThatThrownBy(() -> client.putBucketEncryption(b -> b
+                .bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "MADEUP", /*kmsKeyId=*/ null,
+                        /*bucketKeyEnabled=*/ null))))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("MalformedXML");
+                });
+
+        // None of it was stored.
+        assertBucketEncryptionNotFound();
+    }
+
+    @Test
+    public void testBucketEncryptionRefusedWhereBackendCannot()
+            throws Exception {
+        startRefusing();
+
+        assertRefused(() -> client.getBucketEncryption(
+                b -> b.bucket(containerName)));
+        assertRefused(() -> client.putBucketEncryption(b -> b
+                .bucket(containerName)
+                .serverSideEncryptionConfiguration(encryptionConfiguration(
+                        "AES256", /*kmsKeyId=*/ null,
+                        /*bucketKeyEnabled=*/ null))));
+        assertRefused(() -> client.deleteBucketEncryption(
+                b -> b.bucket(containerName)));
+    }
+
+    /** One rule naming the default, built without the varargs consumers. */
+    private static ServerSideEncryptionConfiguration encryptionConfiguration(
+            String algorithm, String kmsKeyId, Boolean bucketKeyEnabled) {
+        var byDefault = ServerSideEncryptionByDefault.builder()
+                .sseAlgorithm(algorithm);
+        if (kmsKeyId != null) {
+            byDefault.kmsMasterKeyID(kmsKeyId);
+        }
+        return ServerSideEncryptionConfiguration.builder()
+                .rules(ServerSideEncryptionRule.builder()
+                        .applyServerSideEncryptionByDefault(byDefault.build())
+                        .bucketKeyEnabled(bucketKeyEnabled)
+                        .build())
+                .build();
+    }
+
+    private void assertBucketEncryptionNotFound() {
+        assertThatThrownBy(() -> client.getBucketEncryption(
+                b -> b.bucket(containerName)))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(404);
+                    assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                            "ServerSideEncryptionConfigurationNotFoundError");
+                });
     }
 
     private static String encodeKey(byte[] key) {

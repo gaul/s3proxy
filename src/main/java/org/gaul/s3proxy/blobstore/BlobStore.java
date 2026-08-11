@@ -62,6 +62,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
@@ -292,6 +293,41 @@ public interface BlobStore extends AutoCloseable {
     default ListObjectVersionsResponse listVersions(
             ListObjectVersionsRequest request) {
         throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /**
+     * Whether this store answers the bucket default-encryption
+     * configuration, the ?encryption subresource.  Only a store that
+     * reports true honors the operations below; the default
+     * implementations throw UnsupportedOperationException, which the
+     * frontend answers NotImplemented before consulting them.
+     */
+    default boolean supportsBucketEncryption() {
+        return false;
+    }
+
+    /**
+     * Reads the container's default encryption configuration.  A container
+     * that was never given one answers the way S3 spells it -- a 404 whose
+     * code is ServerSideEncryptionConfigurationNotFoundError -- rather
+     * than returning null.
+     */
+    default ServerSideEncryptionConfiguration getContainerEncryption(
+            String container) {
+        throw new UnsupportedOperationException(
+                "bucket encryption not supported");
+    }
+
+    default void setContainerEncryption(String container,
+            ServerSideEncryptionConfiguration configuration) {
+        throw new UnsupportedOperationException(
+                "bucket encryption not supported");
+    }
+
+    /** Removes the configuration; removing an absence already succeeds. */
+    default void deleteContainerEncryption(String container) {
+        throw new UnsupportedOperationException(
+                "bucket encryption not supported");
     }
 
     /**

@@ -3433,8 +3433,6 @@ public final class AwsSdkTest {
         for (var operation : List.<Runnable>of(
                 () -> client.deleteBucketPolicy(
                         b -> b.bucket(containerName)),
-                () -> client.deleteBucketEncryption(
-                        b -> b.bucket(containerName)),
                 () -> client.deleteBucketOwnershipControls(
                         b -> b.bucket(containerName)),
                 () -> client.deletePublicAccessBlock(
@@ -3449,6 +3447,18 @@ public final class AwsSdkTest {
             assertThat(client.listBuckets().buckets().stream()
                     .anyMatch(b -> b.name().equals(containerName))).isTrue();
         }
+
+        // ?encryption is a subresource with a real DELETE now: whether the
+        // backend answers it or refuses it, it must remove only the
+        // configuration and never the bucket.
+        try {
+            client.deleteBucketEncryption(b -> b.bucket(containerName));
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("NotImplemented");
+        }
+        assertThat(client.listBuckets().buckets().stream()
+                .anyMatch(b -> b.name().equals(containerName))).isTrue();
     }
 
     @Test

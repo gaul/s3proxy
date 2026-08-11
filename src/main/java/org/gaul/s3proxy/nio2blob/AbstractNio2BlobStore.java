@@ -114,6 +114,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -160,6 +163,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_VERSION_KEY = "user.version-key";
     private static final String XATTR_DELETE_MARKER = "user.delete-marker";
     private static final String XATTR_VERSIONING = "user.versioning";
+    // The container's default encryption, the ?encryption subresource:
+    // what a write naming no encryption of its own comes to rest under,
+    // the way S3 applies bucket default encryption.
+    private static final String XATTR_BUCKET_ENCRYPTION_ALGORITHM =
+            "user.bucket-encryption-algorithm";
+    private static final String XATTR_BUCKET_ENCRYPTION_KMS_KEY_ID =
+            "user.bucket-encryption-kms-key-id";
+    private static final String XATTR_BUCKET_ENCRYPTION_BUCKET_KEY =
+            "user.bucket-encryption-bucket-key-enabled";
     // The encryption an object rests under, written only by a store that
     // answers supportsServerSideEncryption().  An object encrypted the way
     // every unasked-for object is carries none of these: absent algorithm
@@ -848,7 +860,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
         checkNotReserved(request.key());
-        var encryption = requestEncryption(
+        var encryption = requestEncryption(request.bucket(),
                 request.serverSideEncryptionAsString(), request.ssekmsKeyId(),
                 request.ssekmsEncryptionContext(), request.bucketKeyEnabled(),
                 request.sseCustomerAlgorithm(), request.sseCustomerKey(),
@@ -1249,7 +1261,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // The copy rests under what it asked for rather than under what
             // the source rested under, the way S3 encrypts a copy: the
             // destination is a new object, and only its own request says how.
-            var encryption = requestEncryption(
+            var encryption = requestEncryption(toContainer,
                     request.serverSideEncryptionAsString(),
                     request.ssekmsKeyId(), request.ssekmsEncryptionContext(),
                     request.bucketKeyEnabled(),
@@ -1504,6 +1516,142 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         try {
             writeStringAttributeIfPresent(view, XATTR_VERSIONING,
                     status.toString());
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    @Override
+    public final ServerSideEncryptionConfiguration getContainerEncryption(
+            String container) {
+        if (!supportsBucketEncryption()) {
+            throw new UnsupportedOperationException(
+                    "bucket encryption not supported");
+        }
+        var encryption = readContainerEncryption(
+                requireContainerPath(container));
+        if (encryption == null) {
+            throw S3Exceptions.serverSideEncryptionConfigurationNotFound(
+                    container);
+        }
+        var byDefault = ServerSideEncryptionByDefault.builder()
+                .sseAlgorithm(encryption.algorithm());
+        if (encryption.kmsKeyId() != null) {
+            byDefault.kmsMasterKeyID(encryption.kmsKeyId());
+        }
+        return ServerSideEncryptionConfiguration.builder()
+                .rules(ServerSideEncryptionRule.builder()
+                        .applyServerSideEncryptionByDefault(byDefault.build())
+                        .bucketKeyEnabled(encryption.bucketKeyEnabled())
+                        .build())
+                .build();
+    }
+
+    @Override
+    public final void setContainerEncryption(String container,
+            ServerSideEncryptionConfiguration configuration) {
+        if (!supportsBucketEncryption()) {
+            throw new UnsupportedOperationException(
+                    "bucket encryption not supported");
+        }
+        if (configuration.rules().size() != 1) {
+            throw S3Exceptions.invalidArgument(
+                    "Exactly one encryption rule is expected.");
+        }
+        var rule = configuration.rules().get(0);
+        var byDefault = rule.applyServerSideEncryptionByDefault();
+        String algorithm = byDefault == null ? null :
+                byDefault.sseAlgorithmAsString();
+        String kmsKeyId = byDefault == null ? null :
+                byDefault.kmsMasterKeyID();
+        // Judge the configuration as the write requests it will default
+        // are judged: nothing may enter it that requestEncryption would
+        // refuse, or unadorned writes would start failing after the fact.
+        if (Encryption.KMS_ALGORITHM.equals(algorithm)) {
+            if (kmsKeyId == null) {
+                throw S3Exceptions.invalidArgument("Server side encryption" +
+                        " with aws:kms requires a KMSMasterKeyID.");
+            }
+        } else {
+            if (algorithm == null ||
+                    !Encryption.DEFAULT_ALGORITHM.equals(algorithm)) {
+                throw S3Exceptions.invalidArgument("The encryption" +
+                        " algorithm specified is not valid.");
+            }
+            if (kmsKeyId != null) {
+                throw S3Exceptions.invalidArgument("a KMSMasterKeyID is not" +
+                        " applicable if the default sse algorithm is not" +
+                        " aws:kms");
+            }
+        }
+        var containerPath = requireContainerPath(container);
+        var view = getXattrView(containerPath);
+        if (view == null) {
+            throw new UnsupportedOperationException(
+                    "bucket encryption needs user attributes");
+        }
+        try {
+            writeStringAttributeIfPresent(view,
+                    XATTR_BUCKET_ENCRYPTION_ALGORITHM, algorithm);
+            // Rewrite the optional fields outright: this configuration
+            // replaces the last one, absences included.
+            writeOrDeleteAttribute(view,
+                    XATTR_BUCKET_ENCRYPTION_KMS_KEY_ID, kmsKeyId);
+            writeOrDeleteAttribute(view,
+                    XATTR_BUCKET_ENCRYPTION_BUCKET_KEY,
+                    rule.bucketKeyEnabled() == null ? null :
+                            rule.bucketKeyEnabled().toString());
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    @Override
+    public final void deleteContainerEncryption(String container) {
+        if (!supportsBucketEncryption()) {
+            throw new UnsupportedOperationException(
+                    "bucket encryption not supported");
+        }
+        var containerPath = requireContainerPath(container);
+        var view = getXattrView(containerPath);
+        if (view == null) {
+            // Nothing could have been stored, so nothing needs removing.
+            return;
+        }
+        try {
+            writeOrDeleteAttribute(view,
+                    XATTR_BUCKET_ENCRYPTION_ALGORITHM, null);
+            writeOrDeleteAttribute(view,
+                    XATTR_BUCKET_ENCRYPTION_KMS_KEY_ID, null);
+            writeOrDeleteAttribute(view,
+                    XATTR_BUCKET_ENCRYPTION_BUCKET_KEY, null);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    /** The container's default encryption, or null when none was put. */
+    @Nullable
+    private Encryption readContainerEncryption(Path containerPath) {
+        var xattrs = safeGetXattrs(containerPath);
+        var view = xattrs.view();
+        if (view == null) {
+            return null;
+        }
+        try {
+            var algorithm = readStringAttributeIfPresent(view,
+                    xattrs.attributes(), XATTR_BUCKET_ENCRYPTION_ALGORITHM);
+            if (algorithm == null) {
+                return null;
+            }
+            var bucketKey = readStringAttributeIfPresent(view,
+                    xattrs.attributes(), XATTR_BUCKET_ENCRYPTION_BUCKET_KEY);
+            return new Encryption(algorithm,
+                    readStringAttributeIfPresent(view, xattrs.attributes(),
+                            XATTR_BUCKET_ENCRYPTION_KMS_KEY_ID),
+                    /*kmsContext=*/ null,
+                    bucketKey == null ? null : Boolean.valueOf(bucketKey),
+                    /*customerAlgorithm=*/ null, /*customerKeyMD5=*/ null);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -1907,7 +2055,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // The carriers built for this upload's later requests name only the
         // bucket and key, so the encryption it was created under has to
         // outlive the create; the stub is where the upload keeps it.
-        var encryption = requestEncryption(
+        var encryption = requestEncryption(request.bucket(),
                 request.serverSideEncryptionAsString(), request.ssekmsKeyId(),
                 request.ssekmsEncryptionContext(), request.bucketKeyEnabled(),
                 request.sseCustomerAlgorithm(), request.sseCustomerKey(),
@@ -2264,6 +2412,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
+    /**
+     * Writes the attribute, or removes any existing one when the value is
+     * null -- for fields where an absent value must not leave the old one
+     * behind.
+     */
+    private static void writeOrDeleteAttribute(
+            UserDefinedFileAttributeView view, String name,
+            @Nullable String value) throws IOException {
+        if (value != null) {
+            writeStringAttributeIfPresent(view, name, value);
+        } else if (view.list().contains(name)) {
+            view.delete(name);
+        }
+    }
+
     private static final class MultiBlobInputStream extends InputStream {
         private final BlobStore blobStore;
         private final String container;
@@ -2387,16 +2550,29 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * where this store does not encrypt -- there the frontend has refused
      * anything naming them, so the request carries none to record.  A
      * request naming a customer key is vetted here, since this store is
-     * the backend that judges it.
+     * the backend that judges it.  A request naming nothing at all rests
+     * under the container's default configuration when one has been put,
+     * the way S3 applies bucket default encryption.
      */
     @Nullable
-    private Encryption requestEncryption(@Nullable String algorithm,
+    private Encryption requestEncryption(String container,
+            @Nullable String algorithm,
             @Nullable String kmsKeyId, @Nullable String kmsContext,
             @Nullable Boolean bucketKeyEnabled,
             @Nullable String customerAlgorithm, @Nullable String customerKey,
             @Nullable String customerKeyMD5) {
         if (!supportsServerSideEncryption()) {
             return null;
+        }
+        if (supportsBucketEncryption() && algorithm == null &&
+                kmsKeyId == null && kmsContext == null &&
+                bucketKeyEnabled == null && customerAlgorithm == null &&
+                customerKey == null && customerKeyMD5 == null) {
+            var containerDefault = readContainerEncryption(
+                    requireContainerPath(container));
+            if (containerDefault != null) {
+                return containerDefault;
+            }
         }
         if (customerAlgorithm != null || customerKey != null ||
                 customerKeyMD5 != null) {

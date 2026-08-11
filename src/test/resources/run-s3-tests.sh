@@ -111,13 +111,12 @@ tags='not appendobject'\
 
 # Admits the server-side encryption tests on a lane whose store encrypts:
 # the sse_s3 tag and the encryption tag whole, whose remainder beyond
-# SSE-S3 is SSE-C, answered now on the same stores.  bucket_encryption
-# stays out, its tests asking a bucket to encrypt by default -- the
-# unimplemented ?encryption subresource rather than the header families.
+# SSE-S3 is SSE-C, answered now on the same stores.  That includes the
+# bucket_encryption tests, which ask a bucket to encrypt by default
+# through the ?encryption subresource these stores now answer.
 enable_sse_tests() {
     tags="${tags/ and not sse_s3/}"
     tags="${tags/ and not encryption/}"
-    tags="${tags} and not bucket_encryption"
 }
 
 backend=""

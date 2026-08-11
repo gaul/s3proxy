@@ -192,6 +192,15 @@ disk, where reporting AES256 over plaintext someone could go and read would
 be a claim S3Proxy has no business making, so it refuses every one of these
 headers instead.
 
+Bucket default encryption, the `?encryption` subresource, rides the same
+divide.  `aws-s3` passes the configuration through, `transient` keeps it and
+rests unadorned writes under it -- a write naming its own encryption still
+wins -- and every other backend answers NotImplemented.  A bucket never
+given a configuration answers the 404 S3 spells
+ServerSideEncryptionConfigurationNotFoundError rather than the account-wide
+AES256 default modern AWS invents, which is also what the Ceph s3-tests
+expect of it.
+
 Two backends copy a part on the server but fall back to streaming it through
 S3Proxy in one case each: `google-cloud-storage` for a range covering less
 than the whole object, which GCS cannot copy server-side, and `azureblob`

@@ -39,6 +39,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -108,6 +109,17 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     @Override
     public void setContainerVersioning(final String containerName,
             final BucketVersioningStatus status) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void setContainerEncryption(final String containerName,
+            final ServerSideEncryptionConfiguration configuration) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public void deleteContainerEncryption(final String containerName) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

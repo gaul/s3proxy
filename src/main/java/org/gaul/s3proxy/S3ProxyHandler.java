@@ -151,6 +151,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -230,7 +233,6 @@ public class S3ProxyHandler {
             "accelerate",
             "analytics",
             "cors",
-            "encryption",
             "inventory",
             "legal-hold",
             "lifecycle",
@@ -1124,6 +1126,12 @@ public class S3ProxyHandler {
         switch (method) {
         case "DELETE" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
+                if (request.getParameter("encryption") != null) {
+                    setOperation(ctx, S3Operation.DELETE_BUCKET_ENCRYPTION);
+                    handleDeleteBucketEncryption(request, response, blobStore,
+                            path[1]);
+                    return;
+                }
                 // Bucket subresources that cannot be deleted must not fall
                 // through to DeleteBucket, which ignores the parameter and
                 // would remove the bucket itself.
@@ -1155,6 +1163,11 @@ public class S3ProxyHandler {
                 if (request.getParameter("acl") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_ACL);
                     handleGetContainerAcl(request, response, blobStore,
+                            path[1]);
+                    return;
+                } else if (request.getParameter("encryption") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_ENCRYPTION);
+                    handleGetBucketEncryption(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("location") != null) {
@@ -1243,6 +1256,12 @@ public class S3ProxyHandler {
                 if (request.getParameter("acl") != null) {
                     setOperation(ctx, S3Operation.PUT_BUCKET_ACL);
                     handleSetContainerAcl(request, response, is, blobStore,
+                            path[1]);
+                    return;
+                }
+                if (request.getParameter("encryption") != null) {
+                    setOperation(ctx, S3Operation.PUT_BUCKET_ENCRYPTION);
+                    handleSetBucketEncryption(request, response, is, blobStore,
                             path[1]);
                     return;
                 }
@@ -1406,6 +1425,12 @@ public class S3ProxyHandler {
                 if (access == BucketCannedACL.PRIVATE) {
                     setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("encryption") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_ENCRYPTION);
+                    handleGetBucketEncryption(request, response, blobStore,
+                            containerName);
+                    return;
                 }
                 if (request.getParameter("versioning") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_VERSIONING);
@@ -1937,6 +1962,135 @@ public class S3ProxyHandler {
         }
 
         blobStore.setContainerVersioning(containerName, status);
+        addCorsResponseHeader(request, response);
+    }
+
+    /**
+     * GetBucketEncryption.  The store answers: a configuration when one
+     * has been put, and S3's ServerSideEncryptionConfigurationNotFoundError
+     * when none has -- which is also what a backend bucket configured out
+     * of band reports through the pass-through store.
+     */
+    private void handleGetBucketEncryption(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException {
+        if (!blobStore.supportsBucketEncryption()) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Bucket default encryption is not supported.");
+        }
+        var configuration = blobStore.getContainerEncryption(containerName);
+
+        response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
+        try (Writer writer = response.getWriter()) {
+            response.setContentType(XML_CONTENT_TYPE);
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("ServerSideEncryptionConfiguration");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+            for (var rule : configuration.rules()) {
+                xml.writeStartElement("Rule");
+                var byDefault = rule.applyServerSideEncryptionByDefault();
+                if (byDefault != null) {
+                    xml.writeStartElement(
+                            "ApplyServerSideEncryptionByDefault");
+                    writeSimpleElement(xml, "SSEAlgorithm",
+                            byDefault.sseAlgorithmAsString());
+                    if (byDefault.kmsMasterKeyID() != null) {
+                        writeSimpleElement(xml, "KMSMasterKeyID",
+                                byDefault.kmsMasterKeyID());
+                    }
+                    xml.writeEndElement();
+                }
+                if (rule.bucketKeyEnabled() != null) {
+                    writeSimpleElement(xml, "BucketKeyEnabled",
+                            rule.bucketKeyEnabled().toString());
+                }
+                xml.writeEndElement();
+            }
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+    }
+
+    /**
+     * PutBucketEncryption.  The configuration is vetted the way the write
+     * headers are -- an algorithm S3 does not have, or a KMS key under an
+     * algorithm that does not name one, is refused here so the
+     * pass-through lane answers as S3 does -- and the store judges what
+     * it means.
+     */
+    private void handleSetBucketEncryption(HttpServletRequest request,
+            HttpServletResponse response, InputStream is, BlobStore blobStore,
+            String containerName) throws IOException {
+        if (!blobStore.supportsBucketEncryption()) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Bucket default encryption is not supported.");
+        }
+        // Bound the buffered body: the configuration is a few elements, but
+        // the request is otherwise attacker-controlled.
+        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
+                .readAllBytes();
+        if (body.length == v4MaxNonChunkedRequestSize + 1) {
+            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+        }
+        var configuration = readXmlBody(body,
+                ServerSideEncryptionConfigurationRequest.class);
+        // S3's schema requires the rule, nothing in S3 produces more than
+        // one, and half-applying a list would misstate the rest of it.
+        if (configuration.rules() == null ||
+                configuration.rules().size() != 1) {
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
+        }
+        var rule = configuration.rules().iterator().next();
+        var byDefault = rule.byDefault();
+        String algorithm = byDefault == null ? null :
+                byDefault.sseAlgorithm();
+        String kmsKeyId = byDefault == null ? null :
+                byDefault.kmsMasterKeyID();
+        if (algorithm == null) {
+            // An absent SSEAlgorithm fails S3's published schema, as does
+            // one it has never had.
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
+        }
+        boolean kms = algorithm.startsWith("aws:kms");
+        if (!kms && !algorithm.equals("AES256")) {
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
+        }
+        if (!kms && kmsKeyId != null) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "a KMSMasterKeyID is not applicable if the default sse" +
+                    " algorithm is not aws:kms");
+        }
+        var sseByDefault = ServerSideEncryptionByDefault.builder()
+                .sseAlgorithm(algorithm);
+        if (kmsKeyId != null) {
+            sseByDefault.kmsMasterKeyID(kmsKeyId);
+        }
+        blobStore.setContainerEncryption(containerName,
+                ServerSideEncryptionConfiguration.builder()
+                        .rules(ServerSideEncryptionRule.builder()
+                                .applyServerSideEncryptionByDefault(
+                                        sseByDefault.build())
+                                .bucketKeyEnabled(rule.bucketKeyEnabled())
+                                .build())
+                        .build());
+        addCorsResponseHeader(request, response);
+    }
+
+    /** DeleteBucketEncryption, idempotent the way S3's is: 204 either way. */
+    private void handleDeleteBucketEncryption(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) {
+        if (!blobStore.supportsBucketEncryption()) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Bucket default encryption is not supported.");
+        }
+        blobStore.deleteContainerEncryption(containerName);
+        response.setStatus(HttpServletResponse.SC_NO_CONTENT);
         addCorsResponseHeader(request, response);
     }
 

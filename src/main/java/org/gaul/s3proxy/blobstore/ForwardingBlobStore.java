@@ -50,6 +50,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -188,6 +189,28 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public ListObjectVersionsResponse listVersions(
             ListObjectVersionsRequest request) {
         return delegate().listVersions(request);
+    }
+
+    @Override
+    public boolean supportsBucketEncryption() {
+        return delegate().supportsBucketEncryption();
+    }
+
+    @Override
+    public ServerSideEncryptionConfiguration getContainerEncryption(
+            String container) {
+        return delegate().getContainerEncryption(container);
+    }
+
+    @Override
+    public void setContainerEncryption(String container,
+            ServerSideEncryptionConfiguration configuration) {
+        delegate().setContainerEncryption(container, configuration);
+    }
+
+    @Override
+    public void deleteContainerEncryption(String container) {
+        delegate().deleteContainerEncryption(container);
     }
 
     @Override

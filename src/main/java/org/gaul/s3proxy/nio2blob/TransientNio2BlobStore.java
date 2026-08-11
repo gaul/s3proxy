@@ -66,4 +66,16 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
     public boolean supportsServerSideEncryption() {
         return true;
     }
+
+    /**
+     * Bucket default encryption follows from the two answers above: the
+     * configuration is one more thing living in a filesystem that dies
+     * with the process, and all it can default an object into is the
+     * reporting this store already stands behind.  The filesystem store
+     * refuses it on both counts.
+     */
+    @Override
+    public boolean supportsBucketEncryption() {
+        return true;
+    }
 }

@@ -110,6 +110,24 @@ public final class S3Exceptions {
     }
 
     /**
+     * The 404 a bucket answers ?encryption with before any configuration
+     * has been put, spelled with the code S3 uses for it.
+     */
+    public static S3Exception serverSideEncryptionConfigurationNotFound(
+            String container) {
+        return (S3Exception) S3Exception.builder()
+                .message("no encryption configuration on container %s"
+                        .formatted(container))
+                .statusCode(404)
+                .awsErrorDetails(details(404,
+                        "ServerSideEncryptionConfigurationNotFoundError",
+                        "The server side encryption configuration was not" +
+                                " found",
+                        Map.of()))
+                .build();
+    }
+
+    /**
      * A 400 saying what about the request was wrong.  A status code alone
      * would not: the frontend answers a bare 400 with BadDigest, which tells
      * the caller to retry a request that will never be accepted.
