@@ -653,13 +653,10 @@ public final class AzureBlobStore implements BlobStore {
             options.setMaxResultsPerPage(request.maxKeys());
         }
         // Azure pages by one opaque continuation token, S3 by a (key,
-        // version-id) pair.  Carry the token as the version-id marker and the
-        // last key as the key marker: a client that echoes both back resumes,
-        // and both markers come out non-null as S3 clients expect.
+        // version-id) pair.  The incoming version-id marker is the token we
+        // last issued.
         String marker = request.versionIdMarker();
 
-        var versions = ImmutableList.<ObjectVersion>builder();
-        var prefixes = ImmutableList.<CommonPrefix>builder();
         PagedResponse<BlobItem> page;
         try {
             var pages = client.listBlobsByHierarchy(
@@ -669,6 +666,22 @@ public final class AzureBlobStore implements BlobStore {
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
+        return versionsPage(page, request.prefix());
+    }
+
+    /**
+     * Maps a page of Azure blob versions onto a ListObjectVersions response.
+     * Azure keeps no delete markers, so the DeleteMarker list is always empty;
+     * a plain delete simply drops the current version.  Truncation carries the
+     * opaque continuation token as the version-id marker and the last key as
+     * the key marker: a client that echoes both back resumes, and both come
+     * out non-null as S3 clients expect.  A client that instead rebuilds the
+     * marker from the last key it saw does not resume.
+     */
+    ListObjectVersionsResponse versionsPage(PagedResponse<BlobItem> page,
+            @Nullable String prefix) {
+        var versions = ImmutableList.<ObjectVersion>builder();
+        var prefixes = ImmutableList.<CommonPrefix>builder();
         String lastKey = null;
         for (var blob : page.getValue()) {
             if (Boolean.TRUE.equals(blob.isPrefix())) {
@@ -700,8 +713,7 @@ public final class AzureBlobStore implements BlobStore {
         String next = page.getContinuationToken();
         if (next != null) {
             builder.isTruncated(true)
-                    .nextKeyMarker(lastKey != null ? lastKey :
-                            request.prefix())
+                    .nextKeyMarker(lastKey != null ? lastKey : prefix)
                     .nextVersionIdMarker(next);
         } else {
             builder.isTruncated(false);
@@ -934,6 +946,16 @@ public final class AzureBlobStore implements BlobStore {
         ).subscribeOn(Schedulers.boundedElastic());
     }
 
+    /**
+     * Appends a SAS token to a source blob URL.  A version client's URL
+     * already carries a {@code ?versionid=} query, so the token must join
+     * with {@code &}; a bare {@code ?} would double it and Azure answers
+     * CannotVerifyCopySource.
+     */
+    static String sasSourceUrl(String url, String token) {
+        return url + (url.contains("?") ? "&" : "?") + token;
+    }
+
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         refuseUnsupportedSse(request.serverSideEncryptionAsString(),
@@ -978,10 +1000,7 @@ public final class AzureBlobStore implements BlobStore {
             token = fromClient.generateUserDelegationSas(values, userDelegationKey);
         }
 
-        // The version client's URL already carries a ?versionid= query, so
-        // the SAS must join with '&'; a bare '?' would double it and Azure
-        // answers CannotVerifyCopySource.
-        String sourceUrl = url + (url.contains("?") ? "&" : "?") + token;
+        String sourceUrl = sasSourceUrl(url, token);
         // TODO: is this the best way to generate a SAS URL?
         var azureOptions = new BlobUploadFromUrlOptions(sourceUrl);
         var client = blobServiceClient

@@ -19,6 +19,7 @@ package org.gaul.s3proxy.azureblob;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +31,7 @@ import com.azure.core.http.HttpRequest;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.PagedResponseBase;
 import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobItemProperties;
 
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.junit.jupiter.api.Test;
@@ -121,6 +123,89 @@ public final class AzureBlobStoreTest {
                 "container", BucketVersioningStatus.SUSPENDED))
                 .isInstanceOfSatisfying(S3Exception.class,
                         e -> assertThat(e.statusCode()).isEqualTo(501));
+    }
+
+    /**
+     * A page of versions maps onto Version entries newest-first, each with its
+     * own id, size and reported ETag, exactly one flagged latest; Azure keeps
+     * no delete markers, so that list stays empty and the page is not
+     * truncated when no token follows.
+     */
+    @Test
+    public void testVersionsPageMapsVersions() {
+        var page = page(List.of(
+                versionBlob("k", "0xV2", /*current=*/ true, /*size=*/ 5L),
+                versionBlob("k", "0xV1", /*current=*/ false, /*size=*/ 3L)),
+                /*continuationToken=*/ null);
+
+        var response = store(/*versioning=*/ true).versionsPage(page, "k");
+
+        assertThat(response.isTruncated()).isFalse();
+        assertThat(response.deleteMarkers()).isEmpty();
+        assertThat(response.versions()).hasSize(2);
+        var latest = response.versions().get(0);
+        assertThat(latest.key()).isEqualTo("k");
+        assertThat(latest.versionId()).isEqualTo("0xV2");
+        assertThat(latest.isLatest()).isTrue();
+        assertThat(latest.size()).isEqualTo(5L);
+        // opaque ETag mode reports Azure's token under the -1 suffix
+        assertThat(latest.eTag()).isEqualTo("0xV2-1");
+        assertThat(response.versions().get(1).isLatest()).isFalse();
+    }
+
+    /** A version Azure stamps with no id stands in as S3's "null" version. */
+    @Test
+    public void testVersionsPageNamesUnversionedBlobNull() {
+        var page = page(List.of(
+                versionBlob("k", /*versionId=*/ null, /*current=*/ true, 1L)),
+                /*continuationToken=*/ null);
+
+        var response = store(/*versioning=*/ true).versionsPage(page, "k");
+
+        assertThat(response.versions().get(0).versionId()).isEqualTo("null");
+    }
+
+    /**
+     * A truncated page carries Azure's opaque continuation token as the
+     * version-id marker and the last key as the key marker, so a client that
+     * echoes both resumes and neither marker comes out null.
+     */
+    @Test
+    public void testVersionsPageTruncationCarriesMarkers() {
+        var page = page(List.of(
+                versionBlob("k", "0xV1", /*current=*/ true, 3L)),
+                /*continuationToken=*/ "TOKEN");
+
+        var response = store(/*versioning=*/ true).versionsPage(page, "k");
+
+        assertThat(response.isTruncated()).isTrue();
+        assertThat(response.nextKeyMarker()).isEqualTo("k");
+        assertThat(response.nextVersionIdMarker()).isEqualTo("TOKEN");
+    }
+
+    /** The SAS token joins with '&' when the URL already carries a query. */
+    @Test
+    public void testSasSourceUrlJoins() {
+        assertThat(AzureBlobStore.sasSourceUrl(
+                "https://a.blob.core.windows.net/c/b", "sig=x"))
+                .isEqualTo("https://a.blob.core.windows.net/c/b?sig=x");
+        assertThat(AzureBlobStore.sasSourceUrl(
+                "https://a.blob.core.windows.net/c/b?versionid=V", "sig=x"))
+                .isEqualTo(
+                        "https://a.blob.core.windows.net/c/b?versionid=V&sig=x");
+    }
+
+    private static BlobItem versionBlob(String name, String versionId,
+            boolean current, long size) {
+        return new BlobItem()
+                .setName(name)
+                .setVersionId(versionId)
+                .setCurrentVersion(current)
+                .setProperties(new BlobItemProperties()
+                        .setETag(versionId == null ? "0x0" : versionId)
+                        .setContentLength(size)
+                        .setLastModified(
+                                OffsetDateTime.parse("2026-01-01T00:00:00Z")));
     }
 
     private static AzureBlobStore store(boolean versioning) {
