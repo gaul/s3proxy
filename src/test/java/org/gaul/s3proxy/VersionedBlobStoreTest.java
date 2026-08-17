@@ -27,6 +27,7 @@ import java.util.Random;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -48,14 +49,18 @@ import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.utils.AttributeMap;
 
 /**
- * Object versioning (issue #74) on the transient store: writes stack rather
- * than replace, a delete leaves a marker over the history instead of removing
- * it, and every version stays addressable by its id.  The filesystem store
- * shares this code but answers {@code supportsVersioning() == false}, which
- * is what keeps these requests a 501 there -- see
+ * Object versioning (issue #74) against whichever store the conf names:
+ * writes stack rather than replace, a delete leaves a marker over the
+ * history instead of removing it, and every version stays addressable by
+ * its id.  The transient store implements this natively and the
+ * google-cloud-storage backend translates it onto GCS generations; a store
+ * that cannot express Suspended skips those tests through
+ * {@code suspendVersioning}.  The filesystem store shares the transient
+ * code but answers {@code supportsVersioning() == false}, which is what
+ * keeps these requests a 501 there -- see
  * {@code Nio2VersioningSupportTest}.
  */
-public final class TransientVersioningTest {
+public final class VersionedBlobStoreTest {
     private static final byte[] FIRST = "first".getBytes(
             StandardCharsets.UTF_8);
     private static final byte[] SECOND = "second".getBytes(
@@ -115,9 +120,15 @@ public final class TransientVersioningTest {
     }
 
     private void suspendVersioning() {
-        client.putBucketVersioning(b -> b.bucket(containerName)
-                .versioningConfiguration(v -> v.status(
-                        BucketVersioningStatus.SUSPENDED)));
+        try {
+            client.putBucketVersioning(b -> b.bucket(containerName)
+                    .versioningConfiguration(v -> v.status(
+                            BucketVersioningStatus.SUSPENDED)));
+        } catch (S3Exception se) {
+            // GCS versioning is on or off, so that store refuses S3's third
+            // state rather than half-emulating the null-version rule.
+            Assumptions.abort("store cannot suspend versioning: " + se);
+        }
     }
 
     private String put(String key, byte[] content) {
@@ -407,9 +418,15 @@ public final class TransientVersioningTest {
     public void testAclOfAVersionThatDoesNotExistIsRefused() {
         enableVersioning();
         put("blob", FIRST);
+        // A well-formed id that names nothing: mint one, then delete it.
+        // A fabricated string would test the store's id syntax instead --
+        // S3 answers those InvalidArgument, not NoSuchVersion.
+        String gone = put("blob", SECOND);
+        client.deleteObject(b -> b.bucket(containerName).key("blob")
+                .versionId(gone));
 
         assertThatThrownBy(() -> client.getObjectAcl(b ->
-                b.bucket(containerName).key("blob").versionId("v0000000009")))
+                b.bucket(containerName).key("blob").versionId(gone)))
                 .isInstanceOf(S3Exception.class)
                 .satisfies(thrown -> assertThat(
                         ((S3Exception) thrown).awsErrorDetails().errorCode())

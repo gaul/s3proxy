@@ -126,6 +126,11 @@ if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     backend="azureblob"
 elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
     backend="gcs"
+    # The google-cloud-storage backend translates versioning onto GCS
+    # generations, and fake-gcs-server's memory backend keeps archived
+    # generations, so the tests run here; what the translation cannot
+    # express -- Suspended, null versions -- carries markers.
+    tags="${tags/ and not versioning/}"
 elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
     backend="swift"
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
