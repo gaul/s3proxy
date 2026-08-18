@@ -494,6 +494,19 @@ public class S3ProxyHandler {
         return readXmlBody(new ByteArrayInputStream(body), type);
     }
 
+    // A few request headers carry secrets that must not reach the logs: the
+    // SSE-C customer keys are the object's encryption key and Authorization
+    // carries the request signature.  Their -md5 companions are not secret --
+    // S3 echoes them back -- so only the keys and the signature are held out
+    // of the header trace.
+    private static boolean isSensitiveHeader(String headerName) {
+        return headerName.equalsIgnoreCase(HttpHeaders.AUTHORIZATION) ||
+                headerName.equalsIgnoreCase(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY) ||
+                headerName.equalsIgnoreCase(AwsHttpHeaders
+                        .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY);
+    }
+
     private static String getBlobStoreType(BlobStore blobStore) {
         BlobStore inner = blobStore;
         while (inner instanceof org.gaul.s3proxy.blobstore.ForwardingBlobStore fbs) {
@@ -627,10 +640,12 @@ public class S3ProxyHandler {
         boolean hasDateHeader = false;
         boolean hasXAmzDateHeader = false;
         for (String headerName : Collections.list(request.getHeaderNames())) {
+            boolean sensitive = isSensitiveHeader(headerName);
             for (String headerValue : Collections.list(request.getHeaders(
                     headerName))) {
                 logger.trace("header: {}: {}", headerName,
-                        Strings.nullToEmpty(headerValue));
+                        sensitive ? "<redacted>" :
+                                Strings.nullToEmpty(headerValue));
             }
             if (headerName.equalsIgnoreCase(HttpHeaders.DATE)) {
                 hasDateHeader = true;
