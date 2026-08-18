@@ -57,6 +57,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -131,6 +132,24 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     public void setContainerAccess(String container,
                                    BucketCannedACL containerAccess) {
         delegate().setContainerAccess(getContainer(container), containerAccess);
+    }
+
+    @Override
+    public ServerSideEncryptionConfiguration getContainerEncryption(
+            String container) {
+        return delegate().getContainerEncryption(getContainer(container));
+    }
+
+    @Override
+    public void setContainerEncryption(String container,
+            ServerSideEncryptionConfiguration configuration) {
+        delegate().setContainerEncryption(getContainer(container),
+                configuration);
+    }
+
+    @Override
+    public void deleteContainerEncryption(String container) {
+        delegate().deleteContainerEncryption(getContainer(container));
     }
 
     @Override

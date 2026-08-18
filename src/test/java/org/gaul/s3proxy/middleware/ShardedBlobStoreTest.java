@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -32,6 +33,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 
 public final class ShardedBlobStoreTest {
     private int shards;
@@ -75,6 +80,39 @@ public final class ShardedBlobStoreTest {
             this.createdContainers.add(container);
         }
         assertThat(shardedBlobStore.createContainer(container)).isTrue();
+    }
+
+    @Test
+    public void testShardedContainerEncryptionRefused() {
+        var configuration = ServerSideEncryptionConfiguration.builder()
+                .rules(ServerSideEncryptionRule.builder()
+                        .applyServerSideEncryptionByDefault(
+                                ServerSideEncryptionByDefault.builder()
+                                        .sseAlgorithm(
+                                                ServerSideEncryption.AES256)
+                                        .build())
+                        .build())
+                .build();
+        // A sharded bucket spans many backend containers, so there is no
+        // single one to carry a default-encryption configuration: refuse it
+        // rather than let the request reach an untranslated backend name.
+        assertThatThrownBy(() ->
+                shardedBlobStore.getContainerEncryption(containerName))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> shardedBlobStore.setContainerEncryption(
+                containerName, configuration))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() ->
+                shardedBlobStore.deleteContainerEncryption(containerName))
+                .isInstanceOf(UnsupportedOperationException.class);
+
+        // A bucket that is not sharded passes straight through.
+        String plain = TestUtils.createRandomContainerName();
+        this.createContainer(plain);
+        shardedBlobStore.setContainerEncryption(plain, configuration);
+        assertThat(shardedBlobStore.getContainerEncryption(plain).rules()
+                .get(0).applyServerSideEncryptionByDefault().sseAlgorithm())
+                .isEqualTo(ServerSideEncryption.AES256);
     }
 
     public int countShards() {

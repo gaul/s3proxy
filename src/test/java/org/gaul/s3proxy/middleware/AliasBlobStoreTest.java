@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,6 +41,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 
 public final class AliasBlobStoreTest {
     private String containerName;
@@ -76,6 +81,39 @@ public final class AliasBlobStoreTest {
         } else {
             createdContainers.add(container);
         }
+    }
+
+    @Test
+    public void testAliasContainerEncryption() {
+        createContainer(aliasContainerName);
+        var configuration = ServerSideEncryptionConfiguration.builder()
+                .rules(ServerSideEncryptionRule.builder()
+                        .applyServerSideEncryptionByDefault(
+                                ServerSideEncryptionByDefault.builder()
+                                        .sseAlgorithm(
+                                                ServerSideEncryption.AES256)
+                                        .build())
+                        .build())
+                .build();
+        aliasBlobStore.setContainerEncryption(aliasContainerName,
+                configuration);
+
+        // The configuration must land on the backend under the real name,
+        // not the alias literal: reading the real name straight from the
+        // delegate finds it, and reading it back through the alias resolves
+        // the same name.
+        assertThat(blobStore.getContainerEncryption(containerName).rules()
+                .get(0).applyServerSideEncryptionByDefault().sseAlgorithm())
+                .isEqualTo(ServerSideEncryption.AES256);
+        assertThat(aliasBlobStore.getContainerEncryption(aliasContainerName)
+                .rules().get(0).applyServerSideEncryptionByDefault()
+                .sseAlgorithm())
+                .isEqualTo(ServerSideEncryption.AES256);
+
+        aliasBlobStore.deleteContainerEncryption(aliasContainerName);
+        assertThatThrownBy(() ->
+                blobStore.getContainerEncryption(containerName))
+                .isNotNull();
     }
 
     @Test

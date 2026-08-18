@@ -73,6 +73,7 @@ import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -351,6 +352,34 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                                    BucketCannedACL containerAccess) {
         if (!this.buckets.containsKey(container)) {
             this.delegate().setContainerAccess(container, containerAccess);
+            return;
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public ServerSideEncryptionConfiguration getContainerEncryption(
+            String container) {
+        if (!this.buckets.containsKey(container)) {
+            return this.delegate().getContainerEncryption(container);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public void setContainerEncryption(String container,
+            ServerSideEncryptionConfiguration configuration) {
+        if (!this.buckets.containsKey(container)) {
+            this.delegate().setContainerEncryption(container, configuration);
+            return;
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public void deleteContainerEncryption(String container) {
+        if (!this.buckets.containsKey(container)) {
+            this.delegate().deleteContainerEncryption(container);
             return;
         }
         throw new UnsupportedOperationException("sharded bucket");
