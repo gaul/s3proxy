@@ -25,6 +25,7 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.PublicKey;
 import java.util.Map;
 
 import com.google.common.base.Supplier;
@@ -79,7 +80,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         SshClient client = null;
         FileSystem fs = null;
         try {
-            client = createClient(hostKey);
+            client = createClient(hostKey, creds);
             fs = new SftpFileSystemProvider(client).newFileSystem(uri,
                     Map.of());
             var root = fs.getPath(baseDir).normalize();
@@ -97,7 +98,8 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         }
     }
 
-    private static SshClient createClient(String expectedHostKey) {
+    private static SshClient createClient(String expectedHostKey,
+            Credentials creds) {
         var fingerprint = expectedHostKey == null ? "" :
                 expectedHostKey.trim();
         if (fingerprint.isEmpty()) {
@@ -105,11 +107,25 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
                     "Missing required SFTP host key fingerprint property: " +
                     PROPERTY_HOST_KEY);
         }
+        // Pin only a strong fingerprint: KeyUtils.checkFingerPrint infers the
+        // digest from the string it is given, so a legacy MD5 fingerprint
+        // (colon-separated hex) would let a broken hash make the trust
+        // decision.  Require the SHA-256 form the docs prescribe.
+        if (!fingerprint.startsWith("SHA256:")) {
+            throw new IllegalArgumentException(
+                    "SFTP host key fingerprint must be a SHA-256 fingerprint " +
+                    "(SHA256:...): " + PROPERTY_HOST_KEY);
+        }
         var client = SshClient.setUpDefaultClient();
         try {
             client.setServerKeyVerifier((session, remoteAddress, serverKey) ->
-                    Boolean.TRUE.equals(KeyUtils.checkFingerPrint(fingerprint,
-                            serverKey).getKey()));
+                    verifyHostKey(fingerprint, serverKey));
+            // Register the password on the client rather than embedding it in
+            // the filesystem URI, so the secret never rides in a URI that a
+            // MINA exception or the filesystem cache could surface.
+            if (creds.credential() != null) {
+                client.addPasswordIdentity(creds.credential());
+            }
             client.start();
         } catch (RuntimeException re) {
             closeQuietly(client, re);
@@ -118,16 +134,29 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         return client;
     }
 
+    // A missing or mismatched key is a refusal, not an error: answer false so
+    // the handshake is rejected cleanly rather than letting a null server key
+    // raise an exception from inside the verifier.
+    private static boolean verifyHostKey(String fingerprint,
+            PublicKey serverKey) {
+        if (serverKey == null) {
+            return false;
+        }
+        var match = KeyUtils.checkFingerPrint(fingerprint, serverKey);
+        return match != null && Boolean.TRUE.equals(match.getKey());
+    }
+
     private static URI createFileSystemUri(String host, int port,
             Credentials creds) {
         if (creds.identity() == null || creds.identity().isBlank()) {
             throw new IllegalArgumentException(
                     "Missing required SFTP identity");
         }
-        var userInfo = creds.credential() == null ? creds.identity() :
-                creds.identity() + ":" + creds.credential();
         try {
-            return new URI("sftp", userInfo, host, port, "/", null, null);
+            // Only the identity goes in the URI; the credential is registered
+            // as a password identity on the SshClient (see createClient).
+            return new URI("sftp", creds.identity(), host, port, "/", null,
+                    null);
         } catch (URISyntaxException use) {
             throw new IllegalArgumentException(
                     "Failed to create SFTP filesystem URI", use);

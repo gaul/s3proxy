@@ -102,6 +102,18 @@ public final class SftpBlobStoreTest {
                 .hasStackTraceContaining("Server key did not validate");
     }
 
+    @Test
+    public void testRejectsMd5Fingerprint() throws Exception {
+        startSftpServer();
+
+        // A legacy MD5 fingerprint (colon-separated hex) is refused before
+        // the client connects: only the SHA-256 form is pinned.
+        Assertions.assertThatThrownBy(() -> buildBlobStore(
+                "16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SHA-256");
+    }
+
     private SftpBlobStore buildBlobStore(String hostKey) {
         var creds = Suppliers.ofInstance(new Credentials(
                 SFTP_USER, SFTP_PASSWORD));
