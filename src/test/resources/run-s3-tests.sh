@@ -185,5 +185,6 @@ if [ -n "${deselect_by_name}" ]; then
     deselect_args=(-k "${deselect_by_name}")
 fi
 env -u FORCE_COLOR tox -- -m "${tags}" --s3proxy-backend="${backend}" \
-        "${deselect_args[@]}" \
-        --junitxml="${S3PROXY_JUNIT_XML}" "${TOX_TEST_ARGS[@]}"
+        ${deselect_args[@]+"${deselect_args[@]}"} \
+        --junitxml="${S3PROXY_JUNIT_XML}" \
+        ${TOX_TEST_ARGS[@]+"${TOX_TEST_ARGS[@]}"}
