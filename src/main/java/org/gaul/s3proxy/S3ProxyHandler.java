@@ -116,6 +116,9 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
+import software.amazon.awssdk.services.s3.model.ChecksumMode;
+import software.amazon.awssdk.services.s3.model.ChecksumType;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
@@ -3184,6 +3187,9 @@ public class S3ProxyHandler {
         if (blobStore.supportsVersioning()) {
             headRequest.versionId(request.getParameter("versionId"));
         }
+        if (checksumModeEnabled(request)) {
+            headRequest.checksumMode(ChecksumMode.ENABLED);
+        }
         HeadObjectResponse metadata = blobStore.blobMetadata(
                 headRequest.build());
         if (metadata == null) {
@@ -3700,6 +3706,10 @@ public class S3ProxyHandler {
 
         getRequest.ifMatch(request.getHeader(HttpHeaders.IF_MATCH));
         getRequest.ifNoneMatch(request.getHeader(HttpHeaders.IF_NONE_MATCH));
+
+        if (checksumModeEnabled(request)) {
+            getRequest.checksumMode(ChecksumMode.ENABLED);
+        }
 
         getRequest.sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
                 .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
@@ -4845,6 +4855,17 @@ public class S3ProxyHandler {
         if (access == ObjectCannedACL.PUBLIC_READ) {
             createRequest.acl(ObjectCannedACL.PUBLIC_READ);
         }
+        if (mpuAlgorithm != null) {
+            // A store that keeps checksums itself can only do so if it is
+            // told at initiation, which is the last point the completed
+            // object's metadata is settled.  Backends without the notion
+            // ignore the field, and the composite computed here still
+            // answers for them.
+            createRequest.checksumAlgorithm(
+                    ChecksumAlgorithm.fromValue(mpuAlgorithm.name()));
+            createRequest.checksumType(fullObject ?
+                    ChecksumType.FULL_OBJECT : ChecksumType.COMPOSITE);
+        }
 
         MultipartUpload mpu = blobStore.initiateMultipartUpload(
                 createRequest.build());
@@ -5037,16 +5058,18 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             // use TreeMap to sort by part number and deduplicate (last wins)
-            SortedMap<Integer, String> requestParts = new TreeMap<>();
+            SortedMap<Integer, CompleteMultipartUploadRequest.Part>
+                    requestParts = new TreeMap<>();
             if (cmu.parts() != null) {
                 for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
                     if (part.partNumber() < 1 || part.partNumber() > 10_000) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
                                 "Part numbers must be positive integers.");
                     }
-                    requestParts.put(part.partNumber(), part.eTag());
+                    requestParts.put(part.partNumber(), part);
                 }
             }
+            FlexChecksum partAlgorithm = MpuChecksums.algorithm(cmu);
 
             for (var it = requestParts.entrySet().iterator(); it.hasNext();) {
                 var entry = it.next();
@@ -5062,14 +5085,24 @@ public class S3ProxyHandler {
                 }
                 if (part.eTag() != null &&
                         !equalsIgnoringSurroundingQuotes(part.eTag(),
-                                entry.getValue())) {
+                                entry.getValue().eTag())) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                 }
                 listedPartSizes.put(entry.getKey(), partSize);
-                parts.add(CompletedPart.builder()
+                var completed = CompletedPart.builder()
                         .partNumber(entry.getKey())
-                        .eTag(part.eTag())
-                        .build());
+                        .eTag(part.eTag());
+                // A store that was told the algorithm at initiation builds
+                // the composite from the parts, and asks for each part's
+                // checksum to check against as it goes.
+                if (partAlgorithm != null) {
+                    String partChecksum = partAlgorithm.value(
+                            entry.getValue());
+                    if (partChecksum != null) {
+                        partAlgorithm.setOn(completed, partChecksum);
+                    }
+                }
+                parts.add(completed.build());
             }
         }
 
@@ -5979,22 +6012,25 @@ public class S3ProxyHandler {
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
+        var partRequest = UploadPartRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .uploadId(uploadId)
+                .partNumber(partNumber)
+                .contentLength(contentLength)
+                .contentMD5(contentMD5String)
+                .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
+        if (checksum != null && checksumValue != null) {
+            checksum.setOn(partRequest, checksumValue);
+        }
+
         UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
-                UploadPartRequest.builder()
-                        .bucket(containerName)
-                        .key(blobName)
-                        .uploadId(uploadId)
-                        .partNumber(partNumber)
-                        .contentLength(contentLength)
-                        .contentMD5(contentMD5String)
-                        .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
-                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
-                        .sseCustomerKey(request.getHeader(AwsHttpHeaders
-                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
-                        .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
-                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
-                        .build(),
-                is);
+                partRequest.build(), is);
 
         if (part.eTag() != null) {
             response.addHeader(HttpHeaders.ETAG,
@@ -6104,16 +6140,39 @@ public class S3ProxyHandler {
             }
             response.addHeader(USER_METADATA_PREFIX + key, entry.getValue());
         }
+        // A store that keeps flexible checksums itself answers for the
+        // objects the metadata copy cannot describe: a multipart upload's
+        // composite is only known once the parts are in, after the metadata
+        // was fixed at initiation.  The metadata still comes first, since a
+        // store may hold a checksum of its own choosing -- an algorithm the
+        // client never asked for -- alongside the one it did.
+        String checksumType = null;
+        if (storedChecksumValue == null) {
+            for (FlexChecksum candidate : FlexChecksum.values()) {
+                String value = candidate.value(metadata);
+                if (value != null) {
+                    storedChecksum = candidate;
+                    storedChecksumValue = value;
+                    checksumType = metadata.checksumTypeAsString();
+                    break;
+                }
+            }
+        }
         // S3 omits the whole-object checksum from a ranged response since it
         // does not describe the bytes actually returned.
         if (storedChecksum != null && storedChecksumValue != null &&
-                !partialContent &&
-                "ENABLED".equalsIgnoreCase(
-                        request.getHeader(AwsHttpHeaders.CHECKSUM_MODE))) {
+                !partialContent && checksumModeEnabled(request)) {
             response.addHeader(storedChecksum.header(), storedChecksumValue);
             response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
-                    MpuChecksums.checksumType(storedChecksumValue));
+                    checksumType != null ? checksumType :
+                            MpuChecksums.checksumType(storedChecksumValue));
         }
+    }
+
+    /** Whether a read asked for the object's checksum to come back with it. */
+    private static boolean checksumModeEnabled(HttpServletRequest request) {
+        return "ENABLED".equalsIgnoreCase(
+                request.getHeader(AwsHttpHeaders.CHECKSUM_MODE));
     }
 
     /**

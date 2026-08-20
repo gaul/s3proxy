@@ -103,6 +103,14 @@ public final class SdkResponses {
         return HeadObjectResponse.builder()
                 .bucketKeyEnabled(response.bucketKeyEnabled())
                 .cacheControl(response.cacheControl())
+                // The flexible checksums a store keeps natively, which a
+                // read carrying x-amz-checksum-mode: ENABLED asked for.
+                .checksumCRC32(response.checksumCRC32())
+                .checksumCRC32C(response.checksumCRC32C())
+                .checksumCRC64NVME(response.checksumCRC64NVME())
+                .checksumSHA1(response.checksumSHA1())
+                .checksumSHA256(response.checksumSHA256())
+                .checksumType(response.checksumTypeAsString())
                 .contentDisposition(response.contentDisposition())
                 .contentEncoding(response.contentEncoding())
                 .contentLanguage(response.contentLanguage())
