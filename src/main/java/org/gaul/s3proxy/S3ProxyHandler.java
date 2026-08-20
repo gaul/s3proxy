@@ -5094,8 +5094,12 @@ public class S3ProxyHandler {
                         .eTag(part.eTag());
                 // A store that was told the algorithm at initiation builds
                 // the composite from the parts, and asks for each part's
-                // checksum to check against as it goes.
-                if (partAlgorithm != null) {
+                // checksum to check against as it goes.  One that kept no
+                // checksum for the part is not tracking them -- the upload
+                // named no algorithm -- and reads a part checksum it never
+                // recorded as naming a part it does not have.
+                if (partAlgorithm != null &&
+                        partAlgorithm.value(part) != null) {
                     String partChecksum = partAlgorithm.value(
                             entry.getValue());
                     if (partChecksum != null) {

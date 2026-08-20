@@ -35,6 +35,7 @@ import software.amazon.awssdk.checksums.SdkChecksum;
 import software.amazon.awssdk.checksums.spi.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 /**
@@ -175,33 +176,51 @@ public enum FlexChecksum {
     }
 
     /**
+     * The value a store reports for an uploaded part, or null where it kept
+     * none -- which says the upload was not initiated with an algorithm and
+     * the store is not tracking checksums for it.
+     */
+    @Nullable
+    public String value(Part part) {
+        return switch (this) {
+        case CRC32 -> part.checksumCRC32();
+        case CRC32C -> part.checksumCRC32C();
+        case CRC64NVME -> part.checksumCRC64NVME();
+        case SHA1 -> part.checksumSHA1();
+        case SHA256 -> part.checksumSHA256();
+        };
+    }
+
+    /**
      * Carry a part's checksum to the store on the request that uploads it,
      * so a store keeping checksums natively records the digest the client
      * asserted rather than computing its own -- which would mean reading
      * the part a second time.
      */
-    public void setOn(UploadPartRequest.Builder builder, String value) {
-        switch (this) {
+    public UploadPartRequest.Builder setOn(
+            UploadPartRequest.Builder builder, String value) {
+        return switch (this) {
         case CRC32 -> builder.checksumCRC32(value);
         case CRC32C -> builder.checksumCRC32C(value);
         case CRC64NVME -> builder.checksumCRC64NVME(value);
         case SHA1 -> builder.checksumSHA1(value);
         case SHA256 -> builder.checksumSHA256(value);
-        }
+        };
     }
 
     /**
      * Carry a part's checksum on the completion request, which a store that
      * computes the composite itself checks the parts against.
      */
-    public void setOn(CompletedPart.Builder builder, String value) {
-        switch (this) {
+    public CompletedPart.Builder setOn(
+            CompletedPart.Builder builder, String value) {
+        return switch (this) {
         case CRC32 -> builder.checksumCRC32(value);
         case CRC32C -> builder.checksumCRC32C(value);
         case CRC64NVME -> builder.checksumCRC64NVME(value);
         case SHA1 -> builder.checksumSHA1(value);
         case SHA256 -> builder.checksumSHA256(value);
-        }
+        };
     }
 
     /** User-metadata key persisting this checksum with the object. */
