@@ -28,11 +28,13 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.UUID;
 
 import com.google.auth.oauth2.GoogleCredentials;
@@ -47,6 +49,7 @@ import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.BucketInfo;
+import com.google.cloud.storage.CopyWriter;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobField;
 import com.google.cloud.storage.Storage.BlobGetOption;
@@ -62,6 +65,8 @@ import com.google.cloud.storage.StorageBatchResult;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.base.Supplier;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -76,6 +81,7 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -85,6 +91,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
@@ -93,11 +101,14 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -115,6 +126,15 @@ public final class GCloudBlobStore implements BlobStore {
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";
     private static final String BLOB_ACCESS_KEY = "s3proxy_blob_access";
+    // GCS has no delete markers: a versioned delete archives the live
+    // generation and a later read is a plain 404.  S3's marker is emulated
+    // as a zero-byte generation wearing this metadata, hidden from
+    // unversioned listings and reads.
+    private static final String DELETE_MARKER_KEY = "s3proxy_delete_marker";
+    // S3's version an object holds where versioning never applied.  GCS
+    // assigns real generations from the first write, so only an unversioned
+    // container resolves it, as the live object.
+    private static final String NULL_VERSION_ID = "null";
     // GCS deprecated md5Match in favor of crc32cMatch but the client
     // supplies a Content-MD5 to validate, not a CRC32C.
     @SuppressWarnings("deprecation")
@@ -133,6 +153,19 @@ public final class GCloudBlobStore implements BlobStore {
 
     private final Storage storage;
     private final boolean atomicBucketAcl;
+    /**
+     * Whether a container versions objects, which decides if writes report
+     * version ids and deletes leave markers.  S3 asks this on every
+     * operation while GCS answers only through bucket metadata, so the
+     * answer is cached briefly; setContainerVersioning through this store
+     * updates it immediately, and a change made behind its back is seen
+     * within the expiry.
+     */
+    private final Cache<String, Boolean> versionedContainers =
+            CacheBuilder.newBuilder()
+                    .expireAfterWrite(java.time.Duration.ofSeconds(5))
+                    .maximumSize(1000)
+                    .build();
 
     public GCloudBlobStore(
             Supplier<Credentials> creds,
@@ -259,6 +292,11 @@ public final class GCloudBlobStore implements BlobStore {
             if (marker != null && blob.getName().compareTo(marker) <= 0) {
                 continue;
             }
+            // A key whose current version is a delete marker holds nothing
+            // an unversioned listing shows.
+            if (!blob.isDirectory() && isDeleteMarker(blob)) {
+                continue;
+            }
             if (maxResults != null && count >= maxResults) {
                 hasMore = true;
                 break;
@@ -338,35 +376,362 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public boolean blobExists(String container, String key) {
-        return storage.get(BlobId.of(container, key),
-                BlobGetOption.fields(BlobField.NAME)) != null;
+        Blob blob = storage.get(BlobId.of(container, key),
+                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
+        return blob != null && !isDeleteMarker(blob);
+    }
+
+    @Override
+    public boolean supportsVersioning() {
+        return true;
+    }
+
+    @Override
+    @Nullable
+    public BucketVersioningStatus getContainerVersioning(String container) {
+        Bucket bucket;
+        try {
+            bucket = storage.get(container,
+                    BucketGetOption.fields(BucketField.VERSIONING));
+        } catch (StorageException se) {
+            throw translate(se, container, /*key=*/ null);
+        }
+        if (bucket == null) {
+            throw S3Exceptions.noSuchBucket(container, "");
+        }
+        boolean enabled = Boolean.TRUE.equals(bucket.versioningEnabled());
+        versionedContainers.put(container, enabled);
+        // GCS versioning is on or off with no marking of ever having been
+        // on, so off answers as never versioned rather than Suspended.
+        return enabled ? BucketVersioningStatus.ENABLED : null;
+    }
+
+    @Override
+    public void setContainerVersioning(String container,
+            BucketVersioningStatus status) {
+        if (status != BucketVersioningStatus.ENABLED) {
+            // Turning GCS versioning off keeps the noncurrent generations,
+            // but S3's Suspended also replaces a "null" version on every
+            // write and reports no version ids, which GCS cannot express.
+            throw new UnsupportedOperationException(
+                    "suspended versioning not supported");
+        }
+        try {
+            storage.update(BucketInfo.newBuilder(container)
+                    .setVersioningEnabled(true)
+                    .build());
+        } catch (StorageException se) {
+            throw translate(se, container, /*key=*/ null);
+        }
+        versionedContainers.put(container, true);
+    }
+
+    /** Whether writes to the container version rather than replace. */
+    private boolean isVersioned(String container) {
+        Boolean cached = versionedContainers.getIfPresent(container);
+        if (cached != null) {
+            return cached;
+        }
+        Bucket bucket;
+        try {
+            bucket = storage.get(container,
+                    BucketGetOption.fields(BucketField.VERSIONING));
+        } catch (StorageException se) {
+            throw translate(se, container, /*key=*/ null);
+        }
+        boolean enabled = bucket != null &&
+                Boolean.TRUE.equals(bucket.versioningEnabled());
+        versionedContainers.put(container, enabled);
+        return enabled;
+    }
+
+    private static boolean isDeleteMarker(BlobInfo blob) {
+        var metadata = blob.getMetadata();
+        return metadata != null &&
+                "true".equals(metadata.get(DELETE_MARKER_KEY));
+    }
+
+    /**
+     * The generation a version id names.  S3 version ids on this store are
+     * the decimal GCS generations, which are always positive.
+     */
+    private static long parseVersionId(String versionId) {
+        try {
+            long generation = Long.parseLong(versionId);
+            if (generation > 0) {
+                return generation;
+            }
+        } catch (NumberFormatException nfe) {
+            // fall through
+        }
+        throw S3Exceptions.invalidArgument("Invalid version id specified");
+    }
+
+    /**
+     * The version a read names: the live object when {@code versionId} is
+     * null -- or the newest remaining generation when the live one was
+     * deleted by id, which is S3's promotion -- and otherwise the
+     * generation named.  Returns null when the key holds nothing to read.
+     * Throws the way S3 answers a read whose current version is a delete
+     * marker (404 naming the marker), one that names a marker outright
+     * (405), and one that names a version that does not exist.
+     */
+    @Nullable
+    private Blob resolveVersion(String container, String key,
+            @Nullable String versionId) {
+        if (versionId == null || (versionId.equals(NULL_VERSION_ID) &&
+                !isVersioned(container))) {
+            Blob live;
+            try {
+                live = storage.get(BlobId.of(container, key));
+            } catch (StorageException se) {
+                throw translate(se, container, key);
+            }
+            if (live != null) {
+                if (isDeleteMarker(live)) {
+                    throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                            Long.toString(live.getGeneration()),
+                            "current version is a delete marker");
+                }
+                return live;
+            }
+            // The SDK collapses a missing bucket and a missing object both
+            // to null; distinguish them so the frontend emits NoSuchBucket
+            // vs NoSuchKey.
+            if (storage.get(container) == null) {
+                throw S3Exceptions.noSuchBucket(container, "");
+            }
+            if (versionId == null && isVersioned(container)) {
+                Blob newest = newestGeneration(container, key);
+                if (newest != null) {
+                    if (isDeleteMarker(newest)) {
+                        throw S3Exceptions.noSuchKeyDeleteMarker(container,
+                                key, Long.toString(newest.getGeneration()),
+                                "current version is a delete marker");
+                    }
+                    return newest;
+                }
+            }
+            return null;
+        }
+        if (versionId.equals(NULL_VERSION_ID)) {
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "no such version");
+        }
+        long generation = parseVersionId(versionId);
+        Blob blob;
+        try {
+            blob = storage.get(BlobId.of(container, key, generation));
+        } catch (StorageException se) {
+            throw translate(se, container, key);
+        }
+        if (blob == null) {
+            if (storage.get(container) == null) {
+                throw S3Exceptions.noSuchBucket(container, "");
+            }
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "no such version");
+        }
+        if (isDeleteMarker(blob)) {
+            // As on S3: a delete marker has no content to read, and saying
+            // so is not the same as saying the key is gone.
+            throw S3Exceptions.fromStatusCode(405, /*eTag=*/ null,
+                    Map.of("x-amz-delete-marker", "true",
+                            "x-amz-version-id", versionId),
+                    /*cause=*/ null);
+        }
+        return blob;
+    }
+
+    /**
+     * The newest generation of one key, archived generations included, or
+     * null when the key holds none.  The scan is bounded to the key itself:
+     * the offsets stop it at the shortest name after {@code key}, so
+     * sibling keys sharing the prefix are never pulled.
+     */
+    @Nullable
+    private Blob newestGeneration(String container, String key) {
+        com.google.api.gax.paging.Page<Blob> page;
+        try {
+            page = storage.list(container,
+                    BlobListOption.prefix(key),
+                    BlobListOption.versions(true),
+                    BlobListOption.startOffset(key),
+                    BlobListOption.endOffset(key + '\0'));
+        } catch (StorageException se) {
+            throw translate(se, container, key);
+        }
+        Blob newest = null;
+        for (Blob blob : page.iterateAll()) {
+            if (!blob.getName().equals(key)) {
+                continue;
+            }
+            if (newest == null ||
+                    blob.getGeneration() > newest.getGeneration()) {
+                newest = blob;
+            }
+        }
+        return newest;
+    }
+
+    /**
+     * The version id a read or write reports: the generation on a
+     * versioned container or whenever the caller named a version, and
+     * nothing otherwise -- S3 sends no x-amz-version-id header for a
+     * container that has never been versioned.
+     */
+    @Nullable
+    private String reportedVersionId(String container, BlobInfo blob,
+            @Nullable String requestVersionId) {
+        if (NULL_VERSION_ID.equals(requestVersionId)) {
+            // The null version resolved on an unversioned container, whose
+            // reads report no version id.
+            return null;
+        }
+        if (requestVersionId != null || isVersioned(container)) {
+            return Long.toString(blob.getGeneration());
+        }
+        return null;
+    }
+
+    @Override
+    public ListObjectVersionsResponse listVersions(
+            ListObjectVersionsRequest request) {
+        String container = request.bucket();
+        String delimiter = request.delimiter();
+        String keyMarker = request.keyMarker();
+        int maxKeys = request.maxKeys() == null ? 1000 : request.maxKeys();
+
+        var gcsOptions = new ArrayList<BlobListOption>();
+        gcsOptions.add(BlobListOption.versions(true));
+        if (request.prefix() != null) {
+            gcsOptions.add(BlobListOption.prefix(request.prefix()));
+        }
+        if (delimiter != null) {
+            gcsOptions.add(BlobListOption.delimiter(delimiter));
+        }
+        if (keyMarker != null) {
+            // Begin the server-side scan at the marker rather than at the
+            // start of the bucket.  startOffset is inclusive, which the
+            // slice below wants: resuming within a key needs that key's own
+            // rows.
+            gcsOptions.add(BlobListOption.startOffset(keyMarker));
+        }
+
+        com.google.api.gax.paging.Page<Blob> page;
+        try {
+            page = storage.list(container,
+                    gcsOptions.toArray(new BlobListOption[0]));
+        } catch (StorageException se) {
+            throw translate(se, container, /*key=*/ null);
+        }
+
+        // Flatten every generation into S3's order -- keys ascending,
+        // newest first -- and slice one page out of it.  GCS orders the
+        // listing by name but says nothing about the versions within one,
+        // so the sort does not lean on it.
+        var rows = new ArrayList<VersionRow>();
+        var commonPrefixes = new TreeSet<String>();
+        for (Blob blob : page.iterateAll()) {
+            if (blob.isDirectory()) {
+                commonPrefixes.add(blob.getName());
+                continue;
+            }
+            rows.add(new VersionRow(blob.getName(), blob.getGeneration(),
+                    isDeleteMarker(blob), blob.getEtag(),
+                    toInstant(blob.getUpdateTimeOffsetDateTime()),
+                    blob.getSize(),
+                    fromGcsStorageClass(blob.getStorageClass())));
+        }
+        rows.sort(Comparator.comparing(VersionRow::key)
+                .thenComparing(Comparator
+                        .comparingLong(VersionRow::generation).reversed()));
+
+        int start = 0;
+        if (keyMarker != null) {
+            String versionIdMarker = request.versionIdMarker();
+            for (int i = 0; i < rows.size(); i++) {
+                var candidate = rows.get(i);
+                if (versionIdMarker == null) {
+                    if (candidate.key().compareTo(keyMarker) > 0) {
+                        start = i;
+                        break;
+                    }
+                } else if (candidate.key().equals(keyMarker) &&
+                        candidate.versionId().equals(versionIdMarker)) {
+                    start = i + 1;
+                    break;
+                }
+                start = i + 1;
+            }
+        }
+        int end = Math.min(rows.size(), start + maxKeys);
+        var pageRows = rows.subList(start, end);
+        String nextKeyMarker = null;
+        String nextVersionIdMarker = null;
+        if (end < rows.size() && !pageRows.isEmpty()) {
+            var last = pageRows.get(pageRows.size() - 1);
+            nextKeyMarker = last.key();
+            nextVersionIdMarker = last.versionId();
+        }
+
+        var versions = new ArrayList<ObjectVersion>();
+        var markers = new ArrayList<DeleteMarkerEntry>();
+        for (int i = start; i < end; i++) {
+            var row = rows.get(i);
+            // The newest generation of a key is its latest, marker or not;
+            // the row before it in the flattened order belongs to another
+            // key exactly then.
+            boolean latest = i == 0 ||
+                    !rows.get(i - 1).key().equals(row.key());
+            if (row.deleteMarker()) {
+                markers.add(DeleteMarkerEntry.builder()
+                        .key(row.key())
+                        .versionId(row.versionId())
+                        .isLatest(latest)
+                        .lastModified(row.lastModified())
+                        .build());
+            } else {
+                versions.add(ObjectVersion.builder()
+                        .key(row.key())
+                        .versionId(row.versionId())
+                        .isLatest(latest)
+                        .eTag(row.eTag())
+                        .lastModified(row.lastModified())
+                        .size(row.size())
+                        .storageClass(row.storageClass().toString())
+                        .build());
+            }
+        }
+        return ListObjectVersionsResponse.builder()
+                .versions(versions)
+                .deleteMarkers(markers)
+                .commonPrefixes(commonPrefixes.stream()
+                        .map(SdkResponses::commonPrefix)
+                        .toList())
+                .nextKeyMarker(nextKeyMarker)
+                .nextVersionIdMarker(nextVersionIdMarker)
+                .isTruncated(nextKeyMarker != null)
+                .build();
+    }
+
+    /** One row of the flattened versions listing. */
+    private record VersionRow(String key, long generation,
+            boolean deleteMarker, @Nullable String eTag,
+            @Nullable Instant lastModified, @Nullable Long size,
+            StorageClass storageClass) {
+        String versionId() {
+            return Long.toString(generation);
+        }
     }
 
     @Override
     public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
-        if (request.versionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String container = request.bucket();
         String key = request.key();
-        var gcsOptions = new java.util.ArrayList<BlobGetOption>();
-
-        Blob gcsBlob;
-        try {
-            gcsBlob = storage.get(BlobId.of(container, key),
-                    gcsOptions.toArray(new BlobGetOption[0]));
-        } catch (StorageException se) {
-            throw translate(se, container, key);
-        }
+        Blob gcsBlob = resolveVersion(container, key, request.versionId());
         if (gcsBlob == null) {
-            // The SDK collapses a missing bucket and a missing object both to
-            // null; distinguish them so the frontend emits NoSuchBucket vs
-            // NoSuchKey.
-            if (storage.get(container) == null) {
-                throw S3Exceptions.noSuchBucket(container, "");
-            }
             return null;
         }
 
@@ -440,6 +805,8 @@ public final class GCloudBlobStore implements BlobStore {
                 .storageClass(
                         fromGcsStorageClass(gcsBlob.getStorageClass())
                                 .toString())
+                .versionId(reportedVersionId(container, gcsBlob,
+                        request.versionId()))
                 .lastModified(toInstant(
                         gcsBlob.getUpdateTimeOffsetDateTime()));
         if (rangeOffset != null) {
@@ -570,7 +937,7 @@ public final class GCloudBlobStore implements BlobStore {
                 // the write to its current generation so a concurrent
                 // delete fails the precondition instead of recreating it.
                 Blob existing = storage.get(BlobId.of(container, name));
-                if (existing == null) {
+                if (existing == null || isDeleteMarker(existing)) {
                     throw preconditionFailed(null);
                 }
                 writeOptions.add(BlobWriteOption.generationMatch(
@@ -584,7 +951,16 @@ public final class GCloudBlobStore implements BlobStore {
         }
         if (ifNoneMatch != null) {
             if (ifNoneMatch.equals("*")) {
-                writeOptions.add(BlobWriteOption.doesNotExist());
+                Blob existing = storage.get(BlobId.of(container, name));
+                if (existing != null && isDeleteMarker(existing)) {
+                    // A delete marker counts as no current object, so the
+                    // write proceeds -- atomically, by requiring the marker
+                    // to still be what it replaces.
+                    writeOptions.add(BlobWriteOption.generationMatch(
+                            existing.getGeneration()));
+                } else {
+                    writeOptions.add(BlobWriteOption.doesNotExist());
+                }
             } else {
                 // If-None-Match: <etag> — fail if an object with that ETag
                 // currently exists.  GCS has no etag precondition, but
@@ -593,8 +969,9 @@ public final class GCloudBlobStore implements BlobStore {
                 // that version the write fails, and if it has since changed
                 // or been deleted the write proceeds.
                 Blob existing = storage.get(BlobId.of(container, name));
-                if (existing != null && maybeQuoteETag(ifNoneMatch).equals(
-                        maybeQuoteETag(existing.getEtag()))) {
+                if (existing != null && !isDeleteMarker(existing) &&
+                        maybeQuoteETag(ifNoneMatch).equals(
+                                maybeQuoteETag(existing.getEtag()))) {
                     writeOptions.add(BlobWriteOption.generationNotMatch(
                             existing.getGeneration()));
                 }
@@ -609,7 +986,9 @@ public final class GCloudBlobStore implements BlobStore {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
                     uploadChunkSize(request.contentLength()),
                     writeOptions.toArray(new BlobWriteOption[0]));
-            return SdkResponses.putResponse(gcsBlob.getEtag());
+            return SdkResponses.putResponse(gcsBlob.getEtag(),
+                    isVersioned(container) ?
+                            Long.toString(gcsBlob.getGeneration()) : null);
         } catch (StorageException se) {
             // GCS has no dedicated error code for a checksum mismatch: it
             // reports the md5Match validation we requested as a generic 400
@@ -626,13 +1005,18 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
-        if (request.sourceVersionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String fromContainer = request.sourceBucket();
         String fromName = request.sourceKey();
-        var source = BlobId.of(fromContainer, fromName);
+        Blob sourceBlob = resolveVersion(fromContainer, fromName,
+                request.sourceVersionId());
+        if (sourceBlob == null) {
+            throw S3Exceptions.noSuchKey(fromContainer, fromName,
+                    "while copying");
+        }
+        // The copy reads the generation the resolution named rather than
+        // whatever is live by the time it runs, which also lets it read a
+        // noncurrent version -- restoring one is a copy of it onto its key.
+        var source = sourceBlob.getBlobId();
         var targetBuilder = BlobInfo.newBuilder(BlobId.of(
                 request.destinationBucket(), request.destinationKey()));
 
@@ -663,7 +1047,7 @@ public final class GCloudBlobStore implements BlobStore {
         List<BlobSourceOption> sourceOptions = List.of();
         if (ifMatch != null || ifNoneMatch != null ||
                 ifModifiedSince != null || ifUnmodifiedSince != null) {
-            sourceOptions = checkCopySourceConditions(storage.get(source),
+            sourceOptions = checkCopySourceConditions(sourceBlob,
                     ifMatch, ifNoneMatch, ifModifiedSince, ifUnmodifiedSince);
         }
 
@@ -679,8 +1063,12 @@ public final class GCloudBlobStore implements BlobStore {
                     .setSourceOptions(sourceOptions)
                     .setTarget(targetBuilder.build(), targetOptions)
                     .build();
-            var result = storage.copy(copyRequest);
-            return SdkResponses.copyResponse(result.getResult().getEtag());
+            var result = storage.copy(copyRequest).getResult();
+            return SdkResponses.copyResponse(result.getEtag(),
+                    isVersioned(request.destinationBucket()) ?
+                            Long.toString(result.getGeneration()) : null,
+                    reportedVersionId(fromContainer, sourceBlob,
+                            request.sourceVersionId()));
         } catch (StorageException se) {
             throw translate(se, fromContainer, fromName);
         }
@@ -735,6 +1123,13 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public void removeBlob(String container, String key) {
+        if (isVersioned(container)) {
+            // A delete that names no version is still a delete marker on a
+            // versioned container; the frontend reaches this overload for
+            // it whenever it has no result to report.
+            removeBlob(container, key, /*versionId=*/ null);
+            return;
+        }
         try {
             storage.delete(BlobId.of(container, key));
         } catch (StorageException se) {
@@ -742,6 +1137,86 @@ public final class GCloudBlobStore implements BlobStore {
                 throw se;
             }
         }
+    }
+
+    @Override
+    public DeleteObjectResponse removeBlob(String container, String key,
+            @Nullable String versionId) {
+        if (versionId == null) {
+            if (!isVersioned(container)) {
+                try {
+                    storage.delete(BlobId.of(container, key));
+                } catch (StorageException se) {
+                    if (se.getCode() != 404) {
+                        throw translate(se, container, key);
+                    }
+                }
+                return DeleteObjectResponse.builder().build();
+            }
+            // Versioned: the generations stay and a marker goes on top of
+            // them, archiving the live object the way any write does.  S3
+            // leaves a marker even over a key that holds nothing.
+            var markerInfo = BlobInfo.newBuilder(BlobId.of(container, key))
+                    .setMetadata(Map.of(DELETE_MARKER_KEY, "true"))
+                    .build();
+            Blob marker;
+            try {
+                marker = storage.create(markerInfo, new byte[0]);
+            } catch (StorageException se) {
+                throw translate(se, container, /*key=*/ null);
+            }
+            return DeleteObjectResponse.builder()
+                    .versionId(Long.toString(marker.getGeneration()))
+                    .deleteMarker(true)
+                    .build();
+        }
+        if (versionId.equals(NULL_VERSION_ID)) {
+            if (!isVersioned(container)) {
+                // The null version names the live object on a container
+                // that was never versioned.
+                try {
+                    storage.delete(BlobId.of(container, key));
+                } catch (StorageException se) {
+                    if (se.getCode() != 404) {
+                        throw translate(se, container, key);
+                    }
+                }
+                return DeleteObjectResponse.builder().build();
+            }
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "no such version");
+        }
+        // Deleting the one version named removes data, live or archived,
+        // with no marker; removing the newest promotes whatever it hid.
+        long generation = parseVersionId(versionId);
+        Blob blob;
+        try {
+            blob = storage.get(BlobId.of(container, key, generation));
+        } catch (StorageException se) {
+            throw translate(se, container, key);
+        }
+        if (blob == null) {
+            if (storage.get(container) == null) {
+                throw S3Exceptions.noSuchBucket(container, "");
+            }
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "no such version");
+        }
+        boolean deleteMarker = isDeleteMarker(blob);
+        try {
+            // The blobId carries the generation, so this removes exactly
+            // the version read above; one deleted meanwhile counts as
+            // deleted, the way S3 answers.
+            storage.delete(blob.getBlobId());
+        } catch (StorageException se) {
+            if (se.getCode() != 404) {
+                throw translate(se, container, key);
+            }
+        }
+        return DeleteObjectResponse.builder()
+                .versionId(versionId)
+                .deleteMarker(deleteMarker ? true : null)
+                .build();
     }
 
     /**
@@ -762,6 +1237,13 @@ public final class GCloudBlobStore implements BlobStore {
             return DeleteObjectsResponse.builder().build();
         }
         String container = request.bucket();
+        if (isVersioned(container) ||
+                objects.stream().anyMatch(o -> o.versionId() != null)) {
+            // Versioned deletes each carry their own semantics -- a marker
+            // to write and report, or one generation to remove outright --
+            // which the batch cannot express.
+            return BlobStore.super.removeBlobs(request);
+        }
         var deleted = new ImmutableList.Builder<DeletedObject>();
         var errors = new ImmutableList.Builder<S3Error>();
 
@@ -815,20 +1297,9 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
-        if (request.versionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String container = request.bucket();
-        Blob gcsBlob;
-        try {
-            gcsBlob = storage.get(BlobId.of(container, request.key()));
-        } catch (StorageException se) {
-            if (se.getCode() == 404) {
-                return null;
-            }
-            throw translate(se, container, null);
-        }
+        String key = request.key();
+        Blob gcsBlob = resolveVersion(container, key, request.versionId());
         if (gcsBlob == null) {
             return null;
         }
@@ -846,6 +1317,8 @@ public final class GCloudBlobStore implements BlobStore {
                 .contentLanguage(gcsBlob.getContentLanguage())
                 .contentLength(gcsBlob.getSize())
                 .contentType(gcsBlob.getContentType())
+                .versionId(reportedVersionId(container, gcsBlob,
+                        request.versionId()))
                 .build();
     }
 
@@ -930,6 +1403,36 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
+    public ObjectCannedACL getBlobAccess(String container, String key,
+            @Nullable String versionId) {
+        Blob blob = resolveVersion(container, key, versionId);
+        if (blob == null) {
+            throw S3Exceptions.noSuchKey(container, key, "");
+        }
+        try {
+            // The blobId carries the generation, so the ACL read is the
+            // version's own rather than the live object's.
+            var acls = storage.listAcls(blob.getBlobId());
+            for (var acl : acls) {
+                if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
+                    return ObjectCannedACL.PUBLIC_READ;
+                }
+            }
+        } catch (StorageException se) {
+            if (se.getCode() == 404) {
+                throw S3Exceptions.noSuchKey(container, key, "");
+            }
+            // The emulator returns ACL responses the SDK cannot deserialize
+            // (StorageException with no HTTP status, code 0); tolerate those
+            // but surface real failures rather than reporting PRIVATE.
+            if (se.getCode() != 0) {
+                throw translate(se, container, key);
+            }
+        }
+        return ObjectCannedACL.PRIVATE;
+    }
+
+    @Override
     public void setBlobAccess(String container, String key,
             ObjectCannedACL access) {
         try {
@@ -946,6 +1449,29 @@ public final class GCloudBlobStore implements BlobStore {
             // applied server-side, so tolerate those.  Surface real failures
             // (permission denied, uniform bucket-level access, missing object)
             // rather than reporting success for a change that did not apply.
+            if (se.getCode() != 0) {
+                throw translate(se, container, key);
+            }
+        }
+    }
+
+    @Override
+    public void setBlobAccess(String container, String key,
+            ObjectCannedACL access, @Nullable String versionId) {
+        Blob blob = resolveVersion(container, key, versionId);
+        if (blob == null) {
+            throw S3Exceptions.noSuchKey(container, key, "");
+        }
+        try {
+            if (access == ObjectCannedACL.PUBLIC_READ) {
+                storage.createAcl(blob.getBlobId(),
+                        Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
+            } else {
+                storage.deleteAcl(blob.getBlobId(), Acl.User.ofAllUsers());
+            }
+        } catch (StorageException se) {
+            // As in the unversioned overload: tolerate the emulator's
+            // undeserializable ACL responses, surface real failures.
             if (se.getCode() != 0) {
                 throw translate(se, container, key);
             }
@@ -1026,17 +1552,35 @@ public final class GCloudBlobStore implements BlobStore {
 
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 
-        // Delete part blobs
-        var page = storage.list(mpu.containerName(),
-                BlobListOption.prefix(STUB_BLOB_PREFIX + nonce + "/"));
-        for (Blob blob : page.iterateAll()) {
-            storage.delete(blob.getBlobId());
-        }
-
-        // Delete stub
-        if (!storage.delete(BlobId.of(mpu.containerName(), uploadKey))) {
+        if (storage.get(BlobId.of(mpu.containerName(), uploadKey),
+                BlobGetOption.fields(BlobField.NAME)) == null) {
             throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
+        }
+        removeStubGenerations(mpu.containerName(), nonce);
+    }
+
+    /**
+     * Removes every generation of the upload's bookkeeping -- parts,
+     * intermediate composes and the stub.  On a versioning-enabled
+     * container a plain delete would archive them instead, and the hidden
+     * versions would outlive every upload and hold the bucket undeletable
+     * on the real service.
+     */
+    private void removeStubGenerations(String container, String nonce) {
+        var page = storage.list(container,
+                BlobListOption.prefix(STUB_BLOB_PREFIX + nonce),
+                BlobListOption.versions(true));
+        for (Blob blob : page.iterateAll()) {
+            try {
+                // The listed blobId carries its generation, so the delete
+                // removes that version outright rather than archiving it.
+                storage.delete(blob.getBlobId());
+            } catch (StorageException se) {
+                if (se.getCode() != 404) {
+                    throw se;
+                }
+            }
         }
     }
 
@@ -1121,6 +1665,43 @@ public final class GCloudBlobStore implements BlobStore {
             targetBuilder.setMetadata(userMetadata);
         }
 
+        // The publish conditions, enforced as on a plain put: the check
+        // resolves the current object and the write pins its generation, so
+        // a concurrent change fails the publish rather than being clobbered.
+        // If-Match: * never arrives -- the frontend resolves existence and
+        // clears it -- so only named ETags and If-None-Match do.
+        var conditionOptions = new java.util.ArrayList<BlobTargetOption>();
+        String ifMatch = request.ifMatch();
+        String ifNoneMatch = request.ifNoneMatch();
+        if (ifMatch != null || ifNoneMatch != null) {
+            Blob current = storage.get(
+                    BlobId.of(mpu.containerName(), targetBlobName));
+            if (ifMatch != null) {
+                if (current == null || isDeleteMarker(current)) {
+                    throw S3Exceptions.noSuchKey(mpu.containerName(),
+                            targetBlobName, "");
+                }
+                if (!maybeQuoteETag(ifMatch).equals(
+                        maybeQuoteETag(current.getEtag()))) {
+                    throw preconditionFailed(current.getEtag());
+                }
+            }
+            if (ifNoneMatch != null && current != null &&
+                    !isDeleteMarker(current) &&
+                    (ifNoneMatch.equals("*") ||
+                            maybeQuoteETag(ifNoneMatch).equals(
+                                    maybeQuoteETag(current.getEtag())))) {
+                throw preconditionFailed(current.getEtag());
+            }
+            // A live object -- a delete marker included, which counts as
+            // absent but still holds the key's generation -- pins the
+            // publish to what the checks saw; nothing at all requires the
+            // key to still be empty.
+            conditionOptions.add(current != null ?
+                    BlobTargetOption.generationMatch(current.getGeneration()) :
+                    BlobTargetOption.doesNotExist());
+        }
+
         // A single part is copied onto the target and can name the access on
         // that request, so no later one can fail and leave a private blob
         // where the caller asked for a public one.  Compose cannot; see below.
@@ -1130,6 +1711,7 @@ public final class GCloudBlobStore implements BlobStore {
             targetOptions.add(BlobTargetOption.predefinedAcl(
                     Storage.PredefinedAcl.PUBLIC_READ));
         }
+        targetOptions.addAll(conditionOptions);
 
         // If single part, just copy it to the target
         if (parts.size() == 1) {
@@ -1140,12 +1722,17 @@ public final class GCloudBlobStore implements BlobStore {
                     .setSource(source)
                     .setTarget(targetBuilder.build(), targetOptions)
                     .build();
-            var result = storage.copy(copyRequest);
-            // Clean up
-            storage.delete(source);
-            storage.delete(BlobId.of(mpu.containerName(), uploadKey));
-            return SdkResponses.completeResponse(
-                    result.getResult().getEtag());
+            CopyWriter copyWriter;
+            try {
+                copyWriter = storage.copy(copyRequest);
+            } catch (StorageException se) {
+                throw translate(se, mpu.containerName(), targetBlobName);
+            }
+            var result = copyWriter.getResult();
+            removeStubGenerations(mpu.containerName(), nonce);
+            return SdkResponses.completeResponse(result.getEtag(),
+                    isVersioned(mpu.containerName()) ?
+                            Long.toString(result.getGeneration()) : null);
         }
 
         // GCS compose supports up to 32 parts.
@@ -1156,8 +1743,9 @@ public final class GCloudBlobStore implements BlobStore {
             sourceBlobIds.add(BlobId.of(mpu.containerName(), partBlobName));
         }
 
-        String eTag = composeRecursive(mpu.containerName(),
-                targetBuilder.build(), sourceBlobIds, nonce);
+        Blob composed = composeRecursive(mpu.containerName(),
+                targetBuilder.build(), sourceBlobIds, nonce,
+                conditionOptions);
 
         // objects.compose accepts destinationPredefinedAcl, but the SDK drops
         // it: HttpStorageRpc.compose forwards only the generation,
@@ -1170,24 +1758,15 @@ public final class GCloudBlobStore implements BlobStore {
         // https://github.com/googleapis/google-cloud-java/pull/13975 is
         // released and google-cloud-storage is bumped past it
         if (!targetOptions.isEmpty()) {
-            storage.createAcl(BlobId.of(mpu.containerName(), targetBlobName),
+            storage.createAcl(composed.getBlobId(),
                     Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
         }
 
-        // Clean up part blobs and stub
-        for (var blobId : sourceBlobIds) {
-            storage.delete(blobId);
-        }
-        // Clean up any intermediate compose blobs
-        var intermediatePage = storage.list(mpu.containerName(),
-                BlobListOption.prefix(
-                        STUB_BLOB_PREFIX + nonce + "/compose_"));
-        for (Blob blob : intermediatePage.iterateAll()) {
-            storage.delete(blob.getBlobId());
-        }
-        storage.delete(BlobId.of(mpu.containerName(), uploadKey));
+        removeStubGenerations(mpu.containerName(), nonce);
 
-        return SdkResponses.completeResponse(eTag);
+        return SdkResponses.completeResponse(composed.getEtag(),
+                isVersioned(mpu.containerName()) ?
+                        Long.toString(composed.getGeneration()) : null);
     }
 
     /**
@@ -1195,16 +1774,23 @@ public final class GCloudBlobStore implements BlobStore {
      * GCS compose supports max 32 sources, so for N > 32 parts we
      * compose in groups of 32, then compose those results.
      */
-    private String composeRecursive(String container, BlobInfo target,
-            List<BlobId> sources, String nonce) {
+    private Blob composeRecursive(String container, BlobInfo target,
+            List<BlobId> sources, String nonce,
+            List<BlobTargetOption> conditionOptions) {
         if (sources.size() <= MAX_COMPOSE_PARTS) {
             var composeBuilder = ComposeRequest.newBuilder();
             composeBuilder.setTarget(target);
+            // The publish conditions ride only here, on the compose that
+            // writes the target; the intermediates below are unconditional.
+            composeBuilder.setTargetOptions(conditionOptions);
             for (var source : sources) {
                 composeBuilder.addSource(source.getName());
             }
-            var result = storage.compose(composeBuilder.build());
-            return result.getEtag();
+            try {
+                return storage.compose(composeBuilder.build());
+            } catch (StorageException se) {
+                throw translate(se, container, target.getName());
+            }
         }
 
         // Compose in groups of MAX_COMPOSE_PARTS
@@ -1232,7 +1818,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         // Recursively compose intermediates
         return composeRecursive(container, target, intermediateIds,
-                nonce);
+                nonce, conditionOptions);
     }
 
     @Override
@@ -1293,10 +1879,6 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
             UploadPartCopyRequest request) {
-        if (request.sourceVersionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         int partNumber = request.partNumber();
         if (partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException(
@@ -1306,16 +1888,14 @@ public final class GCloudBlobStore implements BlobStore {
 
         String sourceContainer = request.sourceBucket();
         String sourceName = request.sourceKey();
-        var source = BlobId.of(sourceContainer, sourceName);
-        Blob sourceBlob;
-        try {
-            sourceBlob = storage.get(source);
-        } catch (StorageException se) {
-            throw translate(se, sourceContainer, sourceName);
-        }
+        Blob sourceBlob = resolveVersion(sourceContainer, sourceName,
+                request.sourceVersionId());
         if (sourceBlob == null) {
             throw S3Exceptions.noSuchKey(sourceContainer, sourceName, "");
         }
+        // The generation rides on the blobId, so the copy reads the version
+        // the resolution named.
+        var source = sourceBlob.getBlobId();
 
         // GCS cannot copy a byte range server-side; a range covering the
         // whole object is equivalent to no range, anything else falls back
@@ -1347,7 +1927,9 @@ public final class GCloudBlobStore implements BlobStore {
             // Match uploadMultipartPart's hex MD5 part ETag;
             // listMultipartUpload reads the same value back from GCS.
             return SdkResponses.copiedPart(result.getMd5ToHexString(),
-                    /*lastModified=*/ null, /*copySourceVersionId=*/ null);
+                    /*lastModified=*/ null,
+                    reportedVersionId(sourceContainer, sourceBlob,
+                            request.sourceVersionId()));
         } catch (StorageException se) {
             throw translate(se, sourceContainer, sourceName);
         }
@@ -1447,6 +2029,11 @@ public final class GCloudBlobStore implements BlobStore {
         Blob blob = storage.get(BlobId.of(container, name));
         if (blob == null) {
             throw S3Exceptions.noSuchKey(container, name, "");
+        }
+        if (isDeleteMarker(blob)) {
+            throw S3Exceptions.noSuchKeyDeleteMarker(container, name,
+                    Long.toString(blob.getGeneration()),
+                    "current version is a delete marker");
         }
         // If the ETag doesn't match, the precondition fails.
         if (!eTag.equals("*") && !maybeQuoteETag(eTag).equals(

@@ -213,25 +213,51 @@ public final class SdkResponses {
 
     /** A response carrying only the stored object's ETag. */
     public static PutObjectResponse putResponse(@Nullable String eTag) {
+        return putResponse(eTag, /*versionId=*/ null);
+    }
+
+    /** A stored object's ETag and the version a versioned store wrote. */
+    public static PutObjectResponse putResponse(@Nullable String eTag,
+            @Nullable String versionId) {
         return PutObjectResponse.builder()
                 .eTag(eTag)
+                .versionId(versionId)
                 .build();
     }
 
     /** A response carrying only the completed object's ETag. */
     public static CompleteMultipartUploadResponse completeResponse(
             @Nullable String eTag) {
+        return completeResponse(eTag, /*versionId=*/ null);
+    }
+
+    /** A completed object's ETag and the version a versioned store wrote. */
+    public static CompleteMultipartUploadResponse completeResponse(
+            @Nullable String eTag, @Nullable String versionId) {
         return CompleteMultipartUploadResponse.builder()
                 .eTag(eTag)
+                .versionId(versionId)
                 .build();
     }
 
     /** A response carrying only the copied object's ETag. */
     public static CopyObjectResponse copyResponse(@Nullable String eTag) {
+        return copyResponse(eTag, /*versionId=*/ null,
+                /*copySourceVersionId=*/ null);
+    }
+
+    /**
+     * A copy's result: the new object's ETag, the version a versioned store
+     * wrote it as, and the source version it read.
+     */
+    public static CopyObjectResponse copyResponse(@Nullable String eTag,
+            @Nullable String versionId, @Nullable String copySourceVersionId) {
         return CopyObjectResponse.builder()
                 .copyObjectResult(CopyObjectResult.builder()
                         .eTag(eTag)
                         .build())
+                .versionId(versionId)
+                .copySourceVersionId(copySourceVersionId)
                 .build();
     }
 }

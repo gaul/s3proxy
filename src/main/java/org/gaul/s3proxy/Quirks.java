@@ -93,15 +93,16 @@ public final class Quirks {
 
     /**
      * Blobstores whose completeMultipartUpload evaluates the conditional
-     * headers itself.  This is not the same set as for a plain put: GCS
-     * compose can only require that the target be absent, and Swift's
-     * manifest PUT only honours If-None-Match: *, so neither can answer a
-     * condition naming an ETag.
+     * headers itself.  This is not the same set as for a plain put: Swift's
+     * manifest PUT only honours If-None-Match: *, so it cannot answer a
+     * condition naming an ETag.  GCS resolves a named ETag to the matching
+     * generation and pins the compose to it, the way its plain put does.
      */
     public static final Set<String> NATIVE_CONDITIONAL_COMPLETE = Set.of(
             "aws-s3",
             "azureblob",
             "filesystem",
+            "google-cloud-storage",
             "transient"
     );
 
