@@ -1313,7 +1313,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         String versionId = request.versionId();
         checkNotReserved(key);
         if (!supportsVersioning()) {
-            if (versionId != null) {
+            // The literal "null" names the null version, which on an
+            // unversioned namespace is the object itself.
+            if (versionId != null && !versionId.equals("null")) {
                 throw new UnsupportedOperationException(
                         "versioning not supported");
             }

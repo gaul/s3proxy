@@ -987,7 +987,10 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
-        if (request.versionId() != null) {
+        // The literal "null" names the null version, which on an
+        // unversioned namespace is the object itself.
+        if (request.versionId() != null &&
+                !request.versionId().equals("null")) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }

@@ -2873,13 +2873,17 @@ public class S3ProxyHandler {
             checkConditionalDelete(blobStore.blobMetadata(containerName,
                     blobName), ifMatch, ifMatchSize, ifMatchTime);
             blobStore.removeBlob(containerName, blobName);
-        } else if (blobStore.supportsVersioning()) {
-            DeleteObjectResponse result = blobStore.removeBlob(
-                    containerName, blobName,
-                    request.getParameter("versionId"));
-            addDeleteResultHeaders(response, result);
         } else {
-            blobStore.removeBlob(containerName, blobName);
+            // The store honors the versionId or refuses it as versioning
+            // it does not support, the way the batch delete already
+            // refuses a VersionId element.
+            DeleteObjectResponse result = blobStore.removeBlob(
+                    DeleteObjectRequest.builder()
+                            .bucket(containerName)
+                            .key(blobName)
+                            .versionId(request.getParameter("versionId"))
+                            .build());
+            addDeleteResultHeaders(response, result);
         }
         addCorsResponseHeader(request, response);
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -3024,11 +3028,13 @@ public class S3ProxyHandler {
                                         .ifMatchLastModifiedTime(s3Object
                                                 .parsedLastModifiedTime())
                                         .build());
-                    } else if (supportsVersioning) {
-                        result = blobStore.removeBlob(containerName, key,
-                                versionId);
                     } else {
-                        blobStore.removeBlob(containerName, key);
+                        result = blobStore.removeBlob(
+                                DeleteObjectRequest.builder()
+                                        .bucket(containerName)
+                                        .key(key)
+                                        .versionId(versionId)
+                                        .build());
                     }
                     var builder = DeletedObject.builder()
                             .key(key)

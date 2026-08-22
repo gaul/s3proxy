@@ -23,7 +23,6 @@ import java.net.URI;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
-import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +34,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 
@@ -62,13 +62,12 @@ public final class MultiDeletePartialFailureTest {
         }
 
         @Override
-        public DeleteObjectResponse removeBlob(String container, String key,
-                @Nullable String versionId) {
-            if (key.equals(refusedKey)) {
+        public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+            if (request.key().equals(refusedKey)) {
                 throw S3Exceptions.invalidArgument(
                         "Invalid version id specified");
             }
-            return delegate().removeBlob(container, key, versionId);
+            return delegate().removeBlob(request);
         }
     }
 

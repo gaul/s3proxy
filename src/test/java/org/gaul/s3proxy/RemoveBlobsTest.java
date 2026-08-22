@@ -31,11 +31,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.collect.ImmutableList;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
@@ -203,7 +203,7 @@ public final class RemoveBlobsTest {
     private static final class UnimplementedBlobStore
             extends AbstractUnsupportedBlobStore {
         @Override
-        public void removeBlob(String container, String name) {
+        public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
             throw refusal("NotImplemented",
                     "This operation is not implemented.");
         }
@@ -218,17 +218,11 @@ public final class RemoveBlobsTest {
         }
 
         @Override
-        public DeleteObjectResponse removeBlob(String container, String name,
-                @Nullable String versionId) {
+        public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
             return DeleteObjectResponse.builder()
                     .deleteMarker(true)
                     .versionId("marker-1")
                     .build();
-        }
-
-        @Override
-        public void removeBlob(String container, String name) {
-            throw new UnsupportedOperationException();
         }
     }
 
@@ -243,12 +237,14 @@ public final class RemoveBlobsTest {
         }
 
         @Override
-        public void removeBlob(String container, String name) {
+        public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+            String name = request.key();
             if (refused.contains(name)) {
                 throw refusal("InvalidArgument",
                         "refusing to delete " + name);
             }
             removed.add(name);
+            return DeleteObjectResponse.builder().build();
         }
     }
 
@@ -264,7 +260,7 @@ public final class RemoveBlobsTest {
         }
 
         @Override
-        public void removeBlob(String container, String name) {
+        public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
             try {
                 barrier.await(10, TimeUnit.SECONDS);
             } catch (TimeoutException | BrokenBarrierException e) {
@@ -275,7 +271,8 @@ public final class RemoveBlobsTest {
                 Thread.currentThread().interrupt();
                 timeouts.incrementAndGet();
             }
-            removed.add(name);
+            removed.add(request.key());
+            return DeleteObjectResponse.builder().build();
         }
     }
 

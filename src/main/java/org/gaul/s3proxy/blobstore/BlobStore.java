@@ -585,18 +585,17 @@ public interface BlobStore extends AutoCloseable {
     /** Deletes one object, reporting the marker a versioned delete wrote. */
     private DeletedObject removeOneBlob(String container,
             ObjectIdentifier object) {
+        DeleteObjectResponse result = removeBlob(DeleteObjectRequest.builder()
+                .bucket(container)
+                .key(object.key())
+                .versionId(object.versionId())
+                .build());
         var builder = DeletedObject.builder()
                 .key(object.key())
                 .versionId(object.versionId());
-        if (supportsVersioning()) {
-            DeleteObjectResponse result = removeBlob(container, object.key(),
-                    object.versionId());
-            if (Boolean.TRUE.equals(result.deleteMarker())) {
-                builder.deleteMarker(true)
-                        .deleteMarkerVersionId(result.versionId());
-            }
-        } else {
-            removeBlob(container, object.key());
+        if (Boolean.TRUE.equals(result.deleteMarker())) {
+            builder.deleteMarker(true)
+                    .deleteMarkerVersionId(result.versionId());
         }
         return builder.build();
     }
