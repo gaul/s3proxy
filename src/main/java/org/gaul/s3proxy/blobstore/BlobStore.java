@@ -254,7 +254,17 @@ public interface BlobStore extends AutoCloseable {
      */
     boolean deleteContainerIfEmpty(String container);
 
-    boolean blobExists(String container, String name);
+    /**
+     * Whether the object exists, answering by {@link #blobMetadata}'s
+     * rules -- so a delete marker over the key throws rather than
+     * answering false, as reading the metadata would.  This is the floor,
+     * one metadata round trip; a store with a lighter probe of its own
+     * overrides it: a fields-limited read, the SDK's exists call, a bare
+     * HEAD.
+     */
+    default boolean blobExists(String container, String name) {
+        return blobMetadata(container, name) != null;
+    }
 
     /**
      * Stores one object from {@code payload}, consuming and closing the

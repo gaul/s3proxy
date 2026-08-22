@@ -551,11 +551,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final boolean blobExists(String container, String key) {
-        return blobMetadata(container, key) != null;
-    }
-
-    @Override
     @Nullable
     public final ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {

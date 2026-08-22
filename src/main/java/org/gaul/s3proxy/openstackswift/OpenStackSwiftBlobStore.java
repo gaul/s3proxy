@@ -674,19 +674,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean blobExists(String container, String key) {
-        var swift = objectStorage();
-        try {
-            return swift.objects().get(container, encodeName(key)) != null;
-        } catch (ResponseException re) {
-            if (re.getStatus() == STATUS_NOT_FOUND) {
-                return false;
-            }
-            throw translate(re, container, key);
-        }
-    }
-
-    @Override
     @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {

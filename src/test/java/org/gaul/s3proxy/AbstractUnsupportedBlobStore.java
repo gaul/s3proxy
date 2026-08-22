@@ -89,11 +89,6 @@ abstract class AbstractUnsupportedBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean blobExists(String container, String name) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
         throw new UnsupportedOperationException();
