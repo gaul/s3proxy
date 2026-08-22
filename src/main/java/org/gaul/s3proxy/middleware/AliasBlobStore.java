@@ -43,6 +43,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -112,7 +113,7 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         return delegate().createContainer(request.toBuilder()
                 .bucket(getContainer(request.bucket()))
                 .build());
@@ -189,8 +190,8 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
-        return delegate().deleteContainerIfEmpty(getContainer(container));
+    public void deleteBucket(String container) {
+        delegate().deleteBucket(getContainer(container));
     }
 
     @Override

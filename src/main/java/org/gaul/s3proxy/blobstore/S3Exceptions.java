@@ -23,6 +23,7 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.http.SdkHttpResponse;
+import software.amazon.awssdk.services.s3.model.BucketAlreadyOwnedByYouException;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -55,6 +56,24 @@ public final class S3Exceptions {
                 .statusCode(404)
                 .awsErrorDetails(details(404, "NoSuchBucket",
                         "The specified bucket does not exist", Map.of()))
+                .build();
+    }
+
+    /**
+     * The 409 CreateBucket answers when the caller already owns the
+     * bucket, which S3 reports rather than treating the create as
+     * idempotent.
+     */
+    public static BucketAlreadyOwnedByYouException bucketAlreadyOwnedByYou(
+            String container) {
+        return BucketAlreadyOwnedByYouException.builder()
+                .message("bucket %s already owned by caller".formatted(
+                        container))
+                .statusCode(409)
+                .awsErrorDetails(details(409, "BucketAlreadyOwnedByYou",
+                        "Your previous request to create the named bucket" +
+                                " succeeded and you already own it.",
+                        Map.of()))
                 .build();
     }
 

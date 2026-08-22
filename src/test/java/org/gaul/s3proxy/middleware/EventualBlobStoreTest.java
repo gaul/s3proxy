@@ -193,8 +193,7 @@ public final class EventualBlobStoreTest {
     public void testCreateContainerInBothStores() throws Exception {
         String newContainer = createRandomContainerName();
         try {
-            assertThat(eventualBlobStore.createContainer(newContainer))
-                    .isTrue();
+            eventualBlobStore.createContainer(newContainer);
             // Container operations apply synchronously to both stores.
             assertThat(nearBlobStore.containerExists(newContainer)).isTrue();
             assertThat(farBlobStore.containerExists(newContainer)).isTrue();

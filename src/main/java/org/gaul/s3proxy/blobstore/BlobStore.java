@@ -40,6 +40,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -194,10 +195,16 @@ public interface BlobStore extends AutoCloseable {
 
     boolean containerExists(String container);
 
-    boolean createContainer(CreateBucketRequest request);
+    /**
+     * CreateBucket: creates the bucket, throwing the wire's
+     * BucketAlreadyOwnedByYou when the caller already has it -- a store
+     * with one namespace answers for all of it, since every bucket it
+     * sees is the caller's own.
+     */
+    CreateBucketResponse createContainer(CreateBucketRequest request);
 
     /** Creates a bucket without further options. */
-    default boolean createContainer(String container) {
+    default CreateBucketResponse createContainer(String container) {
         return createContainer(CreateBucketRequest.builder()
                 .bucket(container)
                 .build());
@@ -270,9 +277,7 @@ public interface BlobStore extends AutoCloseable {
             }
             throw se;
         }
-        if (!deleteContainerIfEmpty(container)) {
-            throw S3Exceptions.bucketNotEmpty(container);
-        }
+        deleteBucket(container);
     }
 
     /**
@@ -303,12 +308,13 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
-     * DeleteBucket: removes the container only when nothing remains in it.
-     * Answers true when the container is gone -- deleted now, or already
-     * absent -- and false as the wire's BucketNotEmpty; the frontend asks
-     * containerExists separately to tell NoSuchBucket apart.
+     * DeleteBucket: removes the bucket only when nothing remains in it --
+     * no object, and on a versioning store no version, marker or upload
+     * -- throwing BucketNotEmpty otherwise.  Deleting a bucket already
+     * absent succeeds quietly; the frontend asks containerExists
+     * separately to tell NoSuchBucket apart.
      */
-    boolean deleteContainerIfEmpty(String container);
+    void deleteBucket(String container);
 
     /**
      * Whether the object exists, answering by {@link #blobMetadata}'s

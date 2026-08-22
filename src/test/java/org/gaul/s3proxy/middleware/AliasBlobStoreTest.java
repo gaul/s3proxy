@@ -75,7 +75,7 @@ public final class AliasBlobStoreTest {
     }
 
     private void createContainer(String container) {
-        assertThat(aliasBlobStore.createContainer(container)).isTrue();
+        aliasBlobStore.createContainer(container);
         if (container.equals(aliasContainerName)) {
             createdContainers.add(containerName);
         } else {

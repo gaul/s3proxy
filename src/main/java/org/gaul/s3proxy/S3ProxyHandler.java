@@ -2543,12 +2543,7 @@ public class S3ProxyHandler {
             createRequest.acl(BucketCannedACL.PUBLIC_READ_WRITE);
         }
 
-        boolean created = blobStore.createContainer(createRequest.build());
-        if (!created) {
-            throw new S3ProxyException(S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU,
-                    S3ErrorCode.BUCKET_ALREADY_OWNED_BY_YOU.getMessage(),
-                    null, Map.of("BucketName", containerName));
-        }
+        blobStore.createContainer(createRequest.build());
 
         response.addHeader(HttpHeaders.LOCATION, "/" + containerName);
         addCorsResponseHeader(request, response);
@@ -2561,9 +2556,7 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
 
-        if (!blobStore.deleteContainerIfEmpty(containerName)) {
-            throw new S3ProxyException(S3ErrorCode.BUCKET_NOT_EMPTY);
-        }
+        blobStore.deleteBucket(containerName);
 
         addCorsResponseHeader(request, response);
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);

@@ -55,6 +55,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketRequest;
@@ -239,7 +240,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         try {
             if (!Region.US_EAST_1.equals(awsRegion) &&
                     request.createBucketConfiguration() == null) {
@@ -250,39 +251,26 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                                         .build())
                         .build();
             }
-            s3Client.createBucket(request);
-            return true;
+            return s3Client.createBucket(request);
         } catch (S3Exception e) {
-            if ("BucketAlreadyOwnedByYou".equals(S3Exceptions.errorCode(e))) {
-                // Idempotent success - bucket exists and caller owns it
-                return false;
-            }
             throw propagate(e, request.bucket(), null);
         }
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         try {
-            var response = s3Client.listObjectsV2(ListObjectsV2Request.builder()
-                    .bucket(container)
-                    .maxKeys(1)
-                    .build());
-            if (!response.contents().isEmpty()) {
-                return false;
-            }
             s3Client.deleteBucket(DeleteBucketRequest.builder()
                     .bucket(container)
                     .build());
-            return true;
-        } catch (NoSuchBucketException e) {
-            return true;
         } catch (S3Exception e) {
-            if (e.statusCode() == 409) {
-                // Bucket not empty
-                return false;
+            if (e instanceof NoSuchBucketException) {
+                // Already gone; the frontend asks containerExists
+                // separately.
+                return;
             }
-            throw e;
+            // A 409 relays the service's own BucketNotEmpty verbatim.
+            throw propagate(e, container, null);
         }
     }
 

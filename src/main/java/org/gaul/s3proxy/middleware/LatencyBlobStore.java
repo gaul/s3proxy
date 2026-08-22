@@ -42,6 +42,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -150,7 +151,7 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         simulateLatency(OP_CREATE_CONTAINER);
         return super.createContainer(request);
     }
@@ -180,9 +181,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         simulateLatency(OP_DELETE_CONTAINER);
-        return super.deleteContainerIfEmpty(container);
+        super.deleteBucket(container);
     }
 
     @Override

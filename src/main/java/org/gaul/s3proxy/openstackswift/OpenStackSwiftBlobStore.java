@@ -96,6 +96,7 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -582,7 +583,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         if (request.acl() == BucketCannedACL.PUBLIC_READ_WRITE) {
             throw new UnsupportedOperationException(
                     "anonymous write access unsupported in Swift");
@@ -598,9 +599,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (!response.isSuccess()) {
             throw translate(response, container, /*key=*/ null);
         }
-        // Swift returns 201 Created for a new container and 202 Accepted when
-        // the container already existed.
-        return response.getCode() == STATUS_CREATED;
+        // Swift returns 201 Created for a new container and 202 Accepted
+        // when the container already existed.
+        if (response.getCode() != STATUS_CREATED) {
+            throw S3Exceptions.bucketAlreadyOwnedByYou(container);
+        }
+        return CreateBucketResponse.builder().build();
     }
 
     private void purgeMultipartObjects(String container) {
@@ -669,11 +673,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         var response = deleteContainerResponse(container);
         int code = response.getCode();
         if (response.isSuccess() || code == STATUS_NOT_FOUND) {
-            return true;
+            return;
         }
         if (code != STATUS_CONFLICT) {
             throw translate(response, container, /*key=*/ null);
@@ -687,16 +691,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // -- purge them and retry, mirroring s3api's _delete_segments_bucket.
         // Otherwise the container is genuinely non-empty, so leave it intact.
         if (!containsOnlyOrphanSegments(container)) {
-            return false;
+            throw S3Exceptions.bucketNotEmpty(container);
         }
         purgeMultipartObjects(container);
         response = deleteContainerResponse(container);
         code = response.getCode();
         if (response.isSuccess() || code == STATUS_NOT_FOUND) {
-            return true;
+            return;
         }
         if (code == STATUS_CONFLICT) {
-            return false;
+            throw S3Exceptions.bucketNotEmpty(container);
         }
         throw translate(response, container, /*key=*/ null);
     }

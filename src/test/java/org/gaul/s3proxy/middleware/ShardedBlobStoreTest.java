@@ -28,11 +28,13 @@ import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
@@ -79,7 +81,7 @@ public final class ShardedBlobStoreTest {
         } else {
             this.createdContainers.add(container);
         }
-        assertThat(shardedBlobStore.createContainer(container)).isTrue();
+        shardedBlobStore.createContainer(container);
     }
 
     @Test
@@ -137,8 +139,7 @@ public final class ShardedBlobStoreTest {
     public void testDeleteContainer() {
         this.createContainer(containerName);
         assertThat(this.countShards()).isEqualTo(this.shards);
-        assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
-                .isTrue();
+        shardedBlobStore.deleteBucket(containerName);
         assertThat(this.countShards()).isZero();
     }
 
@@ -146,14 +147,18 @@ public final class ShardedBlobStoreTest {
     public void testDeleteContainerNonEmptyShard() throws Exception {
         this.createContainer(containerName);
         // Place an object directly on a non-zero shard so shard 0 keeps only
-        // the superblock.  deleteContainerIfEmpty must report the bucket as
-        // non-empty and leave every shard and the superblock intact.
+        // the superblock.  deleteBucket must report the bucket as non-empty
+        // and leave every shard and the superblock intact.
         String nonZeroShard = "%s-3".formatted(prefix);
         ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
         TestUtils.putBlob(blobStore, nonZeroShard, "object", content);
 
-        assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
-                .isFalse();
+        assertThatThrownBy(() ->
+                shardedBlobStore.deleteBucket(containerName))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        S3Exceptions.errorCode((S3Exception) thrown))
+                        .isEqualTo("BucketNotEmpty"));
         assertThat(this.countShards()).isEqualTo(this.shards);
         assertThat(blobStore.blobExists(nonZeroShard, "object")).isTrue();
         assertThat(blobStore.blobExists("%s-0".formatted(prefix),
@@ -170,8 +175,7 @@ public final class ShardedBlobStoreTest {
         blobStore.removeBlob("%s-0".formatted(prefix),
                 ".s3proxy-sharded-superblock");
 
-        assertThat(shardedBlobStore.deleteContainerIfEmpty(containerName))
-                .isTrue();
+        shardedBlobStore.deleteBucket(containerName);
         assertThat(this.countShards()).isZero();
     }
 

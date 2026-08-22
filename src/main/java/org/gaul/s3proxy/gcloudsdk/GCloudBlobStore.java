@@ -90,6 +90,7 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
@@ -329,7 +330,7 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         String container = request.bucket();
         boolean publicRead = request.acl() == BucketCannedACL.PUBLIC_READ;
         boolean publicReadWrite =
@@ -349,10 +350,10 @@ public final class GCloudBlobStore implements BlobStore {
                                     Acl.Role.WRITER : Acl.Role.READER));
                 }
             }
-            return true;
+            return CreateBucketResponse.builder().build();
         } catch (StorageException se) {
             if (se.getCode() == 409) {
-                return false;
+                throw S3Exceptions.bucketAlreadyOwnedByYou(container);
             }
             throw se;
         }
@@ -400,20 +401,23 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         var page = storage.list(container,
                 BlobListOption.pageSize(1));
         if (page.getValues().iterator().hasNext()) {
-            return false;
+            throw S3Exceptions.bucketNotEmpty(container);
         }
         try {
             storage.delete(container);
-            return true;
         } catch (StorageException se) {
-            if (se.getCode() == 404) {
-                return true;
+            if (se.getCode() == 409) {
+                // Noncurrent generations keep a bucket alive even when no
+                // live object answers the listing above.
+                throw S3Exceptions.bucketNotEmpty(container);
             }
-            throw se;
+            if (se.getCode() != 404) {
+                throw se;
+            }
         }
     }
 

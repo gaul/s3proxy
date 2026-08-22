@@ -30,6 +30,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -54,7 +55,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 
@@ -75,7 +76,7 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

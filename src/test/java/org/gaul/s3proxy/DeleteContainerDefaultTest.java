@@ -125,8 +125,8 @@ public final class DeleteContainerDefaultTest {
     /**
      * A container the store still refuses -- a concurrent writer, or
      * bookkeeping its listings hide -- is a failure to report: the old
-     * shape discarded deleteContainerIfEmpty's answer, and teardowns
-     * leaked containers in silence.
+     * shape swallowed the store's refusal, and teardowns leaked
+     * containers in silence.
      */
     @Test
     public void testThrowsWhenTheStoreStillRefuses() {
@@ -343,12 +343,11 @@ public final class DeleteContainerDefaultTest {
         }
 
         @Override
-        public boolean deleteContainerIfEmpty(String container) {
+        public void deleteBucket(String container) {
             if (refuseFinalDelete) {
-                return false;
+                throw S3Exceptions.bucketNotEmpty(container);
             }
             containerDeleted = true;
-            return true;
         }
     }
 }

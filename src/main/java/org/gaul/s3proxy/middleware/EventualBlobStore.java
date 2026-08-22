@@ -41,6 +41,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -92,9 +93,10 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
-        return delegate().createContainer(request) &&
-                writeStore.createContainer(request);
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
+        var response = delegate().createContainer(request);
+        writeStore.createContainer(request);
+        return response;
     }
 
     // Container operations are not eventually consistent: apply them
@@ -119,9 +121,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
-        return delegate().deleteContainerIfEmpty(container) &&
-                writeStore.deleteContainerIfEmpty(container);
+    public void deleteBucket(String container) {
+        delegate().deleteBucket(container);
+        writeStore.deleteBucket(container);
     }
 
     @Override

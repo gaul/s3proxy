@@ -105,6 +105,7 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -386,7 +387,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         if (request.acl() == BucketCannedACL.PUBLIC_READ_WRITE) {
             throw new UnsupportedOperationException(
                     "anonymous write access unsupported in Azure");
@@ -400,11 +401,10 @@ public final class AzureBlobStore implements BlobStore {
             var response = blobServiceClient
                     .createBlobContainerIfNotExistsWithResponse(
                             container, azureOptions, /*context=*/ null);
-            return switch (response.getStatusCode()) {
-            case 201 -> true;
-            case 409 -> false;
-            default -> false;
-            };
+            if (response.getStatusCode() != 201) {
+                throw S3Exceptions.bucketAlreadyOwnedByYou(container);
+            }
+            return CreateBucketResponse.builder().build();
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
@@ -422,7 +422,7 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
             // An empty page can carry a continuation token onto blobs that do
@@ -434,15 +434,13 @@ public final class AzureBlobStore implements BlobStore {
                     m -> pages.iterableByPage(m).iterator().next(),
                     /*marker=*/ null);
             if (!page.getValue().isEmpty()) {
-                return false;
+                throw S3Exceptions.bucketNotEmpty(container);
             }
             blobServiceClient.deleteBlobContainer(container);
-            return true;
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
-                return true;
+            if (!bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
+                throw bse;
             }
-            throw bse;
         }
     }
 

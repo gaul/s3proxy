@@ -46,6 +46,7 @@ import com.google.common.hash.Hashing;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
@@ -57,6 +58,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -229,9 +231,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
     }
 
-    private boolean createShards(ShardedBucket bucket,
-                                 CreateBucketRequest request) {
-        var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
+    private void createShards(ShardedBucket bucket,
+                              CreateBucketRequest request) {
+        var futuresBuilder = new ImmutableList.Builder<Future<?>>();
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.min(bucket.shards, MAX_SHARD_THREADS));
         BlobStore blobStore = this.delegate();
@@ -245,21 +247,37 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         }
         var futures = futuresBuilder.build();
         executor.shutdown();
-        boolean ret = true;
-        for (Future<Boolean> future : futures) {
+        awaitShards(futures, "Failed to create some shards");
+    }
+
+    /**
+     * Awaits every shard's outcome before reporting any failure, so a
+     * refusal on one shard -- recreating a bucket whose shards exist --
+     * still leaves the others created or deleted.
+     */
+    private static void awaitShards(List<Future<?>> futures, String message) {
+        RuntimeException failure = null;
+        for (Future<?> future : futures) {
             try {
-                ret &= future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException("Failed to create some shards", e);
+                future.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(message, e);
+            } catch (ExecutionException e) {
+                if (failure == null) {
+                    failure = e.getCause() instanceof RuntimeException re ?
+                            re : new RuntimeException(message, e);
+                }
             }
         }
-
-        return ret;
+        if (failure != null) {
+            throw failure;
+        }
     }
 
     @SuppressWarnings("EmptyCatch")
     @Override
-    public boolean createContainer(CreateBucketRequest request) {
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
         String container = request.bucket();
         ShardedBucket bucket = this.buckets.get(container);
         if (bucket == null) {
@@ -280,7 +298,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             checkSuperBlock(existingSuperblock, superblockMeta, container);
         }
 
-        boolean ret = createShards(bucket, request);
+        createShards(bucket, request);
 
         // Upload the superblock
         if (existingSuperblock == null) {
@@ -292,7 +310,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                     .build(), new ByteArrayInputStream(new byte[0]));
         }
 
-        return ret;
+        return CreateBucketResponse.builder().build();
     }
 
     @Override
@@ -395,27 +413,19 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         throw new UnsupportedOperationException("sharded bucket");
     }
 
-    private boolean deleteShards(ShardedBucket bucket) {
-        var futuresBuilder = new ImmutableList.Builder<Future<Boolean>>();
+    private void deleteShards(ShardedBucket bucket) {
+        var futuresBuilder = new ImmutableList.Builder<Future<?>>();
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.min(bucket.shards, MAX_SHARD_THREADS));
         for (int n = 0; n < bucket.shards; ++n) {
             String shard = ShardedBlobStore.getShardContainer(bucket, n);
-            futuresBuilder.add(executor.submit(
-                () -> this.delegate().deleteContainerIfEmpty(shard)));
+            futuresBuilder.add(executor.submit(() -> {
+                this.delegate().deleteBucket(shard);
+                return null;
+            }));
         }
         executor.shutdown();
-        var futures = futuresBuilder.build();
-        boolean ret = true;
-        for (Future<Boolean> future : futures) {
-            try {
-                ret &= future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException("Failed to delete shards", e);
-            }
-        }
-
-        return ret;
+        awaitShards(futuresBuilder.build(), "Failed to delete shards");
     }
 
     private boolean shardsAreEmpty(ShardedBucket bucket) {
@@ -451,10 +461,11 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean deleteContainerIfEmpty(String container) {
+    public void deleteBucket(String container) {
         ShardedBucket bucket = this.buckets.get(container);
         if (bucket == null) {
-            return this.delegate().deleteContainerIfEmpty(container);
+            this.delegate().deleteBucket(container);
+            return;
         }
 
         // A sharded bucket is empty only when shard 0 holds nothing but the
@@ -470,18 +481,18 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             if (sm.key().equals(SUPERBLOCK_BLOB_NAME)) {
                 superblockPresent = true;
             } else {
-                return false;
+                throw S3Exceptions.bucketNotEmpty(container);
             }
         }
         if (!this.shardsAreEmpty(bucket)) {
-            return false;
+            throw S3Exceptions.bucketNotEmpty(container);
         }
 
         if (superblockPresent) {
             this.delegate().removeBlob(zeroShardContainer,
                     SUPERBLOCK_BLOB_NAME);
         }
-        return this.deleteShards(bucket);
+        this.deleteShards(bucket);
     }
 
     @Override

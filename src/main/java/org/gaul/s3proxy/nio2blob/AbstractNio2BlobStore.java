@@ -91,6 +91,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
@@ -531,13 +532,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final boolean createContainer(CreateBucketRequest request) {
+    public final CreateBucketResponse createContainer(
+            CreateBucketRequest request) {
         String container = request.bucket();
         try {
             Files.createDirectories(getRoot());
             Files.createDirectory(resolveContainer(container));
         } catch (FileAlreadyExistsException faee) {
-            return false;
+            throw S3Exceptions.bucketAlreadyOwnedByYou(container);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -548,7 +550,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 acl == BucketCannedACL.PUBLIC_READ_WRITE ?
                 acl : BucketCannedACL.PRIVATE);
 
-        return true;
+        return CreateBucketResponse.builder().build();
     }
 
     @Override
@@ -1844,7 +1846,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final boolean deleteContainerIfEmpty(String container) {
+    public final void deleteBucket(String container) {
         var containerPath = resolveContainer(container);
         try {
             // Versions and delete markers keep a bucket alive, as on S3 --
@@ -1854,15 +1856,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             try {
                 Files.deleteIfExists(versionsDir(containerPath));
             } catch (DirectoryNotEmptyException dnee) {
-                return false;
+                throw S3Exceptions.bucketNotEmpty(container);
             }
             Files.deleteIfExists(containerPath);
         } catch (DirectoryNotEmptyException dnee) {
-            return false;
+            throw S3Exceptions.bucketNotEmpty(container);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
-        return true;
     }
 
     /**
@@ -1870,9 +1871,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * included.  The default implementation clears what list() reports and
      * then removes the directory, but list() hides the multipart parts and
      * stubs and the "/" key sentinel, so a container left holding only those
-     * -- an upload that was never completed or aborted -- was never emptied,
-     * and the directory silently survived because the caller cannot see the
-     * deleteContainerIfEmpty that failed.
+     * -- an upload that was never completed or aborted -- was never
+     * emptied, and its deleteBucket would refuse what the caller cannot
+     * see.
      */
     @Override
     public final void deleteContainer(String container) {
