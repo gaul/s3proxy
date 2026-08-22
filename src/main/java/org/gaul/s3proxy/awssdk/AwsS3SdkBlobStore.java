@@ -252,22 +252,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public void deleteContainer(String container) {
-        try {
-            clearContainer(ListObjectsV2Request.builder()
-                    .bucket(container)
-                    .build());
-            s3Client.deleteBucket(DeleteBucketRequest.builder()
-                    .bucket(container)
-                    .build());
-        } catch (NoSuchBucketException e) {
-            // Already deleted, ignore
-        } catch (S3Exception e) {
-            throw propagate(e, container, null);
-        }
-    }
-
-    @Override
     public boolean deleteContainerIfEmpty(String container) {
         try {
             var response = s3Client.listObjectsV2(ListObjectsV2Request.builder()

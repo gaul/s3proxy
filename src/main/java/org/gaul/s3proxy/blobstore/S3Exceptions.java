@@ -58,6 +58,17 @@ public final class S3Exceptions {
                 .build();
     }
 
+    /** The 409 DeleteBucket answers while anything remains in the bucket. */
+    public static S3Exception bucketNotEmpty(String container) {
+        return (S3Exception) S3Exception.builder()
+                .message("container %s is not empty".formatted(container))
+                .statusCode(409)
+                .awsErrorDetails(details(409, "BucketNotEmpty",
+                        "The bucket you tried to delete is not empty",
+                        Map.of()))
+                .build();
+    }
+
     public static NoSuchKeyException noSuchKey(String container,
             @Nullable String key, @Nullable String message) {
         return noSuchKey(container, key, message, /*cause=*/ null);

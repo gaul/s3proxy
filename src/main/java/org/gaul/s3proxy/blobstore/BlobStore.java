@@ -38,6 +38,7 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
@@ -54,13 +55,14 @@ import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
@@ -149,6 +151,15 @@ public interface BlobStore extends AutoCloseable {
 
     void setContainerAccess(String container, BucketCannedACL access);
 
+    /**
+     * Removes the current objects a listing reports, page by page.  Not an
+     * S3 operation -- S3 has no way to empty a bucket, and the frontend
+     * never calls this -- but an embedder and test convenience with
+     * DeleteObjects semantics per key: on a versioning-enabled container
+     * every delete lays a marker over its key rather than removing data,
+     * and whatever the listing hides -- noncurrent versions, multipart
+     * bookkeeping -- stays.
+     */
     default void clearContainer(ListObjectsV2Request request) {
         var request0 = request;
         while (true) {
@@ -164,17 +175,83 @@ public interface BlobStore extends AutoCloseable {
         }
     }
 
+    /**
+     * Deletes the container and everything it holds: in-progress multipart
+     * uploads aborted, every object removed -- by version id, on a
+     * container that has ever versioned, since the versionless delete
+     * would lay markers instead -- and the emptied container deleted.  Not
+     * an S3 operation -- S3 refuses to delete a non-empty bucket, and the
+     * frontend never calls this -- but an embedder and test convenience.
+     * Deleting a container already gone succeeds quietly; a container the
+     * store still refuses -- a concurrent writer, or bookkeeping its
+     * listings hide -- throws BucketNotEmpty rather than leaving it
+     * behind in silence.  Stores override this where the backend can do
+     * better natively: one call that takes the contents with it, a
+     * recursive remove, a purge by generation.
+     */
     default void deleteContainer(String container) {
         try {
-            clearContainer(ListObjectsV2Request.builder()
-                    .bucket(container)
-                    .build());
-        } catch (NoSuchBucketException e) {
-            return;
+            for (var upload : listMultipartUploads(container)) {
+                abortMultipartUpload(new MultipartUpload(upload.uploadId(),
+                        CreateMultipartUploadRequest.builder()
+                                .bucket(container)
+                                .key(upload.key())
+                                .build()));
+            }
+            if (supportsVersioning() &&
+                    getContainerVersioning(container) != null) {
+                removeAllVersions(container);
+            } else {
+                clearContainer(ListObjectsV2Request.builder()
+                        .bucket(container)
+                        .build());
+            }
+        } catch (S3Exception se) {
+            if ("NoSuchBucket".equals(S3Exceptions.errorCode(se))) {
+                // The container is already gone; deleteContainer is
+                // idempotent.
+                return;
+            }
+            throw se;
         }
-        deleteContainerIfEmpty(container);
+        if (!deleteContainerIfEmpty(container)) {
+            throw S3Exceptions.bucketNotEmpty(container);
+        }
     }
 
+    /**
+     * Removes every version and delete marker by its id -- the delete
+     * that removes data outright, where the versionless form would stack
+     * one more marker per key forever.
+     */
+    private void removeAllVersions(String container) {
+        var request = ListObjectVersionsRequest.builder()
+                .bucket(container)
+                .build();
+        while (true) {
+            ListObjectVersionsResponse page = listVersions(request);
+            for (ObjectVersion version : page.versions()) {
+                removeBlob(container, version.key(), version.versionId());
+            }
+            for (DeleteMarkerEntry marker : page.deleteMarkers()) {
+                removeBlob(container, marker.key(), marker.versionId());
+            }
+            if (!Boolean.TRUE.equals(page.isTruncated())) {
+                return;
+            }
+            request = request.toBuilder()
+                    .keyMarker(page.nextKeyMarker())
+                    .versionIdMarker(page.nextVersionIdMarker())
+                    .build();
+        }
+    }
+
+    /**
+     * DeleteBucket: removes the container only when nothing remains in it.
+     * Answers true when the container is gone -- deleted now, or already
+     * absent -- and false as the wire's BucketNotEmpty; the frontend asks
+     * containerExists separately to tell NoSuchBucket apart.
+     */
     boolean deleteContainerIfEmpty(String container);
 
     boolean blobExists(String container, String name);

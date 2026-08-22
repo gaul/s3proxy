@@ -42,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -103,7 +104,6 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
-import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -556,27 +556,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return response.getCode() == STATUS_CREATED;
     }
 
-    @Override
-    public void deleteContainer(String container) {
-        try {
-            clearContainer(ListObjectsV2Request.builder()
-                    .bucket(container)
-                    .build());
-        } catch (NoSuchBucketException nsbe) {
-            // The container is already gone; deleteContainer is idempotent.
-            return;
-        }
-        // clearContainer lists via list(), which hides multipart-upload
-        // segments, so purge those directly before the container delete (which
-        // would otherwise fail because the container is not actually empty).
-        purgeMultipartObjects(container);
-        var response = deleteContainerResponse(container);
-        if (!response.isSuccess() &&
-                response.getCode() != STATUS_NOT_FOUND) {
-            throw translate(response, container, /*key=*/ null);
-        }
-    }
-
     private void purgeMultipartObjects(String container) {
         var swift = objectStorage();
         List<? extends SwiftObject> objects;
@@ -617,6 +596,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             if (objects.isEmpty()) {
                 return sawSegment;
             }
+            String before = marker;
             for (var object : objects) {
                 String name = object.getName();
                 if (name == null) {
@@ -629,6 +609,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 }
                 sawSegment = true;
                 marker = name;
+            }
+            // Names come back strictly after the marker, so a page that
+            // leaves it unmoved is a backend ignoring markers, and asking
+            // again would ask forever.  What it showed decides -- at worst
+            // an unwarranted purge of orphans, which the delete retry
+            // still answers with the container's true state.
+            if (Objects.equals(marker, before)) {
+                return sawSegment;
             }
         }
     }

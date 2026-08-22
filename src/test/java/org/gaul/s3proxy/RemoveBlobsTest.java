@@ -19,7 +19,6 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.io.InputStream;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BrokenBarrierException;
@@ -32,48 +31,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.collect.ImmutableList;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.services.s3.model.BucketCannedACL;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
-import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
-import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
-import software.amazon.awssdk.services.s3.model.Part;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
-import software.amazon.awssdk.services.s3.model.UploadPartRequest;
-import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
  * Covers the parallel removeBlobs the BlobStore interface supplies to every
  * store that has no bulk delete of its own.
- *
- * <p>The stores here implement BlobStore directly rather than extending
- * ForwardingBlobStore, which overrides removeBlobs to hand the whole batch to
- * its delegate -- that would measure the delegate's implementation instead of
- * the default under test.
  */
 public final class RemoveBlobsTest {
     private static final String CONTAINER = "container";
@@ -307,125 +279,4 @@ public final class RemoveBlobsTest {
         }
     }
 
-    /**
-     * The rest of the interface, which these tests do not reach.  Only
-     * removeBlob is worth a body; removeBlobs is deliberately left to the
-     * interface, since that is what is under test.
-     */
-    private abstract static class AbstractUnsupportedBlobStore
-            implements BlobStore {
-        @Override
-        public ListBucketsResponse list() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ListObjectsV2Response list(ListObjectsV2Request request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean containerExists(String container) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean createContainer(CreateBucketRequest request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public BucketCannedACL getContainerAccess(String container) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void setContainerAccess(String container,
-                BucketCannedACL access) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean deleteContainerIfEmpty(String container) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean blobExists(String container, String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public PutObjectResponse putBlob(PutObjectRequest request,
-                InputStream payload) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public CopyObjectResponse copyBlob(CopyObjectRequest request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ResponseInputStream<GetObjectResponse> getBlob(
-                GetObjectRequest request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ObjectCannedACL getBlobAccess(String container, String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void setBlobAccess(String container, String name,
-                ObjectCannedACL access) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public MultipartUpload initiateMultipartUpload(
-                CreateMultipartUploadRequest request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void abortMultipartUpload(MultipartUpload mpu) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public CompleteMultipartUploadResponse completeMultipartUpload(
-                MultipartUpload mpu,
-                CompleteMultipartUploadRequest request) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
-                UploadPartRequest request, InputStream payload) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<Part> listMultipartUpload(MultipartUpload mpu) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
-                listMultipartUploads(String container) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public long getMinimumMultipartPartSize() {
-            throw new UnsupportedOperationException();
-        }
-    }
 }
