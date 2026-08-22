@@ -138,6 +138,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
@@ -1783,12 +1784,6 @@ public class S3ProxyHandler {
     private void handleContainerList(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore)
             throws IOException {
-        // S3 lists buckets ordered by name; the backends promise no order of
-        // their own, and paginating an unstable one would drop or repeat
-        // buckets between pages.
-        var buckets = new ArrayList<Bucket>(blobStore.list().buckets());
-        buckets.sort(Comparator.comparing(Bucket::name));
-
         int maxBuckets = MAX_BUCKETS;
         String maxBucketsString = request.getParameter("max-buckets");
         if (maxBucketsString != null) {
@@ -1801,27 +1796,19 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
             }
         }
-        // the token names the last bucket the previous page returned
-        String continuationToken = request.getParameter("continuation-token");
         String prefix = request.getParameter("prefix");
 
-        var page = new ArrayList<Bucket>();
-        String nextContinuationToken = null;
-        for (Bucket bucket : buckets) {
-            String name = bucket.name();
-            if (prefix != null && !name.startsWith(prefix)) {
-                continue;
-            }
-            if (continuationToken != null &&
-                    name.compareTo(continuationToken) <= 0) {
-                continue;
-            }
-            if (page.size() == maxBuckets) {
-                nextContinuationToken = page.get(page.size() - 1).name();
-                break;
-            }
-            page.add(bucket);
-        }
+        var result = blobStore.list(ListBucketsRequest.builder()
+                .maxBuckets(maxBuckets)
+                // S3 treats an empty continuation-token as absent rather
+                // than refusing it; a native store would reject the empty
+                // string as a malformed token.
+                .continuationToken(Strings.emptyToNull(
+                        request.getParameter("continuation-token")))
+                .prefix(prefix)
+                .build());
+        List<Bucket> page = result.buckets();
+        String nextContinuationToken = result.continuationToken();
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);

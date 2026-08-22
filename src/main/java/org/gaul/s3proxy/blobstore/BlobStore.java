@@ -18,6 +18,8 @@
 package org.gaul.s3proxy.blobstore;
 
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -30,6 +32,7 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -48,6 +51,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
@@ -85,7 +89,59 @@ public interface BlobStore extends AutoCloseable {
     default void close() {
     }
 
+    /** Lists every bucket in one response: the floor the request form
+     * pages over. */
     ListBucketsResponse list();
+
+    /**
+     * Lists one page of buckets: the request's prefix filters names, its
+     * continuationToken names the last bucket of the previous page, and
+     * maxBuckets caps the page, null capping nothing -- with the next
+     * token on the response only while more buckets remain.  The default
+     * emulates over {@link #list()}, sorting by name since the stores
+     * promise no order of their own and paginating an unstable one would
+     * drop or repeat buckets between pages.  Wrappers inherit it, so
+     * their renaming and filtering keep applying; a store whose service
+     * pages natively overrides it.  The frontend validates the wire's
+     * max-buckets range, so this trusts its request.
+     */
+    default ListBucketsResponse list(ListBucketsRequest request) {
+        ListBucketsResponse all = list();
+        var buckets = new ArrayList<>(all.buckets());
+        buckets.sort(Comparator.comparing(Bucket::name));
+
+        String prefix = request.prefix();
+        String continuationToken = request.continuationToken();
+        int maxBuckets = request.maxBuckets() == null ?
+                Integer.MAX_VALUE : request.maxBuckets();
+
+        var page = new ArrayList<Bucket>();
+        String nextContinuationToken = null;
+        for (Bucket bucket : buckets) {
+            String name = bucket.name();
+            if (prefix != null && !name.startsWith(prefix)) {
+                continue;
+            }
+            if (continuationToken != null &&
+                    name.compareTo(continuationToken) <= 0) {
+                continue;
+            }
+            if (page.size() >= maxBuckets) {
+                if (!page.isEmpty()) {
+                    nextContinuationToken =
+                            page.get(page.size() - 1).name();
+                }
+                break;
+            }
+            page.add(bucket);
+        }
+        return ListBucketsResponse.builder()
+                .buckets(page)
+                .owner(all.owner())
+                .continuationToken(nextContinuationToken)
+                .prefix(prefix)
+                .build();
+    }
 
     /**
      * Lists one page of a bucket.  The page's nextContinuationToken names

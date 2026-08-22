@@ -72,6 +72,7 @@ import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
@@ -182,6 +183,15 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     public ListBucketsResponse list() {
         try {
             return s3Client.listBuckets();
+        } catch (S3Exception e) {
+            throw propagate(e, null, null);
+        }
+    }
+
+    @Override
+    public ListBucketsResponse list(ListBucketsRequest request) {
+        try {
+            return s3Client.listBuckets(request);
         } catch (S3Exception e) {
             throw propagate(e, null, null);
         }
