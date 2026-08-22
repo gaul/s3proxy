@@ -86,17 +86,6 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(final String containerName, final String blobName) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
-    public DeleteObjectResponse removeBlob(final String containerName,
-            final String blobName, final @Nullable String versionId) {
-        throw new UnsupportedOperationException("read-only BlobStore");
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(final DeleteObjectRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }

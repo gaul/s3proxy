@@ -525,11 +525,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String name) {
-        this.delegate().removeBlob(this.getShard(container, name), name);
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         return this.delegate().removeBlob(request.toBuilder()
                 .bucket(this.getShard(request.bucket(), request.key()))

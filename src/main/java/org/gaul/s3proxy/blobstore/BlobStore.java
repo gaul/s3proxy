@@ -382,30 +382,39 @@ public interface BlobStore extends AutoCloseable {
                 .build());
     }
 
-    void removeBlob(String container, String name);
-
     /**
-     * Deletes one version, or acts as an ordinary delete when
-     * {@code versionId} is null -- which on a versioning-enabled container
-     * creates a delete marker rather than removing data.  Only meaningful
-     * on a store that {@link #supportsVersioning}; the default
-     * implementation throws UnsupportedOperationException.
+     * Deletes one object the way DeleteObject does.  A versionId names the
+     * one version to remove outright -- only meaningful on a store that
+     * {@link #supportsVersioning} -- while a versionless delete removes
+     * the current object, or lays a delete marker over the key on a
+     * versioning-enabled container.  The request's conditions -- ifMatch
+     * and the size and last-modified-time forms -- must hold atomically,
+     * which only the backing service can judge; a store refuses what it
+     * cannot honor with UnsupportedOperationException, and the frontend
+     * emulates conditions it can against the store's own metadata
+     * instead.
      */
-    default DeleteObjectResponse removeBlob(String container, String name,
-            @Nullable String versionId) {
-        throw new UnsupportedOperationException("versioning not supported");
+    DeleteObjectResponse removeBlob(DeleteObjectRequest request);
+
+    /** Deletes the current object, or lays a marker over a versioned key. */
+    default void removeBlob(String container, String name) {
+        removeBlob(DeleteObjectRequest.builder()
+                .bucket(container)
+                .key(name)
+                .build());
     }
 
     /**
-     * Deletes only when the request's conditions hold -- If-Match and the
-     * size and last-modified-time forms -- evaluated by the backing
-     * service, which is what makes them atomic.  Only meaningful on a
-     * store whose service deletes conditionally; the default
-     * implementation throws UnsupportedOperationException.
+     * Deletes the version named, or acts as an ordinary delete when
+     * {@code versionId} is null.
      */
-    default DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
-        throw new UnsupportedOperationException(
-                "conditional delete not supported");
+    default DeleteObjectResponse removeBlob(String container, String name,
+            @Nullable String versionId) {
+        return removeBlob(DeleteObjectRequest.builder()
+                .bucket(container)
+                .key(name)
+                .versionId(versionId)
+                .build());
     }
 
     /**

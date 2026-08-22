@@ -234,11 +234,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String name) {
-        super.removeBlob(container, addPrefix(container, name));
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         return super.removeBlob(request.toBuilder()
                 .key(addPrefix(request.bucket(), request.key()))

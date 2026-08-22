@@ -107,6 +107,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
@@ -986,9 +988,18 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String key) {
-        var client = blobServiceClient.getBlobContainerClient(container)
-                .getBlobClient(key);
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        if (request.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        if (request.ifMatch() != null || request.ifMatchSize() != null ||
+                request.ifMatchLastModifiedTime() != null) {
+            throw new UnsupportedOperationException(
+                    "conditional delete not supported");
+        }
+        var client = blobServiceClient.getBlobContainerClient(request.bucket())
+                .getBlobClient(request.key());
         try {
             client.delete();
         } catch (BlobStorageException bse) {
@@ -996,6 +1007,7 @@ public final class AzureBlobStore implements BlobStore {
                 throw bse;
             }
         }
+        return DeleteObjectResponse.builder().build();
     }
 
     /**

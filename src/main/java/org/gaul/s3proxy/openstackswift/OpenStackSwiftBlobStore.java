@@ -97,6 +97,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -1050,7 +1052,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String key) {
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        if (request.versionId() != null) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
+        if (request.ifMatch() != null || request.ifMatchSize() != null ||
+                request.ifMatchLastModifiedTime() != null) {
+            throw new UnsupportedOperationException(
+                    "conditional delete not supported");
+        }
+        String container = request.bucket();
+        String key = request.key();
         var swift = objectStorage();
         String encoded = encodeName(key);
         var options = ObjectDeleteOptions.create();
@@ -1067,6 +1080,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 response.getCode() != STATUS_NOT_FOUND) {
             throw translate(response, container, key);
         }
+        return DeleteObjectResponse.builder().build();
     }
 
     /**

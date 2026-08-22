@@ -148,17 +148,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public void removeBlob(String container, String name) {
-        delegate().removeBlob(container, name);
-    }
-
-    @Override
-    public DeleteObjectResponse removeBlob(String container, String name,
-            @Nullable String versionId) {
-        return delegate().removeBlob(container, name, versionId);
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         return delegate().removeBlob(request);
     }

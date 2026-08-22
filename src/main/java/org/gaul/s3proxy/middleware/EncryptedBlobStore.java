@@ -393,12 +393,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String name) {
-        name = blobNameWithSuffix(container, name);
-        delegate().removeBlob(container, name);
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         return delegate().removeBlob(request.toBuilder()
                 .key(blobNameWithSuffix(request.bucket(), request.key()))

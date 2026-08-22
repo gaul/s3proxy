@@ -93,6 +93,7 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
@@ -1164,26 +1165,15 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String key) {
-        if (isVersioned(container)) {
-            // A delete that names no version is still a delete marker on a
-            // versioned container; the frontend reaches this overload for
-            // it whenever it has no result to report.
-            removeBlob(container, key, /*versionId=*/ null);
-            return;
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        if (request.ifMatch() != null || request.ifMatchSize() != null ||
+                request.ifMatchLastModifiedTime() != null) {
+            throw new UnsupportedOperationException(
+                    "conditional delete not supported");
         }
-        try {
-            storage.delete(BlobId.of(container, key));
-        } catch (StorageException se) {
-            if (se.getCode() != 404) {
-                throw se;
-            }
-        }
-    }
-
-    @Override
-    public DeleteObjectResponse removeBlob(String container, String key,
-            @Nullable String versionId) {
+        String container = request.bucket();
+        String key = request.key();
+        String versionId = request.versionId();
         if (versionId == null) {
             if (!isVersioned(container)) {
                 try {

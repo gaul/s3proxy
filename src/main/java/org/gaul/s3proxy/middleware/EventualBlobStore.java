@@ -153,18 +153,6 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(final String containerName, final String blobName) {
-        writeStore.removeBlob(containerName, blobName);
-        schedule(new Callable<Void>() {
-                @Override
-                public Void call() {
-                    delegate().removeBlob(containerName, blobName);
-                    return null;
-                }
-            });
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(final DeleteObjectRequest request) {
         // The near store holds the freshest state, so it is the one that
         // judges the condition; the far copy follows unconditionally, as it

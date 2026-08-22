@@ -235,11 +235,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(final String containerName, final String blobName) {
-        delegate().removeBlob(getContainer(containerName), blobName);
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(final DeleteObjectRequest request) {
         return delegate().removeBlob(request.toBuilder()
                 .bucket(getContainer(request.bucket()))

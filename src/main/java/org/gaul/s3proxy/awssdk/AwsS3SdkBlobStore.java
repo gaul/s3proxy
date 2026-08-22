@@ -370,46 +370,29 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String key) {
-        try {
-            removeBlob(container, key, /*versionId=*/ null);
-        } catch (NoSuchBucketException e) {
-            // Ignore - delete is idempotent
-        }
-    }
-
-    @Override
-    public DeleteObjectResponse removeBlob(String container, String key,
-            @Nullable String versionId) {
-        var requestBuilder = DeleteObjectRequest.builder()
-                .bucket(container)
-                .key(key);
-        if (versionId != null) {
-            requestBuilder.versionId(versionId);
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        if (request.ifMatch() != null || request.ifMatchSize() != null ||
+                request.ifMatchLastModifiedTime() != null) {
+            // The service judges the conditions, so its answer -- including
+            // a 404 for an absent key, unlike the idempotent unconditional
+            // delete below -- relays verbatim.
+            try {
+                return s3Client.deleteObject(request);
+            } catch (S3Exception e) {
+                throw propagate(e, request.bucket(), request.key());
+            }
         }
         try {
-            return s3Client.deleteObject(requestBuilder.build());
+            return s3Client.deleteObject(request);
         } catch (NoSuchKeyException e) {
             // Delete is idempotent; an absent key is not an error.
             return DeleteObjectResponse.builder().build();
         } catch (NoSuchBucketException e) {
             throw e;
         } catch (S3Exception e) {
-            if (e.statusCode() == 404 && versionId == null) {
+            if (e.statusCode() == 404 && request.versionId() == null) {
                 return DeleteObjectResponse.builder().build();
             }
-            throw propagate(e, container, key);
-        }
-    }
-
-    @Override
-    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
-        // The service judges the conditions, so its answer -- including a
-        // 404 for an absent key, unlike the idempotent forms above --
-        // relays verbatim.
-        try {
-            return s3Client.deleteObject(request);
-        } catch (S3Exception e) {
             throw propagate(e, request.bucket(), request.key());
         }
     }

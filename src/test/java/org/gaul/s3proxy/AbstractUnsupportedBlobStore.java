@@ -30,6 +30,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -111,7 +113,7 @@ abstract class AbstractUnsupportedBlobStore implements BlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String name) {
+    public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         throw new UnsupportedOperationException();
     }
 

@@ -94,6 +94,7 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -1296,25 +1297,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final void removeBlob(String container, String key) {
-        checkNotReserved(key);
-        if (supportsVersioning()) {
-            // A delete that names no version is still a delete marker on a
-            // versioned container; the frontend reaches this overload for it
-            // whenever it has no result to report, e.g. a conditional delete.
-            removeBlob(container, key, /*versionId=*/ null);
-            return;
+    public final DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        if (request.ifMatch() != null || request.ifMatchSize() != null ||
+                request.ifMatchLastModifiedTime() != null) {
+            // The frontend emulates conditional deletes against this
+            // store's own metadata, bounded by this process like its
+            // emulated If-Match put.
+            throw new UnsupportedOperationException(
+                    "conditional delete not supported");
         }
-        removeBlobInternal(container, key);
-    }
-
-    @Override
-    public final DeleteObjectResponse removeBlob(String container, String key,
-            @Nullable String versionId) {
+        String container = request.bucket();
+        String key = request.key();
+        String versionId = request.versionId();
         checkNotReserved(key);
         if (!supportsVersioning()) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
+            if (versionId != null) {
+                throw new UnsupportedOperationException(
+                        "versioning not supported");
+            }
+            removeBlobInternal(container, key);
+            return DeleteObjectResponse.builder().build();
         }
         var containerPath = requireContainerPath(container);
         var status = readContainerStatus(containerPath);

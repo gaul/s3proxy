@@ -172,11 +172,6 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public void removeBlob(String container, String name) {
-        super.removeBlob(container, replaceBlobName(name));
-    }
-
-    @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         return super.removeBlob(request.toBuilder()
                 .key(replaceBlobName(request.key()))
