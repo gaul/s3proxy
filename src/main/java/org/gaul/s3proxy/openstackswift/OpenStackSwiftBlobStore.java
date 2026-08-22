@@ -77,6 +77,7 @@ import org.openstack4j.model.identity.v3.Token;
 import org.openstack4j.model.storage.block.options.DownloadOptions;
 import org.openstack4j.model.storage.object.SwiftHeaders;
 import org.openstack4j.model.storage.object.SwiftObject;
+import org.openstack4j.model.storage.object.options.ContainerListOptions;
 import org.openstack4j.model.storage.object.options.CreateUpdateContainerOptions;
 import org.openstack4j.model.storage.object.options.ObjectDeleteOptions;
 import org.openstack4j.model.storage.object.options.ObjectListOptions;
@@ -100,6 +101,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -166,6 +168,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     // HTTP status codes, spelled out to avoid a jakarta.ws.rs.core dependency
     // (the openstack4j okhttp connector deliberately avoids JAX-RS).
+    // The most containers one Swift account listing returns.
+    private static final int SWIFT_LIST_LIMIT = 10_000;
     private static final int STATUS_OK = 200;
     private static final int STATUS_CREATED = 201;
     private static final int STATUS_BAD_REQUEST = 400;
@@ -399,6 +403,47 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         return ListBucketsResponse.builder()
                 .buckets(buckets.build())
+                .build();
+    }
+
+    @Override
+    public ListBucketsResponse list(ListBucketsRequest request) {
+        var swift = objectStorage();
+        var options = ContainerListOptions.create();
+        String prefix = request.prefix();
+        if (prefix != null) {
+            options.startsWith(prefix);
+        }
+        if (request.continuationToken() != null) {
+            options.marker(request.continuationToken());
+        }
+        Integer maxBuckets = request.maxBuckets();
+        if (maxBuckets != null) {
+            // One past the page tells whether more remain: Swift's account
+            // listing reports no truncation of its own, and a token on an
+            // exactly-consumed account would send the caller one page too
+            // many.
+            options.limit(maxBuckets >= SWIFT_LIST_LIMIT ?
+                    SWIFT_LIST_LIMIT : maxBuckets + 1);
+        }
+        var containers = swift.containers().list(options);
+        int count = maxBuckets == null ? containers.size() :
+                Math.min(containers.size(), maxBuckets);
+        var buckets = ImmutableList.<Bucket>builder();
+        for (int i = 0; i < count; ++i) {
+            buckets.add(SdkResponses.bucket(containers.get(i).getName(),
+                    /*creationDate=*/ null));
+        }
+        // More remain when the peek came back past the page, or when the
+        // service cap ate the peek and the listing still filled to it.
+        boolean more = maxBuckets != null &&
+                (containers.size() > maxBuckets ||
+                        containers.size() == SWIFT_LIST_LIMIT);
+        return ListBucketsResponse.builder()
+                .buckets(buckets.build())
+                .continuationToken(more && count > 0 ?
+                        containers.get(count - 1).getName() : null)
+                .prefix(prefix)
                 .build();
     }
 

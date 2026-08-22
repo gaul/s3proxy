@@ -61,6 +61,7 @@ import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockList;
 import com.azure.storage.blob.models.BlockListType;
+import com.azure.storage.blob.models.ListBlobContainersOptions;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
 import com.azure.storage.blob.options.BlobBeginCopyOptions;
@@ -76,6 +77,7 @@ import com.azure.storage.blob.specialized.BlobInputStream;
 import com.azure.storage.blob.specialized.BlockBlobAsyncClient;
 import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -112,6 +114,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
@@ -155,6 +158,9 @@ public final class AzureBlobStore implements BlobStore {
     private static final int STATUS_NOT_FOUND = 404;
     /** How many deletes Azure accepts in one batch request. */
     private static final int MAX_BATCH_DELETES = 256;
+    // Azure refuses maxresults past 5000 where S3's max-buckets reaches
+    // 10000; a shorter page with a continuation token still answers.
+    private static final int MAX_CONTAINER_RESULTS = 5_000;
     // Disable retries since client should retry on errors.
     private static final RequestRetryOptions NO_RETRY_OPTIONS = new RequestRetryOptions(
             RetryPolicyType.FIXED, /*maxTries=*/ 1,
@@ -278,6 +284,36 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
+    public ListBucketsResponse list(ListBucketsRequest request) {
+        var azureOptions = new ListBlobContainersOptions();
+        azureOptions.setPrefix(request.prefix());
+        if (request.maxBuckets() != null) {
+            azureOptions.setMaxResultsPerPage(
+                    Math.min(request.maxBuckets(), MAX_CONTAINER_RESULTS));
+        }
+        // The token is the opaque marker Azure returned, round-tripped by
+        // the frontend; a page can come back empty with a marker onward,
+        // which firstPageWithEntries follows.
+        var pages = blobServiceClient.listBlobContainers(azureOptions,
+                /*timeout=*/ null);
+        var page = firstPageWithEntries(
+                m -> pages.iterableByPage(m).iterator().next(),
+                request.continuationToken());
+        var buckets = ImmutableList.<Bucket>builder();
+        for (var container : page.getValue()) {
+            // Azure containers have no creation time.
+            buckets.add(SdkResponses.bucket(container.getName(),
+                    /*creationDate=*/ null));
+        }
+        return ListBucketsResponse.builder()
+                .buckets(buckets.build())
+                .continuationToken(
+                        Strings.emptyToNull(page.getContinuationToken()))
+                .prefix(request.prefix())
+                .build();
+    }
+
+    @Override
     public ListObjectsV2Response list(ListObjectsV2Request request) {
         String container = request.bucket();
         String marker0 = request.continuationToken() != null ?
@@ -329,11 +365,11 @@ public final class AzureBlobStore implements BlobStore {
      * and reports the prefix as empty.  OpenStackSwiftBlobStore.list keeps
      * fetching for the same reason.
      */
-    static PagedResponse<BlobItem> firstPageWithEntries(
-            Function<@Nullable String, PagedResponse<BlobItem>> fetch,
+    static <T> PagedResponse<T> firstPageWithEntries(
+            Function<@Nullable String, PagedResponse<T>> fetch,
             @Nullable String marker) {
         while (true) {
-            PagedResponse<BlobItem> page = fetch.apply(marker);
+            PagedResponse<T> page = fetch.apply(marker);
             marker = page.getContinuationToken();
             if (!page.getValue().isEmpty() || marker == null) {
                 return page;
