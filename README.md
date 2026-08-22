@@ -170,21 +170,23 @@ Some limitations depend on the storage backend:
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
 | no object versioning, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
-| no object versioning, see [#1136](https://github.com/gaul/s3proxy/issues/1136) | `google-cloud-storage` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
 | no server-side encryption, by design or for want of a service analog | `filesystem`, `openstack-swift`, `sftp` |
 | SSE-S3 only: AES256 relayed from Azure's own at-rest encryption; SSE-C ([#1135](https://github.com/gaul/s3proxy/issues/1135)) and SSE-KMS refused | `azureblob` |
 
-The two backends that do version objects come by it differently.  `aws-s3`
+The backends that do version objects come by it differently.  `aws-s3`
 passes the requests through to a service that already versions, while
-`transient` implements them itself, keeping every version but the current one
-as a hidden object.  `filesystem` shares that implementation and declines it:
-its versions would outlive the process, settling a layout on disk that
-S3Proxy would owe its users from then on.
+`google-cloud-storage` translates S3 versioning onto GCS object generations,
+emulating delete markers as zero-byte generations; because GCS versioning is
+simply on or off, it refuses the Suspended state.  `transient` implements
+versioning itself, keeping every version but the current one as a hidden
+object.  `filesystem` shares that implementation and declines it: its versions
+would outlive the process, settling a layout on disk that S3Proxy would owe
+its users from then on.
 
-Server-side encryption divides the same two from most of the rest, and
-divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
+Server-side encryption divides `aws-s3` and `transient` from most of the
+rest, and divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
 SSE-S3, SSE-KMS and SSE-C alike -- to a service that encrypts, while
 `transient` answers them itself: what it holds rests in a filesystem that
 dies with the process, so an object's encryption is the headers and nothing

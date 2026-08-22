@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.TreeSet;
 import java.util.UUID;
 
+import com.google.api.gax.paging.Page;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.NoCredentials;
@@ -353,6 +354,47 @@ public final class GCloudBlobStore implements BlobStore {
                 return false;
             }
             throw se;
+        }
+    }
+
+    /**
+     * Deletes the container and everything it holds, archived generations
+     * and delete markers included.  The interface default empties it with
+     * plain deletes, which a versioning-enabled bucket answers by
+     * archiving -- and, for the markers {@link #removeBlob} lays down, by
+     * adding live objects -- so it fills the bucket it means to drain and
+     * the bucket delete never happens.
+     */
+    @Override
+    public void deleteContainer(String container) {
+        try {
+            deleteGenerations(storage.list(container,
+                    BlobListOption.versions(true)));
+            storage.delete(container);
+        } catch (StorageException se) {
+            if (se.getCode() == 404) {
+                // The container is already gone; deleteContainer is
+                // idempotent.
+                return;
+            }
+            throw translate(se, container, /*key=*/ null);
+        }
+    }
+
+    /**
+     * Deletes each listed blob by the generation its blobId carries,
+     * removing that version outright where a nameless delete would
+     * archive it.
+     */
+    private void deleteGenerations(Page<Blob> page) {
+        for (Blob blob : page.iterateAll()) {
+            try {
+                storage.delete(blob.getBlobId());
+            } catch (StorageException se) {
+                if (se.getCode() != 404) {
+                    throw se;
+                }
+            }
         }
     }
 
@@ -1568,20 +1610,9 @@ public final class GCloudBlobStore implements BlobStore {
      * on the real service.
      */
     private void removeStubGenerations(String container, String nonce) {
-        var page = storage.list(container,
+        deleteGenerations(storage.list(container,
                 BlobListOption.prefix(STUB_BLOB_PREFIX + nonce),
-                BlobListOption.versions(true));
-        for (Blob blob : page.iterateAll()) {
-            try {
-                // The listed blobId carries its generation, so the delete
-                // removes that version outright rather than archiving it.
-                storage.delete(blob.getBlobId());
-            } catch (StorageException se) {
-                if (se.getCode() != 404) {
-                    throw se;
-                }
-            }
-        }
+                BlobListOption.versions(true)));
     }
 
     @Override

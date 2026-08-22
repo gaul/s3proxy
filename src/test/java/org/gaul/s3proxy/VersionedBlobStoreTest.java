@@ -415,4 +415,22 @@ public final class VersionedBlobStoreTest {
                         ((S3Exception) thrown).awsErrorDetails().errorCode())
                         .isEqualTo("BucketNotEmpty"));
     }
+
+    /**
+     * The internal {@code deleteContainer} -- test teardown and the JUnit
+     * rule -- removes that same bucket whole, archived versions and
+     * markers included; a store that only deleted the current objects
+     * would leave the bucket stuck alive.
+     */
+    @Test
+    public void testDeleteContainerRemovesEveryVersion() {
+        enableVersioning();
+        put("blob", FIRST);
+        put("blob", SECOND);
+        client.deleteObject(b -> b.bucket(containerName).key("blob"));
+
+        blobStore.deleteContainer(containerName);
+        assertThat(blobStore.containerExists(containerName)).isFalse();
+        // tearDown deletes once more, which must stay a quiet no-op.
+    }
 }
