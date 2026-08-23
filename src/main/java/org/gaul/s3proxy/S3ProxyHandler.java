@@ -128,12 +128,16 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -147,6 +151,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MFADelete;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -155,6 +160,8 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
@@ -168,6 +175,7 @@ import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.s3.model.VersioningConfiguration;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationFeature;
@@ -307,6 +315,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.IF_MATCH_LAST_MODIFIED_TIME,
             AwsHttpHeaders.IF_MATCH_SIZE,
             AwsHttpHeaders.METADATA_DIRECTIVE,
+            AwsHttpHeaders.MFA,
             AwsHttpHeaders.OBJECT_ATTRIBUTES,
             AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
             AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
@@ -1895,14 +1904,17 @@ public class S3ProxyHandler {
     private void handleGetBucketVersioning(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException {
-        BucketVersioningStatus status;
+        GetBucketVersioningResponse result;
         if (blobStore.supportsVersioning()) {
-            status = blobStore.getContainerVersioning(containerName);
+            result = blobStore.getBucketVersioning(
+                    GetBucketVersioningRequest.builder()
+                            .bucket(containerName)
+                            .build());
         } else {
             if (!blobStore.containerExists(containerName)) {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
             }
-            status = null;
+            result = GetBucketVersioningResponse.builder().build();
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -1914,8 +1926,14 @@ public class S3ProxyHandler {
             xml.writeStartDocument();
             xml.writeStartElement("VersioningConfiguration");
             xml.writeDefaultNamespace(AWS_XMLNS);
-            if (status != null) {
-                writeSimpleElement(xml, "Status", status.toString());
+            // Both elements ride out as the store spelled them, which on
+            // the pass-through lane is what its service sent.
+            if (result.status() != null) {
+                writeSimpleElement(xml, "Status", result.statusAsString());
+            }
+            if (result.mfaDelete() != null) {
+                writeSimpleElement(xml, "MfaDelete",
+                        result.mfaDeleteAsString());
             }
             xml.writeEndElement();
             xml.flush();
@@ -1956,7 +1974,19 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
         }
 
-        blobStore.setContainerVersioning(containerName, status);
+        var configuration = VersioningConfiguration.builder().status(status);
+        if (vcr.mfaDelete() != null) {
+            // Only Disabled reaches here, spelled the one way the SDK has.
+            configuration.mfaDelete(MFADelete.DISABLED);
+        }
+        var unused = blobStore.putBucketVersioning(
+                PutBucketVersioningRequest.builder()
+                        .bucket(containerName)
+                        .versioningConfiguration(configuration.build())
+                        // A bucket whose service already has MFA delete on
+                        // needs the header to turn it off again.
+                        .mfa(request.getHeader(AwsHttpHeaders.MFA))
+                        .build());
         addCorsResponseHeader(request, response);
     }
 
@@ -1973,7 +2003,11 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Bucket default encryption is not supported.");
         }
-        var configuration = blobStore.getContainerEncryption(containerName);
+        var configuration = blobStore.getBucketEncryption(
+                GetBucketEncryptionRequest.builder()
+                        .bucket(containerName)
+                        .build())
+                .serverSideEncryptionConfiguration();
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -2065,13 +2099,19 @@ public class S3ProxyHandler {
         if (kmsKeyId != null) {
             sseByDefault.kmsMasterKeyID(kmsKeyId);
         }
-        blobStore.setContainerEncryption(containerName,
-                ServerSideEncryptionConfiguration.builder()
-                        .rules(ServerSideEncryptionRule.builder()
-                                .applyServerSideEncryptionByDefault(
-                                        sseByDefault.build())
-                                .bucketKeyEnabled(rule.bucketKeyEnabled())
-                                .build())
+        var unused = blobStore.putBucketEncryption(
+                PutBucketEncryptionRequest.builder()
+                        .bucket(containerName)
+                        .serverSideEncryptionConfiguration(
+                                ServerSideEncryptionConfiguration.builder()
+                                        .rules(ServerSideEncryptionRule
+                                                .builder()
+                                                .applyServerSideEncryptionByDefault(
+                                                        sseByDefault.build())
+                                                .bucketKeyEnabled(
+                                                        rule.bucketKeyEnabled())
+                                                .build())
+                                        .build())
                         .build());
         addCorsResponseHeader(request, response);
     }
@@ -2084,7 +2124,10 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Bucket default encryption is not supported.");
         }
-        blobStore.deleteContainerEncryption(containerName);
+        var unused = blobStore.deleteBucketEncryption(
+                DeleteBucketEncryptionRequest.builder()
+                        .bucket(containerName)
+                        .build());
         response.setStatus(HttpServletResponse.SC_NO_CONTENT);
         addCorsResponseHeader(request, response);
     }

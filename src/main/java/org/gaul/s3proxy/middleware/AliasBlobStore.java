@@ -44,8 +44,12 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -57,9 +61,10 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
-import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -139,21 +144,27 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ServerSideEncryptionConfiguration getContainerEncryption(
-            String container) {
-        return delegate().getContainerEncryption(getContainer(container));
+    public GetBucketEncryptionResponse getBucketEncryption(
+            GetBucketEncryptionRequest request) {
+        return delegate().getBucketEncryption(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override
-    public void setContainerEncryption(String container,
-            ServerSideEncryptionConfiguration configuration) {
-        delegate().setContainerEncryption(getContainer(container),
-                configuration);
+    public PutBucketEncryptionResponse putBucketEncryption(
+            PutBucketEncryptionRequest request) {
+        return delegate().putBucketEncryption(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override
-    public void deleteContainerEncryption(String container) {
-        delegate().deleteContainerEncryption(getContainer(container));
+    public DeleteBucketEncryptionResponse deleteBucketEncryption(
+            DeleteBucketEncryptionRequest request) {
+        return delegate().deleteBucketEncryption(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override

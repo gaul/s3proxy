@@ -99,20 +99,20 @@ public final class ShardedBlobStoreTest {
         // single one to carry a default-encryption configuration: refuse it
         // rather than let the request reach an untranslated backend name.
         assertThatThrownBy(() ->
-                shardedBlobStore.getContainerEncryption(containerName))
+                shardedBlobStore.getBucketEncryption(containerName))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> shardedBlobStore.setContainerEncryption(
+        assertThatThrownBy(() -> shardedBlobStore.putBucketEncryption(
                 containerName, configuration))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() ->
-                shardedBlobStore.deleteContainerEncryption(containerName))
+                shardedBlobStore.deleteBucketEncryption(containerName))
                 .isInstanceOf(UnsupportedOperationException.class);
 
         // A bucket that is not sharded passes straight through.
         String plain = TestUtils.createRandomContainerName();
         this.createContainer(plain);
-        shardedBlobStore.setContainerEncryption(plain, configuration);
-        assertThat(shardedBlobStore.getContainerEncryption(plain).rules()
+        shardedBlobStore.putBucketEncryption(plain, configuration);
+        assertThat(shardedBlobStore.getBucketEncryption(plain).rules()
                 .get(0).applyServerSideEncryptionByDefault().sseAlgorithm())
                 .isEqualTo(ServerSideEncryption.AES256);
     }

@@ -57,6 +57,7 @@ public final class AwsHttpHeaders {
             "x-amz-if-match-last-modified-time";
     public static final String IF_MATCH_SIZE = "x-amz-if-match-size";
     public static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
+    public static final String MFA = "x-amz-mfa";
     public static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
     public static final String REQUEST_ID = "x-amz-request-id";
     public static final String SDK_CHECKSUM_ALGORITHM =

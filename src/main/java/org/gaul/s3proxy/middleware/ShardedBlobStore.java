@@ -59,8 +59,12 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -73,10 +77,11 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
-import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -378,29 +383,28 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public ServerSideEncryptionConfiguration getContainerEncryption(
-            String container) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate().getContainerEncryption(container);
+    public GetBucketEncryptionResponse getBucketEncryption(
+            GetBucketEncryptionRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().getBucketEncryption(request);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
 
     @Override
-    public void setContainerEncryption(String container,
-            ServerSideEncryptionConfiguration configuration) {
-        if (!this.buckets.containsKey(container)) {
-            this.delegate().setContainerEncryption(container, configuration);
-            return;
+    public PutBucketEncryptionResponse putBucketEncryption(
+            PutBucketEncryptionRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().putBucketEncryption(request);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
 
     @Override
-    public void deleteContainerEncryption(String container) {
-        if (!this.buckets.containsKey(container)) {
-            this.delegate().deleteContainerEncryption(container);
-            return;
+    public DeleteBucketEncryptionResponse deleteBucketEncryption(
+            DeleteBucketEncryptionRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().deleteBucketEncryption(request);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }

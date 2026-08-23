@@ -33,6 +33,8 @@ import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -242,10 +244,11 @@ public final class DeleteContainerDefaultTest {
         }
 
         @Override
-        @Nullable
-        public BucketVersioningStatus getContainerVersioning(
-                String container) {
-            return status;
+        public GetBucketVersioningResponse getBucketVersioning(
+                GetBucketVersioningRequest request) {
+            return GetBucketVersioningResponse.builder()
+                    .status(status)
+                    .build();
         }
 
         @Override

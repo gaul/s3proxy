@@ -99,6 +99,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -115,6 +117,8 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
@@ -162,7 +166,7 @@ public final class GCloudBlobStore implements BlobStore {
      * Whether a container versions objects, which decides if writes report
      * version ids and deletes leave markers.  S3 asks this on every
      * operation while GCS answers only through bucket metadata, so the
-     * answer is cached briefly; setContainerVersioning through this store
+     * answer is cached briefly; putBucketVersioning through this store
      * updates it immediately, and a change made behind its back is seen
      * within the expiry.
      */
@@ -439,8 +443,9 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
-    public BucketVersioningStatus getContainerVersioning(String container) {
+    public GetBucketVersioningResponse getBucketVersioning(
+            GetBucketVersioningRequest request) {
+        String container = request.bucket();
         Bucket bucket;
         try {
             bucket = storage.get(container,
@@ -455,13 +460,18 @@ public final class GCloudBlobStore implements BlobStore {
         versionedContainers.put(container, enabled);
         // GCS versioning is on or off with no marking of ever having been
         // on, so off answers as never versioned rather than Suspended.
-        return enabled ? BucketVersioningStatus.ENABLED : null;
+        return GetBucketVersioningResponse.builder()
+                .status(enabled ? BucketVersioningStatus.ENABLED : null)
+                .build();
     }
 
     @Override
-    public void setContainerVersioning(String container,
-            BucketVersioningStatus status) {
-        if (status != BucketVersioningStatus.ENABLED) {
+    public PutBucketVersioningResponse putBucketVersioning(
+            PutBucketVersioningRequest request) {
+        String container = request.bucket();
+        var configuration = request.versioningConfiguration();
+        if (configuration == null ||
+                configuration.status() != BucketVersioningStatus.ENABLED) {
             // Turning GCS versioning off keeps the noncurrent generations,
             // but S3's Suspended also replaces a "null" version on every
             // write and reports no version ids, which GCS cannot express.
@@ -476,6 +486,7 @@ public final class GCloudBlobStore implements BlobStore {
             throw translate(se, container, /*key=*/ null);
         }
         versionedContainers.put(container, true);
+        return PutBucketVersioningResponse.builder().build();
     }
 
     /** Whether writes to the container version rather than replace. */

@@ -58,9 +58,9 @@ public final class Nio2VersioningSupportTest {
     @Test
     public void testTransientSupportsVersioning() {
         assertThat(transientStore.supportsVersioning()).isTrue();
-        transientStore.setContainerVersioning(CONTAINER,
+        transientStore.putBucketVersioning(CONTAINER,
                 BucketVersioningStatus.ENABLED);
-        assertThat(transientStore.getContainerVersioning(CONTAINER))
+        assertThat(transientStore.getBucketVersioning(CONTAINER))
                 .isEqualTo(BucketVersioningStatus.ENABLED);
     }
 
@@ -68,10 +68,10 @@ public final class Nio2VersioningSupportTest {
     public void testFilesystemRefusesVersioning() {
         assertThat(filesystemStore.supportsVersioning()).isFalse();
 
-        assertThatThrownBy(() -> filesystemStore.getContainerVersioning(
+        assertThatThrownBy(() -> filesystemStore.getBucketVersioning(
                 CONTAINER))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> filesystemStore.setContainerVersioning(
+        assertThatThrownBy(() -> filesystemStore.putBucketVersioning(
                 CONTAINER, BucketVersioningStatus.ENABLED))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> filesystemStore.listVersions(

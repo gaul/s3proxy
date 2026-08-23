@@ -28,7 +28,6 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
-import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -36,8 +35,14 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -51,9 +56,12 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
-import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -164,15 +172,15 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    @Nullable
-    public BucketVersioningStatus getContainerVersioning(String container) {
-        return delegate().getContainerVersioning(container);
+    public GetBucketVersioningResponse getBucketVersioning(
+            GetBucketVersioningRequest request) {
+        return delegate().getBucketVersioning(request);
     }
 
     @Override
-    public void setContainerVersioning(String container,
-            BucketVersioningStatus status) {
-        delegate().setContainerVersioning(container, status);
+    public PutBucketVersioningResponse putBucketVersioning(
+            PutBucketVersioningRequest request) {
+        return delegate().putBucketVersioning(request);
     }
 
     @Override
@@ -187,20 +195,21 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    public ServerSideEncryptionConfiguration getContainerEncryption(
-            String container) {
-        return delegate().getContainerEncryption(container);
+    public GetBucketEncryptionResponse getBucketEncryption(
+            GetBucketEncryptionRequest request) {
+        return delegate().getBucketEncryption(request);
     }
 
     @Override
-    public void setContainerEncryption(String container,
-            ServerSideEncryptionConfiguration configuration) {
-        delegate().setContainerEncryption(container, configuration);
+    public PutBucketEncryptionResponse putBucketEncryption(
+            PutBucketEncryptionRequest request) {
+        return delegate().putBucketEncryption(request);
     }
 
     @Override
-    public void deleteContainerEncryption(String container) {
-        delegate().deleteContainerEncryption(container);
+    public DeleteBucketEncryptionResponse deleteBucketEncryption(
+            DeleteBucketEncryptionRequest request) {
+        return delegate().deleteBucketEncryption(request);
     }
 
     @Override

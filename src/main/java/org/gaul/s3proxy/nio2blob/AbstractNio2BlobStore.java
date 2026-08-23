@@ -94,9 +94,15 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -114,6 +120,10 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.ObjectVersionStorageClass;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -1480,24 +1490,33 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
-    public final BucketVersioningStatus getContainerVersioning(
-            String container) {
+    public final GetBucketVersioningResponse getBucketVersioning(
+            GetBucketVersioningRequest request) {
         if (!supportsVersioning()) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        return readContainerStatus(requireContainerPath(container));
+        return GetBucketVersioningResponse.builder()
+                .status(readContainerStatus(
+                        requireContainerPath(request.bucket())))
+                .build();
     }
 
     @Override
-    public final void setContainerVersioning(String container,
-            BucketVersioningStatus status) {
+    public final PutBucketVersioningResponse putBucketVersioning(
+            PutBucketVersioningRequest request) {
         if (!supportsVersioning()) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        var containerPath = requireContainerPath(container);
+        var configuration = request.versioningConfiguration();
+        BucketVersioningStatus status = configuration == null ? null :
+                configuration.status();
+        if (status == null) {
+            throw S3Exceptions.invalidArgument(
+                    "The versioning configuration must name a status.");
+        }
+        var containerPath = requireContainerPath(request.bucket());
         var view = getXattrView(containerPath);
         if (view == null) {
             throw new UnsupportedOperationException(
@@ -1509,15 +1528,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+        return PutBucketVersioningResponse.builder().build();
     }
 
     @Override
-    public final ServerSideEncryptionConfiguration getContainerEncryption(
-            String container) {
+    public final GetBucketEncryptionResponse getBucketEncryption(
+            GetBucketEncryptionRequest request) {
         if (!supportsBucketEncryption()) {
             throw new UnsupportedOperationException(
                     "bucket encryption not supported");
         }
+        String container = request.bucket();
         var encryption = readContainerEncryption(
                 requireContainerPath(container));
         if (encryption == null) {
@@ -1529,22 +1550,28 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (encryption.kmsKeyId() != null) {
             byDefault.kmsMasterKeyID(encryption.kmsKeyId());
         }
-        return ServerSideEncryptionConfiguration.builder()
-                .rules(ServerSideEncryptionRule.builder()
-                        .applyServerSideEncryptionByDefault(byDefault.build())
-                        .bucketKeyEnabled(encryption.bucketKeyEnabled())
-                        .build())
+        return GetBucketEncryptionResponse.builder()
+                .serverSideEncryptionConfiguration(
+                        ServerSideEncryptionConfiguration.builder()
+                                .rules(ServerSideEncryptionRule.builder()
+                                        .applyServerSideEncryptionByDefault(
+                                                byDefault.build())
+                                        .bucketKeyEnabled(
+                                                encryption.bucketKeyEnabled())
+                                        .build())
+                                .build())
                 .build();
     }
 
     @Override
-    public final void setContainerEncryption(String container,
-            ServerSideEncryptionConfiguration configuration) {
+    public final PutBucketEncryptionResponse putBucketEncryption(
+            PutBucketEncryptionRequest request) {
         if (!supportsBucketEncryption()) {
             throw new UnsupportedOperationException(
                     "bucket encryption not supported");
         }
-        if (configuration.rules().size() != 1) {
+        var configuration = request.serverSideEncryptionConfiguration();
+        if (configuration == null || configuration.rules().size() != 1) {
             throw S3Exceptions.invalidArgument(
                     "Exactly one encryption rule is expected.");
         }
@@ -1574,7 +1601,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         " aws:kms");
             }
         }
-        var containerPath = requireContainerPath(container);
+        var containerPath = requireContainerPath(request.bucket());
         var view = getXattrView(containerPath);
         if (view == null) {
             throw new UnsupportedOperationException(
@@ -1594,19 +1621,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+        return PutBucketEncryptionResponse.builder().build();
     }
 
     @Override
-    public final void deleteContainerEncryption(String container) {
+    public final DeleteBucketEncryptionResponse deleteBucketEncryption(
+            DeleteBucketEncryptionRequest request) {
         if (!supportsBucketEncryption()) {
             throw new UnsupportedOperationException(
                     "bucket encryption not supported");
         }
-        var containerPath = requireContainerPath(container);
+        var containerPath = requireContainerPath(request.bucket());
         var view = getXattrView(containerPath);
         if (view == null) {
             // Nothing could have been stored, so nothing needs removing.
-            return;
+            return DeleteBucketEncryptionResponse.builder().build();
         }
         try {
             writeOrDeleteAttribute(view,
@@ -1618,6 +1647,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+        return DeleteBucketEncryptionResponse.builder().build();
     }
 
     /** The container's default encryption, or null when none was put. */

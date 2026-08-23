@@ -95,24 +95,24 @@ public final class AliasBlobStoreTest {
                                         .build())
                         .build())
                 .build();
-        aliasBlobStore.setContainerEncryption(aliasContainerName,
+        aliasBlobStore.putBucketEncryption(aliasContainerName,
                 configuration);
 
         // The configuration must land on the backend under the real name,
         // not the alias literal: reading the real name straight from the
         // delegate finds it, and reading it back through the alias resolves
         // the same name.
-        assertThat(blobStore.getContainerEncryption(containerName).rules()
+        assertThat(blobStore.getBucketEncryption(containerName).rules()
                 .get(0).applyServerSideEncryptionByDefault().sseAlgorithm())
                 .isEqualTo(ServerSideEncryption.AES256);
-        assertThat(aliasBlobStore.getContainerEncryption(aliasContainerName)
+        assertThat(aliasBlobStore.getBucketEncryption(aliasContainerName)
                 .rules().get(0).applyServerSideEncryptionByDefault()
                 .sseAlgorithm())
                 .isEqualTo(ServerSideEncryption.AES256);
 
-        aliasBlobStore.deleteContainerEncryption(aliasContainerName);
+        aliasBlobStore.deleteBucketEncryption(aliasContainerName);
         assertThatThrownBy(() ->
-                blobStore.getContainerEncryption(containerName))
+                blobStore.getBucketEncryption(containerName))
                 .isNotNull();
     }
 

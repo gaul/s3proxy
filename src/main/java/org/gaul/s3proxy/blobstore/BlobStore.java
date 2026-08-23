@@ -42,12 +42,18 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -68,6 +74,10 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
@@ -78,6 +88,7 @@ import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.s3.model.VersioningConfiguration;
 
 /** Synchronous access to a BlobStore such as Amazon S3. */
 public interface BlobStore extends AutoCloseable {
@@ -290,7 +301,7 @@ public interface BlobStore extends AutoCloseable {
                                 .build()));
             }
             if (supportsVersioning() &&
-                    getContainerVersioning(container) != null) {
+                    getBucketVersioning(container) != null) {
                 removeAllVersions(container);
             } else {
                 clearContainer(ListObjectsV2Request.builder()
@@ -489,17 +500,48 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
-     * Reads the container's versioning state, or null when the container has
-     * never been versioned.
+     * GetBucketVersioning: the bucket's versioning configuration.  A bucket
+     * that has never been versioned answers a response with no status,
+     * which is what S3's empty VersioningConfiguration says; mfaDelete
+     * rides along for a backend whose service has it.
      */
-    @Nullable
-    default BucketVersioningStatus getContainerVersioning(String container) {
+    default GetBucketVersioningResponse getBucketVersioning(
+            GetBucketVersioningRequest request) {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
-    default void setContainerVersioning(String container,
-            BucketVersioningStatus status) {
+    /**
+     * The bucket's versioning state, or null where it has never been
+     * versioned -- the one element of the configuration a caller weighing
+     * what to do next reads.
+     */
+    @Nullable
+    default BucketVersioningStatus getBucketVersioning(String container) {
+        return getBucketVersioning(GetBucketVersioningRequest.builder()
+                .bucket(container)
+                .build()).status();
+    }
+
+    /**
+     * PutBucketVersioning: sets the configuration the request carries.  The
+     * request's mfa is the x-amz-mfa header, which a service that has MFA
+     * delete asks for; the frontend refuses to turn MFA delete on rather
+     * than promise what no backend keeps.
+     */
+    default PutBucketVersioningResponse putBucketVersioning(
+            PutBucketVersioningRequest request) {
         throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /** Sets the bucket's versioning state, asking nothing of MFA delete. */
+    default void putBucketVersioning(String container,
+            BucketVersioningStatus status) {
+        var unused = putBucketVersioning(PutBucketVersioningRequest.builder()
+                .bucket(container)
+                .versioningConfiguration(VersioningConfiguration.builder()
+                        .status(status)
+                        .build())
+                .build());
     }
 
     /** Lists a container's object versions and delete markers. */
@@ -520,27 +562,57 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
-     * Reads the container's default encryption configuration.  A container
-     * that was never given one answers the way S3 spells it -- a 404 whose
-     * code is ServerSideEncryptionConfigurationNotFoundError -- rather
-     * than returning null.
+     * GetBucketEncryption: the bucket's default encryption configuration.
+     * A bucket that was never given one answers the way S3 spells it -- a
+     * 404 whose code is ServerSideEncryptionConfigurationNotFoundError --
+     * rather than an empty configuration.
      */
-    default ServerSideEncryptionConfiguration getContainerEncryption(
+    default GetBucketEncryptionResponse getBucketEncryption(
+            GetBucketEncryptionRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket encryption not supported");
+    }
+
+    /** The bucket's default encryption configuration. */
+    default ServerSideEncryptionConfiguration getBucketEncryption(
             String container) {
+        return getBucketEncryption(GetBucketEncryptionRequest.builder()
+                .bucket(container)
+                .build()).serverSideEncryptionConfiguration();
+    }
+
+    /** PutBucketEncryption: the frontend vets the configuration first. */
+    default PutBucketEncryptionResponse putBucketEncryption(
+            PutBucketEncryptionRequest request) {
         throw new UnsupportedOperationException(
                 "bucket encryption not supported");
     }
 
-    default void setContainerEncryption(String container,
+    /** Sets the bucket's default encryption configuration. */
+    default void putBucketEncryption(String container,
             ServerSideEncryptionConfiguration configuration) {
+        var unused = putBucketEncryption(PutBucketEncryptionRequest.builder()
+                .bucket(container)
+                .serverSideEncryptionConfiguration(configuration)
+                .build());
+    }
+
+    /**
+     * DeleteBucketEncryption: removes the configuration, and removing one
+     * that a bucket does not have already succeeds.
+     */
+    default DeleteBucketEncryptionResponse deleteBucketEncryption(
+            DeleteBucketEncryptionRequest request) {
         throw new UnsupportedOperationException(
                 "bucket encryption not supported");
     }
 
-    /** Removes the configuration; removing an absence already succeeds. */
-    default void deleteContainerEncryption(String container) {
-        throw new UnsupportedOperationException(
-                "bucket encryption not supported");
+    /** Removes the bucket's default encryption configuration. */
+    default void deleteBucketEncryption(String container) {
+        var unused = deleteBucketEncryption(
+                DeleteBucketEncryptionRequest.builder()
+                        .bucket(container)
+                        .build());
     }
 
     /**
