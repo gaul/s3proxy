@@ -101,6 +101,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
@@ -324,9 +326,11 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
-        return storage.get(container,
-                BucketGetOption.fields(BucketField.NAME)) != null;
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
+        return storage.get(request.bucket(),
+                BucketGetOption.fields(BucketField.NAME)) == null ? null :
+                HeadBucketResponse.builder().build();
     }
 
     @Override

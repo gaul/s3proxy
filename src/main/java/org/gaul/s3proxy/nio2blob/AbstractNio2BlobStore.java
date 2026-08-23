@@ -99,6 +99,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
@@ -527,8 +529,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    public final boolean containerExists(String container) {
-        return Files.isDirectory(resolveContainer(container));
+    @Nullable
+    public final HeadBucketResponse headBucket(HeadBucketRequest request) {
+        return Files.isDirectory(resolveContainer(request.bucket())) ?
+                HeadBucketResponse.builder().build() : null;
     }
 
     @Override

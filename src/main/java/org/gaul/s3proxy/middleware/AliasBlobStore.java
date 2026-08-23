@@ -49,6 +49,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
@@ -120,8 +122,11 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
-        return delegate().containerExists(getContainer(container));
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
+        return delegate().headBucket(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override

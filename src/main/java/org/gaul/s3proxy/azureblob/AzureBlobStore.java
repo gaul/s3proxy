@@ -115,6 +115,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
@@ -381,9 +383,11 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
-        var client = blobServiceClient.getBlobContainerClient(container);
-        return client.exists();
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
+        var client = blobServiceClient.getBlobContainerClient(
+                request.bucket());
+        return client.exists() ? HeadBucketResponse.builder().build() : null;
     }
 
     @Override

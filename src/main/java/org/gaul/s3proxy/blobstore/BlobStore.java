@@ -50,6 +50,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
@@ -193,7 +195,23 @@ public interface BlobStore extends AutoCloseable {
                 .build();
     }
 
-    boolean containerExists(String container);
+    /**
+     * HeadBucket: reads the bucket's summary, or null when the bucket does
+     * not exist.  The response's bucketRegion rides to the wire as
+     * x-amz-bucket-region; only a backend whose service has regions
+     * reports one.  A bucket that exists but is refused -- another
+     * account's -- throws the store's refusal rather than reporting
+     * absence.
+     */
+    @Nullable
+    HeadBucketResponse headBucket(HeadBucketRequest request);
+
+    /** Whether the bucket exists. */
+    default boolean containerExists(String container) {
+        return headBucket(HeadBucketRequest.builder()
+                .bucket(container)
+                .build()) != null;
+    }
 
     /**
      * CreateBucket: creates the bucket, throwing the wire's

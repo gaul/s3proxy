@@ -35,6 +35,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
@@ -66,7 +68,7 @@ abstract class AbstractUnsupportedBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
         throw new UnsupportedOperationException();
     }
 

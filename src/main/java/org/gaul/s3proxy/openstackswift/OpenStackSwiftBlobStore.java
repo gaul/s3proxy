@@ -102,6 +102,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
@@ -570,16 +572,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
         var swift = objectStorage();
         // A container HEAD returns X-Container-Object-Count only when the
         // container exists; getMetadata() preserves x-* headers.
-        for (var key : swift.containers().getMetadata(container).keySet()) {
+        for (var key : swift.containers().getMetadata(request.bucket())
+                .keySet()) {
             if (key.equalsIgnoreCase("X-Container-Object-Count")) {
-                return true;
+                return HeadBucketResponse.builder().build();
             }
         }
-        return false;
+        return null;
     }
 
     @Override

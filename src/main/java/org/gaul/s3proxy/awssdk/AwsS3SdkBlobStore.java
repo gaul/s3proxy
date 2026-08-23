@@ -71,6 +71,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
@@ -223,19 +224,19 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
         try {
-            s3Client.headBucket(HeadBucketRequest.builder()
-                    .bucket(container)
-                    .build());
-            return true;
+            return s3Client.headBucket(request);
         } catch (NoSuchBucketException e) {
-            return false;
+            return null;
         } catch (S3Exception e) {
+            // A HEAD response carries no error body, so some services'
+            // 404s reach the SDK untyped.
             if (e.statusCode() == 404) {
-                return false;
+                return null;
             }
-            throw propagate(e, container, null);
+            throw propagate(e, request.bucket(), null);
         }
     }
 

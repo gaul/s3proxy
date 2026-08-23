@@ -48,6 +48,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
@@ -145,9 +147,10 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
         simulateLatency(OP_CONTAINER_EXISTS);
-        return super.containerExists(container);
+        return super.headBucket(request);
     }
 
     @Override

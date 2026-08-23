@@ -136,6 +136,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
@@ -1479,9 +1481,8 @@ public class S3ProxyHandler {
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.HEAD_BUCKET);
-                if (!blobStore.containerExists(containerName)) {
-                    throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
-                }
+                handleContainerExists(request, response, blobStore,
+                        containerName);
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
@@ -2471,8 +2472,16 @@ public class S3ProxyHandler {
     private void handleContainerExists(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
             String containerName) throws IOException {
-        if (!blobStore.containerExists(containerName)) {
+        HeadBucketResponse result = blobStore.headBucket(
+                HeadBucketRequest.builder()
+                        .bucket(containerName)
+                        .build());
+        if (result == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
+        }
+        if (result.bucketRegion() != null) {
+            response.addHeader(AwsHttpHeaders.BUCKET_REGION,
+                    result.bucketRegion());
         }
         addCorsResponseHeader(request, response);
     }

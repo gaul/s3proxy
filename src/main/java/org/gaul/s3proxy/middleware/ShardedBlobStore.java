@@ -64,6 +64,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
@@ -350,11 +352,13 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public boolean containerExists(String container) {
-        if (!this.buckets.containsKey(container)) {
-            return this.delegate().containerExists(container);
+    @Nullable
+    public HeadBucketResponse headBucket(HeadBucketRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().headBucket(request);
         }
-        return true;
+        // A sharded bucket exists by configuration, not on the backend.
+        return HeadBucketResponse.builder().build();
     }
 
     @Override
