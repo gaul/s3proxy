@@ -565,8 +565,8 @@ public class S3ProxyHandler {
             blobStore.removeBlob(containerName, stubName);
             return;
         }
-        HeadObjectResponse stub = blobStore.blobMetadata(containerName,
-                stubName);
+        HeadObjectResponse stub = blobStore.blobMetadataIfPresent(
+                containerName, stubName);
         if (stub == null) {
             return;
         }
@@ -2879,8 +2879,9 @@ public class S3ProxyHandler {
         } else if (hasCondition) {
             // The nio2 stores compare against their own metadata, bounded
             // by this process like their emulated If-Match put.
-            checkConditionalDelete(blobStore.blobMetadata(containerName,
-                    blobName), ifMatch, ifMatchSize, ifMatchTime);
+            checkConditionalDelete(blobStore.blobMetadataIfPresent(
+                    containerName, blobName), ifMatch, ifMatchSize,
+                    ifMatchTime);
             blobStore.removeBlob(containerName, blobName);
         } else {
             // The store honors the versionId or refuses it as versioning
@@ -3022,7 +3023,8 @@ public class S3ProxyHandler {
                     if (s3Object.hasCondition() &&
                             !blobStoreType.equals("aws-s3")) {
                         checkConditionalDelete(
-                                blobStore.blobMetadata(containerName, key),
+                                blobStore.blobMetadataIfPresent(
+                                        containerName, key),
                                 s3Object.eTag(), s3Object.parsedSize(),
                                 s3Object.parsedLastModifiedTime());
                         blobStore.removeBlob(containerName, key);
@@ -3187,9 +3189,6 @@ public class S3ProxyHandler {
         }
         HeadObjectResponse metadata = blobStore.blobMetadata(
                 headRequest.build());
-        if (metadata == null) {
-            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-        }
         // Judged here rather than in the store, whose blobMetadata also
         // serves the frontend's own bookkeeping reads, which carry no key.
         enforceCustomerKey(request, metadata.sseCustomerKeyMD5());
@@ -3508,9 +3507,6 @@ public class S3ProxyHandler {
 
         HeadObjectResponse metadata = blobStore.blobMetadata(containerName,
                 blobName);
-        if (metadata == null) {
-            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-        }
         if (checkConditionalHeaders(request, response, metadata)) {
             return;
         }
@@ -3676,7 +3672,7 @@ public class S3ProxyHandler {
         if (request.getParameter("partNumber") != null) {
             // needs the ETag to tell a multipart object apart, and the body
             // must not be fetched only to be thrown away on the error path
-            checkPartNumber(request, blobStore.blobMetadata(
+            checkPartNumber(request, blobStore.blobMetadataIfPresent(
                     HeadObjectRequest.builder()
                             .bucket(containerName)
                             .key(blobName)
@@ -3762,9 +3758,6 @@ public class S3ProxyHandler {
 
         ResponseInputStream<GetObjectResponse> blob = blobStore.getBlob(
                 getRequest.build());
-        if (blob == null) {
-            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-        }
 
         // Judged here rather than in the store, whose reads also serve the
         // frontend's own bookkeeping -- the stub before a completion, the
@@ -4008,7 +4001,7 @@ public class S3ProxyHandler {
         // This follow-up read supplies the LastModified the copy result
         // reports.  The destination now rests under whatever customer key
         // the copy presented, so the read must present it again.
-        HeadObjectResponse blobMetadata = blobStore.blobMetadata(
+        HeadObjectResponse blobMetadata = blobStore.blobMetadataIfPresent(
                 HeadObjectRequest.builder()
                         .bucket(destContainerName)
                         .key(destBlobName)
@@ -4186,8 +4179,8 @@ public class S3ProxyHandler {
         // Note: this is a non-atomic operation (HEAD then PUT).
         if ((ifMatch != null || ifNoneMatch != null) &&
                 !supportsNativeConditionalWrites) {
-            checkConditionalWrite(blobStore.blobMetadata(containerName,
-                    blobName), ifMatch, ifNoneMatch);
+            checkConditionalWrite(blobStore.blobMetadataIfPresent(
+                    containerName, blobName), ifMatch, ifNoneMatch);
         }
 
         ObjectCannedACL access;
@@ -4830,9 +4823,7 @@ public class S3ProxyHandler {
         // Note: this is a non-atomic operation (HEAD then PUT).
         if (ifMatch != null && ifMatch.equals("*") &&
                 blobStoreType.equals("azureblob")) {
-            if (blobStore.blobMetadata(containerName, blobName) == null) {
-                throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-            }
+            var unused = blobStore.blobMetadata(containerName, blobName);
         }
 
         ObjectCannedACL access;
@@ -4950,7 +4941,7 @@ public class S3ProxyHandler {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
             String stubName = multipartStubName(uploadId);
-            HeadObjectResponse stubHead = blobStore.blobMetadata(
+            HeadObjectResponse stubHead = blobStore.blobMetadataIfPresent(
                     containerName, stubName);
             if (stubHead == null) {
                 if (respondAlreadyCompleted(request, response, blobStore,
@@ -5138,8 +5129,9 @@ public class S3ProxyHandler {
                 // the nio2 stores resolve If-None-Match while writing but
                 // have no compare-and-swap for an ETag, so If-Match stays a
                 // check followed by a write, bounded by this process
-                checkConditionalWrite(blobStore.blobMetadata(containerName,
-                        blobName), ifMatch, /*ifNoneMatch=*/ null);
+                checkConditionalWrite(blobStore.blobMetadataIfPresent(
+                        containerName, blobName), ifMatch,
+                        /*ifNoneMatch=*/ null);
                 ifMatch = null;
             }
         }
@@ -5416,8 +5408,8 @@ public class S3ProxyHandler {
         if (expected == null) {
             return false;
         }
-        HeadObjectResponse metadata = blobStore.blobMetadata(containerName,
-                blobName);
+        HeadObjectResponse metadata = blobStore.blobMetadataIfPresent(
+                containerName, blobName);
         if (metadata == null || metadata.eTag() == null ||
                 !equalsIgnoringSurroundingQuotes(expected, metadata.eTag())) {
             return false;
@@ -5713,9 +5705,6 @@ public class S3ProxyHandler {
                                         AwsHttpHeaders
                                         .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
                                 .build());
-                if (sourceMetadata == null) {
-                    throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-                }
                 Long sourceSize = sourceMetadata.contentLength();
                 if (sourceSize != null && sourceSize < expectedSize) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
@@ -5774,9 +5763,6 @@ public class S3ProxyHandler {
         }
 
         var blob = blobStore.getBlob(getRequest.build());
-        if (blob == null) {
-            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-        }
 
         GetObjectResponse blobMetadata = blob.response();
         // The source answers only to the key the copy-source headers

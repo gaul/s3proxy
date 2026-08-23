@@ -36,7 +36,7 @@ import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 /**
  * Covers what HeadBucket relays from the store: the bucketRegion a backend
  * with regions reports rides to the wire as x-amz-bucket-region, a store
- * without one adds no header, and a null response is the bucket's absence.
+ * without one adds no header, and the store's NoSuchBucket is the 404.
  */
 public final class HeadBucketRegionTest {
     private BlobStore blobStore;
@@ -76,7 +76,7 @@ public final class HeadBucketRegionTest {
     }
 
     @Test
-    public void testNullResponseIsTheBucketsAbsence() throws Exception {
+    public void testNoSuchBucketIsTheBucketsAbsence() throws Exception {
         setUpProxy("us-west-2");
 
         HttpResponse<Void> response = headBucket(container + "-absent");
@@ -127,13 +127,10 @@ public final class HeadBucketRegionTest {
         }
 
         @Override
-        @Nullable
         public HeadBucketResponse headBucket(HeadBucketRequest request) {
             HeadBucketResponse result = delegate().headBucket(request);
-            if (result == null || region == null) {
-                return result;
-            }
-            return result.toBuilder().bucketRegion(region).build();
+            return region == null ? result :
+                    result.toBuilder().bucketRegion(region).build();
         }
     }
 }

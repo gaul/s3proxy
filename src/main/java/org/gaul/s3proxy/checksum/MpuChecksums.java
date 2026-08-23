@@ -35,6 +35,9 @@ import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.checksums.SdkChecksum;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
 /**
  * The flexible-checksum bookkeeping of a multipart upload: which algorithm
@@ -148,10 +151,12 @@ public final class MpuChecksums {
             partNumbers.add(part.partNumber());
         }
         for (int partNumber : partNumbers) {
-            var blob = blobStore.getBlob(containerName,
-                    AbstractNio2BlobStore.multipartPartName(uploadId,
-                            blobName, partNumber));
-            if (blob == null) {
+            ResponseInputStream<GetObjectResponse> blob;
+            try {
+                blob = blobStore.getBlob(containerName,
+                        AbstractNio2BlobStore.multipartPartName(uploadId,
+                                blobName, partNumber));
+            } catch (NoSuchKeyException nske) {
                 // a missing part is rejected elsewhere; fall back to the
                 // client-asserted value
                 continue;

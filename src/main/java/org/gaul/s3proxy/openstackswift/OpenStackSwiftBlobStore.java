@@ -572,7 +572,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         var swift = objectStorage();
         // A container HEAD returns X-Container-Object-Count only when the
@@ -583,7 +582,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 return HeadBucketResponse.builder().build();
             }
         }
-        return null;
+        throw S3Exceptions.noSuchBucket(request.bucket(), "");
     }
 
     @Override
@@ -729,12 +728,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         Blob blob = getBlobCarrier(request.bucket(), request.key(), request);
         if (blob == null) {
-            return null;
+            throw S3Exceptions.noSuchKey(request.bucket(), request.key(),
+                    "no such object");
         }
         return SdkResponses.getResponse(
                 SdkResponses.toGetResponse(blob.getMetadata(),
@@ -1124,7 +1123,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         if (request.versionId() != null) {
             throw new UnsupportedOperationException(
@@ -1138,12 +1136,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             object = swift.objects().get(container, encodeName(key));
         } catch (ResponseException re) {
             if (re.getStatus() == STATUS_NOT_FOUND) {
-                return null;
+                throw S3Exceptions.noSuchKey(container, key,
+                        "no such object", re);
             }
             throw translate(re, container, key);
         }
         if (object == null) {
-            return null;
+            throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
         var headers = object.getMetadata();
         var objectMetadata = ObjectMetadata.from(

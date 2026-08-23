@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 public final class EventualBlobStoreTest {
@@ -91,8 +93,7 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         eventualBlobStore.putBlob(makeRequest(containerName, blobName),
                 BYTE_SOURCE.openStream());
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
-                .isNull();
+        assertBlobAbsent(blobName);
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
     }
@@ -102,14 +103,12 @@ public final class EventualBlobStoreTest {
         String blobName = createRandomBlobName();
         eventualBlobStore.putBlob(makeRequest(containerName, blobName),
                 BYTE_SOURCE.openStream());
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
-                .isNull();
+        assertBlobAbsent(blobName);
         delay();
         eventualBlobStore.removeBlob(containerName, blobName);
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
         delay();
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
-                .isNull();
+        assertBlobAbsent(blobName);
     }
 
     @Test
@@ -136,8 +135,7 @@ public final class EventualBlobStoreTest {
                 .sourceBucket(containerName).sourceKey(fromName)
                 .destinationBucket(containerName).destinationKey(toName)
                 .build());
-        assertThat(eventualBlobStore.getBlob(containerName, toName))
-                .isNull();
+        assertBlobAbsent(toName);
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, toName));
     }
@@ -160,8 +158,7 @@ public final class EventualBlobStoreTest {
         eventualBlobStore.completeMultipartUpload(mpu,
                 SdkRequests.completeRequest(mpu,
                         List.of(TestUtils.completedPart(1, part))));
-        assertThat(eventualBlobStore.getBlob(containerName, blobName))
-                .isNull();
+        assertBlobAbsent(blobName);
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
     }
@@ -221,6 +218,16 @@ public final class EventualBlobStoreTest {
         // clearContainer must clear both stores, not only the read store.
         assertThat(nearBlobStore.list(containerName).contents()).isEmpty();
         assertThat(farBlobStore.list(containerName).contents()).isEmpty();
+    }
+
+    /**
+     * The read store does not have the blob: either the write has not
+     * propagated yet or a removal already has, and both answer the way any
+     * read of an object that is not there does.
+     */
+    private void assertBlobAbsent(String blobName) {
+        assertThatThrownBy(() -> eventualBlobStore.getBlob(containerName,
+                blobName)).isInstanceOf(NoSuchKeyException.class);
     }
 
     private static String createRandomContainerName() {

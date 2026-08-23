@@ -209,7 +209,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         return super.blobMetadata(request.toBuilder()
                 .key(addPrefix(request.bucket(), request.key()))
@@ -217,7 +216,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return super.getBlob(request.toBuilder()

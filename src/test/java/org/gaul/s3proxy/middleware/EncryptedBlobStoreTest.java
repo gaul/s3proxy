@@ -58,6 +58,7 @@ import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -166,11 +167,12 @@ public final class EncryptedBlobStoreTest {
     public void testBlobNotExists() {
 
         String blobName = TestUtils.createRandomBlobName();
-        var blob = encryptedBlobStore.getBlob(containerName, blobName);
-        assertThat(blob).isNull();
-
-        blob = encryptedBlobStore.getBlob(containerName, blobName);
-        assertThat(blob).isNull();
+        // neither the encrypted name nor the plaintext one is there, and
+        // the wrapper answers that the way any read of an absent object does
+        assertThatThrownBy(() -> encryptedBlobStore.getBlob(containerName,
+                blobName)).isInstanceOf(NoSuchKeyException.class);
+        assertThatThrownBy(() -> encryptedBlobStore.blobMetadata(containerName,
+                blobName)).isInstanceOf(NoSuchKeyException.class);
     }
 
     @Test

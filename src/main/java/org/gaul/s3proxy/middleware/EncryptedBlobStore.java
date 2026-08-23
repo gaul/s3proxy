@@ -47,7 +47,6 @@ import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
-import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -246,16 +245,17 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
+    public ResponseInputStream<GetObjectResponse> getBlob(
         GetObjectRequest request) {
 
         // adjust the blob name
         String containerName = request.bucket();
         String blobName = blobNameWithSuffix(request.key());
 
-        // get the metadata to determine the blob size
-        HeadObjectResponse meta = delegate().blobMetadata(containerName,
-                blobName);
+        // get the metadata to determine the blob size; a plaintext blob
+        // has no suffixed name, which is the absence this reads for
+        HeadObjectResponse meta = delegate().blobMetadataIfPresent(
+                containerName, blobName);
 
         try {
             // we have a blob that ends with .s3enc
@@ -305,9 +305,6 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
 
                 var blob = delegate().getBlob(delegateRequest.build());
-                if (blob == null) {
-                    return null;
-                }
 
                 // open the streams and pass them through the decryption
                 InputStream is = decryption.openStream(blob);
@@ -541,16 +538,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
 
         String container = request.bucket();
         String stored = blobNameWithSuffix(container, request.key());
         HeadObjectResponse head = delegate().blobMetadata(container, stored);
-        if (head != null &&
-            // report the plaintext size only for an encrypted blob that is
-            // not a multipart stub
-            isEncrypted(stored) &&
+        // report the plaintext size only for an encrypted blob that is
+        // not a multipart stub
+        if (isEncrypted(stored) &&
             !head.metadata().containsKey(
                 Constants.METADATA_IS_ENCRYPTED_MULTIPART)) {
             head = head.toBuilder()

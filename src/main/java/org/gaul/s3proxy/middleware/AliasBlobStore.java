@@ -33,7 +33,6 @@ import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -122,7 +121,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         return delegate().headBucket(request.toBuilder()
                 .bucket(getContainer(request.bucket()))
@@ -205,7 +203,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         return delegate().blobMetadata(request.toBuilder()
                 .bucket(getContainer(request.bucket()))
@@ -224,7 +221,6 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return delegate().getBlob(request.toBuilder()

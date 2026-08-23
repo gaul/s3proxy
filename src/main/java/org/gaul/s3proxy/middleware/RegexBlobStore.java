@@ -33,7 +33,6 @@ import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -155,7 +154,6 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         return super.blobMetadata(request.toBuilder()
                 .key(replaceBlobName(request.key()))
@@ -163,7 +161,6 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return super.getBlob(request.toBuilder()

@@ -147,7 +147,6 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         simulateLatency(OP_CONTAINER_EXISTS);
         return super.headBucket(request);
@@ -208,21 +207,16 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         simulateLatency(OP_BLOB_METADATA);
         return super.blobMetadata(request);
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         simulateLatency(OP_GET_BLOB);
         var blob = super.getBlob(request);
-        if (blob == null) {
-            return null;
-        }
         return SdkResponses.getResponse(blob.response(),
                 new ThrottledInputStream(blob, getSpeed(OP_GET_BLOB)));
     }

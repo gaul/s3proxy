@@ -48,7 +48,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -291,7 +290,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         // stream that checkSuperBlock never reads, leaking the connection.
         HeadObjectResponse existingSuperblock = null;
         try {
-            existingSuperblock = this.delegate().blobMetadata(
+            existingSuperblock = this.delegate().blobMetadataIfPresent(
                     ShardedBlobStore.getShardContainer(bucket, 0),
                     SUPERBLOCK_BLOB_NAME);
         } catch (NoSuchBucketException ignored) {
@@ -352,7 +351,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         if (!this.buckets.containsKey(request.bucket())) {
             return this.delegate().headBucket(request);
@@ -523,7 +521,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         return this.delegate().blobMetadata(request.toBuilder()
                 .bucket(this.getShard(request.bucket(), request.key()))
@@ -531,7 +528,6 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return this.delegate().getBlob(request.toBuilder()

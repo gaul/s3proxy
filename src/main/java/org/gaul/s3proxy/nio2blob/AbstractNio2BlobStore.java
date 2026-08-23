@@ -529,10 +529,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public final HeadBucketResponse headBucket(HeadBucketRequest request) {
-        return Files.isDirectory(resolveContainer(request.bucket())) ?
-                HeadBucketResponse.builder().build() : null;
+        var unused = requireContainerPath(request.bucket());
+        return HeadBucketResponse.builder().build();
     }
 
     @Override
@@ -558,13 +557,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public final ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         Blob blob = getBlobInternal(request.bucket(), request.key(), request,
                 /*openStream=*/ true);
         if (blob == null) {
-            return null;
+            throw S3Exceptions.noSuchKey(request.bucket(), request.key(),
+                    "no such object");
         }
         return SdkResponses.getResponse(
                 SdkResponses.toGetResponse(blob.getMetadata(),
@@ -1066,7 +1065,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // A named ETag cannot be resolved by the move, and the
                 // filesystem offers no compare-and-swap, so this remains a
                 // read followed by a write.
-                var current = currentMetadata(container,
+                var current = blobMetadataIfPresent(container,
                         blob.getMetadata().name());
                 if (current != null && current.eTag() != null &&
                         maybeQuoteETag(ifNoneMatch).equals(
@@ -1110,21 +1109,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
          */
         @Nullable String reportedVersionId() {
             return NULL_VERSION_ID.equals(versionId) ? null : versionId;
-        }
-    }
-
-    /**
-     * The current object's metadata, or null where there is no current
-     * object.  A key whose current version is a delete marker has none, and
-     * a conditional write has to read that as absence: {@link #blobMetadata}
-     * reports it as the 404 that a client's GET deserves instead.
-     */
-    @Nullable
-    private HeadObjectResponse currentMetadata(String container, String key) {
-        try {
-            return blobMetadata(container, key);
-        } catch (NoSuchKeyException nske) {
-            return null;
         }
     }
 
@@ -1474,7 +1458,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public final HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         String container = request.bucket();
         String key = request.key();
@@ -1483,7 +1466,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         .versionId(request.versionId()).build(),
                 /*openStream=*/ false);
         if (blob == null) {
-            return null;
+            throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
         var in = blob.getMetadata();
         var lowerCaseUserMetadata = new HashMap<String, String>();
@@ -2129,7 +2112,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         for (var part : parts) {
             var partName = multipartPartName(mpu.id(), mpu.blobName(),
                     part.partNumber());
-            var meta = blobMetadata(mpu.containerName(), partName);
+            var meta = blobMetadataIfPresent(mpu.containerName(), partName);
             if (meta == null) {
                 // S3 returns InvalidPart (400) when the manifest references
                 // a part that was never uploaded.
@@ -2491,12 +2474,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
 
         private InputStream openPartStream(String name) throws IOException {
-            var blob = blobStore.getBlob(container, name);
-            if (blob == null) {
+            try {
+                return blobStore.getBlob(container, name);
+            } catch (NoSuchKeyException nske) {
                 throw new IOException("Part disappeared: " +
-                        container + "/" + name);
+                        container + "/" + name, nske);
             }
-            return blob;
         }
 
         @Override

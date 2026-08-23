@@ -86,7 +86,6 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         return delegate().headBucket(request);
     }
@@ -139,13 +138,11 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         return delegate().blobMetadata(request);
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return delegate().getBlob(request);

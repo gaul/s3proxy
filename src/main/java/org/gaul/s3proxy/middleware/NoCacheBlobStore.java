@@ -18,7 +18,6 @@ package org.gaul.s3proxy.middleware;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -40,7 +39,6 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return super.getBlob(resetCacheHeaders(request));

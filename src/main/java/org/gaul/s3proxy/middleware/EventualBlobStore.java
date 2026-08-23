@@ -35,6 +35,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -45,7 +46,9 @@ import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
@@ -135,8 +138,10 @@ final class EventualBlobStore extends ForwardingBlobStore {
         schedule(new Callable<@Nullable PutObjectResponse>() {
                 @Override
                 public @Nullable PutObjectResponse call() {
-                    var near = writeStore.getBlob(containerName, nearName);
-                    if (near == null) {
+                    ResponseInputStream<GetObjectResponse> near;
+                    try {
+                        near = writeStore.getBlob(containerName, nearName);
+                    } catch (NoSuchKeyException nske) {
                         // a racing removeBlob already deleted the near blob;
                         // the far copy will converge via its scheduled removal
                         logger.warn("near blob {}/{} removed before" +

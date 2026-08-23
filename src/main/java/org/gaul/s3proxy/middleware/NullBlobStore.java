@@ -35,7 +35,6 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -64,13 +63,8 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
-        var blob = getBlob(request.bucket(), request.key());
-        if (blob == null) {
-            return null;
-        }
-        try (blob) {
+        try (var blob = getBlob(request.bucket(), request.key())) {
             return SdkResponses.toHead(blob.response());
         } catch (IOException ioe) {
             throw new UncheckedIOException(ioe);
@@ -78,7 +72,6 @@ final class NullBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         // Ranges apply to the virtual content, not the 8-byte length stub.
@@ -88,9 +81,6 @@ final class NullBlobStore extends ForwardingBlobStore {
             blob = super.getBlob(request);
         } else {
             blob = super.getBlob(request.toBuilder().range(null).build());
-        }
-        if (blob == null) {
-            return null;
         }
 
         byte[] array;

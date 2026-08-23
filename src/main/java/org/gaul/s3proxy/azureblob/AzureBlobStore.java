@@ -383,11 +383,13 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         var client = blobServiceClient.getBlobContainerClient(
                 request.bucket());
-        return client.exists() ? HeadBucketResponse.builder().build() : null;
+        if (!client.exists()) {
+            throw S3Exceptions.noSuchBucket(request.bucket(), "");
+        }
+        return HeadBucketResponse.builder().build();
     }
 
     @Override
@@ -456,7 +458,6 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         if (request.versionId() != null) {
@@ -520,9 +521,6 @@ public final class AzureBlobStore implements BlobStore {
             if (bse.getStatusCode() ==
                     416) {
                 throw S3Exceptions.fromStatusCode(416);
-            }
-            if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
-                return null;
             }
             throw translate(bse, container, key);
         }
@@ -1097,7 +1095,6 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         if (request.versionId() != null) {
             throw new UnsupportedOperationException(
@@ -1110,10 +1107,7 @@ public final class AzureBlobStore implements BlobStore {
         try {
             properties = client.getProperties();
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-                return null;
-            }
-            throw translate(bse, container, /*key=*/ null);
+            throw translate(bse, container, request.key());
         }
         @SuppressWarnings("deprecation")
         HeadObjectResponse head = HeadObjectResponse.builder()

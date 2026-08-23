@@ -326,11 +326,12 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
-        return storage.get(request.bucket(),
-                BucketGetOption.fields(BucketField.NAME)) == null ? null :
-                HeadBucketResponse.builder().build();
+        if (storage.get(request.bucket(),
+                BucketGetOption.fields(BucketField.NAME)) == null) {
+            throw S3Exceptions.noSuchBucket(request.bucket(), "");
+        }
+        return HeadBucketResponse.builder().build();
     }
 
     @Override
@@ -777,13 +778,13 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    public @Nullable ResponseInputStream<GetObjectResponse> getBlob(
+    public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         String container = request.bucket();
         String key = request.key();
         Blob gcsBlob = resolveVersion(container, key, request.versionId());
         if (gcsBlob == null) {
-            return null;
+            throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
 
         // Enforce conditional-GET preconditions before streaming.  The
@@ -1335,13 +1336,12 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         String container = request.bucket();
         String key = request.key();
         Blob gcsBlob = resolveVersion(container, key, request.versionId());
         if (gcsBlob == null) {
-            return null;
+            throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
         return HeadObjectResponse.builder()
                 .metadata(sanitizeUserMetadata(gcsBlob.getMetadata()))

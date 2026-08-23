@@ -2470,7 +2470,6 @@ public final class AwsSdkTest {
 
         // "/" round-trips as its own distinct 0-byte object with the metadata.
         var meta = blobStore.blobMetadata(containerName, "/");
-        assertThat(meta).isNotNull();
         assertThat(meta.contentLength()).isEqualTo(0L);
         assertThat(meta.metadata()).containsEntry("mode", "16832");
 
@@ -2484,7 +2483,7 @@ public final class AwsSdkTest {
         blobStore.removeBlob(containerName, "/");
         assertThat(blobStore.containerExists(containerName)).isTrue();
         assertThat(blobStore.blobExists(containerName, "sibling.txt")).isTrue();
-        assertThat(blobStore.blobMetadata(containerName, "/")).isNull();
+        assertThat(blobStore.blobExists(containerName, "/")).isFalse();
     }
 
     @Test

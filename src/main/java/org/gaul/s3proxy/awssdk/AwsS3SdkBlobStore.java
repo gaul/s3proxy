@@ -224,19 +224,14 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         try {
             return s3Client.headBucket(request);
-        } catch (NoSuchBucketException e) {
-            return null;
         } catch (S3Exception e) {
             // A HEAD response carries no error body, so some services'
-            // 404s reach the SDK untyped.
-            if (e.statusCode() == 404) {
-                return null;
-            }
-            throw propagate(e, request.bucket(), null);
+            // 404s reach the SDK untyped; propagate names those
+            // NoSuchBucket and sends every other refusal on verbatim.
+            throw propagate(e, request.bucket(), /*key=*/ null);
         }
     }
 
@@ -399,17 +394,13 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         try {
             return s3Client.headObject(request);
-        } catch (NoSuchKeyException e) {
-            return nullOrDeleteMarker(request.bucket(), request.key(), e);
-        } catch (NoSuchBucketException e) {
-            throw e;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
-                return nullOrDeleteMarker(request.bucket(), request.key(), e);
+                throw noSuchKeyOrDeleteMarker(request.bucket(), request.key(),
+                        e);
             }
             // 405 on a delete marker read passes through verbatim with
             // x-amz-delete-marker riding on the exception's headers.
@@ -784,34 +775,27 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     /**
-     * Answers the blobMetadata contract for a 404: an absent object is
-     * null, while a delete marker or missing version still throws.
+     * The refusal a read's 404 becomes: whatever the service named, or a
+     * synthesized NoSuchKey when it named nothing at all.
      */
-    @Nullable
-    private static HeadObjectResponse nullOrDeleteMarker(String container,
+    private static RuntimeException noSuchKeyOrDeleteMarker(String container,
             String key, S3Exception e) {
-        if ("NoSuchVersion".equals(S3Exceptions.errorCode(e))) {
-            throw e;
-        }
-        var details = e.awsErrorDetails();
-        if (details == null) {
-            return null;
-        }
-        var http = details.sdkHttpResponse();
-        boolean marker = http.firstMatchingHeader(DELETE_MARKER_HEADER)
-                .map(Boolean::parseBoolean).orElse(false);
-        if (!marker) {
-            return null;
-        }
         if (S3Exceptions.errorCode(e) != null) {
-            // verbatim; the marker headers ride on the exception
-            throw e;
+            // verbatim; NoSuchKey, NoSuchVersion and the marker headers all
+            // ride on the exception as the service sent them
+            return e;
         }
-        // A bodyless HEAD 404 names no error code; synthesize NoSuchKey
-        // keeping the marker headers.
-        throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
-                http.firstMatchingHeader(VERSION_ID_HEADER).orElse("null"),
-                e.getMessage());
+        // A bodyless HEAD 404 names no error code; synthesize NoSuchKey,
+        // keeping the marker headers when the response carried them.
+        var details = e.awsErrorDetails();
+        var http = details == null ? null : details.sdkHttpResponse();
+        if (http != null && http.firstMatchingHeader(DELETE_MARKER_HEADER)
+                .map(Boolean::parseBoolean).orElse(false)) {
+            return S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                    http.firstMatchingHeader(VERSION_ID_HEADER).orElse("null"),
+                    e.getMessage());
+        }
+        return S3Exceptions.noSuchKey(container, key, e.getMessage());
     }
 
     /**

@@ -26,7 +26,6 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
-import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -77,13 +76,8 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         var blobMetadata = super.blobMetadata(request);
-        if (blobMetadata == null) {
-            return null;
-        }
-
         var metadata = ImmutableMap.<String, String>builder();
         // TODO: duplication
         for (var entry : blobMetadata.metadata().entrySet()) {
@@ -94,14 +88,9 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
-    @Nullable
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         var blob = super.getBlob(request);
-        if (blob == null) {
-            return null;
-        }
-
         var metadata = ImmutableMap.<String, String>builder();
         for (var entry : blob.response().metadata().entrySet()) {
             metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),

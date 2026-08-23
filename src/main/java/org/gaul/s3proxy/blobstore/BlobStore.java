@@ -62,6 +62,8 @@ import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -196,21 +198,29 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
-     * HeadBucket: reads the bucket's summary, or null when the bucket does
-     * not exist.  The response's bucketRegion rides to the wire as
-     * x-amz-bucket-region; only a backend whose service has regions
-     * reports one.  A bucket that exists but is refused -- another
-     * account's -- throws the store's refusal rather than reporting
-     * absence.
+     * HeadBucket: reads the bucket's summary, throwing NoSuchBucket when
+     * there is no such bucket -- the answer S3 gives, which the frontend
+     * renders as it stands.  A bucket that exists but is refused --
+     * another account's -- throws that refusal instead.  The response's
+     * bucketRegion rides to the wire as x-amz-bucket-region; only a
+     * backend whose service has regions reports one.
      */
-    @Nullable
     HeadBucketResponse headBucket(HeadBucketRequest request);
 
-    /** Whether the bucket exists. */
+    /**
+     * Whether the bucket exists: the probe over HeadBucket, for a caller
+     * deciding something rather than answering the wire.  Only the
+     * bucket's absence answers false; every other refusal is thrown.
+     */
     default boolean containerExists(String container) {
-        return headBucket(HeadBucketRequest.builder()
-                .bucket(container)
-                .build()) != null;
+        try {
+            var unused = headBucket(HeadBucketRequest.builder()
+                    .bucket(container)
+                    .build());
+            return true;
+        } catch (NoSuchBucketException nsbe) {
+            return false;
+        }
     }
 
     /**
@@ -335,15 +345,14 @@ public interface BlobStore extends AutoCloseable {
     void deleteBucket(String container);
 
     /**
-     * Whether the object exists, answering by {@link #blobMetadata}'s
-     * rules -- so a delete marker over the key throws rather than
-     * answering false, as reading the metadata would.  This is the floor,
-     * one metadata round trip; a store with a lighter probe of its own
-     * overrides it: a fields-limited read, the SDK's exists call, a bare
-     * HEAD.
+     * Whether the object exists.  A key whose current version is a delete
+     * marker does not: the object is gone however the store spells its
+     * absence.  This is the floor, one metadata round trip; a store with a
+     * lighter probe of its own overrides it: a fields-limited read, the
+     * SDK's exists call, a bare HEAD.
      */
     default boolean blobExists(String container, String name) {
-        return blobMetadata(container, name) != null;
+        return blobMetadataIfPresent(container, name) != null;
     }
 
     /**
@@ -365,8 +374,9 @@ public interface BlobStore extends AutoCloseable {
 
     /**
      * Reads the metadata of the version the request names, or of the
-     * current version when its versionId is null.  Returns null when the
-     * object does not exist; throws {@link
+     * current version when its versionId is null.  An object that is not
+     * there throws the 404 that says which way it is missing: {@link
+     * S3Exceptions#noSuchKey} for a key the store does not have, {@link
      * S3Exceptions#noSuchKeyDeleteMarker} carrying the marker's version
      * when the current "version" is a delete marker, and {@link
      * S3Exceptions#noSuchVersion} when the named version does not exist.
@@ -374,11 +384,9 @@ public interface BlobStore extends AutoCloseable {
      * #supportsVersioning}; the others throw
      * UnsupportedOperationException.
      */
-    @Nullable
     HeadObjectResponse blobMetadata(HeadObjectRequest request);
 
     /** Reads the current object's metadata. */
-    @Nullable
     default HeadObjectResponse blobMetadata(String container, String name) {
         return blobMetadata(HeadObjectRequest.builder()
                 .bucket(container)
@@ -387,17 +395,46 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
-     * Reads one object: the response riding on its payload stream, or null
-     * when the object does not exist.  The caller consumes and closes the
-     * stream.  The request's range rides verbatim as the Range header
-     * form, e.g. bytes=0-9; a non-null versionId is only meaningful on a
-     * store that {@link #supportsVersioning}.
+     * The metadata of an object that may not be there: the read a caller
+     * makes to decide something rather than to answer with -- the ETag a
+     * conditional write compares against, the stub behind a completion,
+     * the suffixed name an encrypting wrapper looks for.  Absence is an
+     * answer here, so a missing object comes back as null, a delete marker
+     * over the key included; every other refusal is thrown.  Not an S3
+     * operation: a read serving the wire asks {@link #blobMetadata}, whose
+     * refusal is the response.
      */
     @Nullable
+    default HeadObjectResponse blobMetadataIfPresent(
+            HeadObjectRequest request) {
+        try {
+            return blobMetadata(request);
+        } catch (NoSuchKeyException nske) {
+            return null;
+        }
+    }
+
+    /** The current object's metadata, or null when it is not there. */
+    @Nullable
+    default HeadObjectResponse blobMetadataIfPresent(String container,
+            String name) {
+        return blobMetadataIfPresent(HeadObjectRequest.builder()
+                .bucket(container)
+                .key(name)
+                .build());
+    }
+
+    /**
+     * Reads one object: the response riding on its payload stream.  The
+     * caller consumes and closes the stream.  An object that is not there
+     * throws by {@link #blobMetadata}'s rules.  The request's range rides
+     * verbatim as the Range header form, e.g. bytes=0-9; a non-null
+     * versionId is only meaningful on a store that {@link
+     * #supportsVersioning}.
+     */
     ResponseInputStream<GetObjectResponse> getBlob(GetObjectRequest request);
 
     /** Reads the current object in full. */
-    @Nullable
     default ResponseInputStream<GetObjectResponse> getBlob(String container,
             String name) {
         return getBlob(GetObjectRequest.builder()
