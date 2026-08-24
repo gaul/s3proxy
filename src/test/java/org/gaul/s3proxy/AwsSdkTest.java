@@ -2247,6 +2247,12 @@ public final class AwsSdkTest {
      */
     @Test
     public void testBlobListV2StartAfterCommonPrefix() throws Exception {
+        // LocalStack measures start-after against the keys rolled up behind
+        // the prefix rather than the prefix it reported, so it hands back
+        // the group the caller has just paged past.  Its own list-objects
+        // marker skips that group, as S3 does.
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+
         putBlob(containerName, "boo/bar", BYTE_SOURCE);
         putBlob(containerName, "boo/baz", BYTE_SOURCE);
         putBlob(containerName, "cquux/thud", BYTE_SOURCE);
