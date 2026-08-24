@@ -535,7 +535,7 @@ jobs:
   Containerize:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
-    needs: [runTests, filesystemTests, azuriteTests, localstackTests, fakeGcsServerTests, swiftTests, meta]
+    needs: [runTests, filesystemTests, azuriteTests, localstackTests, ministackTests, fakeGcsServerTests, swiftTests, meta]
     permissions:
       contents: read
       packages: write
