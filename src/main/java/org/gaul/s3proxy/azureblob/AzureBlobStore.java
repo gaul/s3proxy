@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.http.HttpHeaderName;
@@ -212,9 +213,11 @@ public final class AzureBlobStore implements BlobStore {
         this.creds = creds;
         var cred = creds.get();
         var blobServiceClientBuilder = new BlobServiceClientBuilder()
-                // TODO: remove after
-                // https://github.com/Azure/Azurite/issues/2623 is addressed
-                .serviceVersion(BlobServiceVersion.V2025_11_05)
+                // The oldest version that carries startFrom on List Blobs,
+                // which list depends on.  Pinned rather than left at the
+                // SDK's latest so that upgrading the SDK cannot ask a
+                // service for a version it has never heard of.
+                .serviceVersion(BlobServiceVersion.V2026_02_06)
                 .endpoint(endpoint)
                 .retryOptions(NO_RETRY_OPTIONS);
         if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
@@ -305,7 +308,7 @@ public final class AzureBlobStore implements BlobStore {
                 m -> pages.iterableByPage(m).iterator().next(),
                 request.continuationToken());
         var buckets = ImmutableList.<Bucket>builder();
-        for (var container : page.getValue()) {
+        for (var container : page.values()) {
             // Azure containers have no creation time.
             buckets.add(SdkResponses.bucket(container.getName(),
                     /*creationDate=*/ null));
@@ -313,7 +316,7 @@ public final class AzureBlobStore implements BlobStore {
         return ListBucketsResponse.builder()
                 .buckets(buckets.build())
                 .continuationToken(
-                        Strings.emptyToNull(page.getContinuationToken()))
+                        Strings.emptyToNull(page.continuationToken()))
                 .prefix(request.prefix())
                 .build();
     }
@@ -321,29 +324,32 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public ListObjectsV2Response list(ListObjectsV2Request request) {
         String container = request.bucket();
-        String marker0 = request.continuationToken() != null ?
-                request.continuationToken() : request.startAfter();
+        String startAfter = request.startAfter();
         var client = blobServiceClient.getBlobContainerClient(container);
         var azureOptions = new ListBlobsOptions();
         azureOptions.setPrefix(request.prefix());
         azureOptions.setMaxResultsPerPage(request.maxKeys());
-        // Pass the continuation token through verbatim: it is the opaque
-        // marker Azure returned, round-tripped by the frontend.  Decoding it
-        // corrupts tokens containing '+' (turned into a space) or '%'.
-        var marker = marker0;
+        // start-after names any blob, which is what startFrom takes; the
+        // marker takes only a token Azure minted, and handing it a name is
+        // the error this parameter exists to avoid.  Pass the continuation
+        // token through verbatim: decoding it corrupts one containing '+'
+        // (turned into a space) or '%'.
+        azureOptions.setStartFrom(startAfter);
+        var marker = request.continuationToken();
 
         var contents = ImmutableList.<S3Object>builder();
         var prefixes = ImmutableList.<CommonPrefix>builder();
-        PagedResponse<BlobItem> page;
+        Page<BlobItem> page;
         try {
             var pages = client.listBlobsByHierarchy(
                     request.delimiter(), azureOptions, /*timeout=*/ null);
             page = firstPageWithEntries(
-                    m -> pages.iterableByPage(m).iterator().next(), marker);
+                    m -> pages.iterableByPage(m).iterator().next(), marker,
+                    blobs -> afterStartAfter(blobs, startAfter));
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
-        for (var blob : page.getValue()) {
+        for (var blob : page.values()) {
             var properties = blob.getProperties();
             if (blob.isPrefix()) {
                 prefixes.add(SdkResponses.commonPrefix(blob.getName()));
@@ -357,27 +363,64 @@ public final class AzureBlobStore implements BlobStore {
         }
 
         return SdkResponses.objectsPage(contents.build(), prefixes.build(),
-                page.getContinuationToken());
+                page.continuationToken());
+    }
+
+    /** The entries of a listing page and the marker onward from it. */
+    record Page<T>(List<T> values, @Nullable String continuationToken) { }
+
+    /**
+     * The entries of a page with the names start-after excludes dropped from
+     * its front.  Azure's startFrom includes the name it is given where S3's
+     * start-after excludes it, and a delimiter squashes blobs into a prefix
+     * after startFrom has selected them, so a start-after naming a blob
+     * inside one brings its prefix back too: listing after {@code boo/}
+     * returns {@code boo/} again, the very prefix S3 hands out as the marker
+     * to page past that group with.  S3 compares start-after against the name
+     * it reports rather than the blob behind it, so both cases are the one
+     * rule -- drop what is not greater -- and the entries being sorted, only
+     * the front of a page can hold any.
+     */
+    static List<BlobItem> afterStartAfter(List<BlobItem> blobs,
+            @Nullable String startAfter) {
+        if (startAfter == null) {
+            return blobs;
+        }
+        int i = 0;
+        while (i < blobs.size() &&
+                blobs.get(i).getName().compareTo(startAfter) <= 0) {
+            ++i;
+        }
+        return blobs.subList(i, blobs.size());
+    }
+
+    static <T> Page<T> firstPageWithEntries(
+            Function<@Nullable String, PagedResponse<T>> fetch,
+            @Nullable String marker) {
+        return firstPageWithEntries(fetch, marker, UnaryOperator.identity());
     }
 
     /**
-     * The first page Azure returns holding anything, or the last one when the
-     * container is exhausted.  Azure can answer a listing with no blobs at all
-     * and a continuation token, which it expects the caller to follow; passing
-     * such a page on leaves an S3 client a truncated result with neither
-     * Contents nor CommonPrefixes to take its next marker from, so a client
-     * that derives one from the last key it saw -- s3cmd does -- stops there
-     * and reports the prefix as empty.  OpenStackSwiftBlobStore.list keeps
-     * fetching for the same reason.
+     * The first page Azure returns holding anything to report, or the last one
+     * when the container is exhausted.  Azure can answer a listing with no
+     * blobs at all and a continuation token, which it expects the caller to
+     * follow; passing such a page on leaves an S3 client a truncated result
+     * with neither Contents nor CommonPrefixes to take its next marker from,
+     * so a client that derives one from the last key it saw -- s3cmd does --
+     * stops there and reports the prefix as empty.
+     * OpenStackSwiftBlobStore.list keeps fetching for the same reason.  A page
+     * left empty by {@code keep} is no different: what start-after excludes is
+     * nothing the client can resume from either.
      */
-    static <T> PagedResponse<T> firstPageWithEntries(
+    static <T> Page<T> firstPageWithEntries(
             Function<@Nullable String, PagedResponse<T>> fetch,
-            @Nullable String marker) {
+            @Nullable String marker, UnaryOperator<List<T>> keep) {
         while (true) {
             PagedResponse<T> page = fetch.apply(marker);
             marker = page.getContinuationToken();
-            if (!page.getValue().isEmpty() || marker == null) {
-                return page;
+            List<T> values = keep.apply(page.getValue());
+            if (!values.isEmpty() || marker == null) {
+                return new Page<>(values, marker);
             }
         }
     }
@@ -439,7 +482,7 @@ public final class AzureBlobStore implements BlobStore {
             var page = firstPageWithEntries(
                     m -> pages.iterableByPage(m).iterator().next(),
                     /*marker=*/ null);
-            if (!page.getValue().isEmpty()) {
+            if (!page.values().isEmpty()) {
                 throw S3Exceptions.bucketNotEmpty(container);
             }
             blobServiceClient.deleteBlobContainer(container);

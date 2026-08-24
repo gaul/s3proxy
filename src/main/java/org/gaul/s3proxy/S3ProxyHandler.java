@@ -30,7 +30,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -72,11 +71,8 @@ import javax.xml.stream.XMLStreamWriter;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Streams;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteStreams;
@@ -400,17 +396,6 @@ public class S3ProxyHandler {
     private BlobStoreLocator blobStoreLocator;
     // TODO: hack to allow per-request anonymous access
     private final BlobStore defaultBlobStore;
-    /**
-     * S3 supports arbitrary keys for the marker while some blobstores only
-     * support opaque markers.  Emulate the common case for these by mapping
-     * the last key from a listing to the corresponding previously returned
-     * marker.
-     */
-    private final Cache<Map.Entry<String, String>, String> lastKeyToMarker =
-            CacheBuilder.newBuilder()
-            .maximumSize(10000)
-            .expireAfterWrite(Duration.ofMinutes(10))
-            .build();
 
     public S3ProxyHandler(final BlobStore blobStore,
             AuthenticationType authenticationType,
@@ -2650,16 +2635,6 @@ public class S3ProxyHandler {
         } else {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
-        boolean opaqueMarkers = Quirks.OPAQUE_MARKERS.contains(
-                blobStoreType);
-        if (marker != null && opaqueMarkers) {
-            String realMarker = lastKeyToMarker.getIfPresent(
-                    Map.entry(containerName, marker));
-            if (realMarker != null) {
-                marker = realMarker;
-            }
-        }
-
         boolean fetchOwner = !isListV2 ||
                 "true".equals(request.getParameter("fetch-owner"));
 
@@ -2691,9 +2666,8 @@ public class S3ProxyHandler {
                     .delimiter(delimiter)
                     .maxKeys(maxKeys);
             // marker carries the continuation token, or start-after when no
-            // token was sent -- possibly cache-mapped to the store's opaque
-            // token, in which case it must ride as a token either way.
-            if (continuationToken != null || opaqueMarkers) {
+            // token was sent.
+            if (continuationToken != null) {
                 listRequest.continuationToken(marker);
             } else {
                 listRequest.startAfter(marker);
@@ -2802,32 +2776,6 @@ public class S3ProxyHandler {
                 } else {
                     writeSimpleElement(xml, "NextMarker",
                             encodeBlob(encodingType, nextMarker));
-                }
-                if (Quirks.OPAQUE_MARKERS.contains(blobStoreType)) {
-                    // A caller may page with the last key it was given rather
-                    // than the marker, which S3 allows and which a store with
-                    // opaque markers rejects.  Remember which marker produced
-                    // that key so the next request can present it instead.
-                    // Keyed on the name as the store spells it, since the
-                    // marker is read back from the query string already
-                    // decoded.  A caller echoing the marker needs no entry:
-                    // one this cache does not know passes through untouched,
-                    // which is what the store wants anyway.  The last name
-                    // the caller sees is the greater of the final key and
-                    // the final prefix, each list being in listing order.
-                    String lastKey = Streams.findLast(contents.stream())
-                            .map(S3Object::key).orElse(null);
-                    String lastPrefix = Streams.findLast(prefixList.stream())
-                            .map(CommonPrefix::prefix).orElse(null);
-                    String lastName = lastPrefix == null ? lastKey :
-                            lastKey == null ||
-                                    lastKey.compareTo(lastPrefix) < 0 ?
-                            lastPrefix : lastKey;
-                    if (lastName != null) {
-                        lastKeyToMarker.put(
-                                Map.entry(containerName, lastName),
-                                nextMarker);
-                    }
                 }
             } else {
                 writeSimpleElement(xml, "IsTruncated", "false");

@@ -85,6 +85,7 @@ import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.ChecksumMode;
 import software.amazon.awssdk.services.s3.model.ChecksumType;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -2124,8 +2125,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobListRecursiveImplicitMarker() throws Exception {
-        assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
-
         ListObjectsResponse listing = client.listObjects(
                 b -> b.bucket(containerName));
         assertThat(listing.contents()).isEmpty();
@@ -2145,8 +2144,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testBlobListV2() throws Exception {
-        assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
-
         for (int i = 1; i < 5; ++i) {
             putBlob(containerName, String.valueOf(i), BYTE_SOURCE);
         }
@@ -2192,8 +2189,6 @@ public final class AwsSdkTest {
     @Test
     public void testBlobListV2StartAfterAndContinuationToken()
             throws Exception {
-        assumeTrue(!Quirks.OPAQUE_MARKERS.contains(blobStoreType));
-
         for (int i = 1; i < 5; ++i) {
             putBlob(containerName, String.valueOf(i), BYTE_SOURCE);
         }
@@ -2212,6 +2207,61 @@ public final class AwsSdkTest {
         // Both are echoed back as sent, ignored or not.
         assertThat(result.startAfter()).isEqualTo("1");
         assertThat(result.continuationToken()).isEqualTo(nextToken);
+    }
+
+    /**
+     * start-after names any key, not only one a page ended on: a name no
+     * listing has ever returned, and one no blob carries at all.  A store
+     * that reads the parameter as a token it minted refuses both, which is
+     * what issue #938 reported.
+     */
+    @Test
+    public void testBlobListV2StartAfterArbitraryKey() throws Exception {
+        putBlob(containerName, "blob1", BYTE_SOURCE);
+        putBlob(containerName, "blob3", BYTE_SOURCE);
+
+        // A name falling between two keys, which no listing ever handed out.
+        ListObjectsV2Response result = client.listObjectsV2(
+                b -> b.bucket(containerName).startAfter("blob2"));
+        assertThat(result.contents()).hasSize(1);
+        assertThat(result.contents().get(0).key()).isEqualTo("blob3");
+        assertThat(result.isTruncated()).isFalse();
+
+        // One past the last key leaves nothing to report.
+        result = client.listObjectsV2(
+                b -> b.bucket(containerName).startAfter("blob9"));
+        assertThat(result.contents()).isEmpty();
+        assertThat(result.isTruncated()).isFalse();
+
+        // One before the first excludes nothing.
+        result = client.listObjectsV2(
+                b -> b.bucket(containerName).startAfter("blob0"));
+        assertThat(result.contents()).hasSize(2);
+    }
+
+    /**
+     * A delimited listing pages by the common prefix it reported, and
+     * start-after naming that prefix skips the whole group rather than
+     * reporting it again: S3 compares start-after against the name it
+     * reports, not the keys rolled up behind it.
+     */
+    @Test
+    public void testBlobListV2StartAfterCommonPrefix() throws Exception {
+        putBlob(containerName, "boo/bar", BYTE_SOURCE);
+        putBlob(containerName, "boo/baz", BYTE_SOURCE);
+        putBlob(containerName, "cquux/thud", BYTE_SOURCE);
+
+        ListObjectsV2Response result = client.listObjectsV2(
+                b -> b.bucket(containerName).delimiter("/"));
+        assertThat(result.contents()).isEmpty();
+        assertThat(result.commonPrefixes().stream()
+                .map(CommonPrefix::prefix)).containsExactly("boo/", "cquux/");
+
+        result = client.listObjectsV2(b -> b.bucket(containerName)
+                .delimiter("/").startAfter("boo/"));
+        assertThat(result.contents()).isEmpty();
+        assertThat(result.commonPrefixes().stream()
+                .map(CommonPrefix::prefix)).containsExactly("cquux/");
     }
 
     @Test

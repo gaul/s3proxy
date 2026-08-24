@@ -113,15 +113,6 @@ public final class Quirks {
     );
 
     /**
-     * Blobstores whose list marker is a token they issue rather than a key,
-     * so that a caller paging with the last key it was given needs the
-     * frontend to substitute the marker that produced it.
-     */
-    public static final Set<String> OPAQUE_MARKERS = Set.of(
-            "azureblob"
-    );
-
-    /**
      * Blobstores that cannot grant anonymous writes: Azure public access is
      * read-only by definition and Swift write ACLs cannot name a referrer.
      * Both refuse public-read-write rather than grant half of it.
