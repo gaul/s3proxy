@@ -128,6 +128,14 @@ public final class AwsSdkTest {
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
     private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
+    /**
+     * LocalStack's port, and the only thing that tells it apart from the
+     * other emulators reached through the aws-s3 provider.  Several
+     * conditional operations below are answered by S3 and refused by
+     * LocalStack, so an emulator that answers them is given a port of its
+     * own -- MiniStack's lane publishes 4567 -- and this stays a test for
+     * LocalStack rather than a test for whoever holds 4566.
+     */
     private static final int LOCALSTACK_PORT = 4566;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";

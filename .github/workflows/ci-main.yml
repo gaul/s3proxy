@@ -312,9 +312,13 @@ jobs:
   # backend the LocalStack lane uses.  It answers a good deal that LocalStack
   # does not -- server-side encryption, conditional writes, versioning edges
   # -- so running both keeps the backend honest against two services rather
-  # than one, and each carries its own markers.  Only the conformance suite
-  # runs here: the Java tests would need a backend the AwsSdkTest quirks know
-  # by name, and this emulator answers to the port LocalStack's answers to.
+  # than one, and each carries its own markers.  It is published on 4567
+  # rather than its own 4566 because AwsSdkTest reads 4566 as LocalStack and
+  # would credit this emulator with LocalStack's gaps.  Only the conformance
+  # suite runs here for now: AwsSdkTest has two failures left against
+  # MiniStack -- ListBuckets ignores max-buckets, and a mismatched
+  # precomputed checksum goes unreported -- and a lane that starts red says
+  # nothing when it turns red later.
   ministackTests:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
@@ -341,11 +345,11 @@ jobs:
         run: docker pull ministackorg/ministack:1.5.0
       - name: Start MiniStack
         run: |
-          docker run -d --name ministack -p 4566:4566 ministackorg/ministack:1.5.0
+          docker run -d --name ministack -p 4567:4566 ministackorg/ministack:1.5.0
           # Probe 127.0.0.1 rather than localhost: hypercorn binds IPv4 alone
           # inside the container, and a connection to ::1 is accepted and then
           # reset, which reads as the service never coming up.
-          ./src/test/resources/wait-for-url.sh http://127.0.0.1:4566/
+          ./src/test/resources/wait-for-url.sh http://127.0.0.1:4567/
 
       - name: Install s3-tests
         run: |
