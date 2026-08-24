@@ -556,14 +556,19 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         return false;
     }
 
+    /**
+     * The refusal an ACL read's 404 becomes.  A service that named a code
+     * said which thing is missing -- the bucket, the key, or the version
+     * the request asked for -- and keeps saying it; only a 404 that named
+     * nothing gets one worked out from the request.
+     */
     private RuntimeException translateAclNotFound(String container, String key,
             S3Exception e) {
-        String errorCode = S3Exceptions.errorCode(e);
-        if ("NoSuchBucket".equals(errorCode) || key == null) {
-            return e instanceof NoSuchBucketException ? e :
-                    S3Exceptions.noSuchBucket(container, e.getMessage());
+        if (S3Exceptions.errorCode(e) != null) {
+            return e;
         }
-        return e instanceof NoSuchKeyException ? e :
+        return key == null ?
+                S3Exceptions.noSuchBucket(container, e.getMessage()) :
                 S3Exceptions.noSuchKey(container, key, e.getMessage());
     }
 
