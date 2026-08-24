@@ -1856,6 +1856,13 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.fromStatusCode(412, bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
             return S3Exceptions.fromStatusCode(400, bse);
+        } else if (code.equals(BlobErrorCode.MD5MISMATCH) ||
+                code.equals(BlobErrorCode.INVALID_MD5)) {
+            // The Content-MD5 the caller sent named a body other than the one
+            // that arrived, or was not an MD5 at all.  Both are the caller's
+            // mistake and S3 answers 400; passing the Azure exception on
+            // would report the caller's own bad digest as a server error.
+            return S3Exceptions.fromStatusCode(400, bse);
         } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);
