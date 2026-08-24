@@ -133,6 +133,16 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
     tags="${tags/ and not versioning/}"
 elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
     backend="swift"
+elif [[ "${S3PROXY_CONF}" == s3proxy-ministack*.conf ]]; then
+    # MiniStack reaches the same aws-s3 backend as the LocalStack lane, but
+    # it is a different emulator and does not share every gap that lane's
+    # markers record, so it answers to markers of its own.  The conf is not
+    # in the repo: supply one pointing at a running MiniStack to use this.
+    backend="ministack"
+    # Versioning and server-side encryption pass through to a service that
+    # has both, as they do on the LocalStack lane.
+    tags="${tags/ and not versioning/}"
+    enable_sse_tests
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
     # fails_on_aws marks what real S3 refuses, and this lane used to deselect
