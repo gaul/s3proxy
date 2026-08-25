@@ -60,11 +60,13 @@ import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.Storage.BucketField;
 import com.google.cloud.storage.Storage.BucketGetOption;
+import com.google.cloud.storage.Storage.BucketListOption;
 import com.google.cloud.storage.Storage.ComposeRequest;
 import com.google.cloud.storage.Storage.CopyRequest;
 import com.google.cloud.storage.StorageBatchResult;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -107,6 +109,7 @@ import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
@@ -244,15 +247,54 @@ public final class GCloudBlobStore implements BlobStore {
         }
     }
 
-    @Override
-    public ListBucketsResponse list() {
-        var buckets = ImmutableList.<software.amazon.awssdk.services.s3.model.Bucket>builder();
-        for (Bucket bucket : storage.list().iterateAll()) {
+    // GCS names its bucket type as S3 does, and this file imports the GCS
+    // one; the qualified element type keeps that import serving the rest.
+    private static List<software.amazon.awssdk.services.s3.model.Bucket>
+            toBuckets(Iterable<Bucket> gcsBuckets) {
+        var buckets = ImmutableList
+                .<software.amazon.awssdk.services.s3.model.Bucket>builder();
+        for (Bucket bucket : gcsBuckets) {
             buckets.add(SdkResponses.bucket(bucket.getName(),
                     toInstant(bucket.getCreateTimeOffsetDateTime())));
         }
+        return buckets.build();
+    }
+
+    @Override
+    public ListBucketsResponse list() {
         return ListBucketsResponse.builder()
-                .buckets(buckets.build())
+                .buckets(toBuckets(storage.list().iterateAll()))
+                .build();
+    }
+
+    @Override
+    public ListBucketsResponse list(ListBucketsRequest request) {
+        var gcsOptions = new ArrayList<BucketListOption>();
+        String prefix = request.prefix();
+        if (prefix != null) {
+            gcsOptions.add(BucketListOption.prefix(prefix));
+        }
+        if (request.maxBuckets() != null) {
+            gcsOptions.add(BucketListOption.pageSize(request.maxBuckets()));
+        }
+        // GCS pages with a token of its own, opaque and round-tripped by the
+        // frontend, so a page resumes where the last one stopped instead of
+        // rescanning every bucket from the first as the default does.
+        if (request.continuationToken() != null) {
+            gcsOptions.add(BucketListOption.pageToken(
+                    request.continuationToken()));
+        }
+
+        Page<Bucket> page = storage.list(
+                gcsOptions.toArray(new BucketListOption[0]));
+        return ListBucketsResponse.builder()
+                .buckets(toBuckets(page.getValues()))
+                // An exhausted listing can end on an empty cursor rather
+                // than none -- the SDK's own hasNextPage reads the two
+                // alike -- where a client reads any token as more to come.
+                .continuationToken(
+                        Strings.emptyToNull(page.getNextPageToken()))
+                .prefix(prefix)
                 .build();
     }
 
