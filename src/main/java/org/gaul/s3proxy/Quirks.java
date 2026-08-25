@@ -92,6 +92,20 @@ public final class Quirks {
     );
 
     /**
+     * Blobstores whose write answers an If-Match naming an ETag by itself,
+     * down to the object that is not there: S3 calls that NoSuchKey rather
+     * than a condition that failed, and a member says the same.  The others
+     * are asked whether the object exists before the write, which costs a
+     * round trip and leaves a window between the looking and the writing.
+     * If-Match: * belongs to none of them -- Azure documents the wildcard
+     * for If-None-Match alone and LocalStack refuses it -- so S3Proxy
+     * settles that form itself whoever is underneath.
+     */
+    public static final Set<String> NATIVE_IF_MATCH = Set.of(
+            "azureblob"
+    );
+
+    /**
      * Blobstores whose completeMultipartUpload evaluates the conditional
      * headers itself.  This is not the same set as for a plain put: Swift's
      * manifest PUT only honours If-None-Match: *, so it cannot answer a

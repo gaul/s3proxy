@@ -672,6 +672,24 @@ public final class AzureBlobStore implements BlobStore {
                 ServerSideEncryption.AES256 : null;
     }
 
+    /**
+     * Translate a failure from a write that carried an If-Match.  Azure
+     * refuses the write whether the ETag differed or the blob was not there
+     * to carry one, where S3 tells those apart: a condition that failed
+     * against nothing to have matched, 412 against 404.  So look once more
+     * to see which happened.  Only a refusal pays for the second look, and
+     * the condition itself is still judged where the write happens.
+     */
+    private RuntimeException translateWrite(BlobStorageException bse,
+            String container, String key, @Nullable String ifMatch) {
+        if (ifMatch != null &&
+                BlobErrorCode.CONDITION_NOT_MET.equals(bse.getErrorCode()) &&
+                !blobExists(container, key)) {
+            return S3Exceptions.noSuchKey(container, key, "", bse);
+        }
+        return translate(bse, container, key);
+    }
+
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
@@ -764,10 +782,10 @@ public final class AzureBlobStore implements BlobStore {
                             reportedSse(properties.isServerEncrypted()))
                     .build();
         } catch (BlobStorageException bse) {
-            throw translate(bse, container, key);
+            throw translateWrite(bse, container, key, request.ifMatch());
         } catch (IOException ioe) {
             if (ioe.getCause() instanceof BlobStorageException bse) {
-                throw translate(bse, container, /*key=*/ null);
+                throw translateWrite(bse, container, key, request.ifMatch());
             }
             throw new RuntimeException(ioe);
         }
@@ -1521,7 +1539,8 @@ public final class AzureBlobStore implements BlobStore {
                 throw new IllegalArgumentException(
                         "Conflict during commit: " + bse.getMessage(), bse);
             } else if (bse.getStatusCode() == 412) {
-                throw translate(bse, mpu.containerName(), targetBlobName);
+                throw translateWrite(bse, mpu.containerName(), targetBlobName,
+                        request.ifMatch());
             }
             throw bse;
         }

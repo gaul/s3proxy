@@ -4153,22 +4153,9 @@ public class S3ProxyHandler {
                     "Conditional writes are not supported by this backend.");
         }
 
-        // S3 answers any If-Match naming a key that does not exist with 404,
-        // since there is nothing to have matched.  The native backends do not
-        // agree -- Azure and GCS report 412, LocalStack 501 -- so settle
-        // existence here rather than let their answer through.  Once it is
-        // established, If-Match: * asks nothing further, so drop it: Azure
-        // and LocalStack reject that form outright.  A specific ETag stays
-        // with the backend, which compares it atomically.
-        //
-        // Note: this makes the existence check non-atomic (HEAD then PUT).
-        if (ifMatch != null && supportsNativeConditionalWrites) {
-            if (!blobStore.blobExists(containerName, blobName)) {
-                throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-            }
-            if (ifMatch.equals("*")) {
-                ifMatch = null;
-            }
+        if (supportsNativeConditionalWrites) {
+            ifMatch = settleIfMatch(blobStore, blobStoreType, containerName,
+                    blobName, ifMatch);
         }
 
         // Emulate conditional put for backends without native support.
@@ -5109,17 +5096,8 @@ public class S3ProxyHandler {
                         "Conditional writes are not supported by this" +
                         " backend.");
             }
-            // S3 answers an If-Match naming a key that does not exist with
-            // 404, where the stores report 412; settle that here, and once
-            // existence is established If-Match: * asks nothing more.
-            if (ifMatch != null) {
-                if (!blobStore.blobExists(containerName, blobName)) {
-                    throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
-                }
-                if (ifMatch.equals("*")) {
-                    ifMatch = null;
-                }
-            }
+            ifMatch = settleIfMatch(blobStore, blobStoreType, containerName,
+                    blobName, ifMatch);
             if (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType) &&
                     ifMatch != null) {
                 // the nio2 stores resolve If-None-Match while writing but
@@ -6505,6 +6483,36 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
+    }
+
+    /**
+     * Settle whatever of an If-Match the store will not answer the way S3
+     * does, and return what is left for it to answer.
+     *
+     * S3 reports an If-Match naming a key that does not exist as 404, since
+     * there was nothing there to have matched.  A store that says the same
+     * keeps the whole condition, which is then judged in the one operation
+     * that writes.  The rest are asked whether the key exists first -- Azure
+     * and GCS would report a condition that failed, LocalStack 501 -- at the
+     * cost of a round trip and a window between the looking and the writing.
+     * Once existence is settled If-Match: * has asked all it asks, so it does
+     * not travel on: no backend takes the wildcard on a write.
+     *
+     * @return the condition to hand the store, or null once it has been
+     *         answered here
+     */
+    @Nullable
+    private static String settleIfMatch(BlobStore blobStore,
+            String blobStoreType, String containerName, String blobName,
+            @Nullable String ifMatch) {
+        if (ifMatch == null || (!ifMatch.equals("*") &&
+                Quirks.NATIVE_IF_MATCH.contains(blobStoreType))) {
+            return ifMatch;
+        }
+        if (!blobStore.blobExists(containerName, blobName)) {
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY);
+        }
+        return ifMatch.equals("*") ? null : ifMatch;
     }
 
     /**

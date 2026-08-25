@@ -3265,6 +3265,40 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testPutIfMatchETag() throws Exception {
+        assumeTrue(supportsIfMatchWrites());
+        // naming an ETag needs one that survived the write
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+        String blobName = "put-if-match-etag";
+
+        String eTag = client.putObject(b -> b.bucket(containerName)
+                        .key(blobName),
+                RequestBody.fromString("first")).eTag();
+
+        // the ETag a write reported is the one a later write can name, even
+        // where the backend's own token is nothing like an MD5
+        String overwritten = client.putObject(b -> b.bucket(containerName)
+                        .key(blobName).ifMatch(eTag),
+                RequestBody.fromString("second")).eTag();
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName)).asUtf8String()).isEqualTo("second");
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(blobName)).eTag()).isEqualTo(overwritten);
+
+        // the object has moved on, so the ETag that named it no longer does
+        try {
+            client.putObject(b -> b.bucket(containerName).key(blobName)
+                            .ifMatch(eTag),
+                    RequestBody.fromString("third"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName)).asUtf8String()).isEqualTo("second");
+    }
+
+    @Test
     public void testPutIfNoneMatchWildcard() throws Exception {
         String blobName = "put-if-none-match";
 
