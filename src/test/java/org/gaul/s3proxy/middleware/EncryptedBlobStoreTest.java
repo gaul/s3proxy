@@ -548,10 +548,6 @@ public final class EncryptedBlobStoreTest {
 
     @Test
     public void testEncryptContentWithOptions() throws Exception {
-        // azurite does not implement Put Blob From URL which copyBlob with
-        // replacement metadata uses
-        assumeTrue(!provider.equals("azureblob"));
-
         var tests = new String[] {
             "1", // only 1 char
             "123456789A12345", // lower then the AES block

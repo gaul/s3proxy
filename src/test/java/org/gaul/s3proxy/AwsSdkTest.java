@@ -1210,7 +1210,6 @@ public final class AwsSdkTest {
     @Test
     public void testMultipartCopyPreconditionFailed() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift"));
-        assumeTrue(!blobStoreType.equals("azureblob"));
         // the precondition compares against the source's stored ETag
         assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
@@ -1245,7 +1244,6 @@ public final class AwsSdkTest {
     @Test
     public void testMultipartUploadConditionalCopy() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift"));
-        assumeTrue(!blobStoreType.equals("azureblob"));
         // the preconditions compare against the source's stored ETag
         assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
 
@@ -3019,13 +3017,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectPreserveMetadata() throws Exception {
-        if (blobStoreType.equals("azureblob")) {
-            // Azurite's Copy Blob fetches the source over HTTP and tries to
-            // decompress it when the source blob declares Content-Encoding:
-            // gzip; the random test payload is not gzip so the copy 500s.
-            assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
-        }
-
         String fromName = "from-name";
         String toName = "to-name";
         String cacheControl = "max-age=3600";
@@ -3085,13 +3076,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectReplaceMetadata() throws Exception {
-        if (blobStoreType.equals("azureblob")) {
-            // Azurite's Copy Blob fetches the source over HTTP and tries to
-            // decompress it when the source blob declares Content-Encoding:
-            // gzip; the random test payload is not gzip so the copy 500s.
-            assumeTrue(!blobStoreEndpoint.getHost().equals("127.0.0.1"));
-        }
-
         String fromName = "from-name";
         String toName = "to-name";
 
@@ -3797,7 +3781,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyRelativePath() throws Exception {
-        assumeTrue(!blobStoreType.equals("azureblob"));
         try {
             client.copyObject(b -> b.sourceBucket(containerName)
                     .sourceKey("../evil.txt").destinationBucket(containerName)
