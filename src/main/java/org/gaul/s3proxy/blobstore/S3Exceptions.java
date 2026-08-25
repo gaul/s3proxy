@@ -186,6 +186,26 @@ public final class S3Exceptions {
     }
 
     /**
+     * The 412 a condition earns when the object it guards is not the one
+     * the caller named.  Prefer this to a bare 412 wherever the refusal
+     * can only be a failed precondition: the frontend maps a status alone
+     * by looking at the request, which a batch delete's per-key error --
+     * written from the code the store gives it -- never reaches.
+     */
+    public static S3Exception preconditionFailed(@Nullable Throwable cause) {
+        String message =
+                "At least one of the preconditions you specified did not " +
+                "hold.";
+        return (S3Exception) S3Exception.builder()
+                .message(message)
+                .cause(cause)
+                .statusCode(412)
+                .awsErrorDetails(details(412, "PreconditionFailed", message,
+                        Map.of()))
+                .build();
+    }
+
+    /**
      * An error carrying only a status code, which the frontend maps to an
      * S3 error document by status.  Used by backends whose service reported
      * a failure with no S3 error code to pass through.

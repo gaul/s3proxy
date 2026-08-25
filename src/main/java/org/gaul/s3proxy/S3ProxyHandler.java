@@ -2851,9 +2851,11 @@ public class S3ProxyHandler {
                 ifMatchTime != null;
         String blobStoreType = getBlobStoreType(blobStore);
         if (hasCondition) {
-            checkConditionalDeleteSupport(blobStoreType, ifMatch);
+            checkConditionalDeleteSupport(blobStoreType, ifMatch, ifMatchSize,
+                    ifMatchTime);
         }
-        if (hasCondition && blobStoreType.equals("aws-s3")) {
+        if (hasCondition &&
+                Quirks.NATIVE_CONDITIONAL_DELETE.contains(blobStoreType)) {
             // The backend evaluates the conditions atomically and decides
             // which it honors: Amazon general purpose buckets take only
             // If-Match, directory buckets all three.
@@ -2975,8 +2977,9 @@ public class S3ProxyHandler {
             // passed the check in doHandle.
             checkReservedBlobName(s3Object.key());
             if (s3Object.hasCondition()) {
-                checkConditionalDeleteSupport(blobStoreType,
-                        s3Object.eTag());
+                checkConditionalDeleteSupport(blobStoreType, s3Object.eTag(),
+                        s3Object.parsedSize(),
+                        s3Object.parsedLastModifiedTime());
                 // Parse eagerly so a malformed value fails the request
                 // before any key is deleted.
                 s3Object.parsedSize();
@@ -3015,7 +3018,8 @@ public class S3ProxyHandler {
                 try {
                     DeleteObjectResponse result = null;
                     if (s3Object.hasCondition() &&
-                            !blobStoreType.equals("aws-s3")) {
+                            !Quirks.NATIVE_CONDITIONAL_DELETE.contains(
+                                    blobStoreType)) {
                         result = conditionalDelete(blobStore, containerName,
                                 key, versionId, s3Object.eTag(),
                                 s3Object.parsedSize(),
@@ -6511,9 +6515,21 @@ public class S3ProxyHandler {
      * refused rather than honored by discarding it.
      */
     private static void checkConditionalDeleteSupport(String blobStoreType,
-            @Nullable String ifMatch) {
+            @Nullable String ifMatch, @Nullable Long ifMatchSize,
+            @Nullable Instant ifMatchTime) {
         if (blobStoreType.equals("aws-s3")) {
+            // The backend takes all three and answers for the ones it
+            // honors, which differ between bucket kinds.
             return;
+        }
+        if (blobStoreType.equals("azureblob")) {
+            // Azure's Delete Blob takes an ETag condition; the size and
+            // exact-time forms have no equivalent to translate onto.
+            if (ifMatchSize == null && ifMatchTime == null) {
+                return;
+            }
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "This backend conditions a delete on the ETag alone.");
         }
         if (Quirks.NIO2_BACKENDS.contains(blobStoreType) &&
                 !(Quirks.NO_PERSISTED_METADATA.contains(blobStoreType) &&

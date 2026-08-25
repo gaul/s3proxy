@@ -716,6 +716,7 @@ public final class AwsSdkTest {
     private boolean supportsIfMatchDeletes() {
         return (blobStoreType.equals("aws-s3") &&
                 blobStoreEndpoint.getPort() != LOCALSTACK_PORT) ||
+                blobStoreType.equals("azureblob") ||
                 blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient");
     }
@@ -801,6 +802,47 @@ public final class AwsSdkTest {
                 .ifMatch("*"));
         client.deleteObject(b -> b.bucket(containerName).key(key)
                 .ifMatchSize(9999L));
+    }
+
+    /**
+     * Azure conditions a delete on the ETag alone, so the size and time
+     * forms are refused rather than answered against a read of the object
+     * that anything could overtake.
+     */
+    @Test
+    public void testConditionalDeleteETagOnly() throws Exception {
+        assumeTrue(blobStoreType.equals("azureblob"));
+        var key = "conditional-delete-etag-only";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("body"));
+
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatchSize(4L));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatchLastModifiedTime(Instant.EPOCH));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NotImplemented");
+        }
+
+        // neither refusal touched the object
+        client.headObject(b -> b.bucket(containerName).key(key));
+        client.deleteObject(b -> b.bucket(containerName).key(key));
+
+        // gone, its ETag condition is satisfied rather than failed: the
+        // service answers the pair 404 and the delete stays idempotent
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatch("\"badetag\""));
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .ifMatch("*"));
     }
 
     @Test

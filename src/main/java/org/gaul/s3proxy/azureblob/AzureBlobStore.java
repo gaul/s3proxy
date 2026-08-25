@@ -1039,19 +1039,48 @@ public final class AzureBlobStore implements BlobStore {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
-        if (request.ifMatch() != null || request.ifMatchSize() != null ||
+        if (request.ifMatchSize() != null ||
                 request.ifMatchLastModifiedTime() != null) {
+            // Azure conditions a delete on the blob's ETag or on a time
+            // range, neither of which expresses S3's size or its equality
+            // on the exact time.
             throw new UnsupportedOperationException(
                     "conditional delete not supported");
         }
+        String ifMatch = backendCondition(request.ifMatch());
         var client = blobServiceClient.getBlobContainerClient(request.bucket())
                 .getBlobClient(request.key());
         try {
-            client.delete();
-        } catch (BlobStorageException bse) {
-            if (!isAbsent(bse)) {
-                throw bse;
+            if (ifMatch == null) {
+                client.delete();
+            } else {
+                // The service judges the condition as it removes the blob,
+                // where the emulated form the other stores get compares
+                // against a read that anyone could have overtaken.
+                client.deleteWithResponse(
+                        /*deleteBlobSnapshotOptions=*/ null,
+                        new BlobRequestConditions().setIfMatch(ifMatch),
+                        /*timeout=*/ null, Context.NONE);
             }
+        } catch (BlobStorageException bse) {
+            if (isAbsent(bse)) {
+                return DeleteObjectResponse.builder().build();
+            }
+            if (BlobErrorCode.CONDITION_NOT_MET.equals(bse.getErrorCode())) {
+                if (!Boolean.TRUE.equals(client.exists())) {
+                    // Azure judges an ETag against a blob that is not there
+                    // and fails it, where a delete stays idempotent
+                    // everywhere else in S3Proxy: an object already gone
+                    // satisfies any condition, so a caller may retry one.
+                    // Only this failing path pays for the second look.
+                    return DeleteObjectResponse.builder().build();
+                }
+                // Named rather than left a bare 412: a batch delete reports
+                // this one key at a time, where the frontend writes the
+                // code the store gives it into that key's Error element.
+                throw S3Exceptions.preconditionFailed(bse);
+            }
+            throw translate(bse, request.bucket(), request.key());
         }
         return DeleteObjectResponse.builder().build();
     }

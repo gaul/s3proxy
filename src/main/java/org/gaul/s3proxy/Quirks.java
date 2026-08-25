@@ -106,6 +106,19 @@ public final class Quirks {
             "transient"
     );
 
+    /**
+     * Blobstores whose delete evaluates the conditions itself, atomically
+     * with the removal.  The others leave them to the frontend, which can
+     * only compare against a read of its own and so is limited to stores
+     * this process is the only writer of.  Which conditions a member
+     * honors is its own affair: S3 forwards all three and answers for
+     * them, while Azure conditions a delete on the ETag alone.
+     */
+    public static final Set<String> NATIVE_CONDITIONAL_DELETE = Set.of(
+            "aws-s3",
+            "azureblob"
+    );
+
     /** Blobstores with opaque ETags. */
     public static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob",
