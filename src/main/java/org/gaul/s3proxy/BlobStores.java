@@ -91,7 +91,14 @@ public final class BlobStores {
             String eTagMode = properties.getProperty(
                     "s3proxy.azureblob.etag", "opaque");
             String auth = properties.getProperty("s3proxy.azureblob.auth");
-            yield new AzureBlobStore(creds, endpoint, eTagMode, auth);
+            // Azure Blob versioning is enabled per storage account on the
+            // management plane, invisible to the data-plane SDK; the operator
+            // asserts here that the account has it on so the store honors S3
+            // versioning rather than answering NotImplemented.
+            boolean versioning = Boolean.parseBoolean(properties.getProperty(
+                    "s3proxy.azureblob.versioning", "false"));
+            yield new AzureBlobStore(creds, endpoint, eTagMode, auth,
+                    versioning);
         }
         case "google-cloud-storage" ->
             new GCloudBlobStore(creds, endpoint);
