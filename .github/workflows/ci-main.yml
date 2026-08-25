@@ -402,7 +402,7 @@ jobs:
           mvn package -DskipTests
 
       - name: Install fake-gcs-server
-        run: go install github.com/fsouza/fake-gcs-server@v1.56.0
+        run: go install github.com/fsouza/fake-gcs-server@v1.56.1
       - name: Start fake-gcs-server
         run: |
           $HOME/go/bin/fake-gcs-server -backend memory -scheme http -host 127.0.0.1 &

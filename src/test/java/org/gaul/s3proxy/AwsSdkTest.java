@@ -2567,13 +2567,6 @@ public final class AwsSdkTest {
         // nowhere to live and the copy is refused instead.
         assumeTrue(!blobStoreType.equals("azureblob") &&
                 !blobStoreType.equals("openstack-swift"));
-        // GCS is skipped for a different reason: the copy does carry
-        // destinationPredefinedAcl, but the fake-gcs-server release the lane
-        // pins drops it and gives the destination the source's ACL instead.
-        // Upstream fixed this on master (8415544 for buckets, d189de6 for
-        // object copy and compose); remove this skip when a release ships
-        // those and the lane's pin picks it up.
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
 
         client.putObject(b -> b.bucket(containerName).key("source"),
                 RequestBody.fromString("content"));
