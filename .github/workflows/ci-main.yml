@@ -211,15 +211,16 @@ jobs:
           mvn package -DskipTests
 
       # No released Azurite answers startFrom on List Blobs, which the
-      # azureblob backend lists start-after with, so build the commit that
-      # added it.  Return this to a published azurite@<version> once one
-      # carries Azure/Azurite#2688.
+      # azureblob backend lists start-after with, nor Put Block From URL,
+      # which it copies parts server-side with, so build a commit carrying
+      # both.  Return this to a published azurite@<version> once one
+      # carries Azure/Azurite#2681.
       - name: Build Azurite
         run: |
           git clone --filter=blob:none https://github.com/Azure/Azurite \
             "${RUNNER_TEMP}/azurite"
           git -C "${RUNNER_TEMP}/azurite" checkout --quiet \
-            6f975bae637dd71925660290665089436008993c
+            422ed9902001447bef5784e495dd99e32b1d1a77
           cd "${RUNNER_TEMP}/azurite"
           npm ci
           npm run build
