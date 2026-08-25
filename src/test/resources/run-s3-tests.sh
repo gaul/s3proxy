@@ -136,8 +136,8 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
 elif [[ "${S3PROXY_CONF}" == s3proxy-ministack*.conf ]]; then
     # MiniStack reaches the same aws-s3 backend as the LocalStack lane, but
     # it is a different emulator and does not share every gap that lane's
-    # markers record, so it answers to markers of its own.  The conf is not
-    # in the repo: supply one pointing at a running MiniStack to use this.
+    # markers record, so it answers to markers of its own.  The glob takes a
+    # conf of one's own as well, for a MiniStack reached somewhere else.
     backend="ministack"
     # Versioning and server-side encryption pass through to a service that
     # has both, as they do on the LocalStack lane.

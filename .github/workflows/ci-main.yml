@@ -327,10 +327,12 @@ jobs:
   # than one, and each carries its own markers.  It is published on 4567
   # rather than its own 4566 because AwsSdkTest reads 4566 as LocalStack and
   # would credit this emulator with LocalStack's gaps.  Only the conformance
-  # suite runs here for now: AwsSdkTest has two failures left against
-  # MiniStack -- ListBuckets ignores max-buckets, and a mismatched
-  # precomputed checksum goes unreported -- and a lane that starts red says
-  # nothing when it turns red later.
+  # suite runs here for now: AwsSdkTest still fails five tests against
+  # MiniStack -- ListBuckets ignores max-buckets, a copy drops the canned
+  # ACL, UploadPartCopy ignores the conditions naming its source, and an
+  # upload rejected for a checksum mismatch is left behind rather than
+  # discarded -- and a lane that starts red says nothing when it turns red
+  # later.
   ministackTests:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
@@ -354,10 +356,10 @@ jobs:
           mvn package -DskipTests
 
       - name: Install MiniStack
-        run: docker pull ministackorg/ministack:1.5.0
+        run: docker pull ministackorg/ministack:1.5.1
       - name: Start MiniStack
         run: |
-          docker run -d --name ministack -p 4567:4566 ministackorg/ministack:1.5.0
+          docker run -d --name ministack -p 4567:4566 ministackorg/ministack:1.5.1
           # Probe 127.0.0.1 rather than localhost: hypercorn binds IPv4 alone
           # inside the container, and a connection to ::1 is accepted and then
           # reset, which reads as the service never coming up.
