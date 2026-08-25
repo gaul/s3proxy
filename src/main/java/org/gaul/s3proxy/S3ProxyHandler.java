@@ -2870,10 +2870,13 @@ public class S3ProxyHandler {
         } else if (hasCondition) {
             // The nio2 stores compare against their own metadata, bounded
             // by this process like their emulated If-Match put.
-            checkConditionalDelete(blobStore.blobMetadataIfPresent(
-                    containerName, blobName), ifMatch, ifMatchSize,
+            DeleteObjectResponse result = conditionalDelete(blobStore,
+                    containerName, blobName,
+                    request.getParameter("versionId"), ifMatch, ifMatchSize,
                     ifMatchTime);
-            blobStore.removeBlob(containerName, blobName);
+            if (result != null) {
+                addDeleteResultHeaders(response, result);
+            }
         } else {
             // The store honors the versionId or refuses it as versioning
             // it does not support, the way the batch delete already
@@ -3013,12 +3016,10 @@ public class S3ProxyHandler {
                     DeleteObjectResponse result = null;
                     if (s3Object.hasCondition() &&
                             !blobStoreType.equals("aws-s3")) {
-                        checkConditionalDelete(
-                                blobStore.blobMetadataIfPresent(
-                                        containerName, key),
-                                s3Object.eTag(), s3Object.parsedSize(),
+                        result = conditionalDelete(blobStore, containerName,
+                                key, versionId, s3Object.eTag(),
+                                s3Object.parsedSize(),
                                 s3Object.parsedLastModifiedTime());
-                        blobStore.removeBlob(containerName, key);
                     } else if (s3Object.hasCondition()) {
                         result = blobStore.removeBlob(
                                 DeleteObjectRequest.builder()
@@ -6521,6 +6522,48 @@ public class S3ProxyHandler {
         }
         throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                 "Conditional deletes are not supported by this backend.");
+    }
+
+    /**
+     * One emulated conditional delete, for the stores that leave the
+     * conditions to the frontend.  A request naming a version is judged
+     * against that version and removes it, not whichever one currently
+     * stands for the key.  Returns null when the version was already gone,
+     * which is nothing to delete rather than a failure: delete stays
+     * idempotent, and the conditions guard only what is there.
+     */
+    @Nullable
+    private static DeleteObjectResponse conditionalDelete(BlobStore blobStore,
+            String containerName, String blobName,
+            @Nullable String versionId, @Nullable String ifMatch,
+            @Nullable Long ifMatchSize, @Nullable Instant ifMatchTime) {
+        HeadObjectResponse metadata;
+        try {
+            metadata = blobStore.blobMetadataIfPresent(
+                    HeadObjectRequest.builder()
+                            .bucket(containerName)
+                            .key(blobName)
+                            .versionId(versionId)
+                            .build());
+        } catch (S3Exception se) {
+            if ("NoSuchVersion".equals(S3Exceptions.errorCode(se))) {
+                return null;
+            }
+            if (se.statusCode() != HttpServletResponse.SC_METHOD_NOT_ALLOWED) {
+                throw se;
+            }
+            // The version named is a delete marker, which the read refuses
+            // because it stands for no object.  It has no ETag, size or
+            // time to compare, and removing it -- how S3 undeletes a key --
+            // is what the request asked for.
+            metadata = null;
+        }
+        checkConditionalDelete(metadata, ifMatch, ifMatchSize, ifMatchTime);
+        return blobStore.removeBlob(DeleteObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .versionId(versionId)
+                .build());
     }
 
     /**

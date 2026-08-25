@@ -42,6 +42,7 @@ import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.utils.AttributeMap;
 
@@ -141,6 +142,32 @@ public final class VersionedBlobStoreTest {
     private byte[] get(String key, String versionId) {
         return client.getObjectAsBytes(b -> b.bucket(containerName).key(key)
                 .versionId(versionId)).asByteArray();
+    }
+
+    private String eTag(String key, String versionId) {
+        return client.headObject(b -> b.bucket(containerName).key(key)
+                .versionId(versionId)).eTag();
+    }
+
+    /**
+     * Gives up the test where the store answers a conditional delete 501
+     * rather than emulating it against its own metadata.  Delete stays
+     * idempotent, so this probe of a key that is not there deletes nothing
+     * where the store does support the conditions.
+     */
+    private void assumeConditionalDeletes() {
+        try {
+            client.deleteObject(b -> b.bucket(containerName)
+                    .key("conditional-delete-probe").ifMatch("\"probe\""));
+        } catch (S3Exception se) {
+            var details = se.awsErrorDetails();
+            if (details != null &&
+                    "NotImplemented".equals(details.errorCode())) {
+                Assumptions.abort(
+                        "store cannot delete conditionally: " + se);
+            }
+            throw se;
+        }
     }
 
     @Test
@@ -399,6 +426,98 @@ public final class VersionedBlobStoreTest {
                 .satisfies(thrown -> assertThat(
                         ((S3Exception) thrown).awsErrorDetails().errorCode())
                         .isEqualTo("NoSuchVersion"));
+    }
+
+    /**
+     * A conditional delete naming a version is judged against that version
+     * and removes it: the condition is not answered by whichever version
+     * happens to stand for the key, and honoring it leaves no marker.
+     */
+    @Test
+    public void testConditionalDeleteJudgesTheVersionItNames() {
+        assumeConditionalDeletes();
+        enableVersioning();
+        String first = put("blob", FIRST);
+        String firstETag = eTag("blob", first);
+        String second = put("blob", SECOND);
+        String secondETag = eTag("blob", second);
+
+        // The current version's ETag cannot pass for the older version this
+        // request addresses.
+        assertThatThrownBy(() -> client.deleteObject(b ->
+                b.bucket(containerName).key("blob").versionId(first)
+                        .ifMatch(secondETag)))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).statusCode()).isEqualTo(412));
+        assertThat(get("blob", first)).isEqualTo(FIRST);
+
+        // Its own ETag removes that version alone.
+        client.deleteObject(b -> b.bucket(containerName).key("blob")
+                .versionId(first).ifMatch(firstETag));
+
+        assertThat(get("blob")).isEqualTo(SECOND);
+        var listing = client.listObjectVersions(b -> b.bucket(containerName));
+        assertThat(listing.deleteMarkers()).isEmpty();
+        assertThat(listing.versions()).hasSize(1);
+        assertThat(listing.versions().get(0).versionId()).isEqualTo(second);
+    }
+
+    /** The same, for the conditions a batch delete carries per key. */
+    @Test
+    public void testBatchConditionalDeleteJudgesTheVersionItNames() {
+        assumeConditionalDeletes();
+        enableVersioning();
+        String first = put("blob", FIRST);
+        String firstETag = eTag("blob", first);
+        String second = put("blob", SECOND);
+        String secondETag = eTag("blob", second);
+
+        var mismatch = client.deleteObjects(b -> b.bucket(containerName)
+                .delete(d -> d.objects(ObjectIdentifier.builder()
+                        .key("blob").versionId(first).eTag(secondETag)
+                        .build())));
+        assertThat(mismatch.deleted()).isEmpty();
+        assertThat(mismatch.errors()).hasSize(1);
+        assertThat(mismatch.errors().get(0).code()).isEqualTo(
+                "PreconditionFailed");
+        assertThat(get("blob", first)).isEqualTo(FIRST);
+
+        var deleted = client.deleteObjects(b -> b.bucket(containerName)
+                .delete(d -> d.objects(ObjectIdentifier.builder()
+                        .key("blob").versionId(first).eTag(firstETag)
+                        .build())));
+        assertThat(deleted.errors()).isEmpty();
+        assertThat(deleted.deleted()).hasSize(1);
+        assertThat(deleted.deleted().get(0).key()).isEqualTo("blob");
+        assertThat(deleted.deleted().get(0).versionId()).isEqualTo(first);
+
+        assertThat(get("blob")).isEqualTo(SECOND);
+        var listing = client.listObjectVersions(b -> b.bucket(containerName));
+        assertThat(listing.deleteMarkers()).isEmpty();
+        assertThat(listing.versions()).hasSize(1);
+        assertThat(listing.versions().get(0).versionId()).isEqualTo(second);
+    }
+
+    /**
+     * A delete marker stands for no object, so a conditional delete naming
+     * one has nothing to compare and removes it, which is how S3 undeletes
+     * a key.
+     */
+    @Test
+    public void testConditionalDeleteRemovesADeleteMarker() {
+        assumeConditionalDeletes();
+        enableVersioning();
+        put("blob", FIRST);
+        String markerId = client.deleteObject(
+                b -> b.bucket(containerName).key("blob")).versionId();
+
+        client.deleteObject(b -> b.bucket(containerName).key("blob")
+                .versionId(markerId).ifMatch("*"));
+
+        assertThat(get("blob")).isEqualTo(FIRST);
+        assertThat(client.listObjectVersions(b -> b.bucket(containerName))
+                .deleteMarkers()).isEmpty();
     }
 
     /** Versions and markers keep a bucket from being deleted, as on S3. */
