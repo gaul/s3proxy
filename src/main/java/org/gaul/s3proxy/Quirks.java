@@ -133,6 +133,19 @@ public final class Quirks {
             "azureblob"
     );
 
+    /**
+     * Blobstores that judge a flexible checksum a write carries, and so
+     * refuse to keep a body that does not match the value asserted for it.
+     * Elsewhere the value travels as user metadata alone, for the read side
+     * to answer with: S3Proxy checks the bytes wherever the store will not,
+     * but a check of its own can only refuse the request, not unmake a
+     * write the store has already taken.  A part is offered its checksum
+     * whoever holds it, since ListParts says whether it was kept.
+     */
+    public static final Set<String> NATIVE_CHECKSUMS = Set.of(
+            "aws-s3"
+    );
+
     /** Blobstores with opaque ETags. */
     public static final Set<String> OPAQUE_ETAG = Set.of(
             "azureblob",

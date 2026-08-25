@@ -36,6 +36,7 @@ import software.amazon.awssdk.checksums.spi.ChecksumAlgorithm;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 /**
@@ -192,6 +193,24 @@ public enum FlexChecksum {
     }
 
     /**
+     * Carry a whole object's checksum to the store on the request that
+     * writes it, so a store that judges one refuses a body that does not
+     * match instead of keeping it.  S3Proxy checks the same value as it
+     * forwards the bytes, but only the store decides what a later read
+     * finds: a write it has already begun can still land.
+     */
+    public PutObjectRequest.Builder setOn(
+            PutObjectRequest.Builder builder, String value) {
+        return switch (this) {
+        case CRC32 -> builder.checksumCRC32(value);
+        case CRC32C -> builder.checksumCRC32C(value);
+        case CRC64NVME -> builder.checksumCRC64NVME(value);
+        case SHA1 -> builder.checksumSHA1(value);
+        case SHA256 -> builder.checksumSHA256(value);
+        };
+    }
+
+    /**
      * Carry a part's checksum to the store on the request that uploads it,
      * so a store keeping checksums natively records the digest the client
      * asserted rather than computing its own -- which would mean reading
@@ -221,6 +240,28 @@ public enum FlexChecksum {
         case SHA1 -> builder.checksumSHA1(value);
         case SHA256 -> builder.checksumSHA256(value);
         };
+    }
+
+    /**
+     * Drop every flexible checksum from a write whose bytes change on the
+     * way to the store -- encryption, or a store that keeps the length in
+     * place of the content.  The value describes what the client sent, so a
+     * store that judges it would refuse an object that is perfectly good,
+     * the way a Content-MD5 left in place would.
+     */
+    public static PutObjectRequest.Builder clearOn(
+            PutObjectRequest.Builder builder) {
+        return builder.checksumCRC32(null).checksumCRC32C(null)
+                .checksumCRC64NVME(null).checksumSHA1(null)
+                .checksumSHA256(null);
+    }
+
+    /** As {@link #clearOn(PutObjectRequest.Builder)}, for one part. */
+    public static UploadPartRequest.Builder clearOn(
+            UploadPartRequest.Builder builder) {
+        return builder.checksumCRC32(null).checksumCRC32C(null)
+                .checksumCRC64NVME(null).checksumSHA1(null)
+                .checksumSHA256(null);
     }
 
     /** User-metadata key persisting this checksum with the object. */

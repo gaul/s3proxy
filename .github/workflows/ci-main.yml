@@ -329,9 +329,9 @@ jobs:
   # would credit this emulator with LocalStack's gaps.  Only the conformance
   # suite runs here for now: AwsSdkTest still fails five tests against
   # MiniStack -- ListBuckets ignores max-buckets, a copy drops the canned
-  # ACL, UploadPartCopy ignores the conditions naming its source, and an
-  # upload rejected for a checksum mismatch is left behind rather than
-  # discarded -- and a lane that starts red says nothing when it turns red
+  # ACL, UploadPartCopy ignores the conditions naming its source, and a
+  # write naming CRC32C is refused outright by a build that carries no
+  # CRC32C -- and a lane that starts red says nothing when it turns red
   # later.
   ministackTests:
     runs-on: ubuntu-26.04-arm

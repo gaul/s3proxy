@@ -4229,6 +4229,17 @@ public class S3ProxyHandler {
             putRequest.contentMD5(Base64.getEncoder().encodeToString(
                     contentMD5.asBytes()));
         }
+        // Offer the value to a store that judges it, so the object never
+        // lands when the body disagrees: the check above rejects the
+        // request, but the write it interrupted may still be finished by a
+        // retry underneath.  Only the header form arrives in time to be
+        // handed on -- a checksum sent as a trailer is not read until the
+        // body it describes has already gone by -- and the metadata copy
+        // is written either way for the read side to answer with.
+        if (checksum != null && checksumValue != null &&
+                Quirks.NATIVE_CHECKSUMS.contains(blobStoreType)) {
+            checksum.setOn(putRequest, checksumValue);
+        }
 
         PutObjectResponse result = blobStore.putBlob(putRequest.build(), is);
 

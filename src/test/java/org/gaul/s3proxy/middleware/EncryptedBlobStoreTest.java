@@ -25,18 +25,23 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.stream.Collectors;
+import java.util.zip.CRC32;
 
 import org.gaul.s3proxy.Quirks;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.crypto.Constants;
@@ -62,7 +67,10 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 @SuppressWarnings("UnstableApiUsage")
 @Execution(ExecutionMode.SAME_THREAD)
@@ -82,6 +90,7 @@ public final class EncryptedBlobStoreTest {
     private String containerName;
     private String provider;
     private BlobStore encryptedBlobStore;
+    private Properties encryptionProperties;
 
     private static GetObjectRequest rangeRequest(String container,
         String blobName, String range) {
@@ -141,6 +150,7 @@ public final class EncryptedBlobStoreTest {
         properties.put(S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_SALT,
             salt);
 
+        encryptionProperties = properties;
         encryptedBlobStore =
             EncryptedBlobStore.newEncryptedBlobStore(blobStore, properties);
     }
@@ -161,6 +171,71 @@ public final class EncryptedBlobStoreTest {
     @AfterEach
     public void tearDown() throws Exception {
         blobStore.deleteContainer(containerName);
+    }
+
+    /**
+     * The checksum a caller asserts describes the plaintext, and the store
+     * below is handed ciphertext.  A store that judges checksums would
+     * refuse a write that is perfectly good, so neither an object nor a
+     * part may carry one down -- the same reason the Content-MD5 is
+     * dropped here.
+     */
+    @Test
+    public void testEncryptedWriteDropsTheChecksum() throws Exception {
+
+        var writes = new ArrayList<PutObjectRequest>();
+        var parts = new ArrayList<UploadPartRequest>();
+        BlobStore capturing = new ForwardingBlobStore(blobStore) {
+            @Override
+            public PutObjectResponse putBlob(PutObjectRequest request,
+                InputStream payload) {
+
+                writes.add(request);
+                return super.putBlob(request, payload);
+            }
+
+            @Override
+            public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
+                UploadPartRequest request, InputStream is) {
+
+                parts.add(request);
+                return super.uploadMultipartPart(mpu, request, is);
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            capturing, encryptionProperties);
+
+        byte[] content = MPU_PART1.getBytes(StandardCharsets.UTF_8);
+        var crc32 = new CRC32();
+        crc32.update(content);
+        String checksum = Base64.getEncoder().encodeToString(
+            ByteBuffer.allocate(4).putInt((int) crc32.getValue()).array());
+
+        encrypted.putBlob(PutObjectRequest.builder()
+                .bucket(containerName)
+                .key(TestUtils.createRandomBlobName())
+                .contentLength((long) content.length)
+                .checksumCRC32(checksum)
+                .build(),
+            new ByteArrayInputStream(content));
+        assertThat(writes).hasSize(1);
+        assertThat(writes.get(0).checksumCRC32()).isNull();
+
+        MultipartUpload mpu = encrypted.initiateMultipartUpload(
+            TestUtils.createRequest(containerName,
+                TestUtils.createRandomBlobName()));
+        encrypted.uploadMultipartPart(mpu, UploadPartRequest.builder()
+                .bucket(mpu.containerName())
+                .key(mpu.blobName())
+                .uploadId(mpu.id())
+                .partNumber(1)
+                .contentLength((long) content.length)
+                .checksumCRC32(checksum)
+                .build(),
+            new ByteArrayInputStream(content));
+        assertThat(parts).hasSize(1);
+        assertThat(parts.get(0).checksumCRC32()).isNull();
+        encrypted.abortMultipartUpload(mpu);
     }
 
     @Test

@@ -35,6 +35,7 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.checksum.FlexChecksum;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -141,9 +142,11 @@ final class NullBlobStore extends ForwardingBlobStore {
 
         byte[] array = Longs.toByteArray(length);
 
-        return super.putBlob(request.toBuilder()
+        // the length stands in for the content, so the MD5 and the flexible
+        // checksums no longer describe what the store is given
+        return super.putBlob(FlexChecksum.clearOn(request.toBuilder()
                         .contentLength((long) array.length)
-                        .contentMD5(null)
+                        .contentMD5(null))
                         .build(),
                 new ByteArrayInputStream(array));
     }
@@ -219,9 +222,10 @@ final class NullBlobStore extends ForwardingBlobStore {
                         .build(),
                 new ByteArrayInputStream(array));
 
-        return super.uploadMultipartPart(mpu, request.toBuilder()
+        return super.uploadMultipartPart(mpu,
+                FlexChecksum.clearOn(request.toBuilder()
                         .contentLength((long) array.length)
-                        .contentMD5(null)
+                        .contentMD5(null))
                         .build(),
                 new ByteArrayInputStream(array));
     }

@@ -43,6 +43,7 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.checksum.FlexChecksum;
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
@@ -362,13 +363,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             throw new RuntimeException(e);
         }
         // adjust the encrypted content length by adding the padding block
-        // size; drop the MD5 since encryption changes the bytes
+        // size; drop the MD5 and the flexible checksums since encryption
+        // changes the bytes they describe
         String key = request.key();
-        return delegate().putBlob(request.toBuilder()
+        return delegate().putBlob(FlexChecksum.clearOn(request.toBuilder()
                 .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
                 .contentLength(requireNonNull(request.contentLength()) +
                         Constants.PADDING_BLOCK_SIZE)
-                .contentMD5(null)
+                .contentMD5(null))
                 .build(), encrypted);
     }
 
@@ -497,11 +499,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             throw new RuntimeException(e);
         }
         // adjust the encrypted content length by adding the padding block
-        // size; also drop the MD5 since encryption changes the bytes
-        return delegate().uploadMultipartPart(mpu, request.toBuilder()
-            .contentLength(request.contentLength() +
-                Constants.PADDING_BLOCK_SIZE)
-            .contentMD5(null)
+        // size; also drop the MD5 and the flexible checksums since
+        // encryption changes the bytes they describe
+        return delegate().uploadMultipartPart(mpu,
+            FlexChecksum.clearOn(request.toBuilder()
+                .contentLength(request.contentLength() +
+                    Constants.PADDING_BLOCK_SIZE)
+                .contentMD5(null))
             .build(), encrypted);
     }
 
