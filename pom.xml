@@ -592,7 +592,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>com.google.cloud</groupId>
       <artifactId>google-cloud-storage</artifactId>
-      <version>2.70.0</version>
+      <version>2.71.0</version>
       <!-- GCloudBlobStore uses the HTTP transport, so the gRPC transport
            and the client-side-metrics stack it exports through are dead
            weight: some 30 MB of grpc (including grpc-xds and
