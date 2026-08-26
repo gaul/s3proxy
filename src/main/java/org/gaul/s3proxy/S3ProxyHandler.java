@@ -3452,9 +3452,11 @@ public class S3ProxyHandler {
 
     /**
      * Evaluate the conditional request headers for an operation that reads
-     * only metadata, which BlobStore.blobMetadata cannot express as
-     * GetOptions.  Returns true when the response is already complete, i.e.
-     * the caller's copy is unchanged.
+     * only metadata, which the frontend settles rather than the store.
+     * Returns true when the response is already complete, i.e. the caller's
+     * copy is unchanged.  The object is known to exist, since its metadata
+     * has already been read, so the wildcard forms answer without an ETag --
+     * which a store that persists none cannot offer.
      */
     private static boolean checkConditionalHeaders(HttpServletRequest request,
             HttpServletResponse response, HeadObjectResponse metadata) {
@@ -3468,13 +3470,19 @@ public class S3ProxyHandler {
         String eTag = metadata.eTag();
         if (eTag != null) {
             eTag = maybeQuoteETag(eTag);
-            if (ifMatch != null && !ifMatch.equals(eTag)) {
-                throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
-            }
-            if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
-                response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
-                return true;
-            }
+        }
+        // "*" names any existing object rather than a literal ETag, the way
+        // the stores resolve it for a read: If-Match: * is satisfied by the
+        // object being here, and If-None-Match: * says the caller already
+        // has it.  If-Match is judged first, as RFC 9110 orders them.
+        if (ifMatch != null && !ifMatch.equals("*") && eTag != null &&
+                !ifMatch.equals(eTag)) {
+            throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
+        }
+        if (ifNoneMatch != null && (ifNoneMatch.equals("*") ||
+                (eTag != null && ifNoneMatch.equals(eTag)))) {
+            response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+            return true;
         }
 
         Instant lastModified = metadata.lastModified();

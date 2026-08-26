@@ -3385,6 +3385,32 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testConditionalHeadWildcard() throws Exception {
+        // As testConditionalGetWildcard, for the read that fetches only
+        // metadata.  No backend is excluded here, LocalStack included:
+        // s3proxy settles a HEAD's conditions itself and never passes them
+        // down, so the answer is its own whatever the store would have said.
+        String blobName = "blob-name";
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
+
+        // If-Match: * on an existing object succeeds.
+        HeadObjectResponse response = client.headObject(
+                b -> b.bucket(containerName).key(blobName).ifMatch("*"));
+        assertThat(response.contentLength()).isEqualTo(BYTE_SOURCE.size());
+
+        // If-None-Match: * on an existing object is 304 Not Modified.
+        try {
+            client.headObject(b -> b.bucket(containerName).key(blobName)
+                    .ifNoneMatch("*"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(304);
+        }
+    }
+
+    @Test
     public void testConditionalGetModifiedSince() throws Exception {
         // HTTP conditional dates have one-second granularity while backend
         // timestamps may carry sub-second precision.  A request whose
