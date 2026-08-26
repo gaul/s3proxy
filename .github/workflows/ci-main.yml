@@ -285,9 +285,7 @@ jobs:
 
       - name: Maven Test with LocalStack
         run: |
-          # EncryptedBlobStoreTest is excluded: its multipart tests use
-          # parts below the 5 MB minimum which native S3 backends reject.
-          mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
+          mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -349,10 +347,8 @@ jobs:
 
       - name: Maven Test with MiniStack
         run: |
-          # The same classes the LocalStack lane runs, EncryptedBlobStoreTest
-          # excluded for the same reason: its multipart tests use parts below
-          # the 5 MB minimum which native S3 backends reject.
-          mvn test -Ds3proxy.test.conf=s3proxy-ministack.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
+          # The same classes the LocalStack lane runs.
+          mvn test -Ds3proxy.test.conf=s3proxy-ministack.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest,EncryptedBlobStoreTest
       - uses: actions/upload-artifact@v7
         if: always()
         with:

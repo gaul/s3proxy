@@ -22,18 +22,21 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
@@ -80,19 +83,46 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 public final class EncryptedBlobStoreTest {
     private static final Logger logger =
         LoggerFactory.getLogger(EncryptedBlobStoreTest.class);
-    private static final String MPU_PART1 =
-        "PART1-789A123456123456789B123456123456789C1234";
-    private static final String MPU_PART2 =
-        "PART2-789D123456123456789E123456123456789F123456";
-    private static final String MPU_PART3 =
-        "PART3-789G123456123456789H123456123456789I123";
-    private static final String MPU_CONTENT =
-        MPU_PART1 + MPU_PART2 + MPU_PART3;
+    /** The last part of an upload, which every backend lets be short. */
+    private static final int LAST_PART_SIZE = 45;
+    /**
+     * Below this an object is swept offset by offset; above it only the
+     * places the arithmetic turns are read.
+     */
+    private static final int SWEEPABLE_SIZE = 256;
+
     private BlobStore blobStore;
     private String containerName;
     private String provider;
     private BlobStore encryptedBlobStore;
     private Properties encryptionProperties;
+    /**
+     * What a part must weigh for the backend to take it anywhere but last.
+     * S3 refuses one under 5 MB there; the stores that keep their own
+     * multipart bookkeeping take any size, so the tests stay small and
+     * quick wherever the backend lets them.
+     */
+    private int partSize;
+
+    /** Bytes whose value names the offset they sit at. */
+    private static byte[] filler(int offset, int length) {
+        var bytes = new byte[length];
+        for (int i = 0; i < length; ++i) {
+            bytes[i] = (byte) ('a' + ((offset + i) % 26));
+        }
+        return bytes;
+    }
+
+    /** A multipart blob and the plaintext it was assembled from. */
+    private static final class Multipart {
+        private final String blobName;
+        private final byte[] content;
+
+        Multipart(String blobName, byte[] content) {
+            this.blobName = blobName;
+            this.content = content;
+        }
+    }
 
     private static GetObjectRequest rangeRequest(String container,
         String blobName, String range) {
@@ -114,15 +144,17 @@ public final class EncryptedBlobStoreTest {
             .build();
     }
 
-    /** Uploads MPU_CONTENT as a three part multipart blob. */
-    private String uploadMultipartContent() {
+    /** Uploads a three part multipart blob and answers what it holds. */
+    private Multipart uploadMultipartContent() {
         String blobName = TestUtils.createRandomBlobName();
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
             TestUtils.createRequest(containerName, blobName));
 
+        var content = new ByteArrayOutputStream();
         int partNumber = 1;
-        for (String part : new String[] {MPU_PART1, MPU_PART2, MPU_PART3}) {
-            byte[] bytes = part.getBytes(StandardCharsets.UTF_8);
+        for (int size : new int[] {partSize, partSize, LAST_PART_SIZE}) {
+            byte[] bytes = filler(content.size(), size);
+            content.writeBytes(bytes);
             TestUtils.uploadPart(encryptedBlobStore, mpu, partNumber++,
                 new ByteArrayInputStream(bytes), bytes.length);
         }
@@ -130,7 +162,35 @@ public final class EncryptedBlobStoreTest {
         encryptedBlobStore.completeMultipartUpload(mpu,
             TestUtils.completeRequest(mpu,
                 encryptedBlobStore.listMultipartUpload(mpu)));
-        return blobName;
+        return new Multipart(blobName, content.toByteArray());
+    }
+
+    /**
+     * The offsets a ranged read is worth trying from.  A small object is
+     * swept, since every offset is cheap and each one exercises a different
+     * alignment; a large one is read where the arithmetic turns -- the two
+     * ends and either side of a part boundary -- because a backend that
+     * demands 5 MB parts makes the sweep unaffordable without making it any
+     * more revealing.
+     */
+    private int[] readOffsets(int length) {
+        var offsets = new TreeSet<Integer>();
+        if (length <= SWEEPABLE_SIZE) {
+            for (int offset = 0; offset < length; ++offset) {
+                offsets.add(offset);
+            }
+        } else {
+            int[] boundaries = {0, partSize, 2 * partSize, length};
+            for (int boundary : boundaries) {
+                for (int delta : new int[] {-17, -16, -1, 0, 1, 16, 17}) {
+                    int offset = boundary + delta;
+                    if (offset >= 0 && offset < length) {
+                        offsets.add(offset);
+                    }
+                }
+            }
+        }
+        return offsets.stream().mapToInt(Integer::intValue).toArray();
     }
 
     @BeforeAll
@@ -144,6 +204,8 @@ public final class EncryptedBlobStoreTest {
         // The encrypted layer recovers decrypted sizes from user metadata or
         // stored ETag suffixes, neither of which sftp persists.
         assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(provider));
+        partSize = (int) Math.max(blobStore.getMinimumMultipartPartSize(),
+            LAST_PART_SIZE + 1);
 
         var properties = new Properties();
         properties.put(S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE, "true");
@@ -207,7 +269,7 @@ public final class EncryptedBlobStoreTest {
         BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
             capturing, encryptionProperties);
 
-        byte[] content = MPU_PART1.getBytes(StandardCharsets.UTF_8);
+        byte[] content = filler(0, LAST_PART_SIZE);
         var crc32 = new CRC32();
         crc32.update(content);
         String checksum = Base64.getEncoder().encodeToString(
@@ -252,7 +314,7 @@ public final class EncryptedBlobStoreTest {
      */
     @Test
     public void testMultipartReadWalksThePartPaddingsOnce() throws Exception {
-        int parts = 8;
+        int parts = 4;
         var reads = new java.util.concurrent.atomic.AtomicInteger();
         BlobStore counting = new ForwardingBlobStore(blobStore) {
             @Override
@@ -269,26 +331,34 @@ public final class EncryptedBlobStoreTest {
         String blobName = TestUtils.createRandomBlobName();
         MultipartUpload mpu = encrypted.initiateMultipartUpload(
             TestUtils.createRequest(containerName, blobName));
-        var expected = new StringBuilder();
+        var expected = new ByteArrayOutputStream();
         for (int i = 1; i <= parts; ++i) {
-            String part = "part-" + i + "-" + "x".repeat(40);
-            expected.append(part);
-            byte[] bytes = part.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = filler(expected.size(),
+                i == parts ? LAST_PART_SIZE : partSize);
+            expected.writeBytes(bytes);
             TestUtils.uploadPart(encrypted, mpu, i,
                 new ByteArrayInputStream(bytes), bytes.length);
         }
         encrypted.completeMultipartUpload(mpu, TestUtils.completeRequest(mpu,
             encrypted.listMultipartUpload(mpu)));
 
+        try (var is = encrypted.getBlob(GetObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .build())) {
+            assertThat(is.readAllBytes()).isEqualTo(expected.toByteArray());
+        }
+
+        // A byte apiece is enough to count by: the walk happens before any
+        // of the object is read, so what it costs does not depend on how
+        // much the request asked for.
         int chunks = 6;
         reads.set(0);
         for (int i = 0; i < chunks; ++i) {
-            try (var is = encrypted.getBlob(GetObjectRequest.builder()
-                    .bucket(containerName)
-                    .key(blobName)
-                    .build())) {
-                assertThat(new String(is.readAllBytes(),
-                    StandardCharsets.UTF_8)).isEqualTo(expected.toString());
+            try (var is = encrypted.getBlob(rangeRequest(
+                    containerName, blobName, "bytes=0-0"))) {
+                assertThat(is.readAllBytes()).isEqualTo(
+                    new byte[] {expected.toByteArray()[0]});
             }
         }
 
@@ -301,18 +371,11 @@ public final class EncryptedBlobStoreTest {
         // the paddings remembered for the first would decrypt it to rubbish.
         MultipartUpload replacement = encrypted.initiateMultipartUpload(
             TestUtils.createRequest(containerName, blobName));
-        var replaced = new StringBuilder();
-        // Fewer parts, and each a different size, so nothing about the walk
-        // remembered for the first object would fit this one.  Kept to a
-        // single digit because listMultipartUpload answers in the listing's
-        // lexicographic order, which puts part 10 ahead of part 2.
-        for (int i = 1; i <= parts - 3; ++i) {
-            String part = "other-" + i + "-" + "y".repeat(60);
-            replaced.append(part);
-            byte[] bytes = part.getBytes(StandardCharsets.UTF_8);
-            TestUtils.uploadPart(encrypted, replacement, i,
-                new ByteArrayInputStream(bytes), bytes.length);
-        }
+        // One part, and a different length, so nothing about the walk
+        // remembered for the first object would fit this one.
+        byte[] replaced = filler(0, LAST_PART_SIZE + 7);
+        TestUtils.uploadPart(encrypted, replacement, 1,
+            new ByteArrayInputStream(replaced), replaced.length);
         encrypted.completeMultipartUpload(replacement, TestUtils.completeRequest(
             replacement, encrypted.listMultipartUpload(replacement)));
 
@@ -320,8 +383,7 @@ public final class EncryptedBlobStoreTest {
                 .bucket(containerName)
                 .key(blobName)
                 .build())) {
-            assertThat(new String(is.readAllBytes(), StandardCharsets.UTF_8))
-                .isEqualTo(replaced.toString());
+            assertThat(is.readAllBytes()).isEqualTo(replaced);
         }
     }
 
@@ -490,33 +552,24 @@ public final class EncryptedBlobStoreTest {
 
         String blobName = TestUtils.createRandomBlobName();
 
-        var contentParts = new String[] {
-            "123456789A123456123456789B123456123456789C1234",
-            "123456789D123456123456789E123456123456789F123456",
-            "123456789G123456123456789H123456123456789I123"
-        };
-
-        String content = contentParts[0] + contentParts[1] + contentParts[2];
+        int[] partSizes = {partSize, partSize, LAST_PART_SIZE};
+        long total = 0;
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
             TestUtils.createRequest(containerName, blobName));
 
-        byte[] bytes1 = contentParts[0].getBytes(StandardCharsets.UTF_8);
-        byte[] bytes2 = contentParts[1].getBytes(StandardCharsets.UTF_8);
-        byte[] bytes3 = contentParts[2].getBytes(StandardCharsets.UTF_8);
-
-        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
-            new ByteArrayInputStream(bytes1), bytes1.length);
-        TestUtils.uploadPart(encryptedBlobStore, mpu, 2,
-            new ByteArrayInputStream(bytes2), bytes2.length);
-        TestUtils.uploadPart(encryptedBlobStore, mpu, 3,
-            new ByteArrayInputStream(bytes3), bytes3.length);
+        int partNumber = 1;
+        for (int size : partSizes) {
+            byte[] bytes = filler((int) total, size);
+            total += size;
+            TestUtils.uploadPart(encryptedBlobStore, mpu, partNumber++,
+                new ByteArrayInputStream(bytes), bytes.length);
+        }
 
         var parts = encryptedBlobStore.listMultipartUpload(mpu);
 
         int index = 0;
         for (var part : parts) {
-            assertThat((long) contentParts[index].length()).isEqualTo(
-                part.size());
+            assertThat((long) partSizes[index]).isEqualTo(part.size());
             index++;
         }
 
@@ -525,7 +578,7 @@ public final class EncryptedBlobStoreTest {
 
         var blobs = encryptedBlobStore.list(containerName);
         S3Object metadata = blobs.contents().get(0);
-        assertThat((long) content.length()).isEqualTo(metadata.size());
+        assertThat(total).isEqualTo(metadata.size());
 
         assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
 
@@ -784,24 +837,17 @@ public final class EncryptedBlobStoreTest {
     public void testEncryptMultipartContent() throws Exception {
         String blobName = TestUtils.createRandomBlobName();
 
-        String content1 = "123456789A123456123456789B123456123456789C1234";
-        String content2 = "123456789D123456123456789E123456123456789F123456";
-        String content3 = "123456789G123456123456789H123456123456789I123";
-
-        String content = content1 + content2 + content3;
+        var content = new ByteArrayOutputStream();
         MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
             TestUtils.createRequest(containerName, blobName));
 
-        byte[] bytes1 = content1.getBytes(StandardCharsets.UTF_8);
-        byte[] bytes2 = content2.getBytes(StandardCharsets.UTF_8);
-        byte[] bytes3 = content3.getBytes(StandardCharsets.UTF_8);
-
-        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
-            new ByteArrayInputStream(bytes1), bytes1.length);
-        TestUtils.uploadPart(encryptedBlobStore, mpu, 2,
-            new ByteArrayInputStream(bytes2), bytes2.length);
-        TestUtils.uploadPart(encryptedBlobStore, mpu, 3,
-            new ByteArrayInputStream(bytes3), bytes3.length);
+        int partNumber = 1;
+        for (int size : new int[] {partSize, partSize, LAST_PART_SIZE}) {
+            byte[] bytes = filler(content.size(), size);
+            content.writeBytes(bytes);
+            TestUtils.uploadPart(encryptedBlobStore, mpu, partNumber++,
+                new ByteArrayInputStream(bytes), bytes.length);
+        }
 
         var mpus =
             encryptedBlobStore.listMultipartUploads(containerName);
@@ -812,23 +858,16 @@ public final class EncryptedBlobStoreTest {
 
         encryptedBlobStore.completeMultipartUpload(mpu,
             TestUtils.completeRequest(mpu, parts));
-        var blob = encryptedBlobStore.getBlob(containerName, blobName);
 
-        try (InputStream blobIs = blob) {
-            var reader = new BufferedReader(new InputStreamReader(blobIs));
-            String plaintext = reader.lines().collect(Collectors.joining());
-            logger.debug("plaintext {}", plaintext);
-            assertThat(plaintext).isEqualTo(content);
+        try (InputStream blobIs = encryptedBlobStore.getBlob(
+                containerName, blobName)) {
+            assertThat(blobIs.readAllBytes()).isEqualTo(content.toByteArray());
         }
 
-        blob = blobStore.getBlob(containerName,
-            blobName + Constants.S3_ENC_SUFFIX);
-
-        try (InputStream blobIs = blob) {
-            var reader = new BufferedReader(new InputStreamReader(blobIs));
-            String encrypted = reader.lines().collect(Collectors.joining());
-            logger.debug("encrypted {}", encrypted);
-            assertThat(content).isNotEqualTo(encrypted);
+        try (InputStream blobIs = blobStore.getBlob(containerName,
+                blobName + Constants.S3_ENC_SUFFIX)) {
+            assertThat(blobIs.readAllBytes()).isNotEqualTo(
+                content.toByteArray());
         }
     }
 
@@ -1005,70 +1044,64 @@ public final class EncryptedBlobStoreTest {
 
     @Test
     public void testMultipartReadPartial() throws Exception {
-        String blobName = uploadMultipartContent();
+        var multipart = uploadMultipartContent();
+        byte[] content = multipart.content;
 
-        for (int offset = 0; offset < 130; offset++) {
+        for (int offset : readOffsets(content.length)) {
             logger.debug("Test with offset {}", offset);
 
-            var blob = encryptedBlobStore.getBlob(rangeRequest(
-                containerName, blobName, "bytes=" + offset + "-"));
-
-            try (InputStream blobIs = blob) {
-                var reader = new BufferedReader(new InputStreamReader(blobIs));
-                String plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {}", plaintext);
-                assertThat(plaintext).isEqualTo(
-                    MPU_CONTENT.substring(offset));
+            try (InputStream blobIs = encryptedBlobStore.getBlob(rangeRequest(
+                    containerName, multipart.blobName,
+                    "bytes=" + offset + "-"))) {
+                assertThat(blobIs.readAllBytes()).isEqualTo(
+                    Arrays.copyOfRange(content, offset, content.length));
             }
         }
     }
 
     @Test
     public void testMultipartReadTail() throws Exception {
-        String blobName = uploadMultipartContent();
+        var multipart = uploadMultipartContent();
+        byte[] content = multipart.content;
 
-        for (int length = 1; length < 130; length++) {
+        // The same places the arithmetic turns, counted from the other end.
+        for (int offset : readOffsets(content.length)) {
+            int length = content.length - offset;
+            if (length == 0) {
+                continue;
+            }
             logger.debug("Test with length {}", length);
 
-            var blob = encryptedBlobStore.getBlob(rangeRequest(
-                containerName, blobName, "bytes=-" + length));
-
-            try (InputStream blobIs = blob) {
-                var reader = new BufferedReader(new InputStreamReader(blobIs));
-                String plaintext = reader.lines().collect(Collectors.joining());
-                logger.debug("plaintext {}", plaintext);
-                assertThat(plaintext).isEqualTo(MPU_CONTENT.substring(
-                    MPU_CONTENT.length() - length));
+            try (InputStream blobIs = encryptedBlobStore.getBlob(rangeRequest(
+                    containerName, multipart.blobName, "bytes=-" + length))) {
+                assertThat(blobIs.readAllBytes()).isEqualTo(
+                    Arrays.copyOfRange(content, content.length - length,
+                        content.length));
             }
         }
     }
 
     @Test
     public void testMultipartReadPartialWithRandomEnd() throws Exception {
+        var multipart = uploadMultipartContent();
+        byte[] content = multipart.content;
 
-        String blobName = uploadMultipartContent();
-
-        // total len = 139
         var rand = new Random();
-        for (int offset = 0; offset < 70; offset++) {
+        for (int offset : readOffsets(content.length)) {
+            if (offset + 2 >= content.length) {
+                continue;
+            }
             for (int sample = 0; sample < 3; sample++) {
-                int end = offset + rand.nextInt(60) + 2;
-                int size = end - offset + 1;
+                int end = Math.min(content.length - 1,
+                    offset + rand.nextInt(60) + 2);
                 logger.debug("Test with offset {} and end {} size {}",
-                    offset, end, size);
+                    offset, end, end - offset + 1);
 
-                var blob = encryptedBlobStore.getBlob(rangeRequest(
-                    containerName, blobName,
-                    "bytes=" + offset + "-" + end));
-
-                try (InputStream blobIs = blob) {
-                    var reader = new BufferedReader(
-                        new InputStreamReader(blobIs));
-                    String plaintext = reader.lines().collect(
-                        Collectors.joining());
-                    logger.debug("plaintext {}", plaintext);
-                    assertThat(plaintext).isEqualTo(
-                        MPU_CONTENT.substring(offset, end + 1));
+                try (InputStream blobIs = encryptedBlobStore.getBlob(
+                        rangeRequest(containerName, multipart.blobName,
+                            "bytes=" + offset + "-" + end))) {
+                    assertThat(blobIs.readAllBytes()).isEqualTo(
+                        Arrays.copyOfRange(content, offset, end + 1));
                 }
             }
         }
