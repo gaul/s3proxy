@@ -1730,10 +1730,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             String eTag = null;
             if (!version.deleteMarker()) {
                 var head = readVersionMetadata(container, key, version);
-                if (head != null) {
-                    size = head.contentLength();
-                    eTag = head.eTag();
+                if (head == null) {
+                    // Deleted since the enumeration named it: a version the
+                    // listing no longer has anything to say about.
+                    continue;
                 }
+                size = head.contentLength();
+                eTag = head.eTag();
             }
             rows.add(new VersionRow(key, version.versionId(), latest,
                     version.deleteMarker(), eTag, version.lastModified(),
@@ -1853,10 +1856,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Nullable
     private HeadObjectResponse readVersionMetadata(String container,
             String key, StoredVersion version) {
-        var blob = getBlobInternal(container, key,
-                GetObjectRequest.builder().bucket(container).key(key)
-                        .versionId(version.versionId()).build(),
-                /*openStream=*/ false);
+        Blob blob;
+        try {
+            blob = getBlobInternal(container, key,
+                    GetObjectRequest.builder().bucket(container).key(key)
+                            .versionId(version.versionId()).build(),
+                    /*openStream=*/ false);
+        } catch (S3Exception se) {
+            // The version was deleted between the enumeration that named it
+            // and this read of its size, so it has nothing left to report
+            // and the listing leaves it out.
+            if (se.statusCode() == 404) {
+                return null;
+            }
+            throw se;
+        }
         if (blob == null) {
             return null;
         }
@@ -3026,6 +3040,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             return readStringAttributeIfPresent(view, xattrs.attributes(),
                     XATTR_VERSION_ID);
         } catch (IOException ioe) {
+            // The object was deleted between listing its attributes and
+            // reading one, so it carries no version any more.
+            if (vanished(ioe, path)) {
+                return null;
+            }
             throw new RuntimeException(ioe);
         }
     }
@@ -3049,32 +3068,33 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (stream == null) {
                 return versions;
             }
-            for (var path : stream) {
-                var name = path.getFileName().toString();
-                if (prefix != null && !name.startsWith(prefix)) {
-                    continue;
+            try {
+                for (var path : stream) {
+                    var name = path.getFileName().toString();
+                    if (prefix != null && !name.startsWith(prefix)) {
+                        continue;
+                    }
+                    try {
+                        var version = storedVersion(path, key);
+                        if (version != null) {
+                            versions.add(version);
+                        }
+                    } catch (IOException ioe) {
+                        // A version deleted while being enumerated simply
+                        // does not appear.
+                        if (vanished(ioe, path)) {
+                            continue;
+                        }
+                        throw ioe;
+                    }
                 }
-                var xattrs = safeGetXattrs(path);
-                var view = xattrs.view();
-                if (view == null) {
-                    continue;
+            } catch (DirectoryIteratorException die) {
+                // The directory vanished mid-iteration: its remaining
+                // entries went with it.
+                var cause = requireNonNull(die.getCause());
+                if (!vanished(cause, dir)) {
+                    throw cause;
                 }
-                var versionKey = readStringAttributeIfPresent(view,
-                        xattrs.attributes(), XATTR_VERSION_KEY);
-                var versionId = readStringAttributeIfPresent(view,
-                        xattrs.attributes(), XATTR_VERSION_ID);
-                if (versionKey == null || versionId == null ||
-                        (key != null && !versionKey.equals(key))) {
-                    // Not one of ours, or one whose key the hash only
-                    // appeared to match.
-                    continue;
-                }
-                var attr = Files.readAttributes(path,
-                        BasicFileAttributes.class);
-                versions.add(new StoredVersion(path, versionKey, versionId,
-                        xattrs.attributes().contains(XATTR_DELETE_MARKER),
-                        Instant.ofEpochMilli(
-                                attr.lastModifiedTime().toMillis())));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -3085,6 +3105,35 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 (StoredVersion version) ->
                         version.path().getFileName().toString()).reversed());
         return versions;
+    }
+
+    /**
+     * The version {@code path} holds, or null where it holds none of ours or
+     * none for {@code key}.  Throws where the file vanished under it, which
+     * the enumeration above settles.
+     */
+    @Nullable
+    private static StoredVersion storedVersion(Path path, @Nullable String key)
+            throws IOException {
+        var xattrs = safeGetXattrs(path);
+        var view = xattrs.view();
+        if (view == null) {
+            return null;
+        }
+        var versionKey = readStringAttributeIfPresent(view,
+                xattrs.attributes(), XATTR_VERSION_KEY);
+        var versionId = readStringAttributeIfPresent(view,
+                xattrs.attributes(), XATTR_VERSION_ID);
+        if (versionKey == null || versionId == null ||
+                (key != null && !versionKey.equals(key))) {
+            // Not one of ours, or one whose key the hash only appeared to
+            // match.
+            return null;
+        }
+        var attr = Files.readAttributes(path, BasicFileAttributes.class);
+        return new StoredVersion(path, versionKey, versionId,
+                xattrs.attributes().contains(XATTR_DELETE_MARKER),
+                Instant.ofEpochMilli(attr.lastModifiedTime().toMillis()));
     }
 
     /** Where the next version of {@code key} goes. */
