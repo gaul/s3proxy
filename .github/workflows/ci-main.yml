@@ -344,10 +344,10 @@ jobs:
           mvn package -DskipTests
 
       - name: Install MiniStack
-        run: docker pull ministackorg/ministack:1.5.1
+        run: docker pull ministackorg/ministack:1.5.2
       - name: Start MiniStack
         run: |
-          docker run -d --name ministack -p 4567:4566 ministackorg/ministack:1.5.1
+          docker run -d --name ministack -p 4567:4566 ministackorg/ministack:1.5.2
           # Probe 127.0.0.1 rather than localhost: hypercorn binds IPv4 alone
           # inside the container, and a connection to ::1 is accepted and then
           # reset, which reads as the service never coming up.
