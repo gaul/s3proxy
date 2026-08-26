@@ -210,24 +210,12 @@ jobs:
         run: |
           mvn package -DskipTests
 
-      # No released Azurite answers startFrom on List Blobs, which the
-      # azureblob backend lists start-after with, nor Put Block From URL,
-      # which it copies parts server-side with, so build a commit carrying
-      # both.  Return this to a published azurite@<version> once one
-      # carries Azure/Azurite#2681.
-      - name: Build Azurite
-        run: |
-          git clone --filter=blob:none https://github.com/Azure/Azurite \
-            "${RUNNER_TEMP}/azurite"
-          git -C "${RUNNER_TEMP}/azurite" checkout --quiet \
-            422ed9902001447bef5784e495dd99e32b1d1a77
-          cd "${RUNNER_TEMP}/azurite"
-          npm ci
-          npm run build
+      - name: Install Azurite
+        run: npx --yes --loglevel info azurite@3.37.0 --version
       - name: Start Azurite
         shell: bash
         run: |
-          node "${RUNNER_TEMP}/azurite/dist/src/blob/main.js" &
+          npx --yes --package azurite@3.37.0 azurite-blob &
           # A 403 AuthorizationFailure means the blob service is up and
           # reached its authentication layer.
           ./src/test/resources/wait-for-url.sh \

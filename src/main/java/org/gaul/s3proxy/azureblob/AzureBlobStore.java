@@ -185,8 +185,8 @@ public final class AzureBlobStore implements BlobStore {
      * when they cannot, which Azure's is not.
      */
     private final boolean opaqueETags;
-    // Azurite responds 501 to Put Block From URL; discovered on first use
-    // so the caller can fall back to streamed emulation.
+    // Azurite before 3.37.0 responds 501 to Put Block From URL; discovered
+    // on first use so the caller can fall back to streamed emulation.
     private volatile boolean nativePartCopyUnsupported;
 
     public AzureBlobStore(

@@ -214,7 +214,8 @@ expect of it.
 Two backends copy a part on the server but fall back to streaming it through
 S3Proxy in one case each: `google-cloud-storage` for a range covering less
 than the whole object, which GCS cannot copy server-side, and `azureblob`
-against an endpoint that refuses Put Block From URL, which Azurite does.
+against an endpoint that refuses Put Block From URL, which Azurite did
+before 3.37.0.
 
 Azure mints ETags like `0x8DD3F4A5F0B2C1E`, which S3 SDKs decode as hex and
 abort the request when they cannot -- the AWS SDK for .NET raises
