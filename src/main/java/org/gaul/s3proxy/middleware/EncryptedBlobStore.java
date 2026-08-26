@@ -27,6 +27,7 @@ import java.security.spec.KeySpec;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 
 import javax.crypto.SecretKey;
@@ -35,7 +36,11 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -48,6 +53,7 @@ import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
+import org.gaul.s3proxy.crypto.PartPaddings;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -77,6 +83,23 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class EncryptedBlobStore extends ForwardingBlobStore {
+    /**
+     * The part paddings of the objects most recently read.  Finding them
+     * costs a backend read per part, and a client fetching a large object
+     * asks for it in many ranged chunks, so an object walked once serves
+     * every chunk of that download instead of paying the walk again for
+     * each.  An overwrite lands under a different key, since the identity
+     * below carries the ETag, size and modification time the walk was made
+     * against; the bound counts paddings rather than objects, an object of
+     * a thousand parts being a thousand times the object to hold.
+     */
+    private final Cache<String, PartPaddings> partPaddings =
+            CacheBuilder.newBuilder()
+                    .maximumWeight(100_000)
+                    .<String, PartPaddings>weigher(
+                        (key, paddings) -> paddings.size() + 1)
+                    .build();
+
     private SecretKeySpec secretKey;
 
     private EncryptedBlobStore(BlobStore blobStore, Properties properties)
@@ -235,6 +258,42 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
     }
 
+    /**
+     * The paddings of one encrypted object, walked at most once while any
+     * request still holds the answer.  Concurrent readers of the same object
+     * -- the several chunks a download has in flight at once -- wait on the
+     * one walk rather than each starting their own.
+     */
+    private PartPaddings partPaddingsOf(String container, String blobName,
+            HeadObjectResponse meta) throws IOException {
+        // An object answering no ETag cannot be told apart from the
+        // one that replaced it at the same size and second, and a
+        // remembered walk of the first would decrypt the second with
+        // the wrong IVs.  Walk it every time instead, as this always
+        // did.
+        String eTag = meta.eTag();
+        if (eTag == null) {
+            return PartPaddings.read(delegate(), meta, container,
+                    blobName);
+        }
+        // NUL joins the identity because it is the one byte neither a
+        // bucket nor a key may contain, so no two objects share one.
+        String identity = String.join("\0", container, blobName, eTag,
+                String.valueOf(meta.contentLength()),
+                String.valueOf(meta.lastModified()));
+        try {
+            return partPaddings.get(identity, () -> PartPaddings.read(
+                    delegate(), meta, container, blobName));
+        } catch (ExecutionException | UncheckedExecutionException e) {
+            Throwable cause = requireNonNull(e.getCause());
+            if (cause instanceof IOException ioe) {
+                throw ioe;
+            }
+            Throwables.throwIfUnchecked(cause);
+            throw new UncheckedIOException(new IOException(cause));
+        }
+    }
+
     private String blobNameWithSuffix(String container, String name) {
         String nameWithSuffix = blobNameWithSuffix(name);
         if (delegate().blobExists(container, nameWithSuffix)) {
@@ -286,8 +345,9 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 }
 
                 // init decryption
-                Decryption decryption = new Decryption(secretKey, delegate(),
-                    meta, containerName, blobName, offset, length);
+                Decryption decryption = new Decryption(secretKey,
+                    partPaddingsOf(containerName, blobName, meta),
+                    offset, length);
 
                 var delegateRequest = request.toBuilder()
                         .key(blobName);

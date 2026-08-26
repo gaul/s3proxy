@@ -58,10 +58,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -236,6 +238,91 @@ public final class EncryptedBlobStoreTest {
         assertThat(parts).hasSize(1);
         assertThat(parts.get(0).checksumCRC32()).isNull();
         encrypted.abortMultipartUpload(mpu);
+    }
+
+    /**
+     * An encrypted multipart object records each part's IV in a padding
+     * block written after that part, so reading one means walking the
+     * paddings backwards from the end of the object, a backend read apiece.
+     * A client downloading a large object asks for it in ranged chunks, and
+     * walking every part again for each chunk costs a round trip per part
+     * per chunk -- minutes against a remote backend for an object of a few
+     * hundred parts, which is what stalled #960.  The walk belongs to the
+     * object, not to the request.
+     */
+    @Test
+    public void testMultipartReadWalksThePartPaddingsOnce() throws Exception {
+        int parts = 8;
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        BlobStore counting = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ResponseInputStream<GetObjectResponse> getBlob(
+                GetObjectRequest request) {
+
+                reads.incrementAndGet();
+                return super.getBlob(request);
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            counting, encryptionProperties);
+
+        String blobName = TestUtils.createRandomBlobName();
+        MultipartUpload mpu = encrypted.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
+        var expected = new StringBuilder();
+        for (int i = 1; i <= parts; ++i) {
+            String part = "part-" + i + "-" + "x".repeat(40);
+            expected.append(part);
+            byte[] bytes = part.getBytes(StandardCharsets.UTF_8);
+            TestUtils.uploadPart(encrypted, mpu, i,
+                new ByteArrayInputStream(bytes), bytes.length);
+        }
+        encrypted.completeMultipartUpload(mpu, TestUtils.completeRequest(mpu,
+            encrypted.listMultipartUpload(mpu)));
+
+        int chunks = 6;
+        reads.set(0);
+        for (int i = 0; i < chunks; ++i) {
+            try (var is = encrypted.getBlob(GetObjectRequest.builder()
+                    .bucket(containerName)
+                    .key(blobName)
+                    .build())) {
+                assertThat(new String(is.readAllBytes(),
+                    StandardCharsets.UTF_8)).isEqualTo(expected.toString());
+            }
+        }
+
+        // One walk of the paddings, then a single read of the data per
+        // request.  Before the walk was remembered this was parts + 1 reads
+        // every time, growing with the object rather than with the download.
+        assertThat(reads.get()).isLessThanOrEqualTo(parts + chunks);
+
+        // An object replaced under the same name is a different object, and
+        // the paddings remembered for the first would decrypt it to rubbish.
+        MultipartUpload replacement = encrypted.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
+        var replaced = new StringBuilder();
+        // Fewer parts, and each a different size, so nothing about the walk
+        // remembered for the first object would fit this one.  Kept to a
+        // single digit because listMultipartUpload answers in the listing's
+        // lexicographic order, which puts part 10 ahead of part 2.
+        for (int i = 1; i <= parts - 3; ++i) {
+            String part = "other-" + i + "-" + "y".repeat(60);
+            replaced.append(part);
+            byte[] bytes = part.getBytes(StandardCharsets.UTF_8);
+            TestUtils.uploadPart(encrypted, replacement, i,
+                new ByteArrayInputStream(bytes), bytes.length);
+        }
+        encrypted.completeMultipartUpload(replacement, TestUtils.completeRequest(
+            replacement, encrypted.listMultipartUpload(replacement)));
+
+        try (var is = encrypted.getBlob(GetObjectRequest.builder()
+                .bucket(containerName)
+                .key(blobName)
+                .build())) {
+            assertThat(new String(is.readAllBytes(), StandardCharsets.UTF_8))
+                .isEqualTo(replaced.toString());
+        }
     }
 
     @Test

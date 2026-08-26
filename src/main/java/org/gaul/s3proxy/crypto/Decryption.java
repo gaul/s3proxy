@@ -16,130 +16,44 @@
 
 package org.gaul.s3proxy.crypto;
 
-import static java.util.Objects.requireNonNull;
-
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.TreeMap;
+import java.util.NavigableMap;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.io.ByteStreams;
 
-import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.blobstore.SdkRequests;
-import org.jspecify.annotations.Nullable;
-
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
-
 public class Decryption {
     private final SecretKey encryptionKey;
-    private TreeMap<Integer, PartPadding> partList = new TreeMap<>();
+    private final NavigableMap<Integer, PartPadding> partList;
     private long outputOffset;
     private long outputLength;
     private boolean skipFirstBlock;
-    private long unencryptedSize;
-    private long encryptedSize;
+    private final long unencryptedSize;
+    private final long encryptedSize;
     private long startAt;
     private int skipParts;
     private long skipPartBytes;
-    private boolean isEncrypted;
+    private final boolean isEncrypted;
 
-    public Decryption(SecretKeySpec key, BlobStore blobStore,
-        @Nullable HeadObjectResponse meta, String container, String blobName,
-        long offset, long length) throws IOException {
+    /**
+     * Positions a read of one object within {@code paddings}, which the
+     * caller reads once per object and reuses across its requests.
+     */
+    public Decryption(SecretKeySpec key, PartPaddings paddings, long offset,
+        long length) {
         encryptionKey = key;
         outputLength = length;
-        isEncrypted = true;
+        isEncrypted = paddings.isEncrypted();
+        partList = paddings.getParts();
+        unencryptedSize = paddings.getUnencryptedSize();
+        encryptedSize = paddings.getEncryptedSize();
 
-        // if blob does not exist or size is smaller than the part padding
-        // then the file is considered not encrypted.  An empty object encrypts
-        // to exactly one 64-byte padding block, so a 64-byte blob is still a
-        // (zero-length) encrypted object; the delimiter check below rejects a
-        // genuinely unencrypted 64-byte blob.
-        Long metaSize = meta == null ? null : meta.contentLength();
-        if (meta == null || metaSize == null ||
-            metaSize < Constants.PADDING_BLOCK_SIZE) {
-            blobIsNotEncrypted(offset);
+        if (!isEncrypted) {
+            startAt = offset;
             return;
-        }
-
-        // get the 64 byte of part padding from the end of the blob
-        var blob = requireNonNull(blobStore.getBlob(
-            GetObjectRequest.builder()
-                .bucket(container)
-                .key(blobName)
-                .range(SdkRequests.range(
-                    metaSize - Constants.PADDING_BLOCK_SIZE, metaSize - 1))
-                .build()));
-
-        // read the padding structure
-        PartPadding lastPartPadding = PartPadding.readPartPadding(blob);
-        if (!Arrays.equals(
-            lastPartPadding.getDelimiter().getBytes(StandardCharsets.UTF_8),
-            Constants.DELIMITER)) {
-            blobIsNotEncrypted(offset);
-            return;
-        }
-
-        // detect multipart
-        if (lastPartPadding.getPart() > 1 &&
-            metaSize >
-                (lastPartPadding.getSize() + Constants.PADDING_BLOCK_SIZE)) {
-            unencryptedSize = lastPartPadding.getSize();
-            encryptedSize =
-                lastPartPadding.getSize() + Constants.PADDING_BLOCK_SIZE;
-
-            // note that parts are in reversed order
-            int part = 1;
-
-            // add the last part to the list
-            partList.put(part, lastPartPadding);
-
-            // loop part by part from end to the beginning
-            // to build a list of all blocks
-            while (encryptedSize < metaSize) {
-                // get the next block
-                // rewind by the current encrypted block size
-                // minus the encryption padding
-                long startAt = (metaSize - encryptedSize) -
-                    Constants.PADDING_BLOCK_SIZE;
-                long endAt = metaSize - encryptedSize - 1;
-                blob = requireNonNull(blobStore.getBlob(
-                    GetObjectRequest.builder()
-                        .bucket(container)
-                        .key(blobName)
-                        .range(SdkRequests.range(startAt, endAt))
-                        .build()));
-
-                part++;
-
-                // read the padding structure
-                PartPadding partPadding =
-                    PartPadding.readPartPadding(blob);
-
-                // add the part to the list
-                this.partList.put(part, partPadding);
-
-                // update the encrypted size
-                encryptedSize = encryptedSize +
-                    (partPadding.getSize() + Constants.PADDING_BLOCK_SIZE);
-                unencryptedSize = this.unencryptedSize + partPadding.getSize();
-            }
-
-        } else {
-            // add the single part to the list
-            partList.put(1, lastPartPadding);
-
-            // update the unencrypted size
-            unencryptedSize = metaSize - Constants.PADDING_BLOCK_SIZE;
-
-            // update the encrypted size
-            encryptedSize = metaSize;
         }
 
         // calculate the offset
@@ -157,11 +71,6 @@ public class Decryption {
             outputLength > unencryptedSize - offset) {
             outputLength = unencryptedSize - offset;
         }
-    }
-
-    private void blobIsNotEncrypted(long offset) {
-        isEncrypted = false;
-        startAt = offset;
     }
 
     // calculate the tail bytes we need to read
