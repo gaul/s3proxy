@@ -169,14 +169,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             }
         }
 
-        // make sure the marker do not show blob with .s3enc suffix
-        String marker = page.nextContinuationToken();
-        if (marker != null && isEncrypted(marker)) {
-            marker = removeEncryptedSuffix(marker);
-        }
         return page.toBuilder()
                 .contents(builder.build())
-                .nextContinuationToken(marker)
                 .build();
     }
 
@@ -493,15 +487,16 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public ListObjectsV2Response list(ListObjectsV2Request request) {
-        var marker = request.continuationToken() != null ?
-                request.continuationToken() : request.startAfter();
-        if (marker != null && !isEncrypted(marker)) {
-            // filteredList strips the .s3enc suffix from the marker it returns;
-            // re-add it so the backend resumes after the encrypted key rather
-            // than re-listing it (which duplicates or stalls pagination).
+        // start-after names a key, so it wants the suffix the stored object
+        // carries.  A continuation token names nothing: it is the backend's
+        // own bookmark, opaque to everything above it, and travels back down
+        // exactly as it came.  Treating it as a key instead broke every
+        // backend that does not spell its token as one -- S3 answers base64,
+        // which a suffix leaves undecodable.
+        String startAfter = request.startAfter();
+        if (startAfter != null && !isEncrypted(startAfter)) {
             request = request.toBuilder()
-                    .continuationToken(blobNameWithSuffix(marker))
-                    .startAfter(null)
+                    .startAfter(blobNameWithSuffix(startAfter))
                     .build();
         }
         return filteredList(request.bucket(), delegate().list(request));
