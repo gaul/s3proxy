@@ -1639,12 +1639,19 @@ public class S3ProxyHandler {
      * Write the policy a store answered with, rather than one worked out
      * here: a store that keeps real grants has them relayed, and one that
      * keeps only a canned access has that spelled out for it in {@link
-     * SdkResponses#objectAcl}.  The grants keep the order they arrived in,
-     * since S3 lists the group grants ahead of the owner's and clients read
-     * them that way.
+     * SdkResponses#objectAcl}.  The grants keep the order they arrived in.
+     *
+     * <p>The account named is S3Proxy's own, not the backend's.  A caller
+     * authenticates to S3Proxy and holds no account with the store, and
+     * every other Owner S3Proxy writes -- a bucket listing's, an upload's
+     * -- names that same single identity; relaying the backend's would have
+     * one backend answering with two owners depending on which call was
+     * asked.  The store's owner id serves only to recognise the grants that
+     * name it, which are the caller's own.
      */
     private void writeAccessControlPolicy(HttpServletResponse response,
             @Nullable Owner owner, List<Grant> grants) throws IOException {
+        String storeOwnerId = owner == null ? null : owner.id();
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1653,20 +1660,11 @@ public class S3ProxyHandler {
             xml.writeStartElement("AccessControlPolicy");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            if (owner != null) {
-                xml.writeStartElement("Owner");
-                writeSimpleElement(xml, "ID", owner.id());
-                String displayName = displayNameFor(owner.id(),
-                        owner.displayName());
-                if (displayName != null) {
-                    writeSimpleElement(xml, "DisplayName", displayName);
-                }
-                xml.writeEndElement();
-            }
+            writeOwnerStanza(xml);
 
             xml.writeStartElement("AccessControlList");
             for (Grant grant : grants) {
-                writeGrant(xml, grant);
+                writeGrant(xml, grant, storeOwnerId);
             }
             xml.writeEndElement();
 
@@ -1679,14 +1677,20 @@ public class S3ProxyHandler {
 
     /**
      * One grant, spelled the way its grantee asks to be named: a user by id,
-     * a group by URI, and the email form by address.
+     * a group by URI, and the email form by address.  A grant naming the
+     * store's own account is the caller's own and goes out under the name
+     * S3Proxy answers by; any other account keeps the name the store gave
+     * it, or none at all, which is what S3 answers for an account it has no
+     * display name for.
      */
-    private static void writeGrant(XMLStreamWriter xml, Grant grant)
-            throws XMLStreamException {
+    private static void writeGrant(XMLStreamWriter xml, Grant grant,
+            @Nullable String storeOwnerId) throws XMLStreamException {
         Grantee grantee = grant.grantee();
         if (grantee == null) {
             return;
         }
+        boolean callersOwn = grantee.id() != null &&
+                grantee.id().equals(storeOwnerId);
         xml.writeStartElement("Grant");
 
         xml.writeStartElement("Grantee");
@@ -1700,10 +1704,11 @@ public class S3ProxyHandler {
             writeSimpleElement(xml, "EmailAddress", grantee.emailAddress());
         }
         if (grantee.id() != null) {
-            writeSimpleElement(xml, "ID", grantee.id());
+            writeSimpleElement(xml, "ID", callersOwn ? Constants.OWNER_ID :
+                    grantee.id());
         }
-        String displayName = displayNameFor(grantee.id(),
-                grantee.displayName());
+        String displayName = callersOwn ? Constants.OWNER_DISPLAY_NAME :
+                grantee.displayName();
         if (displayName != null) {
             writeSimpleElement(xml, "DisplayName", displayName);
         }
@@ -1713,23 +1718,6 @@ public class S3ProxyHandler {
         writeSimpleElement(xml, "Permission", grant.permissionAsString());
 
         xml.writeEndElement();
-    }
-
-    /**
-     * The name to show for an account: the one the store gave, or -- for the
-     * single identity S3Proxy presents to its callers, which is the account
-     * it names in every other Owner stanza -- the name it goes by there.
-     * Some other account it cannot name goes out as a bare id, which is what
-     * S3 itself answers for an account without a display name.
-     */
-    @Nullable
-    private static String displayNameFor(@Nullable String id,
-            @Nullable String displayName) {
-        if (displayName != null) {
-            return displayName;
-        }
-        return Constants.OWNER_ID.equals(id) ?
-                Constants.OWNER_DISPLAY_NAME : null;
     }
 
     private void handleSetBlobAcl(HttpServletRequest request,
@@ -1781,10 +1769,10 @@ public class S3ProxyHandler {
 
     /**
      * Map XML ACLs to a canned policy if an exact transformation exists.
-     * The owner is whoever the document names -- a policy read back from a
-     * store that keeps a real one names that account, and writing it back
-     * unchanged must go on working -- and the full-control grant has to name
-     * that same owner for the document to say what a canned name says.
+     * The owner is whoever the document names rather than a name pinned
+     * here, since a client writes back the policy it was handed and any
+     * account may stand in it; the full-control grant has to name that same
+     * owner for the document to say what a canned name says.
      */
     private static String mapXmlAclsToCannedPolicy(
             AccessControlPolicy policy) {
@@ -6468,7 +6456,11 @@ public class S3ProxyHandler {
         xml.writeEndElement();
     }
 
-    // TODO: bogus values
+    /**
+     * The account every answer names as owner: the single identity S3Proxy
+     * presents to its callers, whatever account the backend keeps its own
+     * objects under.
+     */
     private static void writeOwnerStanza(XMLStreamWriter xml)
             throws XMLStreamException {
         xml.writeStartElement("Owner");

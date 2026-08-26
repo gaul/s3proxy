@@ -50,6 +50,8 @@ import software.amazon.awssdk.services.s3.model.Type;
  * S3Proxy answering with a policy of its own making.  Everything asserted
  * here is beyond what a canned name can say -- another account's id, a
  * grant of READ_ACP -- so a synthesized answer cannot pass by accident.
+ * The one thing not relayed is the backend's own account, which every
+ * answer names as the single identity S3Proxy presents.
  */
 public final class AccessControlPolicyRelayTest {
     private static final Owner OTHER_OWNER = Owner.builder()
@@ -75,8 +77,9 @@ public final class AccessControlPolicyRelayTest {
                     .build());
     /**
      * The same policy said in a way a canned name can express, so that
-     * writing it back has somewhere to land.  Its owner is still not the one
-     * S3Proxy invents, which is the whole point of reading it back.
+     * writing it back has somewhere to land.  Its owner is still the
+     * store's own account, granting itself full control the way a real
+     * backend's policy does.
      */
     private static final String ROUND_TRIP_KEY = "round-trip";
     private static final List<Grant> ROUND_TRIP_GRANTS = List.of(
@@ -174,14 +177,22 @@ public final class AccessControlPolicyRelayTest {
     public void testRelayedPolicyCanBeWrittenBack() throws Exception {
         // Reading a policy and putting it back unchanged is how a client
         // adds one grant to an object, so a policy S3Proxy hands out has to
-        // be one it will take -- the owner in it belongs to the store, not
-        // to S3Proxy, and pinning that name would refuse the write.
+        // be one it will take.  The store grants full control to its own
+        // account: renaming that account in the Owner stanza but not in the
+        // grant would hand out a document naming two accounts where the
+        // store meant one, which the write refuses.
         client.putObject(b -> b.bucket(containerName).key(ROUND_TRIP_KEY),
                 RequestBody.fromString("content"));
 
         GetObjectAclResponse acl = client.getObjectAcl(
                 b -> b.bucket(containerName).key(ROUND_TRIP_KEY));
-        assertThat(acl.owner().id()).isNotEqualTo(Constants.OWNER_ID);
+        assertThat(acl.owner().id()).isEqualTo(Constants.OWNER_ID);
+        Grant fullControl = acl.grants().stream()
+                .filter(g -> g.permission() == Permission.FULL_CONTROL)
+                .findFirst().orElseThrow();
+        assertThat(fullControl.grantee().id()).isEqualTo(Constants.OWNER_ID);
+        assertThat(fullControl.grantee().displayName()).isEqualTo(
+                Constants.OWNER_DISPLAY_NAME);
 
         client.putObjectAcl(b -> b.bucket(containerName).key(ROUND_TRIP_KEY)
                 .accessControlPolicy(p -> p.owner(acl.owner())
@@ -200,9 +211,12 @@ public final class AccessControlPolicyRelayTest {
     }
 
     private static void assertPolicyRelayed(Owner owner, List<Grant> grants) {
-        assertThat(owner.id()).isEqualTo(OTHER_OWNER.id());
-        assertThat(owner.displayName()).isEqualTo(OTHER_OWNER.displayName());
-        assertThat(owner.id()).isNotEqualTo(Constants.OWNER_ID);
+        // The store's account is the store's business: the caller is told
+        // the one account S3Proxy answers by, here and in every listing.
+        assertThat(owner.id()).isEqualTo(Constants.OWNER_ID);
+        assertThat(owner.displayName()).isEqualTo(
+                Constants.OWNER_DISPLAY_NAME);
+        assertThat(owner.id()).isNotEqualTo(OTHER_OWNER.id());
 
         assertThat(grants).hasSize(2);
 
