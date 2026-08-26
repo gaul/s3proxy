@@ -1504,9 +1504,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 blobName = marker.getMetadata().userMetadata()
                         .get(MPU_KEY_METADATA);
             }
-            // A marker missing its key metadata yields an empty Key.
+            // A marker missing its key metadata yields an empty Key.  The
+            // marker is written when the upload is created and never again,
+            // so its time is the upload's.
             uploads.add(SdkResponses.upload(
-                    blobName != null ? blobName : "", uploadId));
+                    blobName != null ? blobName : "", uploadId,
+                    toInstant(object.getLastModified())));
         }
         return uploads;
     }

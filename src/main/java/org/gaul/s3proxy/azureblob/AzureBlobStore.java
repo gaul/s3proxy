@@ -1851,7 +1851,14 @@ public final class AzureBlobStore implements BlobStore {
                 continue;
             }
 
-            builder.add(SdkResponses.upload(targetBlobName, uploadKey));
+            // The stub is written when the upload is created; prefer the
+            // time it was created over the time it was last written, which
+            // are the same until something rewrites it.
+            var properties = blobItem.getProperties();
+            var initiated = properties.getCreationTime() != null ?
+                    properties.getCreationTime() : properties.getLastModified();
+            builder.add(SdkResponses.upload(targetBlobName, uploadKey,
+                    initiated == null ? null : initiated.toInstant()));
         }
 
         return builder.build();

@@ -172,10 +172,12 @@ public final class SdkResponses {
     }
 
     /** A listed in-progress multipart upload. */
-    public static MultipartUpload upload(String key, String uploadId) {
+    public static MultipartUpload upload(String key, String uploadId,
+            @Nullable Instant initiated) {
         return MultipartUpload.builder()
                 .key(key)
                 .uploadId(uploadId)
+                .initiated(initiated)
                 .build();
     }
 

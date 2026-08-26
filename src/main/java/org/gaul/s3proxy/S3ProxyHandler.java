@@ -2538,12 +2538,19 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "UploadId", upload.uploadId());
                 writeInitiatorStanza(xml);
                 writeOwnerStanza(xml);
-                // TODO: bogus value
-                writeSimpleElement(xml, "StorageClass", "STANDARD");
+                String uploadStorageClass = upload.storageClassAsString();
+                writeSimpleElement(xml, "StorageClass",
+                        uploadStorageClass != null ? uploadStorageClass :
+                                StorageClass.STANDARD.toString());
 
-                // TODO: bogus value
+                // A store that reports no time for an upload gets a bogus
+                // one, the way a listed bucket without a creation date does:
+                // S3 answers with the element always, and a client that
+                // parses the listing has to find it there.
+                Instant initiated = upload.initiated();
                 writeSimpleElement(xml, "Initiated",
-                        ISO8601_MILLIS_FORMAT.format(Instant.now()));
+                        ISO8601_MILLIS_FORMAT.format(initiated != null ?
+                                initiated : Instant.EPOCH));
 
                 xml.writeEndElement();
             }

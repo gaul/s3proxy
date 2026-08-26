@@ -2087,7 +2087,10 @@ public final class GCloudBlobStore implements BlobStore {
                 continue;
             }
             String targetBlobName = metadata.get(TARGET_BLOB_NAME_KEY);
-            builder.add(SdkResponses.upload(targetBlobName, name));
+            // The stub is written when the upload is created and never
+            // again, so its time is the upload's.
+            builder.add(SdkResponses.upload(targetBlobName, name,
+                    toInstant(blob.getCreateTimeOffsetDateTime())));
         }
         return builder.build();
     }

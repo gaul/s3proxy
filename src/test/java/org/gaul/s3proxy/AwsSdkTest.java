@@ -3060,6 +3060,44 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testListMultipartUploadsInitiated() throws Exception {
+        // The time a listing reports is the upload's own, taken from the
+        // store, so it says when the upload began and does not move under a
+        // client that lists twice.
+        String blobName = "multipart-upload-initiated";
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, MINIMUM_MULTIPART_SIZE);
+        Instant beforeCreate = Instant.now();
+
+        CreateMultipartUploadResponse result = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(blobName));
+
+        var listing = client.listMultipartUploads(
+                b -> b.bucket(containerName));
+        assertThat(listing.uploads()).hasSize(1);
+        Instant initiated = listing.uploads().get(0).initiated();
+
+        client.uploadPart(b -> b.bucket(containerName).key(blobName)
+                        .uploadId(result.uploadId()).partNumber(1),
+                RequestBody.fromInputStream(byteSource.openStream(),
+                        byteSource.size()));
+
+        listing = client.listMultipartUploads(b -> b.bucket(containerName));
+        assertThat(listing.uploads()).hasSize(1);
+        assertThat(listing.uploads().get(0).initiated()).isEqualTo(initiated);
+
+        // ...and it is a time the store kept: a store that reports none
+        // falls back to a bogus one, which lands far outside this window.
+        // A store that truncates the time to the second stamps it just
+        // before this test read the clock, hence the second of slack.
+        assertThat(initiated).isBetween(beforeCreate.minusSeconds(1),
+                Instant.now().plusSeconds(1));
+
+        client.abortMultipartUpload(b -> b.bucket(containerName).key(blobName)
+                .uploadId(result.uploadId()));
+    }
+
+    @Test
     public void testCopyObjectLastModified() throws Exception {
         // The time a copy reports is the copy's own: a store that names one
         // in its answer is believed and one that does not is read back for

@@ -2347,7 +2347,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
                 blobName = blobName.substring(0, index);
 
-                mpus.add(SdkResponses.upload(blobName, uploadId));
+                // The stub is written when the upload is created and never
+                // again, so its time is the upload's.
+                mpus.add(SdkResponses.upload(blobName, uploadId,
+                        sm.lastModified()));
             }
             if (pageSet.contents().isEmpty() ||
                     pageSet.nextContinuationToken() == null) {
