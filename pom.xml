@@ -566,7 +566,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-exporter-prometheus</artifactId>
-      <version>1.64.0-alpha</version>
+      <version>1.65.0-alpha</version>
     </dependency>
     <dependency>
       <groupId>io.prometheus</groupId>
