@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,8 +66,19 @@ public final class VersionedBlobStoreTest {
     private static final byte[] SECOND = "second".getBytes(
             StandardCharsets.UTF_8);
 
+    /**
+     * The ports the two aws-s3 emulator lanes publish.  Both answer most of
+     * S3 and neither answers all of it, and they differ from each other, so
+     * the few tests that need the difference name the port -- the same
+     * reasoning AwsSdkTest sets out at greater length.
+     */
+    private static final int LOCALSTACK_PORT = 4566;
+    private static final int MINISTACK_PORT = 4567;
+
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
+    private URI blobStoreEndpoint;
+    private String blobStoreType;
     private S3Client client;
     private String containerName;
 
@@ -94,8 +107,23 @@ public final class VersionedBlobStoreTest {
                         .build())
                 .build();
 
+        // A store that answers 501 to the whole family has nothing here to
+        // check; the frontend's refusal is AwsSdkTest's business.
+        assumeTrue(blobStore.supportsVersioning());
+
+        blobStoreEndpoint = URI.create(info.getProperties().getProperty(
+                Constants.PROPERTY_ENDPOINT, "http://stub"));
+        blobStoreType = info.getProperties().getProperty(
+                Constants.PROPERTY_PROVIDER, "");
+
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
         blobStore.createContainer(containerName);
+    }
+
+    /** Whether the backend is the emulator holding {@code port}. */
+    private boolean isEmulator(int port) {
+        return blobStoreType.equals("aws-s3") &&
+                blobStoreEndpoint.getPort() == port;
     }
 
     @AfterEach
@@ -337,6 +365,9 @@ public final class VersionedBlobStoreTest {
 
     @Test
     public void testCopyCanNameASourceVersion() {
+        // LocalStack reads a copy that names a source version as a copy
+        // onto itself and refuses it.
+        assumeTrue(!isEmulator(LOCALSTACK_PORT));
         enableVersioning();
         String first = put("blob", FIRST);
         put("blob", SECOND);
@@ -435,6 +466,9 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testConditionalDeleteJudgesTheVersionItNames() {
+        // MiniStack judges a conditional delete of a key but answers
+        // NoSuchKey once one names a version id.
+        assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
         String first = put("blob", FIRST);
@@ -466,6 +500,9 @@ public final class VersionedBlobStoreTest {
     /** The same, for the conditions a batch delete carries per key. */
     @Test
     public void testBatchConditionalDeleteJudgesTheVersionItNames() {
+        // MiniStack judges a conditional delete of a key but answers
+        // NoSuchKey once one names a version id.
+        assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
         String first = put("blob", FIRST);
@@ -506,6 +543,9 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testConditionalDeleteRemovesADeleteMarker() {
+        // MiniStack judges a conditional delete of a key but answers
+        // NoSuchKey once one names a version id.
+        assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
         put("blob", FIRST);

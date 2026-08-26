@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -63,9 +64,16 @@ public final class ReservedKeyNamespaceTest {
     private S3Client client;
     private String containerName;
     private String uploadId;
+    private String provider;
 
     @BeforeEach
     public void setUp() throws Exception {
+        // These prefixes are the stub backends' own bookkeeping.  A store
+        // that keeps its multipart state elsewhere has no such namespace to
+        // defend, and so refuses nothing written to one.
+        provider = TestUtils.testBlobStoreProvider();
+        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(provider));
+
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 System.getProperty("s3proxy.test.conf", "s3proxy.conf"));
         blobStore = info.getBlobStore();
@@ -223,6 +231,9 @@ public final class ReservedKeyNamespaceTest {
     /** What the refusals above protect: the upload publishes what it was given. */
     @Test
     public void testUploadInFlightIsUnaffected() {
+        // The content type the upload was created with comes back from the
+        // stub, which sftp has nowhere to keep.
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(provider));
         var part = client.uploadPart(b -> b.bucket(containerName).key("victim")
                 .uploadId(uploadId).partNumber(1),
                 RequestBody.fromBytes(CONTENT));
