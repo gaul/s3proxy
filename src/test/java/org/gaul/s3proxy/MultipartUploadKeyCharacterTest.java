@@ -17,7 +17,6 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -49,9 +48,10 @@ import software.amazon.awssdk.utils.AttributeMap;
  * " +-.:=_/", so keys holding anything else -- and every non-ASCII key --
  * failed at CreateMultipartUpload while the same key stored fine in one part.
  *
- * <p>The openstack-swift backend fails these the same way and is skipped
- * rather than fixed here: its multipart upload names a segment after the
- * key, which is a separate piece of work from the Azure tag this pins.
+ * <p>The openstack-swift backend failed the non-ASCII ones for a reason of
+ * its own: it records the target key in a metadata header, which carries
+ * ASCII alone.  Both faults are a backend keeping a key somewhere narrower
+ * than a key is allowed to be.
  */
 public final class MultipartUploadKeyCharacterTest {
     /** Legal S3 keys that a blob index tag value cannot hold. */
@@ -70,14 +70,6 @@ public final class MultipartUploadKeyCharacterTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        // openstack-swift refuses several of these keys outright at
-        // CreateMultipartUpload, answering 400 where a single-part PUT of
-        // the same key succeeds.  That is the very shape this test was
-        // written to catch, so it is a gap of its own rather than a reason
-        // to change the keys; see the note in the class javadoc.
-        assumeTrue(!TestUtils.testBlobStoreProvider().equals(
-                "openstack-swift"));
-
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 System.getProperty("s3proxy.test.conf", "s3proxy.conf"));
         blobStore = info.getBlobStore();

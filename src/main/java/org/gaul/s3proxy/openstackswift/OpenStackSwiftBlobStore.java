@@ -22,6 +22,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -1268,8 +1270,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         String uploadId = UUID.randomUUID().toString();
 
         var userMetadata = new HashMap<String, String>(request.metadata());
-        // Record the target key so listMultipartUploads can recover it.
-        userMetadata.put(MPU_KEY_METADATA, request.key());
+        // Record the target key so listMultipartUploads can recover it,
+        // spelled for a header rather than raw: a key is any UTF-8 and a
+        // header is ASCII.
+        userMetadata.put(MPU_KEY_METADATA,
+                encodeMetadataValue(request.key()));
 
         var markerBuilder = Blob.builder(mpuMetaKey(uploadId))
                 .payload(new ByteArrayInputStream(new byte[0]))
@@ -1501,8 +1506,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                             .build());
             String blobName = null;
             if (marker != null) {
-                blobName = marker.getMetadata().userMetadata()
+                String encoded = marker.getMetadata().userMetadata()
                         .get(MPU_KEY_METADATA);
+                blobName = encoded == null ? null :
+                        decodeMetadataValue(encoded);
             }
             // A marker missing its key metadata yields an empty Key.  The
             // marker is written when the upload is created and never again,
@@ -1689,6 +1696,35 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      */
     private static String encodeMetadataName(String name) {
         return name.replace("_", "%5F");
+    }
+
+    /**
+     * Percent-encodes a value S3Proxy records for itself in a metadata
+     * header.  A header carries ASCII and nothing else -- the HTTP client
+     * refuses to write 0xE9 at all, and a stricter server would refuse the
+     * request -- while an S3 key is any UTF-8 there is, so a key kept in a
+     * header has to be spelled the way a URI spells one.
+     *
+     * <p>This is for S3Proxy's own values.  A caller's metadata rides
+     * verbatim, as it does on S3, where encoding a value that needs it is
+     * the caller's business.
+     */
+    private static String encodeMetadataValue(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Reverses {@link #encodeMetadataValue}, answering a value that was
+     * never encoded unchanged: a marker written before this encoding existed
+     * holds its key raw, and a raw key like {@code 50%-off.png} is not a
+     * valid escape sequence.
+     */
+    private static String decodeMetadataValue(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException iae) {
+            return value;
+        }
     }
 
     /**
