@@ -744,7 +744,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>com.github.spotbugs</groupId>
       <artifactId>spotbugs-annotations</artifactId>
-      <version>4.10.3</version>
+      <version>4.10.4</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
