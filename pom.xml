@@ -656,7 +656,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>com.azure</groupId>
       <artifactId>azure-storage-blob</artifactId>
-      <version>12.35.0</version>
+      <version>12.35.1</version>
       <exclusions>
         <exclusion>
           <groupId>com.azure</groupId>
