@@ -692,7 +692,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>com.azure</groupId>
       <artifactId>azure-core-http-jdk-httpclient</artifactId>
-      <version>1.1.5</version>
+      <version>1.1.6</version>
       <scope>runtime</scope>
     </dependency>
     <dependency>
