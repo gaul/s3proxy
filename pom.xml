@@ -509,7 +509,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <aws-sdkv2.version>2.54.2</aws-sdkv2.version>
     <errorprone.checks>-Xep:JavaUtilDate:OFF -Xep:DefaultCharset:OFF -Xep:StringCaseLocaleUsage:OFF -Xep:ProtectedMembersInFinalClass:OFF -Xep:JavaTimeDefaultTimeZone:OFF</errorprone.checks>
     <openstack4j.version>3.12</openstack4j.version>
-    <jetty.version>12.1.11</jetty.version>
+    <jetty.version>12.1.12</jetty.version>
     <modernizer.version>3.5.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.65.0</opentelemetry.version>
