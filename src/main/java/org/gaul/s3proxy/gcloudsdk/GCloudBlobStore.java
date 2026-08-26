@@ -2065,7 +2065,10 @@ public final class GCloudBlobStore implements BlobStore {
             parts.add(SdkResponses.part(partNumber, blob.getSize(),
                     blob.getMd5ToHexString(), null));
         }
-        return parts.build();
+        // the listing above is ordered by name, which puts part_10 ahead of
+        // part_2
+        return ImmutableList.sortedCopyOf(
+                Comparator.comparingInt(Part::partNumber), parts.build());
     }
 
     @Override

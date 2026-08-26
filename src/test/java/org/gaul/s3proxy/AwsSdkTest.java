@@ -3060,6 +3060,42 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testListPartsOrder() throws Exception {
+        // ListParts answers in ascending part-number order.  A store that
+        // keeps its parts as named objects lists them by name, where part 10
+        // comes before part 2, so this only shows above nine parts.
+        String blobName = "multipart-upload-part-order";
+        int numParts = 12;
+        ByteSource byteSource = TestUtils.randomByteSource().slice(0, 1);
+
+        CreateMultipartUploadResponse result = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(blobName));
+        for (int i = 1; i <= numParts; ++i) {
+            int partNumber = i;
+            client.uploadPart(b -> b.bucket(containerName).key(blobName)
+                            .uploadId(result.uploadId())
+                            .partNumber(partNumber),
+                    RequestBody.fromInputStream(byteSource.openStream(),
+                            byteSource.size()));
+        }
+
+        var partListing = client.listParts(b -> b.bucket(containerName)
+                .key(blobName).uploadId(result.uploadId()));
+        var listed = new ArrayList<Integer>();
+        for (var part : partListing.parts()) {
+            listed.add(part.partNumber());
+        }
+        var ascending = new ArrayList<Integer>();
+        for (int i = 1; i <= numParts; ++i) {
+            ascending.add(i);
+        }
+        assertThat(listed).containsExactlyElementsOf(ascending);
+
+        client.abortMultipartUpload(b -> b.bucket(containerName).key(blobName)
+                .uploadId(result.uploadId()));
+    }
+
+    @Test
     public void testListMultipartUploadsInitiated() throws Exception {
         // The time a listing reports is the upload's own, taken from the
         // store, so it says when the upload began and does not move under a

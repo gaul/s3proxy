@@ -2309,7 +2309,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .continuationToken(pageSet.nextContinuationToken())
                     .build();
         }
-        return parts.build();
+        // the listing above is ordered by key, which puts part 10 ahead of
+        // part 2
+        return ImmutableList.sortedCopyOf(
+                Comparator.comparingInt(Part::partNumber), parts.build());
     }
 
     @Override

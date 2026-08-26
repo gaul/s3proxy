@@ -853,6 +853,13 @@ public interface BlobStore extends AutoCloseable {
                 "backend does not support server-side part copies");
     }
 
+    /**
+     * The parts uploaded so far, in ascending part-number order.  That is
+     * the order S3 answers ListParts in and the order a caller joining the
+     * parts reads them in, and it is not the order a store that keeps its
+     * parts as named objects lists them: part 10 sorts before part 2 by
+     * name, so such a store sorts before answering.
+     */
     List<Part> listMultipartUpload(MultipartUpload mpu);
 
     List<software.amazon.awssdk.services.s3.model.MultipartUpload>

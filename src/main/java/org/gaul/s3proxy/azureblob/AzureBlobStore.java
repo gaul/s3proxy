@@ -31,6 +31,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -1816,7 +1817,11 @@ public final class AzureBlobStore implements BlobStore {
                     properties.getSizeLong(),
                     eTag, lastModified));
         }
-        return parts.build();
+        // the block ids carry the part number zero-padded, but they are
+        // listed under their base64 spelling, whose alphabet does not sort
+        // in the order of the bytes it stands for
+        return ImmutableList.sortedCopyOf(
+                Comparator.comparingInt(Part::partNumber), parts.build());
     }
 
     @Override
