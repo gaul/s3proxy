@@ -34,6 +34,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -89,6 +90,7 @@ import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
@@ -3055,6 +3057,32 @@ public final class AwsSdkTest {
         ListObjectsResponse listing = client.listObjects(
                 b -> b.bucket(containerName));
         assertThat(listing.contents()).isEmpty();
+    }
+
+    @Test
+    public void testCopyObjectLastModified() throws Exception {
+        // The time a copy reports is the copy's own: a store that names one
+        // in its answer is believed and one that does not is read back for
+        // it, but either way it has to describe the object now standing at
+        // the destination.
+        String fromName = "from-name";
+        String toName = "to-name";
+        client.putObject(b -> b.bucket(containerName).key(fromName),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size()));
+
+        CopyObjectResponse result = client.copyObject(
+                b -> b.sourceBucket(containerName).sourceKey(fromName)
+                        .destinationBucket(containerName)
+                        .destinationKey(toName));
+        Instant reported = result.copyObjectResult().lastModified();
+        assertThat(reported).isNotNull();
+
+        // The copy result carries whole seconds, as the header does.
+        Instant stored = client.headObject(
+                b -> b.bucket(containerName).key(toName)).lastModified();
+        assertThat(reported).isEqualTo(
+                stored.truncatedTo(ChronoUnit.SECONDS));
     }
 
     @Test

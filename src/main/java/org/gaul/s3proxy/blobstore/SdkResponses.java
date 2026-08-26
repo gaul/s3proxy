@@ -251,21 +251,32 @@ public final class SdkResponses {
                 .build();
     }
 
-    /** A response carrying only the copied object's ETag. */
+    /**
+     * A response carrying only the copied object's ETag, for a store whose
+     * copy names no time -- leaving the frontend to read one back.
+     */
     public static CopyObjectResponse copyResponse(@Nullable String eTag) {
-        return copyResponse(eTag, /*versionId=*/ null,
+        return copyResponse(eTag, /*lastModified=*/ null);
+    }
+
+    /** As above, for a copy that reported when it landed. */
+    public static CopyObjectResponse copyResponse(@Nullable String eTag,
+            @Nullable Instant lastModified) {
+        return copyResponse(eTag, lastModified, /*versionId=*/ null,
                 /*copySourceVersionId=*/ null);
     }
 
     /**
-     * A copy's result: the new object's ETag, the version a versioned store
-     * wrote it as, and the source version it read.
+     * A copy's result: the new object's ETag, when it landed, the version a
+     * versioned store wrote it as, and the source version it read.
      */
     public static CopyObjectResponse copyResponse(@Nullable String eTag,
-            @Nullable String versionId, @Nullable String copySourceVersionId) {
+            @Nullable Instant lastModified, @Nullable String versionId,
+            @Nullable String copySourceVersionId) {
         return CopyObjectResponse.builder()
                 .copyObjectResult(CopyObjectResult.builder()
                         .eTag(eTag)
+                        .lastModified(lastModified)
                         .build())
                 .versionId(versionId)
                 .copySourceVersionId(copySourceVersionId)

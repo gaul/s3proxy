@@ -1170,6 +1170,7 @@ public final class GCloudBlobStore implements BlobStore {
                     .build();
             var result = storage.copy(copyRequest).getResult();
             return SdkResponses.copyResponse(result.getEtag(),
+                    toInstant(result.getUpdateTimeOffsetDateTime()),
                     isVersioned(request.destinationBucket()) ?
                             Long.toString(result.getGeneration()) : null,
                     reportedVersionId(fromContainer, sourceBlob,

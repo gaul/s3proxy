@@ -4063,20 +4063,30 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, nske);
         }
 
-        // This follow-up read supplies the LastModified the copy result
-        // reports.  The destination now rests under whatever customer key
-        // the copy presented, so the read must present it again.
-        HeadObjectResponse blobMetadata = blobStore.blobMetadataIfPresent(
-                HeadObjectRequest.builder()
-                        .bucket(destContainerName)
-                        .key(destBlobName)
-                        .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
-                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
-                        .sseCustomerKey(request.getHeader(AwsHttpHeaders
-                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
-                        .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
-                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
-                        .build());
+        // The LastModified the result reports is the copy's own, where the
+        // store named one.  Only a store whose copy answers without a time
+        // is read back for it, and that read is a second look at a key
+        // another writer may have taken over in the meantime.  The
+        // destination rests under whatever customer key the copy presented,
+        // so the read must present it again.
+        Instant copyLastModified = copyResult.copyObjectResult() == null ?
+                null : copyResult.copyObjectResult().lastModified();
+        if (copyLastModified == null) {
+            HeadObjectResponse blobMetadata = blobStore.blobMetadataIfPresent(
+                    HeadObjectRequest.builder()
+                            .bucket(destContainerName)
+                            .key(destBlobName)
+                            .sseCustomerAlgorithm(request.getHeader(
+                                    AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                            .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                            .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                            .build());
+            copyLastModified = blobMetadata == null ? null :
+                    blobMetadata.lastModified();
+        }
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
         String copySourceVersionId = copyResult.copySourceVersionId();
@@ -4103,11 +4113,9 @@ public class S3ProxyHandler {
             xml.writeStartElement("CopyObjectResult");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            var lastModified = blobMetadata == null ? null :
-                    blobMetadata.lastModified();
-            if (lastModified != null) {
+            if (copyLastModified != null) {
                 writeSimpleElement(xml, "LastModified",
-                        ISO8601_SECONDS_FORMAT.format(lastModified));
+                        ISO8601_SECONDS_FORMAT.format(copyLastModified));
             }
 
             String eTag = copyResult.copyObjectResult() == null ?

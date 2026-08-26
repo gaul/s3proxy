@@ -991,7 +991,9 @@ public final class AzureBlobStore implements BlobStore {
             }
 
             var copied = response.getValue();
-            return SdkResponses.copyResponse(reportETag(copied.getETag()))
+            return SdkResponses.copyResponse(reportETag(copied.getETag()),
+                    copied.getLastModified() == null ? null :
+                            copied.getLastModified().toInstant())
                     .toBuilder()
                     .serverSideEncryption(
                             reportedSse(copied.isServerEncrypted()))
@@ -1036,8 +1038,10 @@ public final class AzureBlobStore implements BlobStore {
                     client.setHttpHeaders(headers);
                 }
                 var properties = client.getProperties();
-                return SdkResponses.copyResponse(reportETag(
-                        properties.getETag()))
+                return SdkResponses.copyResponse(
+                        reportETag(properties.getETag()),
+                        properties.getLastModified() == null ? null :
+                                properties.getLastModified().toInstant())
                         .toBuilder()
                         .serverSideEncryption(
                                 reportedSse(properties.isServerEncrypted()))
