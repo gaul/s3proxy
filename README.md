@@ -168,7 +168,7 @@ Some limitations depend on the storage backend:
 | `max-keys=0` not honored | `azureblob` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
-| no object versioning, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
+| object versioning is opt-in and needs the account versioned out of band; no delete markers or per-bucket suspend, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
@@ -183,7 +183,12 @@ simply on or off, it refuses the Suspended state.  `transient` implements
 versioning itself, keeping every version but the current one as a hidden
 object.  `filesystem` shares that implementation and declines it: its versions
 would outlive the process, settling a layout on disk that S3Proxy would owe
-its users from then on.
+its users from then on.  `azureblob` maps onto Azure's own blob versioning,
+which is turned on per storage account on the management plane (ARM) and
+cannot be read or set through the data-plane SDK -- so it is opt-in through
+`s3proxy.azureblob.versioning=true`, by which the operator asserts the account
+has versioning on.  What Azure has no analog for it does not emulate: there
+are no delete markers, and versioning cannot be suspended per bucket.
 
 Server-side encryption divides `aws-s3` and `transient` from most of the
 rest, and divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
