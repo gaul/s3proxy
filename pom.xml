@@ -647,7 +647,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-context</artifactId>
-      <version>1.81.0</version>
+      <version>1.83.1</version>
       <scope>runtime</scope>
     </dependency>
     <!-- Each Azure artifact swaps the default Netty HTTP transport for the
