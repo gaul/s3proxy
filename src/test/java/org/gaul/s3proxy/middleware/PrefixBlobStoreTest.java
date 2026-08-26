@@ -37,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -176,6 +177,20 @@ public final class PrefixBlobStoreTest {
         assertThat(blobStore.blobExists(containerName, "object.txt")).isTrue();
         assertThat(blobStore.blobExists(containerName,
                 prefix + "object.txt")).isFalse();
+    }
+
+    @Test
+    public void testBlobAclUsesPrefix() throws IOException {
+        ByteSource content = TestUtils.randomByteSource().slice(0, 64);
+        TestUtils.putBlob(prefixBlobStore, containerName, "object.txt",
+                content);
+
+        // Only the prefixed name is there, so a policy read that forgot the
+        // prefix would ask after an object that does not exist.
+        assertThat(prefixBlobStore.getBlobAcl(GetObjectAclRequest.builder()
+                .bucket(containerName)
+                .key("object.txt")
+                .build()).grants()).isNotEmpty();
     }
 
     @Test

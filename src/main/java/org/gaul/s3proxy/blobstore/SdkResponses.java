@@ -17,7 +17,9 @@
 package org.gaul.s3proxy.blobstore;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
 import org.gaul.s3proxy.blobstore.domain.BlobMetadata;
 import org.jspecify.annotations.Nullable;
@@ -25,20 +27,29 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.CopyPartResult;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.Grant;
+import software.amazon.awssdk.services.s3.model.Grantee;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MultipartUpload;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectStorageClass;
+import software.amazon.awssdk.services.s3.model.Owner;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -258,6 +269,72 @@ public final class SdkResponses {
                         .build())
                 .versionId(versionId)
                 .copySourceVersionId(copySourceVersionId)
+                .build();
+    }
+
+    /**
+     * The access control policy a store answers with when a canned access is
+     * all it keeps: the owner holds it, and a public name adds the grant to
+     * everyone that the name stands for.  A store that records real grants
+     * answers with those instead.
+     */
+    public static GetObjectAclResponse objectAcl(ObjectCannedACL access) {
+        return GetObjectAclResponse.builder()
+                .owner(owner())
+                .grants(cannedGrants(access == ObjectCannedACL.PUBLIC_READ,
+                        /*publicWrite=*/ false))
+                .build();
+    }
+
+    /** As {@link #objectAcl}, for the policy on a bucket. */
+    public static GetBucketAclResponse bucketAcl(BucketCannedACL access) {
+        return GetBucketAclResponse.builder()
+                .owner(owner())
+                .grants(cannedGrants(
+                        access == BucketCannedACL.PUBLIC_READ ||
+                        access == BucketCannedACL.PUBLIC_READ_WRITE,
+                        access == BucketCannedACL.PUBLIC_READ_WRITE))
+                .build();
+    }
+
+    private static Owner owner() {
+        return Owner.builder()
+                .id(Constants.OWNER_ID)
+                .displayName(Constants.OWNER_DISPLAY_NAME)
+                .build();
+    }
+
+    /**
+     * The owner's grant comes first and the group's after it, the order S3
+     * answers a canned public-read in.
+     */
+    private static List<Grant> cannedGrants(boolean publicRead,
+            boolean publicWrite) {
+        var grants = new ArrayList<Grant>();
+        grants.add(Grant.builder()
+                .grantee(Grantee.builder()
+                        .type(Type.CANONICAL_USER)
+                        .id(Constants.OWNER_ID)
+                        .displayName(Constants.OWNER_DISPLAY_NAME)
+                        .build())
+                .permission(Permission.FULL_CONTROL)
+                .build());
+        if (publicRead) {
+            grants.add(allUsersGrant(Permission.READ));
+        }
+        if (publicWrite) {
+            grants.add(allUsersGrant(Permission.WRITE));
+        }
+        return grants;
+    }
+
+    private static Grant allUsersGrant(Permission permission) {
+        return Grant.builder()
+                .grantee(Grantee.builder()
+                        .type(Type.GROUP)
+                        .uri(Constants.ALL_USERS_URI)
+                        .build())
+                .permission(permission)
                 .build();
     }
 }

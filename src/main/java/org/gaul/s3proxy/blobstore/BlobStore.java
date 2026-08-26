@@ -50,10 +50,14 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
+import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -250,6 +254,17 @@ public interface BlobStore extends AutoCloseable {
     }
 
     BucketCannedACL getContainerAccess(String container);
+
+    /**
+     * The bucket's access control policy, as the store holds it.  Most stores
+     * keep no more than the canned access, and the default answers with the
+     * policy that name stands for; a store that records real grants -- and
+     * the account they belong to -- answers with those, so that S3Proxy
+     * reports what is there rather than a policy of its own making.
+     */
+    default GetBucketAclResponse getContainerAcl(GetBucketAclRequest request) {
+        return SdkResponses.bucketAcl(getContainerAccess(request.bucket()));
+    }
 
     void setContainerAccess(String container, BucketCannedACL access);
 
@@ -757,6 +772,18 @@ public interface BlobStore extends AutoCloseable {
     default ObjectCannedACL getBlobAccess(String container, String name,
             @Nullable String versionId) {
         throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /**
+     * The object's access control policy, as {@link #getContainerAcl} for a
+     * bucket.  A request naming a version asks after that version's policy,
+     * so only a store that {@link #supportsVersioning} may be given one.
+     */
+    default GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        return SdkResponses.objectAcl(request.versionId() == null ?
+                getBlobAccess(request.bucket(), request.key()) :
+                getBlobAccess(request.bucket(), request.key(),
+                        request.versionId()));
     }
 
     void setBlobAccess(String container, String name, ObjectCannedACL access);

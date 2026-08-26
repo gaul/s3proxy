@@ -39,10 +39,14 @@ import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -106,6 +110,11 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     @Override
     public BucketCannedACL getContainerAccess(String container) {
         return delegate().getContainerAccess(container);
+    }
+
+    @Override
+    public GetBucketAclResponse getContainerAcl(GetBucketAclRequest request) {
+        return delegate().getContainerAcl(request);
     }
 
     @Override
@@ -221,6 +230,11 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public ObjectCannedACL getBlobAccess(String container, String name,
             @Nullable String versionId) {
         return delegate().getBlobAccess(container, name, versionId);
+    }
+
+    @Override
+    public GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        return delegate().getBlobAcl(request);
     }
 
     @Override

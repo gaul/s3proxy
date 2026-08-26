@@ -48,8 +48,12 @@ import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -144,6 +148,13 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public GetBucketAclResponse getContainerAcl(GetBucketAclRequest request) {
+        return delegate().getContainerAcl(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
+    }
+
+    @Override
     public GetBucketEncryptionResponse getBucketEncryption(
             GetBucketEncryptionRequest request) {
         return delegate().getBucketEncryption(request.toBuilder()
@@ -223,6 +234,13 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         return delegate().getBlobAccess(getContainer(container), name);
+    }
+
+    @Override
+    public GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        return delegate().getBlobAcl(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
     }
 
     @Override

@@ -92,6 +92,7 @@ import org.gaul.s3proxy.auth.AwsSignature;
 import org.gaul.s3proxy.auth.PostPolicy;
 import org.gaul.s3proxy.auth.S3AuthorizationHeader;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.MD5;
@@ -131,11 +132,17 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
+import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.Grant;
+import software.amazon.awssdk.services.s3.model.Grantee;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -155,6 +162,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.Owner;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
@@ -209,11 +217,11 @@ public class S3ProxyHandler {
             "http://s3.amazonaws.com/doc/2006-03-01/";
     // TODO: support configurable metadata prefix
     private static final String USER_METADATA_PREFIX = "x-amz-meta-";
-    // TODO: fake owner
-    private static final String FAKE_OWNER_ID =
-            "75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a";
+    // The owner S3Proxy claims where a store keeps none of its own; a store
+    // that does keep one answers with it, and the ACL a read returns says so.
+    private static final String FAKE_OWNER_ID = Constants.OWNER_ID;
     private static final String FAKE_OWNER_DISPLAY_NAME =
-            "CustomersName@amazon.com";
+            Constants.OWNER_DISPLAY_NAME;
     private static final String FAKE_INITIATOR_ID =
             "arn:aws:iam::111122223333:" +
             "user/some-user-11116a31-17b5-4fb7-9df5-b288870f11xx";
@@ -1555,41 +1563,14 @@ public class S3ProxyHandler {
         if (!blobStore.containerExists(containerName)) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
-        BucketCannedACL access = blobStore.getContainerAccess(containerName);
+        GetBucketAclResponse acl = blobStore.getContainerAcl(
+                GetBucketAclRequest.builder()
+                        .bucket(containerName)
+                        .build());
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
-        try (Writer writer = response.getWriter()) {
-            response.setContentType(XML_CONTENT_TYPE);
-            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
-                    writer);
-            xml.writeStartDocument();
-            xml.writeStartElement("AccessControlPolicy");
-            xml.writeDefaultNamespace(AWS_XMLNS);
-
-            writeOwnerStanza(xml);
-
-            xml.writeStartElement("AccessControlList");
-
-            // S3 lists the group grants ahead of the owner's, which clients
-            // rely on to tell the two apart without inspecting every grantee.
-            if (access == BucketCannedACL.PUBLIC_READ ||
-                    access == BucketCannedACL.PUBLIC_READ_WRITE) {
-                writeAllUsersGrant(xml, "READ");
-            }
-            if (access == BucketCannedACL.PUBLIC_READ_WRITE) {
-                writeAllUsersGrant(xml, "WRITE");
-            }
-
-            writeOwnerFullControlGrant(xml);
-
-            xml.writeEndElement();
-
-            xml.writeEndElement();
-            xml.flush();
-        } catch (XMLStreamException xse) {
-            throw new IOException(xse);
-        }
+        writeAccessControlPolicy(response, acl.owner(), acl.grants());
     }
 
     private void handleSetContainerAcl(HttpServletRequest request,
@@ -1641,13 +1622,29 @@ public class S3ProxyHandler {
         // a store that cannot resolve one refuses the request instead.
         checkVersionId(request, blobStore);
 
-        ObjectCannedACL access = blobStore.supportsVersioning() ?
-                blobStore.getBlobAccess(containerName, blobName,
-                        request.getParameter("versionId")) :
-                blobStore.getBlobAccess(containerName, blobName);
+        var aclRequest = GetObjectAclRequest.builder()
+                .bucket(containerName)
+                .key(blobName);
+        if (blobStore.supportsVersioning()) {
+            aclRequest.versionId(request.getParameter("versionId"));
+        }
+        GetObjectAclResponse acl = blobStore.getBlobAcl(aclRequest.build());
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
+        writeAccessControlPolicy(response, acl.owner(), acl.grants());
+    }
+
+    /**
+     * Write the policy a store answered with, rather than one worked out
+     * here: a store that keeps real grants has them relayed, and one that
+     * keeps only a canned access has that spelled out for it in {@link
+     * SdkResponses#objectAcl}.  The grants keep the order they arrived in,
+     * since S3 lists the group grants ahead of the owner's and clients read
+     * them that way.
+     */
+    private void writeAccessControlPolicy(HttpServletResponse response,
+            @Nullable Owner owner, List<Grant> grants) throws IOException {
         try (Writer writer = response.getWriter()) {
             response.setContentType(XML_CONTENT_TYPE);
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
@@ -1656,16 +1653,21 @@ public class S3ProxyHandler {
             xml.writeStartElement("AccessControlPolicy");
             xml.writeDefaultNamespace(AWS_XMLNS);
 
-            writeOwnerStanza(xml);
-
-            xml.writeStartElement("AccessControlList");
-
-            if (access == ObjectCannedACL.PUBLIC_READ) {
-                writeAllUsersGrant(xml, "READ");
+            if (owner != null) {
+                xml.writeStartElement("Owner");
+                writeSimpleElement(xml, "ID", owner.id());
+                String displayName = displayNameFor(owner.id(),
+                        owner.displayName());
+                if (displayName != null) {
+                    writeSimpleElement(xml, "DisplayName", displayName);
+                }
+                xml.writeEndElement();
             }
 
-            writeOwnerFullControlGrant(xml);
-
+            xml.writeStartElement("AccessControlList");
+            for (Grant grant : grants) {
+                writeGrant(xml, grant);
+            }
             xml.writeEndElement();
 
             xml.writeEndElement();
@@ -1673,6 +1675,61 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+    }
+
+    /**
+     * One grant, spelled the way its grantee asks to be named: a user by id,
+     * a group by URI, and the email form by address.
+     */
+    private static void writeGrant(XMLStreamWriter xml, Grant grant)
+            throws XMLStreamException {
+        Grantee grantee = grant.grantee();
+        if (grantee == null) {
+            return;
+        }
+        xml.writeStartElement("Grant");
+
+        xml.writeStartElement("Grantee");
+        xml.writeNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
+        xml.writeAttribute("xsi:type", grantee.typeAsString());
+
+        if (grantee.uri() != null) {
+            writeSimpleElement(xml, "URI", grantee.uri());
+        }
+        if (grantee.emailAddress() != null) {
+            writeSimpleElement(xml, "EmailAddress", grantee.emailAddress());
+        }
+        if (grantee.id() != null) {
+            writeSimpleElement(xml, "ID", grantee.id());
+        }
+        String displayName = displayNameFor(grantee.id(),
+                grantee.displayName());
+        if (displayName != null) {
+            writeSimpleElement(xml, "DisplayName", displayName);
+        }
+
+        xml.writeEndElement();
+
+        writeSimpleElement(xml, "Permission", grant.permissionAsString());
+
+        xml.writeEndElement();
+    }
+
+    /**
+     * The name to show for an account: the one the store gave, or -- for the
+     * single identity S3Proxy presents to its callers, which is the account
+     * it names in every other Owner stanza -- the name it goes by there.
+     * Some other account it cannot name goes out as a bare id, which is what
+     * S3 itself answers for an account without a display name.
+     */
+    @Nullable
+    private static String displayNameFor(@Nullable String id,
+            @Nullable String displayName) {
+        if (displayName != null) {
+            return displayName;
+        }
+        return Constants.OWNER_ID.equals(id) ?
+                Constants.OWNER_DISPLAY_NAME : null;
     }
 
     private void handleSetBlobAcl(HttpServletRequest request,
@@ -1722,12 +1779,16 @@ public class S3ProxyHandler {
         addCorsResponseHeader(request, response);
     }
 
-    /** Map XML ACLs to a canned policy if an exact transformation exists. */
+    /**
+     * Map XML ACLs to a canned policy if an exact transformation exists.
+     * The owner is whoever the document names -- a policy read back from a
+     * store that keeps a real one names that account, and writing it back
+     * unchanged must go on working -- and the full-control grant has to name
+     * that same owner for the document to say what a canned name says.
+     */
     private static String mapXmlAclsToCannedPolicy(
             AccessControlPolicy policy) {
-        if (!policy.owner().id().equals(FAKE_OWNER_ID)) {
-            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
-        }
+        String ownerId = policy.owner().id();
 
         boolean ownerFullControl = false;
         boolean allUsersRead = false;
@@ -1740,17 +1801,17 @@ public class S3ProxyHandler {
             for (AccessControlPolicy.AccessControlList.Grant grant :
                     policy.aclList().grants()) {
                 if (grant.grantee().type().equals("CanonicalUser") &&
-                        grant.grantee().id().equals(FAKE_OWNER_ID) &&
+                        grant.grantee().id().equals(ownerId) &&
                         grant.permission().equals("FULL_CONTROL")) {
                     ownerFullControl = true;
                 } else if (grant.grantee().type().equals("Group") &&
-                        grant.grantee().uri().equals("http://acs.amazonaws.com/" +
-                                "groups/global/AllUsers") &&
+                        grant.grantee().uri().equals(
+                                Constants.ALL_USERS_URI) &&
                         grant.permission().equals("READ")) {
                     allUsersRead = true;
                 } else if (grant.grantee().type().equals("Group") &&
-                        grant.grantee().uri().equals("http://acs.amazonaws.com/" +
-                                "groups/global/AllUsers") &&
+                        grant.grantee().uri().equals(
+                                Constants.ALL_USERS_URI) &&
                         grant.permission().equals("WRITE")) {
                     allUsersWrite = true;
                 } else {
@@ -6399,42 +6460,6 @@ public class S3ProxyHandler {
 
         writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
         writeSimpleElement(xml, "DisplayName", FAKE_OWNER_DISPLAY_NAME);
-
-        xml.writeEndElement();
-    }
-
-    private static void writeOwnerFullControlGrant(XMLStreamWriter xml)
-            throws XMLStreamException {
-        xml.writeStartElement("Grant");
-
-        xml.writeStartElement("Grantee");
-        xml.writeNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
-        xml.writeAttribute("xsi:type", "CanonicalUser");
-
-        writeSimpleElement(xml, "ID", FAKE_OWNER_ID);
-        writeSimpleElement(xml, "DisplayName", FAKE_OWNER_DISPLAY_NAME);
-
-        xml.writeEndElement();
-
-        writeSimpleElement(xml, "Permission", "FULL_CONTROL");
-
-        xml.writeEndElement();
-    }
-
-    private static void writeAllUsersGrant(XMLStreamWriter xml,
-            String permission) throws XMLStreamException {
-        xml.writeStartElement("Grant");
-
-        xml.writeStartElement("Grantee");
-        xml.writeNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
-        xml.writeAttribute("xsi:type", "Group");
-
-        writeSimpleElement(xml, "URI",
-                "http://acs.amazonaws.com/groups/global/AllUsers");
-
-        xml.writeEndElement();
-
-        writeSimpleElement(xml, "Permission", permission);
 
         xml.writeEndElement();
     }

@@ -25,6 +25,16 @@ public final class Constants {
     public static final String PROPERTY_CREDENTIAL = "jclouds.credential";
     public static final String PROPERTY_REGION = "jclouds.region";
 
+    // TODO: fake owner
+    /** The account S3Proxy claims owns everything a store without one holds. */
+    public static final String OWNER_ID =
+            "75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a";
+    public static final String OWNER_DISPLAY_NAME = "CustomersName@amazon.com";
+
+    /** The group naming everyone, which is how S3 spells a public grant. */
+    public static final String ALL_USERS_URI =
+            "http://acs.amazonaws.com/groups/global/AllUsers";
+
     private Constants() {
     }
 }

@@ -40,6 +40,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
@@ -202,6 +204,25 @@ public final class AliasBlobStoreTest {
         // the change must be applied to the backend (real) container
         assertThat(blobStore.getBlobAccess(containerName, blobName))
                 .isEqualTo(ObjectCannedACL.PUBLIC_READ);
+    }
+
+    @Test
+    public void testAliasBlobAcl() throws IOException {
+        createContainer(aliasContainerName);
+        String blobName = TestUtils.createRandomBlobName();
+        ByteSource content = TestUtils.randomByteSource().slice(0, 1024);
+        TestUtils.putBlob(aliasBlobStore, aliasContainerName, blobName,
+                content);
+
+        // The alias names no container on the backend, so a policy read
+        // that carried it through would find nothing to answer for.
+        assertThat(aliasBlobStore.getBlobAcl(GetObjectAclRequest.builder()
+                .bucket(aliasContainerName)
+                .key(blobName)
+                .build()).grants()).isNotEmpty();
+        assertThat(aliasBlobStore.getContainerAcl(GetBucketAclRequest.builder()
+                .bucket(aliasContainerName)
+                .build()).owner()).isNotNull();
     }
 
     @Test

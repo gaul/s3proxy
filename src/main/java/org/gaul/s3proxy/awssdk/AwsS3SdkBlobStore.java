@@ -64,11 +64,13 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.Grant;
@@ -432,6 +434,22 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     @Override
+    public GetBucketAclResponse getContainerAcl(GetBucketAclRequest request) {
+        try {
+            return s3Client.getBucketAcl(request);
+        } catch (NoSuchBucketException e) {
+            throw e;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                throw propagate(e, request.bucket(), null);
+            }
+            // As getContainerAccess: a policy this caller may not read is
+            // reported as the private one rather than as a failure.
+            return SdkResponses.bucketAcl(BucketCannedACL.PRIVATE);
+        }
+    }
+
+    @Override
     public void setContainerAccess(String container, BucketCannedACL access) {
         try {
             s3Client.putBucketAcl(PutBucketAclRequest.builder()
@@ -537,6 +555,22 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
                 throw translateAclNotFound(container, key, e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * The object's policy as the service holds it, grants and owner alike,
+     * rather than the canned name {@link #getBlobAccess} boils it down to.
+     */
+    @Override
+    public GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        try {
+            return s3Client.getObjectAcl(request);
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                throw translateAclNotFound(request.bucket(), request.key(), e);
             }
             throw e;
         }

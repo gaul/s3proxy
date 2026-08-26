@@ -63,8 +63,12 @@ import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -383,6 +387,14 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public GetBucketAclResponse getContainerAcl(GetBucketAclRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().getContainerAcl(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
     public GetBucketEncryptionResponse getBucketEncryption(
             GetBucketEncryptionRequest request) {
         if (!this.buckets.containsKey(request.bucket())) {
@@ -550,6 +562,13 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     public ObjectCannedACL getBlobAccess(String container, String name) {
         return this.delegate()
                 .getBlobAccess(this.getShard(container, name), name);
+    }
+
+    @Override
+    public GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        return this.delegate().getBlobAcl(request.toBuilder()
+                .bucket(this.getShard(request.bucket(), request.key()))
+                .build());
     }
 
     @Override

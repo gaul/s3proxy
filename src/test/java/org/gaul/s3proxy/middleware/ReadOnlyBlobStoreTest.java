@@ -145,8 +145,9 @@ public final class ReadOnlyBlobStoreTest {
     public void testRefusesEveryForwardedMutation() throws Exception {
         var readOnlyOperations = Set.of(
                 "blobExists", "blobMetadata", "close", "delegate", "getBlob",
-                "getBlobAccess", "getBucketEncryption",
+                "getBlobAccess", "getBlobAcl", "getBucketEncryption",
                 "getBucketVersioning", "getContainerAccess",
+                "getContainerAcl",
                 "getMinimumMultipartPartSize", "headBucket", "list",
                 "listMultipartUpload",
                 "listMultipartUploads", "listV1", "listVersions",

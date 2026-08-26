@@ -43,6 +43,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -241,6 +243,13 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     @Override
     public ObjectCannedACL getBlobAccess(String container, String name) {
         return super.getBlobAccess(container, addPrefix(container, name));
+    }
+
+    @Override
+    public GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        return super.getBlobAcl(request.toBuilder()
+                .key(addPrefix(request.bucket(), request.key()))
+                .build());
     }
 
     @Override
