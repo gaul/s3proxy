@@ -839,8 +839,8 @@ public interface BlobStore extends AutoCloseable {
      * Copies a source object range into a part of a multipart upload
      * server-side, without streaming the payload through the caller.
      * Throwing UnsupportedOperationException tells the caller to fall back
-     * to streamed emulation, e.g. when the backend discovers at runtime
-     * that the service does not implement the copy operation.  The
+     * to streamed emulation, for a request the backend cannot copy
+     * server-side although it copies others, e.g. a byte range on GCS.  The
      * request's copySourceRange rides verbatim (bytes=first-last, or null
      * to copy the entire object) and the backend enforces its own
      * validation and the copy-source conditions; a non-null

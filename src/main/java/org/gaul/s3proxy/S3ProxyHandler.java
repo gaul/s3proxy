@@ -5808,9 +5808,9 @@ public class S3ProxyHandler {
             try {
                 part = blobStore.copyMultipartPart(mpu, partCopyRequest);
             } catch (UnsupportedOperationException uoe) {
-                // The backend discovered at runtime that it cannot copy
-                // server-side, e.g. Azurite lacks Put Block From URL; use
-                // the streamed emulation below.
+                // The backend copies server-side but not this request, e.g.
+                // GCS cannot copy a byte range; use the streamed emulation
+                // below.
                 part = null;
             }
             if (part != null) {

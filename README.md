@@ -211,11 +211,10 @@ ServerSideEncryptionConfigurationNotFoundError rather than the account-wide
 AES256 default modern AWS invents, which is also what the Ceph s3-tests
 expect of it.
 
-Two backends copy a part on the server but fall back to streaming it through
-S3Proxy in one case each: `google-cloud-storage` for a range covering less
-than the whole object, which GCS cannot copy server-side, and `azureblob`
-against an endpoint that refuses Put Block From URL, which Azurite did
-before 3.37.0.
+`aws-s3`, `azureblob` and `google-cloud-storage` copy a part on the server,
+in one request and without the bytes passing through S3Proxy.  Only
+`google-cloud-storage` falls back to streaming it, for a range covering less
+than the whole object, which GCS cannot copy server-side.
 
 Azure mints ETags like `0x8DD3F4A5F0B2C1E`, which S3 SDKs decode as hex and
 abort the request when they cannot -- the AWS SDK for .NET raises

@@ -185,9 +185,6 @@ public final class AzureBlobStore implements BlobStore {
      * when they cannot, which Azure's is not.
      */
     private final boolean opaqueETags;
-    // Azurite before 3.37.0 responds 501 to Put Block From URL; discovered
-    // on first use so the caller can fall back to streamed emulation.
-    private volatile boolean nativePartCopyUnsupported;
 
     public AzureBlobStore(
             Supplier<Credentials> creds,
@@ -1605,7 +1602,7 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public boolean supportsCopyMultipartPart() {
-        return !nativePartCopyUnsupported;
+        return true;
     }
 
     @Override
@@ -1695,11 +1692,6 @@ public final class AzureBlobStore implements BlobStore {
             eTag = md5 == null ? blockId : HexFormat.of().formatHex(
                     Base64.getDecoder().decode(md5));
         } catch (BlobStorageException bse) {
-            if (bse.getStatusCode() == 501) {
-                nativePartCopyUnsupported = true;
-                throw new UnsupportedOperationException(
-                        "backend does not implement Put Block From URL", bse);
-            }
             throw translate(bse, request.sourceBucket(), request.sourceKey());
         }
         return SdkResponses.copiedPart(eTag, /*lastModified=*/ null,
