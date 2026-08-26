@@ -506,7 +506,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
-    <aws-sdkv2.version>2.49.6</aws-sdkv2.version>
+    <aws-sdkv2.version>2.54.2</aws-sdkv2.version>
     <errorprone.checks>-Xep:JavaUtilDate:OFF -Xep:DefaultCharset:OFF -Xep:StringCaseLocaleUsage:OFF -Xep:ProtectedMembersInFinalClass:OFF -Xep:JavaTimeDefaultTimeZone:OFF</errorprone.checks>
     <openstack4j.version>3.12</openstack4j.version>
     <jetty.version>12.1.11</jetty.version>
