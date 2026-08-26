@@ -314,13 +314,7 @@ jobs:
   # -- so running both keeps the backend honest against two services rather
   # than one, and each carries its own markers.  It is published on 4567
   # rather than its own 4566 because AwsSdkTest reads 4566 as LocalStack and
-  # would credit this emulator with LocalStack's gaps.  Only the conformance
-  # suite runs here for now: AwsSdkTest still fails five tests against
-  # MiniStack -- ListBuckets ignores max-buckets, a copy drops the canned
-  # ACL, UploadPartCopy ignores the conditions naming its source, and a
-  # write naming CRC32C is refused outright by a build that carries no
-  # CRC32C -- and a lane that starts red says nothing when it turns red
-  # later.
+  # would credit this emulator with LocalStack's gaps.
   ministackTests:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
@@ -352,6 +346,18 @@ jobs:
           # inside the container, and a connection to ::1 is accepted and then
           # reset, which reads as the service never coming up.
           ./src/test/resources/wait-for-url.sh http://127.0.0.1:4567/
+
+      - name: Maven Test with MiniStack
+        run: |
+          # The same classes the LocalStack lane runs, EncryptedBlobStoreTest
+          # excluded for the same reason: its multipart tests use parts below
+          # the 5 MB minimum which native S3 backends reject.
+          mvn test -Ds3proxy.test.conf=s3proxy-ministack.conf -Dtest=AwsSdkTest,AwsSdkAnonymousTest,AwsSdkServicePathTest,AwsSdkVirtualHostTest,CrossOriginResourceSharingAllowAllResponseTest,CrossOriginResourceSharingResponseTest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-ministack
+          path: target/surefire-reports/
 
       - name: Install s3-tests
         run: |
