@@ -244,6 +244,14 @@ ServerSideEncryptionConfigurationNotFoundError rather than the account-wide
 AES256 default modern AWS invents, which is also what the Ceph s3-tests
 expect of it.
 
+The `filesystem` backend stores a key as a path, so on Windows a key
+holding a backslash is refused with 400 InvalidArgument.  Windows reads
+that character as a directory separator and no file name can hold one, so
+the key `back\slash.txt` would come back from a listing as
+`back/slash.txt` and answer for whoever wrote *that* key instead --
+two S3 keys on one object.  Keys are spelled with forward slashes on every
+host, whatever the filesystem underneath.
+
 `aws-s3`, `azureblob` and `google-cloud-storage` copy a part on the server,
 in one request and without the bytes passing through S3Proxy.  Only
 `google-cloud-storage` falls back to streaming it, for a range covering less

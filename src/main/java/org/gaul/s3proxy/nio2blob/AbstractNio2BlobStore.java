@@ -300,6 +300,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var prefix = request.prefix();
         var dirPrefix = containerPath;
         if (prefix != null) {
+            checkNoNativeSeparator(containerPath, prefix, "prefix");
             int idx = prefix.lastIndexOf('/');
             if (idx != -1) {
                 dirPrefix = dirPrefix.resolve(prefix.substring(0, idx));
@@ -2905,6 +2906,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * resolve to the slash blob or a descendant of it is rejected with 400.
      */
     private static Path resolveBlobPath(Path containerPath, String key) {
+        checkNoNativeSeparator(containerPath, key, "key");
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
         Path path;
         if (key.equals("/")) {
@@ -3235,6 +3237,34 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (key.equals(VERSIONS_DIR) || key.startsWith(VERSIONS_DIR + "/")) {
             throw S3Exceptions.invalidArgument("The key " + VERSIONS_DIR +
                     " is reserved for object versions.");
+        }
+    }
+
+    /**
+     * Refuse a key or prefix holding the character this filesystem reads as
+     * a path separator, where that character is not "/".
+     *
+     * <p>Windows reads a backslash as one, so the key {@code back\slash.txt}
+     * would resolve to the file slash.txt inside a directory named back.  It
+     * would then list under {@code back/slash.txt}, a key its writer never
+     * used, and answer for a caller who did write that key -- two S3 keys
+     * collapsed onto one object.  No Windows file name can hold a backslash,
+     * so there is nowhere to put the key as written: S3 accepts it and this
+     * store says plainly that it cannot.  A prefix is refused for the same
+     * reason, since matching one would answer with keys that do not begin
+     * with it.
+     *
+     * <p>Where the separator is already "/" -- every filesystem S3Proxy runs
+     * on but Windows -- a key holding a backslash is an ordinary name and
+     * nothing here touches it.  See issue #282.
+     */
+    private static void checkNoNativeSeparator(Path containerPath,
+            String value, String noun) {
+        var separator = containerPath.getFileSystem().getSeparator();
+        if (!"/".equals(separator) && value.contains(separator)) {
+            throw S3Exceptions.invalidArgument("The " + noun +
+                    " must not contain " + separator +
+                    ", which this filesystem reads as a path separator.");
         }
     }
 
