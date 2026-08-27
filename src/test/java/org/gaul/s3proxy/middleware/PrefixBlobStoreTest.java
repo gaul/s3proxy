@@ -40,6 +40,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 
 public final class PrefixBlobStoreTest {
     private String containerName;
@@ -191,6 +192,51 @@ public final class PrefixBlobStoreTest {
                 .bucket(containerName)
                 .key("object.txt")
                 .build()).grants()).isNotEmpty();
+    }
+
+    /**
+     * A part the backend can copy itself has to reach it under the prefixed
+     * keys.  The wrapper used to keep the interface's refusal instead, so
+     * S3Proxy streamed every part down and back up.
+     */
+    @Test
+    public void testCopiesAPartUnderThePrefixedKeys() {
+        var recorder = new PartCopyRecorder(blobStore);
+        BlobStore store = PrefixBlobStore.newPrefixBlobStore(recorder,
+                Map.of(containerName, prefix));
+        assertThat(store.supportsCopyMultipartPart()).isTrue();
+        var mpu = new MultipartUpload("upload-id",
+                TestUtils.createRequest(containerName, "object.txt"));
+
+        store.copyMultipartPart(mpu, UploadPartCopyRequest.builder()
+                .sourceBucket(containerName)
+                .sourceKey("source.txt")
+                .destinationBucket(containerName)
+                .destinationKey("object.txt")
+                .uploadId("upload-id")
+                .partNumber(1)
+                .build());
+
+        assertThat(recorder.request()).isNotNull();
+        assertThat(recorder.request().sourceKey())
+                .isEqualTo(prefix + "source.txt");
+        assertThat(recorder.request().destinationKey())
+                .isEqualTo(prefix + "object.txt");
+        // only the keys are the prefix's business
+        assertThat(recorder.request().sourceBucket()).isEqualTo(containerName);
+        assertThat(recorder.request().destinationBucket())
+                .isEqualTo(containerName);
+        assertThat(recorder.mpu().blobName())
+                .isEqualTo(prefix + "object.txt");
+    }
+
+    /**
+     * Where the backend cannot copy a part itself the wrapper must not claim
+     * it can, since the caller reads that as leave to skip the streamed copy.
+     */
+    @Test
+    public void testFollowsABackendThatCopiesNoPart() {
+        assertThat(prefixBlobStore.supportsCopyMultipartPart()).isFalse();
     }
 
     @Test

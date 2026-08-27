@@ -56,6 +56,8 @@ import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -317,6 +319,32 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             UploadPartRequest request, InputStream is) {
         return super.uploadMultipartPart(
                 toDelegateMultipartUpload(mpu), request, is);
+    }
+
+    /**
+     * The prefix renames keys and nothing else, so a part the backend can
+     * copy on its own it can still copy once both keys carry their prefix.
+     * Keeping the interface's refusal instead would send every part down to
+     * S3Proxy and back up again.  Whether the backend copies at all stays
+     * its own answer, which is what keeps a wrapper that rewrites what it
+     * stores from having a backend copy slip past it.
+     */
+    @Override
+    public boolean supportsCopyMultipartPart() {
+        return delegate().supportsCopyMultipartPart();
+    }
+
+    @Override
+    public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
+            UploadPartCopyRequest request) {
+        return delegate().copyMultipartPart(toDelegateMultipartUpload(mpu),
+                request.toBuilder()
+                        .sourceKey(addPrefix(request.sourceBucket(),
+                                request.sourceKey()))
+                        .destinationKey(addPrefix(
+                                request.destinationBucket(),
+                                request.destinationKey()))
+                        .build());
     }
 
     @Override

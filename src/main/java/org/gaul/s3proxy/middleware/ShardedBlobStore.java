@@ -86,6 +86,8 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -612,6 +614,37 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             return this.delegate().uploadMultipartPart(mpu, request, is);
         }
         throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    /**
+     * The shard mapping renames buckets and nothing else, so a part the
+     * backend can copy on its own it can still copy once both ends name
+     * shards.  Keeping the interface's refusal instead would send every
+     * part down to S3Proxy and back up again.  Whether the backend copies
+     * at all stays its own answer.
+     */
+    @Override
+    public boolean supportsCopyMultipartPart() {
+        return this.delegate().supportsCopyMultipartPart();
+    }
+
+    /**
+     * A sharded bucket holds no multipart upload, as
+     * {@link #initiateMultipartUpload} says, so only the source can name
+     * one: a part copied out of a sharded bucket comes from the shard its
+     * own key hashes to, exactly as {@link #copyBlob} reads it.
+     */
+    @Override
+    public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
+            UploadPartCopyRequest request) {
+        if (this.buckets.containsKey(mpu.containerName()) ||
+                this.buckets.containsKey(request.destinationBucket())) {
+            throw new UnsupportedOperationException("sharded bucket");
+        }
+        return this.delegate().copyMultipartPart(mpu, request.toBuilder()
+                .sourceBucket(this.getShard(request.sourceBucket(),
+                        request.sourceKey()))
+                .build());
     }
 
     @Override

@@ -29,6 +29,7 @@ import com.google.common.io.ByteSource;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 
 public final class ShardedBlobStoreTest {
     private int shards;
@@ -302,5 +304,84 @@ public final class ShardedBlobStoreTest {
              InputStream expected = content.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
         }
+    }
+
+    /**
+     * A part the backend can copy itself has to reach it naming the shard
+     * the source key hashes to, the same one {@link ShardedBlobStore#copyBlob}
+     * reads.  The wrapper used to keep the interface's refusal instead, so
+     * S3Proxy streamed every part down and back up.
+     */
+    @Test
+    public void testCopiesAPartOutOfTheShardItLandedIn() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        String unshardedContainer = TestUtils.createRandomContainerName();
+        this.createContainer(containerName);
+        this.createContainer(unshardedContainer);
+        TestUtils.putBlob(shardedBlobStore, containerName, blobName,
+                TestUtils.randomByteSource().slice(0, 1024));
+        String shard = null;
+        for (int i = 0; i < shards; i++) {
+            String candidate = "%s-%d".formatted(prefix, i);
+            for (var entry : blobStore.list(candidate).contents()) {
+                if (entry.key().equals(blobName)) {
+                    shard = candidate;
+                }
+            }
+        }
+        assertThat(shard).isNotNull();
+
+        var recorder = new PartCopyRecorder(blobStore);
+        BlobStore store = ShardedBlobStore.newShardedBlobStore(recorder,
+                Map.of(containerName, shards), prefixesMap);
+        assertThat(store.supportsCopyMultipartPart()).isTrue();
+        var mpu = new MultipartUpload("upload-id",
+                TestUtils.createRequest(unshardedContainer, blobName));
+
+        store.copyMultipartPart(mpu, UploadPartCopyRequest.builder()
+                .sourceBucket(containerName)
+                .sourceKey(blobName)
+                .destinationBucket(unshardedContainer)
+                .destinationKey(blobName)
+                .uploadId("upload-id")
+                .partNumber(1)
+                .build());
+
+        assertThat(recorder.request()).isNotNull();
+        assertThat(recorder.request().sourceBucket()).isEqualTo(shard);
+        // the upload's own bucket shards nothing and is left alone
+        assertThat(recorder.request().destinationBucket())
+                .isEqualTo(unshardedContainer);
+    }
+
+    /** A sharded bucket holds no upload, so no part is copied into one. */
+    @Test
+    public void testRefusesAPartCopyIntoAShardedBucket() {
+        var recorder = new PartCopyRecorder(blobStore);
+        BlobStore store = ShardedBlobStore.newShardedBlobStore(recorder,
+                Map.of(containerName, shards), prefixesMap);
+        var mpu = new MultipartUpload("upload-id",
+                TestUtils.createRequest(containerName, "object"));
+
+        assertThatThrownBy(() -> store.copyMultipartPart(mpu,
+                UploadPartCopyRequest.builder()
+                        .sourceBucket(containerName)
+                        .sourceKey("source")
+                        .destinationBucket(containerName)
+                        .destinationKey("object")
+                        .uploadId("upload-id")
+                        .partNumber(1)
+                        .build()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(recorder.request()).isNull();
+    }
+
+    /**
+     * Where the backend cannot copy a part itself the wrapper must not claim
+     * it can, since the caller reads that as leave to skip the streamed copy.
+     */
+    @Test
+    public void testFollowsABackendThatCopiesNoPart() {
+        assertThat(shardedBlobStore.supportsCopyMultipartPart()).isFalse();
     }
 }
