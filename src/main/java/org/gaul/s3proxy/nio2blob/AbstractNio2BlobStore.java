@@ -29,6 +29,7 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.NotDirectoryException;
@@ -300,7 +301,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var prefix = request.prefix();
         var dirPrefix = containerPath;
         if (prefix != null) {
-            checkNoNativeSeparator(containerPath, prefix, "prefix");
+            var unused = resolveName(containerPath, prefix, "prefix");
             int idx = prefix.lastIndexOf('/');
             if (idx != -1) {
                 dirPrefix = dirPrefix.resolve(prefix.substring(0, idx));
@@ -2906,13 +2907,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * resolve to the slash blob or a descendant of it is rejected with 400.
      */
     private static Path resolveBlobPath(Path containerPath, String key) {
-        checkNoNativeSeparator(containerPath, key, "key");
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
         Path path;
         if (key.equals("/")) {
+            checkNoNativeSeparator(containerPath, key, "key");
             path = slashBlob;
         } else {
-            path = containerPath.resolve(key).normalize();
+            path = resolveName(containerPath, key, "key").normalize();
             if (path.startsWith(slashBlob)) {
                 throw returnResponseException(400);
             }
@@ -3265,6 +3266,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw S3Exceptions.invalidArgument("The " + noun +
                     " must not contain " + separator +
                     ", which this filesystem reads as a path separator.");
+        }
+    }
+
+    /**
+     * Resolve a client-supplied key or prefix against a container, refusing
+     * one this filesystem cannot spell.
+     *
+     * <p>What it cannot spell is its own business and differs by host:
+     * Windows forbids {@code : * ? < > | "} in a name along with a trailing
+     * space or dot, and every filesystem forbids a NUL.  S3 takes all of
+     * them, so Path.resolve raises InvalidPathException on a request that is
+     * perfectly good S3 -- and an unchecked exception leaves the caller a
+     * 500, which says the fault is S3Proxy's and invites a retry that can
+     * never succeed.  The refusal is the caller's answer instead, in the
+     * same 400 a key holding the separator earns.  See issue #818.
+     */
+    private static Path resolveName(Path containerPath, String value,
+            String noun) {
+        checkNoNativeSeparator(containerPath, value, noun);
+        try {
+            return containerPath.resolve(value);
+        } catch (InvalidPathException ipe) {
+            throw S3Exceptions.invalidArgument("The " + noun +
+                    " names something this filesystem cannot store: " +
+                    ipe.getReason() + ".");
         }
     }
 

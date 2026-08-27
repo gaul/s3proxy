@@ -32,6 +32,7 @@ import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -175,6 +176,55 @@ public final class Nio2WindowsKeyTest {
                     .map(o -> o.key()).toList())
                     .containsExactly("back\\slash.txt");
         }
+    }
+
+    /**
+     * Windows forbids these in a name outright, where S3 takes them.  Before
+     * this each raised InvalidPathException out of Path.resolve, which
+     * reached the caller as a 500: a fault laid at S3Proxy's door for a
+     * request that was never going to work.
+     */
+    @Test
+    public void testKeyWindowsCannotSpellIsRefused() {
+        for (String key : new String[] {
+            "co:lon.txt", "sta*r.txt", "qu?stion.txt", "less<than.txt",
+            "pipe|d.txt", "quo\"te.txt", "trailing "}) {
+            assertThatThrownBy(() -> put(key))
+                    .describedAs("key %s", key)
+                    .isInstanceOf(S3Exception.class)
+                    .matches(e -> S3Exceptions.errorCode((S3Exception) e)
+                            .equals("InvalidArgument"))
+                    .hasMessageContaining("cannot store");
+        }
+    }
+
+    /** Reading and listing answer the same way, not with a 500 either. */
+    @Test
+    public void testReadingAndListingSuchAKeyAreRefused() {
+        assertThatThrownBy(() -> store.blobMetadata(CONTAINER, "co:lon.txt"))
+                .isInstanceOf(S3Exception.class)
+                .hasMessageContaining("cannot store");
+        assertThatThrownBy(() -> store.list(ListObjectsV2Request.builder()
+                .bucket(CONTAINER).prefix("co:lon").build()))
+                .isInstanceOf(S3Exception.class)
+                .hasMessageContaining("cannot store");
+    }
+
+    /**
+     * The same refusal where the host is not Windows: no filesystem takes a
+     * NUL, and S3 takes one in a key like any other byte.
+     */
+    @Test
+    public void testKeyNoFilesystemCanSpellIsRefused(@TempDir Path temp) {
+        var real = new FilesystemNio2BlobStore(temp.toString());
+        real.createContainer(CONTAINER);
+
+        assertThatThrownBy(() -> TestUtils.putBlob(real, CONTAINER,
+                "nul" + (char) 0 + "key.txt", ByteSource.empty()))
+                .isInstanceOf(S3Exception.class)
+                .matches(e -> S3Exceptions.errorCode((S3Exception) e)
+                        .equals("InvalidArgument"))
+                .hasMessageContaining("cannot store");
     }
 
     private void put(String key) throws IOException {
