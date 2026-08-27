@@ -135,6 +135,7 @@ import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -1185,7 +1186,8 @@ public class S3ProxyHandler {
                     return;
                 } else if (request.getParameter("location") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_LOCATION);
-                    handleContainerLocation(request, response);
+                    handleContainerLocation(request, response, blobStore,
+                            path[1]);
                     return;
                 } else if (request.getParameter("policy") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_POLICY);
@@ -1904,7 +1906,16 @@ public class S3ProxyHandler {
     }
 
     private void handleContainerLocation(HttpServletRequest request,
-            HttpServletResponse response) throws IOException {
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException {
+        // Asked before anything is written: the store's NoSuchBucket is the
+        // 404 S3 answers here, and it can no longer be one once a 200 and
+        // the prolog are out.
+        String constraint = blobStore.getBucketLocation(
+                GetBucketLocationRequest.builder()
+                        .bucket(containerName)
+                        .build())
+                .locationConstraintAsString();
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
         try (Writer writer = response.getWriter()) {
@@ -1912,9 +1923,13 @@ public class S3ProxyHandler {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
-            // TODO: using us-standard semantics but could emit actual location
             xml.writeStartElement("LocationConstraint");
             xml.writeDefaultNamespace(AWS_XMLNS);
+            // An empty element is what S3 says for us-east-1, and what the
+            // store says for a backend with no regions to name.
+            if (constraint != null && !constraint.isEmpty()) {
+                xml.writeCharacters(constraint);
+            }
             xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {

@@ -54,6 +54,8 @@ import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketLocationResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -502,6 +504,33 @@ public interface BlobStore extends AutoCloseable {
                 .key(name)
                 .versionId(versionId)
                 .build());
+    }
+
+    /**
+     * GetBucketLocation: the region the bucket is in, in the vocabulary S3
+     * answers this with -- which is to say, absent for a bucket in
+     * us-east-1.  That is not a gap in the answer but the answer itself:
+     * S3 has spelled its first region the empty LocationConstraint since
+     * before it had a name, and every client reads the absence that way.
+     *
+     * <p>The default reads what HeadBucket already relays, so a store whose
+     * service has regions reports one without implementing anything, and a
+     * store whose service has none reports nothing -- which is honest, and
+     * renders as the same empty element.  A backend that answers this
+     * natively overrides it and relays what its service says, legacy
+     * spellings and all: S3 still answers "EU" for a bucket created under
+     * that constraint.  Absence of the bucket is NoSuchBucket, as HeadBucket
+     * gives it.  See issue #289.
+     */
+    default GetBucketLocationResponse getBucketLocation(
+            GetBucketLocationRequest request) {
+        var head = headBucket(HeadBucketRequest.builder()
+                .bucket(request.bucket())
+                .build());
+        String region = head.bucketRegion();
+        return GetBucketLocationResponse.builder()
+                .locationConstraint("us-east-1".equals(region) ? null : region)
+                .build();
     }
 
     /**

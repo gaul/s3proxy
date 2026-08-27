@@ -70,6 +70,8 @@ import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketLocationResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -262,6 +264,22 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             // A HEAD response carries no error body, so some services'
             // 404s reach the SDK untyped; propagate names those
             // NoSuchBucket and sends every other refusal on verbatim.
+            throw propagate(e, request.bucket(), /*key=*/ null);
+        }
+    }
+
+    /**
+     * Relayed rather than derived from HeadBucket: the service answers this
+     * one itself, in one call and in its own spelling -- a bucket created
+     * under the legacy "EU" constraint still answers "EU", which the
+     * bucket's region alone would not say.
+     */
+    @Override
+    public GetBucketLocationResponse getBucketLocation(
+            GetBucketLocationRequest request) {
+        try {
+            return s3Client.getBucketLocation(request);
+        } catch (S3Exception e) {
             throw propagate(e, request.bucket(), /*key=*/ null);
         }
     }
