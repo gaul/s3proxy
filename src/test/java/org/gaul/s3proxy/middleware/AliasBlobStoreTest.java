@@ -33,6 +33,7 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -47,6 +48,8 @@ import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 
 public final class AliasBlobStoreTest {
     private String containerName;
@@ -248,6 +251,52 @@ public final class AliasBlobStoreTest {
                 TestUtils.completeRequest(mpu, parts));
     }
 
+    /**
+     * A part the backend can copy on its own has to reach it under the
+     * backend's own names.  The wrapper used to keep the interface's refusal
+     * instead, so S3Proxy streamed every part down and back up: measured
+     * against an S3 backend, one UploadPartCopy became a ranged GetObject
+     * and an UploadPart.
+     */
+    @Test
+    public void testAliasCopiesAPartUnderTheBackendNames() {
+        var recorder = new PartCopyRecorder(blobStore);
+        BlobStore store = AliasBlobStore.newAliasBlobStore(recorder,
+                ImmutableBiMap.of(aliasContainerName, containerName));
+        assertThat(store.supportsCopyMultipartPart()).isTrue();
+        String blobName = TestUtils.createRandomBlobName();
+        var mpu = new MultipartUpload("upload-id",
+                TestUtils.createRequest(aliasContainerName, blobName));
+
+        store.copyMultipartPart(mpu, UploadPartCopyRequest.builder()
+                .sourceBucket(aliasContainerName)
+                .sourceKey("source")
+                .destinationBucket(aliasContainerName)
+                .destinationKey(blobName)
+                .uploadId("upload-id")
+                .partNumber(1)
+                .build());
+
+        assertThat(recorder.request).isNotNull();
+        assertThat(recorder.request.sourceBucket()).isEqualTo(containerName);
+        assertThat(recorder.request.destinationBucket())
+                .isEqualTo(containerName);
+        // only the buckets are the alias's business
+        assertThat(recorder.request.sourceKey()).isEqualTo("source");
+        assertThat(recorder.request.destinationKey()).isEqualTo(blobName);
+        assertThat(recorder.mpu).isNotNull();
+        assertThat(recorder.mpu.containerName()).isEqualTo(containerName);
+    }
+
+    /**
+     * Where the backend cannot copy a part itself the wrapper must not claim
+     * it can, since the caller reads that as leave to skip the streamed copy.
+     */
+    @Test
+    public void testAliasFollowsABackendThatCopiesNoPart() {
+        assertThat(aliasBlobStore.supportsCopyMultipartPart()).isFalse();
+    }
+
     @Test
     public void testParseDuplicateAliases() {
         var properties = new Properties();
@@ -263,6 +312,33 @@ public final class AliasBlobStoreTest {
         } catch (IllegalArgumentException exc) {
             assertThat(exc.getMessage()).isEqualTo(
                     "Backend bucket bucket is aliased twice");
+        }
+    }
+
+    /**
+     * A backend that copies parts server-side, recording what it was asked
+     * for instead of copying anything.  The stores that really do copy are
+     * the ones this test class cannot reach.
+     */
+    private static final class PartCopyRecorder extends ForwardingBlobStore {
+        private MultipartUpload mpu;
+        private UploadPartCopyRequest request;
+
+        PartCopyRecorder(BlobStore delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public boolean supportsCopyMultipartPart() {
+            return true;
+        }
+
+        @Override
+        public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
+                UploadPartCopyRequest request) {
+            this.mpu = mpu;
+            this.request = request;
+            return UploadPartCopyResponse.builder().build();
         }
     }
 }

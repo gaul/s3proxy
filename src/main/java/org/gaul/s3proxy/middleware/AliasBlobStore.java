@@ -69,6 +69,8 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -310,6 +312,29 @@ public final class AliasBlobStore extends ForwardingBlobStore {
             UploadPartRequest request, InputStream is) {
         return delegate().uploadMultipartPart(getDelegateMpu(mpu), request,
                 is);
+    }
+
+    /**
+     * The alias renames buckets and nothing else, so a part the backend can
+     * copy on its own it can still copy once both names are the backend's.
+     * Keeping the interface's refusal instead would send every part down to
+     * S3Proxy and back up again, which for the multi-gigabyte objects a
+     * multipart copy is used on is the whole object over the network twice.
+     */
+    @Override
+    public boolean supportsCopyMultipartPart() {
+        return delegate().supportsCopyMultipartPart();
+    }
+
+    @Override
+    public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
+            UploadPartCopyRequest request) {
+        return delegate().copyMultipartPart(getDelegateMpu(mpu),
+                request.toBuilder()
+                        .sourceBucket(getContainer(request.sourceBucket()))
+                        .destinationBucket(getContainer(
+                                request.destinationBucket()))
+                        .build());
     }
 
     @Override
