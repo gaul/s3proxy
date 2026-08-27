@@ -23,6 +23,16 @@ public final class Constants {
     public static final String PROPERTY_ENDPOINT = "jclouds.endpoint";
     public static final String PROPERTY_IDENTITY = "jclouds.identity";
     public static final String PROPERTY_CREDENTIAL = "jclouds.credential";
+    /**
+     * The expiring half of a backend credential, where the backend has one:
+     * an AWS session token, an Azure shared access signature, a Google OAuth
+     * 2.0 access token, or a Keystone token.  A token named here is fixed for
+     * the life of the process, and so serves only as long as the token
+     * itself does; a deployment that rotates them hands
+     * {@code BlobStores.create} a supplier instead.
+     */
+    public static final String PROPERTY_SESSION_TOKEN =
+            "jclouds.session-token";
     public static final String PROPERTY_REGION = "jclouds.region";
 
     // TODO: fake owner

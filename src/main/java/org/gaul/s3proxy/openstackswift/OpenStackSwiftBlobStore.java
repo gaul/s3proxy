@@ -50,6 +50,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -271,10 +272,19 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     PROPERTY_PROJECT_NAME +
                     " is required to access OpenStack Swift");
         }
-        OSClientV3 client = OSFactory.builderV3()
-                .endpoint(endpoint)
-                .credentials(cred.identity(), cred.credential(),
-                        Identifier.byName(userDomainName))
+        var builder = OSFactory.builderV3().endpoint(endpoint);
+        String sessionToken = cred.sessionToken();
+        if (Strings.isNullOrEmpty(sessionToken)) {
+            builder.credentials(cred.identity(), cred.credential(),
+                    Identifier.byName(userDomainName));
+        } else {
+            // Keystone re-scopes a token the caller already holds, so a
+            // deployment that mints them hands one over instead of the
+            // password behind it.  Its own expiry drives the next
+            // authenticate, which reads the supplier again.
+            builder.token(sessionToken);
+        }
+        OSClientV3 client = builder
                 .scopeToProject(Identifier.byName(projectName),
                         Identifier.byName(projectDomainName))
                 .authenticate();
@@ -308,6 +318,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * notion of one.
      */
     private Token authenticateTempAuth(Credentials cred) {
+        if (!Strings.isNullOrEmpty(cred.sessionToken())) {
+            throw new IllegalArgumentException("A session token names a " +
+                    "Keystone token, which " + endpoint + " does not issue");
+        }
         // tempauth identifies a user as "account:user".  Accept either the
         // whole thing as the identity or the account named separately, since
         // the project is what a Keystone-configured store already calls it.

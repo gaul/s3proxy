@@ -85,6 +85,7 @@ ENV \
     JCLOUDS_REGION="" \
     JCLOUDS_IDENTITY="remote-identity" \
     JCLOUDS_CREDENTIAL="remote-credential" \
+    JCLOUDS_SESSION_TOKEN="" \
     JCLOUDS_FILESYSTEM_BASEDIR="/data"
 
 EXPOSE 80 443

@@ -22,7 +22,9 @@ import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
 
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -33,8 +35,9 @@ import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
@@ -130,7 +133,6 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         this.useNativeConditionalWrites = !"emulated".equalsIgnoreCase(
                 conditionalWrites);
         this.stripETagQuotes = Boolean.parseBoolean(stripETagQuotes);
-        var cred = creds.get();
 
         S3ClientBuilder builder = S3Client.builder();
 
@@ -152,15 +154,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         builder.overrideConfiguration(o -> o.retryStrategy(
                 DefaultRetryStrategy.doNotRetry()));
 
-        if (cred.identity() != null && !cred.identity().isEmpty() &&
-                cred.credential() != null && !cred.credential().isEmpty()) {
-            builder.credentialsProvider(StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(cred.identity(),
-                            cred.credential())));
-        } else {
-            builder.credentialsProvider(
-                    DefaultCredentialsProvider.builder().build());
-        }
+        builder.credentialsProvider(credentialsProvider(creds));
 
         if (endpoint != null && !endpoint.isEmpty()) {
             URI endpointUri = URI.create(endpoint);
@@ -176,6 +170,39 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         builder.region(this.awsRegion);
 
         this.s3Client = builder.build();
+    }
+
+    /**
+     * Resolves credentials from {@code creds} every time the SDK signs a
+     * request rather than capturing one sample, so a supplier handing out an
+     * STS session -- which expires within hours -- keeps the store working
+     * after the first set lapses.
+     *
+     * <p>Naming neither an identity nor a credential defers instead to the
+     * chain the AWS tools themselves read: environment, profile, container,
+     * and instance role, each of which renews what it finds.  That chain is
+     * built once and remembered, since rebuilding it per request would re-read
+     * the profile file and re-ask the instance metadata service every time.
+     */
+    private static AwsCredentialsProvider credentialsProvider(
+            Supplier<Credentials> creds) {
+        Supplier<DefaultCredentialsProvider> defaultProvider =
+                Suppliers.memoize(
+                        () -> DefaultCredentialsProvider.builder().build());
+        return () -> {
+            var cred = creds.get();
+            String identity = cred.identity();
+            String credential = cred.credential();
+            if (Strings.isNullOrEmpty(identity) ||
+                    Strings.isNullOrEmpty(credential)) {
+                return defaultProvider.get().resolveCredentials();
+            }
+            String sessionToken = cred.sessionToken();
+            return Strings.isNullOrEmpty(sessionToken) ?
+                    AwsBasicCredentials.create(identity, credential) :
+                    AwsSessionCredentials.create(identity, credential,
+                            sessionToken);
+        };
     }
 
     // Releases the SDK client's connection pool and background threads when

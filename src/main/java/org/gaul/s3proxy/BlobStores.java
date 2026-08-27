@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import java.util.Properties;
 
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 
@@ -37,18 +38,35 @@ public final class BlobStores {
     private BlobStores() {
     }
 
+    /**
+     * Creates a store authenticating with the credentials the properties
+     * name, which stay as they were written for the life of the store.
+     */
     public static BlobStore create(String provider, Properties properties) {
-        provider = resolveProviderAlias(provider);
         String identity = properties.getProperty(Constants.PROPERTY_IDENTITY,
                 "");
         String credential = properties.getProperty(
                 Constants.PROPERTY_CREDENTIAL, "");
+        String sessionToken = properties.getProperty(
+                Constants.PROPERTY_SESSION_TOKEN, "");
+        return create(provider, properties, Suppliers.ofInstance(
+                new Credentials(identity, credential,
+                        Strings.emptyToNull(sessionToken))));
+    }
+
+    /**
+     * Creates a store authenticating with whatever {@code creds} answers at
+     * the moment it signs a request.  A caller holding credentials that
+     * expire -- an assumed role, a shared access signature, an OAuth token --
+     * passes a supplier that mints fresh ones rather than a fixed value, and
+     * the store follows it without being rebuilt.
+     */
+    public static BlobStore create(String provider, Properties properties,
+            Supplier<Credentials> creds) {
+        provider = resolveProviderAlias(provider);
         String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT,
                 "");
         String region = properties.getProperty(Constants.PROPERTY_REGION, "");
-
-        Supplier<Credentials> creds = Suppliers.ofInstance(
-                new Credentials(identity, credential));
 
         return switch (provider) {
         case "filesystem" -> {

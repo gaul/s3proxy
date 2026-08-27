@@ -40,11 +40,16 @@ import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
+import com.azure.core.credential.AzureSasCredential;
 import com.azure.core.http.HttpHeaderName;
+import com.azure.core.http.HttpPipelineCallContext;
+import com.azure.core.http.HttpPipelinePosition;
+import com.azure.core.http.policy.HttpPipelineSyncPolicy;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.Response;
 import com.azure.core.util.Context;
 import com.azure.identity.DefaultAzureCredentialBuilder;
+import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
@@ -218,7 +223,20 @@ public final class AzureBlobStore implements BlobStore {
                 .serviceVersion(BlobServiceVersion.V2026_02_06)
                 .endpoint(endpoint)
                 .retryOptions(NO_RETRY_OPTIONS);
-        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
+        String sessionToken = cred.sessionToken();
+        if (!Strings.isNullOrEmpty(sessionToken)) {
+            // A shared access signature is the one Azure credential that
+            // carries an expiry, so the client holds a mutable one that
+            // SasRefreshPolicy re-reads from the supplier per request.
+            var sasCredential = new AzureSasCredential(sasToken(sessionToken));
+            blobServiceClientBuilder
+                    .credential(sasCredential)
+                    .addPolicy(new SasRefreshPolicy(creds, sasCredential));
+        } else if (!cred.identity().isEmpty() &&
+                !cred.credential().isEmpty()) {
+            // An account key does not expire, and the builder copies it out
+            // of the credential rather than reading it again, so a supplier
+            // that rotates one is followed no further than here.
             blobServiceClientBuilder.credential(
                 new AzureNamedKeyCredential(cred.identity(),
                         cred.credential()));
@@ -234,6 +252,47 @@ public final class AzureBlobStore implements BlobStore {
         blobServiceAsyncClient = blobServiceClientBuilder.buildAsyncClient();
         blobBatchClient = new BlobBatchClientBuilder(blobServiceClient)
                 .buildClient();
+    }
+
+    /**
+     * A shared access signature as the query string it has to become.  Azure
+     * hands one out with a leading question mark, which appended as it came
+     * would open a second query string.
+     */
+    private static String sasToken(String sessionToken) {
+        return sessionToken.startsWith("?") ? sessionToken.substring(1) :
+                sessionToken;
+    }
+
+    /**
+     * The source URL a copy hands Azure, signed for read so that the service
+     * can fetch it itself.  A store authenticating with a shared access
+     * signature has no key to sign a fresh one with and so lends the source
+     * the same signature it presents everywhere else; one holding an account
+     * key mints a signature per copy; one holding neither borrows the
+     * account's own delegation key.
+     */
+    // TODO: is this the best way to generate a SAS URL?
+    private String signedSourceUrl(BlobClient fromClient) {
+        var expiryTime = OffsetDateTime.now().plusDays(1);
+        var permission = new BlobSasPermission().setReadPermission(true);
+        var values = new BlobServiceSasSignatureValues(expiryTime, permission)
+                .setStartTime(OffsetDateTime.now());
+        var cred = creds.get();
+        String sessionToken = cred.sessionToken();
+        String token;
+        if (!Strings.isNullOrEmpty(sessionToken)) {
+            token = sasToken(sessionToken);
+        } else if (!cred.identity().isEmpty() &&
+                !cred.credential().isEmpty()) {
+            token = fromClient.generateSas(values);
+        } else {
+            var userDelegationKey = blobServiceClient.getUserDelegationKey(
+                    OffsetDateTime.now().minusMinutes(5), expiryTime);
+            token = fromClient.generateUserDelegationSas(values,
+                    userDelegationKey);
+        }
+        return fromClient.getBlobUrl() + "?" + token;
     }
 
     /**
@@ -891,27 +950,12 @@ public final class AzureBlobStore implements BlobStore {
             // public copy is refused rather than silently made private.
             throw new UnsupportedOperationException("unsupported in Azure");
         }
-        var expiryTime = OffsetDateTime.now().plusDays(1);
-        var permission = new BlobSasPermission().setReadPermission(true);
-        var values = new BlobServiceSasSignatureValues(expiryTime, permission)
-                .setStartTime(OffsetDateTime.now());
-
         var fromClient = blobServiceClient
                 .getBlobContainerClient(fromContainer)
                 .getBlobClient(fromName);
-        var url = fromClient.getBlobUrl();
-        String token;
-        var cred = creds.get();
-        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
-            token = fromClient.generateSas(values);
-        } else {
-            var userDelegationKey = blobServiceClient.getUserDelegationKey(
-                    OffsetDateTime.now().minusMinutes(5), expiryTime);
-            token = fromClient.generateUserDelegationSas(values, userDelegationKey);
-        }
 
-        // TODO: is this the best way to generate a SAS URL?
-        var azureOptions = new BlobUploadFromUrlOptions(url + "?" + token);
+        var sourceUrl = signedSourceUrl(fromClient);
+        var azureOptions = new BlobUploadFromUrlOptions(sourceUrl);
         var client = blobServiceClient
                 .getBlobContainerClient(request.destinationBucket())
                 .getBlobClient(request.destinationKey())
@@ -1006,7 +1050,7 @@ public final class AzureBlobStore implements BlobStore {
             // replaces the source metadata as with S3's REPLACE directive,
             // but content headers can only be set after the copy.
             try {
-                var copyOptions = new BlobBeginCopyOptions(url + "?" + token)
+                var copyOptions = new BlobBeginCopyOptions(sourceUrl)
                         .setPollInterval(Duration.ofMillis(10));
                 if (replace) {
                     copyOptions.setMetadata(request.metadata());
@@ -1638,26 +1682,12 @@ public final class AzureBlobStore implements BlobStore {
 
         // The service fetches the source itself, authorized by a read SAS
         // as in copyBlob.
-        var expiryTime = OffsetDateTime.now().plusDays(1);
-        var permission = new BlobSasPermission().setReadPermission(true);
-        var values = new BlobServiceSasSignatureValues(expiryTime, permission)
-                .setStartTime(OffsetDateTime.now());
         var fromClient = blobServiceClient
                 .getBlobContainerClient(request.sourceBucket())
                 .getBlobClient(request.sourceKey());
-        String token;
-        var cred = creds.get();
-        if (!cred.identity().isEmpty() && !cred.credential().isEmpty()) {
-            token = fromClient.generateSas(values);
-        } else {
-            var userDelegationKey = blobServiceClient.getUserDelegationKey(
-                    OffsetDateTime.now().minusMinutes(5), expiryTime);
-            token = fromClient.generateUserDelegationSas(values,
-                    userDelegationKey);
-        }
 
         var options = new BlockBlobStageBlockFromUrlOptions(blockId,
-                fromClient.getBlobUrl() + "?" + token)
+                signedSourceUrl(fromClient))
                 .setSourceRange(parseCopySourceRange(
                         request.copySourceRange()));
         if (ifMatch != null || ifNoneMatch != null ||
@@ -1979,5 +2009,37 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.fromStatusCode(403, bse);
         }
         return bse;
+    }
+
+    /**
+     * Re-reads the shared access signature from the credential supplier
+     * before each request, so a signature that expires gives way to its
+     * successor without the client being rebuilt.  It runs per call rather
+     * than per retry because Azure signs between the two, and this client
+     * retries nothing of its own in any case.
+     */
+    private static final class SasRefreshPolicy
+            extends HttpPipelineSyncPolicy {
+        private final Supplier<Credentials> creds;
+        private final AzureSasCredential credential;
+
+        SasRefreshPolicy(Supplier<Credentials> creds,
+                AzureSasCredential credential) {
+            this.creds = creds;
+            this.credential = credential;
+        }
+
+        @Override
+        public HttpPipelinePosition getPipelinePosition() {
+            return HttpPipelinePosition.PER_CALL;
+        }
+
+        @Override
+        protected void beforeSendingRequest(HttpPipelineCallContext context) {
+            String sessionToken = creds.get().sessionToken();
+            if (!Strings.isNullOrEmpty(sessionToken)) {
+                credential.update(sasToken(sessionToken));
+            }
+        }
     }
 }

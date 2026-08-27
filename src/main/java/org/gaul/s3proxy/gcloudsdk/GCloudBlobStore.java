@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -38,6 +39,7 @@ import java.util.TreeSet;
 import java.util.UUID;
 
 import com.google.api.gax.paging.Page;
+import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.NoCredentials;
@@ -196,8 +198,15 @@ public final class GCloudBlobStore implements BlobStore {
         if (cred.identity() != null && !cred.identity().isEmpty()) {
             storageBuilder.setProjectId(cred.identity());
         }
-        if (cred.credential() != null && !cred.credential().isEmpty()) {
+        String sessionToken = cred.sessionToken();
+        if (!Strings.isNullOrEmpty(sessionToken)) {
+            storageBuilder.setCredentials(new SuppliedTokenCredentials(creds));
+        } else if (cred.credential() != null &&
+                !cred.credential().isEmpty()) {
             try {
+                // A service account key mints its own access tokens and
+                // renews them itself, so the supplier is read no further
+                // than here.
                 var credentials = ServiceAccountCredentials.fromStream(
                         new ByteArrayInputStream(
                                 cred.credential().getBytes(
@@ -2217,5 +2226,30 @@ public final class GCloudBlobStore implements BlobStore {
         return S3Exceptions.fromStatusCode(412,
                 eTag == null ? null : maybeQuoteETag(eTag), Map.of(),
                 /*cause=*/ null);
+    }
+
+    /**
+     * OAuth 2.0 access tokens read from the credential supplier.  Nothing in
+     * a Credentials names how long the token it carries lasts, so each one is
+     * handed over already lapsed and the supplier is asked again for the next
+     * request rather than a withdrawn token being presented twice.
+     */
+    private static final class SuppliedTokenCredentials
+            extends GoogleCredentials {
+        private final Supplier<Credentials> creds;
+
+        SuppliedTokenCredentials(Supplier<Credentials> creds) {
+            this.creds = creds;
+        }
+
+        @Override
+        public AccessToken refreshAccessToken() {
+            String sessionToken = creds.get().sessionToken();
+            if (Strings.isNullOrEmpty(sessionToken)) {
+                throw new IllegalStateException(
+                        "Credential supplier named no session token");
+            }
+            return new AccessToken(sessionToken, new Date());
+        }
     }
 }

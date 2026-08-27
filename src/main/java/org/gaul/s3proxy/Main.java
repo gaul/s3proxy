@@ -257,7 +257,12 @@ public final class Main {
             System.clearProperty(Constants.PROPERTY_CREDENTIAL);
         }
 
-        if (identity == null || credential == null) {
+        // A session token can stand on its own -- an Azure shared access
+        // signature and a Google access token name no identity beside them
+        // -- so the pair is demanded only where nothing else authenticates.
+        if ((identity == null || credential == null) &&
+                Strings.isNullOrEmpty(properties.getProperty(
+                        Constants.PROPERTY_SESSION_TOKEN))) {
             System.err.println(
                     "Properties file must contain: " +
                     Constants.PROPERTY_IDENTITY + " and " +
@@ -265,8 +270,10 @@ public final class Main {
             System.exit(1);
         }
 
-        properties.setProperty(Constants.PROPERTY_IDENTITY, identity);
-        properties.setProperty(Constants.PROPERTY_CREDENTIAL, credential);
+        properties.setProperty(Constants.PROPERTY_IDENTITY,
+                Strings.nullToEmpty(identity));
+        properties.setProperty(Constants.PROPERTY_CREDENTIAL,
+                Strings.nullToEmpty(credential));
 
         return BlobStores.create(provider, properties);
     }

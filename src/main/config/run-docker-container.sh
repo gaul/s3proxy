@@ -9,7 +9,7 @@ mkdir "${JCLOUDS_FILESYSTEM_BASEDIR}"
 for var in S3PROXY_IDENTITY S3PROXY_CREDENTIAL S3PROXY_KEYSTORE_PASSWORD \
         S3PROXY_ENCRYPTED_BLOBSTORE_PASSWORD \
         S3PROXY_ENCRYPTED_BLOBSTORE_SALT \
-        JCLOUDS_IDENTITY JCLOUDS_CREDENTIAL; do
+        JCLOUDS_IDENTITY JCLOUDS_CREDENTIAL JCLOUDS_SESSION_TOKEN; do
     eval "file=\${${var}_FILE:-}"
     if [ -n "$file" ]; then
         eval "$var=\$(cat \"\$file\")"
@@ -75,6 +75,7 @@ BEGIN {
     prop("jclouds.provider", "JCLOUDS_PROVIDER")
     prop("jclouds.identity", "JCLOUDS_IDENTITY")
     prop("jclouds.credential", "JCLOUDS_CREDENTIAL")
+    prop("jclouds.session-token", "JCLOUDS_SESSION_TOKEN")
     prop("jclouds.endpoint", "JCLOUDS_ENDPOINT")
     prop("jclouds.region", "JCLOUDS_REGION")
     prop("jclouds.filesystem.basedir", "JCLOUDS_FILESYSTEM_BASEDIR")

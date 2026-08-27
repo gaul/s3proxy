@@ -88,6 +88,39 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 
+## Backend credentials
+
+`jclouds.identity` and `jclouds.credential` name the enduring half of a backend
+credential.  Credentials that expire carry a third part, which
+`jclouds.session-token` names: an AWS session token, an Azure shared access
+signature, a Google OAuth 2.0 access token, or a Keystone token.
+
+```
+jclouds.provider=aws-s3
+jclouds.identity=ASIAIOSFODNN7EXAMPLE
+jclouds.credential=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+jclouds.session-token=IQoJb3JpZ2luX2VjEExample
+```
+
+A token written into the properties file serves no longer than the token
+itself does.  A deployment that rotates them embeds S3Proxy and hands
+`BlobStores.create` a `Supplier<Credentials>` instead: a store asks it again
+for every request it signs rather than keeping the first answer, so an
+assumed role, a reissued signature, or a refreshed access token takes effect
+without the store being rebuilt.
+
+Naming no credentials at all defers to the chain each backend's own tools
+read -- environment, profile, container, and instance role for `aws-s3`,
+`DefaultAzureCredential` for `azureblob`, and application default credentials
+for `google-cloud-storage` -- every one of which renews what it finds.
+
+Three credentials are read only when the store is built, because nothing
+about them expires: an Azure account key, which the client copies out when it
+is created; a Google service account key, which mints and renews access
+tokens of its own; and the `sftp` password, presented once when the
+connection opens.  `openstack-swift` re-reads the supplier whenever the
+Keystone token it holds nears its expiry.
+
 ## Assigning buckets to backends
 
 S3Proxy can be configured to assign buckets to different backends with the same
