@@ -3705,7 +3705,12 @@ public class S3ProxyHandler {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
                 return true;
             }
-            if (ifUnmodifiedSince != -1 &&
+            // Only when If-Match is absent.  S3 answers a request carrying
+            // both with 200 when the If-Match holds and the
+            // If-Unmodified-Since does not: the stronger condition settles
+            // it, and the date is not consulted.  Reading the date anyway
+            // refused a request S3 would have answered.
+            if (ifUnmodifiedSince != -1 && ifMatch == null &&
                     lastModified.toEpochMilli() > ifUnmodifiedSince) {
                 throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
@@ -6029,7 +6034,10 @@ public class S3ProxyHandler {
                         lastModified.toEpochMilli() <= ifModifiedSince) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
-                if (ifUnmodifiedSince != -1 &&
+                // Only when the if-match is absent, as on a read: S3 copies
+                // the data when the if-match holds and the
+                // if-unmodified-since does not.
+                if (ifUnmodifiedSince != -1 && ifMatch == null &&
                         lastModified.toEpochMilli() > ifUnmodifiedSince) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }

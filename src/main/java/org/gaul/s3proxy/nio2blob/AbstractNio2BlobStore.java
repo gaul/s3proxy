@@ -748,7 +748,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
 
             }
-            if (options.ifUnmodifiedSince() != null) {
+            // Only when If-Match is absent.  S3 answers a request carrying
+            // both with 200 when the If-Match holds and the
+            // If-Unmodified-Since does not, the stronger condition settling
+            // it.  Asked of the request rather than the local, which the
+            // wildcard above has already cleared.
+            if (options.ifUnmodifiedSince() != null &&
+                    options.ifMatch() == null) {
                 var unmodifiedSince = options.ifUnmodifiedSince();
                 if (lastModifiedTime.isAfter(unmodifiedSince)) {
                     throw conditionFailed(412, eTag);
@@ -1212,7 +1218,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 if (ifModifiedSince != null && lastModified.compareTo(ifModifiedSince) <= 0) {
                     throw returnResponseException(412);
                 }
-                if (ifUnmodifiedSince != null && lastModified.compareTo(ifUnmodifiedSince) > 0) {
+                // Only when the if-match is absent: S3 copies the data when
+                // the if-match holds and the if-unmodified-since does not.
+                if (ifUnmodifiedSince != null && ifMatch == null &&
+                        lastModified.compareTo(ifUnmodifiedSince) > 0) {
                     throw returnResponseException(412);
                 }
             }
