@@ -50,6 +50,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -1665,14 +1666,52 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * unreserved set plus {@code '/'} here yields escapes that survive okhttp's
      * parse; Swift decodes them back to the original name, and listings already
      * return decoded names so the inbound path needs no change.
+     *
+     * <p>A name whose path segments include {@code "."} or {@code ".."} is
+     * refused rather than encoded, because this connector cannot express one.
+     * {@code '.'} is unreserved and {@code '/'} is deliberately left alone, so
+     * such a segment reaches okhttp as a dot segment, and okhttp resolves the
+     * URL it parses -- removing the segment and, for {@code ".."}, the one
+     * before it.  Escaping the dots does not help: okhttp reads {@code "%2E"}
+     * as a dot for that resolution too, being hardened against exactly this
+     * trick.  So the request left the container it addressed.  A key of
+     * {@code "../evil.txt"} arrived at Swift as a container of the account to
+     * create, and a key of {@code "../other/planted.txt"} wrote into a
+     * container the request never named and the caller was never authorized
+     * for -- answering the caller 200 while it did so.
+     *
+     * <p>The S3 API allows these keys, and the aws-s3, google-cloud-storage
+     * and azureblob backends store them literally, so this refusal is a gap
+     * in what this backend can hold rather than in what S3Proxy accepts.  It
+     * is the same answer the nio2 stores give a key they cannot spell, and
+     * the alternative is writing the object somewhere the caller did not ask
+     * for.
      */
     private static String encodeName(String name) {
         var encoded = new StringBuilder(name.length() + 16);
-        for (byte rawByte : name.getBytes(StandardCharsets.UTF_8)) {
+        boolean firstSegment = true;
+        for (String segment : Splitter.on('/').split(name)) {
+            if (!firstSegment) {
+                encoded.append('/');
+            }
+            firstSegment = false;
+            if (segment.equals(".") || segment.equals("..")) {
+                throw S3Exceptions.invalidArgument("The key must not contain" +
+                        " a \"" + segment + "\" path segment, which this" +
+                        " backend cannot address.");
+            }
+            encodeSegment(encoded, segment);
+        }
+        return encoded.toString();
+    }
+
+    /** Percent-encodes one path segment, which holds no {@code '/'}. */
+    private static void encodeSegment(StringBuilder encoded, String segment) {
+        for (byte rawByte : segment.getBytes(StandardCharsets.UTF_8)) {
             int c = rawByte & 0xFF;
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
                     (c >= '0' && c <= '9') || c == '-' || c == '.' ||
-                    c == '_' || c == '~' || c == '/') {
+                    c == '_' || c == '~') {
                 encoded.append((char) c);
             } else {
                 encoded.append('%');
@@ -1680,7 +1719,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 encoded.append(HEX[c & 0xF]);
             }
         }
-        return encoded.toString();
     }
 
     /**
