@@ -221,7 +221,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.15.0</version>
+        <version>3.16.0</version>
         <configuration>
           <release>${java.version}</release>
           <showDeprecation>true</showDeprecation>
