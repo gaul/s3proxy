@@ -296,6 +296,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return name;
     }
 
+    /**
+     * The name an object of this key is stored under.  Applied to every key
+     * arriving from a client, without first asking whether the key already
+     * looks stored: {@link #isEncrypted} answers whether a name ends in the
+     * suffix, which is not the same question as whether this store has
+     * already added one, and a client key may legitimately end in ".s3enc".
+     * Suffixing only the keys that did not would map "X" and "X.s3enc" onto
+     * the same stored object, so writing one silently replaced the other,
+     * deleting one deleted the other, and only "X" was ever listed.  Since
+     * the reverse direction removes exactly one suffix, adding exactly one
+     * here is what makes the two invert: "X" is stored as "X.s3enc" and
+     * "X.s3enc" as "X.s3enc.s3enc", each naming only itself.
+     */
     private String blobNameWithSuffix(String name) {
         return name + Constants.S3_ENC_SUFFIX;
     }
@@ -423,7 +436,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // changes the bytes they describe
         String key = request.key();
         return delegate().putBlob(FlexChecksum.clearOn(request.toBuilder()
-                .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
+                .key(blobNameWithSuffix(key))
                 .contentLength(requireNonNull(request.contentLength()) +
                         Constants.PADDING_BLOCK_SIZE)
                 .contentMD5(null))
@@ -494,7 +507,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // backend that does not spell its token as one -- S3 answers base64,
         // which a suffix leaves undecodable.
         String startAfter = request.startAfter();
-        if (startAfter != null && !isEncrypted(startAfter)) {
+        if (startAfter != null) {
             request = request.toBuilder()
                     .startAfter(blobNameWithSuffix(startAfter))
                     .build();
@@ -506,9 +519,20 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public MultipartUpload initiateMultipartUpload(
         CreateMultipartUploadRequest request) {
         String key = request.key();
-        return delegate().initiateMultipartUpload(request.toBuilder()
-            .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
-            .build());
+        MultipartUpload created = delegate().initiateMultipartUpload(
+            request.toBuilder()
+                .key(blobNameWithSuffix(key))
+                .build());
+        // Answer under the key the caller named rather than the one the parts
+        // are stored beneath, the way listMultipartUploads does.  A caller
+        // hands this upload straight back to uploadMultipartPart, complete
+        // and abort, so it has to arrive there in the one form
+        // filterMultipartUpload can transform: the client's.  Returning the
+        // stored form instead left that method to tell the two apart by
+        // looking at the name, which a client key ending in ".s3enc" defeats.
+        return new MultipartUpload(created.id(),
+            created.request().toBuilder().key(key).build(),
+            created.response());
     }
 
     @Override
@@ -573,11 +597,16 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             .build(), encrypted);
     }
 
+    /**
+     * The upload restated under the name its parts are stored beneath.  The
+     * key arrives as the client spelled it -- the handler rebuilds the upload
+     * from the request URI for every part, completion and abort, and the
+     * upload initiateMultipartUpload returned is read only for its id -- so
+     * this suffixes unconditionally, for the reason {@link
+     * #blobNameWithSuffix(String)} gives.
+     */
     private MultipartUpload filterMultipartUpload(MultipartUpload mpu) {
         String blobName = mpu.blobName();
-        if (isEncrypted(blobName)) {
-            return mpu;
-        }
         return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
             .key(blobNameWithSuffix(blobName))
             .build(),
@@ -591,7 +620,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         String key = request.key();
         return delegate().completeMultipartUpload(filterMultipartUpload(mpu),
             request.toBuilder()
-                .key(isEncrypted(key) ? key : blobNameWithSuffix(key))
+                .key(blobNameWithSuffix(key))
                 .build());
     }
 

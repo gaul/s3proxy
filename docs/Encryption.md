@@ -60,6 +60,8 @@ The process is similar to the single ```Blob``` decryption but with the differen
 ## Blob suffix
 Each stored ```Blob``` will get a suffix named ```.s3enc``` this helps to determine if a ```Blob``` is encrypted. For the s3 client the ```.s3enc``` suffix is not visible and the ```Blob``` size will always show the unencrypted size.  
 
+Exactly one suffix is added to a key on the way in and exactly one is removed on the way out, so the two invert for every key. A key that itself ends in ```.s3enc``` is an ordinary key and is stored with two of them: ```report``` is stored as ```report.s3enc``` and ```report.s3enc``` as ```report.s3enc.s3enc```, and the two name different objects. Uploads returned by ```CreateMultipartUpload``` and ```ListMultipartUploads``` likewise carry the key the client named, not the name the parts are stored beneath.
+
 ## Tested storage backends
 - S3
     - Minio
