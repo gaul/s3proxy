@@ -3688,12 +3688,17 @@ public class S3ProxyHandler {
         // the stores resolve it for a read: If-Match: * is satisfied by the
         // object being here, and If-None-Match: * says the caller already
         // has it.  If-Match is judged first, as RFC 9110 orders them.
+        // Compared with the quotes put back on, as the store compares them.
+        // An ETag is quoted on the wire and a client may spell one either
+        // way; normalising only the stored side made a bare ETag match on the
+        // GET the store answers and fail on the HEAD answered here, so the
+        // two disagreed about one request.
         if (ifMatch != null && !ifMatch.equals("*") && eTag != null &&
-                !ifMatch.equals(eTag)) {
+                !maybeQuoteETag(ifMatch).equals(eTag)) {
             throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
         }
         if (ifNoneMatch != null && (ifNoneMatch.equals("*") ||
-                (eTag != null && ifNoneMatch.equals(eTag)))) {
+                (eTag != null && maybeQuoteETag(ifNoneMatch).equals(eTag)))) {
             response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return true;
         }
@@ -6021,10 +6026,13 @@ public class S3ProxyHandler {
                     AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
-                if (ifMatch != null && !ifMatch.equals(eTag)) {
+                // Both sides quoted, as the store's own copy compares them.
+                if (ifMatch != null &&
+                        !maybeQuoteETag(ifMatch).equals(eTag)) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
-                if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
+                if (ifNoneMatch != null &&
+                        maybeQuoteETag(ifNoneMatch).equals(eTag)) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }
