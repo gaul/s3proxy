@@ -1195,7 +1195,8 @@ public class S3ProxyHandler {
         case "GET" -> {
             if (uri.equals("/")) {
                 setOperation(ctx, S3Operation.LIST_BUCKETS);
-                handleContainerList(request, response, blobStore);
+                handleContainerList(request, response, blobStore,
+                        requestIdentity);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
@@ -1871,8 +1872,44 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * The buckets of a listing this identity may address.  Every other
+     * operation names its bucket in the request URI, so doHandle resolves it
+     * through the BlobStoreLocator and a locator that scopes buckets to
+     * identities -- GlobBlobStoreLocator does -- refuses one belonging to
+     * somebody else.  ListBuckets names none, so that check has nothing to
+     * ask about and the listing would otherwise report every bucket the
+     * backend holds: where two identities share a backend and the locator's
+     * globs are what separate them, one tenant would read the other's bucket
+     * names.  Ask the locator the question the URI could not, bucket by
+     * bucket, the way {@link #authorizeCopySource} asks it for a source named
+     * in a header.
+     *
+     * <p>The backend has already paged the listing by the time it arrives
+     * here, so filtering shortens a page rather than refilling it, and the
+     * continuation token still counts in unfiltered buckets.  A client that
+     * follows the token to the end still sees every bucket it may address;
+     * only the size of each page it sees along the way varies.
+     *
+     * <p>Deployments with a single blob store are unaffected: their locators
+     * ignore the bucket entirely and answer for the identity alone, so every
+     * bucket survives.
+     */
+    private List<Bucket> authorizedBuckets(List<Bucket> buckets,
+            @Nullable String requestIdentity) {
+        var authorized = new ArrayList<Bucket>(buckets.size());
+        for (Bucket bucket : buckets) {
+            if (blobStoreLocator.locateBlobStore(requestIdentity,
+                    bucket.name(), /*blob=*/ null) != null) {
+                authorized.add(bucket);
+            }
+        }
+        return authorized;
+    }
+
     private void handleContainerList(HttpServletRequest request,
-            HttpServletResponse response, BlobStore blobStore)
+            HttpServletResponse response, BlobStore blobStore,
+            @Nullable String requestIdentity)
             throws IOException {
         int maxBuckets = MAX_BUCKETS;
         String maxBucketsString = request.getParameter("max-buckets");
@@ -1897,7 +1934,8 @@ public class S3ProxyHandler {
                         request.getParameter("continuation-token")))
                 .prefix(prefix)
                 .build());
-        List<Bucket> page = result.buckets();
+        List<Bucket> page = authorizedBuckets(result.buckets(),
+                requestIdentity);
         String nextContinuationToken = result.continuationToken();
 
         response.setCharacterEncoding(UTF_8);
