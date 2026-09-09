@@ -58,9 +58,25 @@ public final class AwsSignature {
             AwsSignature.class);
     private static final PercentEscaper AWS_URL_PARAMETER_ESCAPER =
             new PercentEscaper("-_.~", false);
+    /**
+     * The query parameters a V2 signature folds into its canonicalized
+     * resource.  Unlike V4, which signs the whole query string, V2 signs only
+     * the parameters named here, so one left out rides along uncovered: the
+     * signature verifies without it, yet doHandle still branches on it.  Every
+     * parameter that selects which operation runs therefore has to appear
+     * here, or a signature good for one operation is good for another --
+     * "?attributes" turning a signed GetObject into GetObjectAttributes,
+     * "?encryption" turning a signed bucket write into PutBucketEncryption.
+     * The parameters that merely shape a listing -- prefix, max-keys and the
+     * rest -- do not belong here: they steer no operation, and V2 clients do
+     * not sign them.  This is the V2 face of the flaw the unsigned x-amz-*
+     * header check closes for V4.
+     */
     private static final Set<String> SIGNED_SUBRESOURCES = Set.of(
             "acl",
+            "attributes",
             "delete",
+            "encryption",
             "lifecycle",
             "location",
             "logging",
