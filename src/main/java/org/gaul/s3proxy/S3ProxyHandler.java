@@ -1464,6 +1464,14 @@ public class S3ProxyHandler {
         }
 
         checkVersionId(request, blobStore);
+        // Asked of an unsigned request for the reason it is asked of a signed
+        // one: the store either performs the encryption these headers name or
+        // must not be handed them, and which of the two it is does not depend
+        // on who is asking.  Leaving it out here let an anonymous write to a
+        // public-write bucket ask a store that cannot encrypt for encryption
+        // and be answered success, the plaintext stored, which is what this
+        // refusal exists to prevent.
+        checkServerSideEncryption(request, blobStore);
 
         if (path.length > 2) {
             checkReservedBlobName(path[2]);
