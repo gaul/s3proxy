@@ -1098,6 +1098,30 @@ public class S3ProxyHandler {
                         signatureDetail, presignedUrl);
             }
 
+            // A V4 signature covers only the headers the request named as
+            // signed, so an x-amz-* header outside that list rides along
+            // uncovered: the signature verifies without it, yet the handlers
+            // below still read it.  One that steers the request -- a bare
+            // presigned PUT gaining x-amz-copy-source to copy an object the
+            // URL never named, x-amz-acl to publish it -- would then do what
+            // the URL was never signed to permit.  S3 refuses any request
+            // carrying an unsigned x-amz-* header; so does the proxy, once
+            // the signature over the headers it did sign has checked out.
+            // V2 folds every x-amz-* header into its signature already, so
+            // this covers only the V4 schemes, which name a subset.
+            if (authHeader.getHmacAlgorithm() != null &&
+                    !method.equals("OPTIONS")) {
+                List<String> unsigned = AwsSignature.unsignedRequestHeaders(
+                        baseRequest, presignedUrl);
+                if (!unsigned.isEmpty()) {
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                            "There were headers present in the request which" +
+                            " were not signed", /*cause=*/ null,
+                            Map.of("HeadersNotSigned",
+                                    String.join(";", unsigned)));
+                }
+            }
+
             // A presigned URL that signed x-amz-content-sha256 pins the body
             // it may upload, which is the point of signing it: the URL becomes
             // usable for one payload rather than any.  Enforce that as the

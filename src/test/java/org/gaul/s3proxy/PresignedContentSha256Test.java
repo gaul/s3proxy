@@ -123,14 +123,22 @@ public final class PresignedContentSha256Test {
         assertThat(response.statusCode()).isEqualTo(200);
     }
 
-    /** The header rides along unsigned; the URL pins nothing. */
+    /**
+     * The header rides along unsigned.  S3 requires every x-amz-* header to
+     * be signed and refuses a request carrying one it did not, naming it in
+     * HeadersNotSigned; a URL that signed only host must not gain a payload
+     * hash -- or, in the general case, any x-amz-* header -- after the fact.
+     */
     @Test
     public void testUnsignedHeaderPresent() throws Exception {
         HttpResponse<String> response = put(presign(null, UNSIGNED),
                 sha256(CONTENT));
         System.err.println("unsigned header: " + response.statusCode() + " " +
                 response.body());
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).contains(
+                "<HeadersNotSigned>x-amz-content-sha256</HeadersNotSigned>");
     }
 
     /**

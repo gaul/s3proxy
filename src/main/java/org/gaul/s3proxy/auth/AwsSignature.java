@@ -28,6 +28,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
@@ -317,6 +318,40 @@ public final class AwsSignature {
             }
         }
         return missing;
+    }
+
+    /**
+     * The x-amz-* headers the request carries but did not sign.  A V4
+     * signature covers only the headers the request names in its signed
+     * list, so one it does not name rides along uncovered and the signature
+     * still verifies without it.  That is harmless for a header S3 merely
+     * stores, but an x-amz-* header can steer the request itself --
+     * x-amz-copy-source turns a PUT into a copy of another object,
+     * x-amz-acl publishes what it writes -- so leaving one unsigned lets the
+     * bearer of a URL signed for one thing ask for another.  S3 closes that
+     * by requiring every x-amz-* header to be signed and refusing a request
+     * that carries one it did not, so name them here for the refusal to
+     * report.  Lower-cased and sorted, so the answer does not depend on how
+     * the client happened to spell or order them.
+     */
+    public static List<String> unsignedRequestHeaders(
+            HttpServletRequest request, boolean presignedUrl) {
+        List<String> signedHeaders = signedHeaderNames(request, presignedUrl);
+        var signed = new HashSet<String>();
+        if (signedHeaders != null) {
+            for (String header : signedHeaders) {
+                signed.add(header.toLowerCase());
+            }
+        }
+        var unsigned = new ArrayList<String>();
+        for (String name : Collections.list(request.getHeaderNames())) {
+            String lower = name.toLowerCase();
+            if (lower.startsWith("x-amz-") && !signed.contains(lower)) {
+                unsigned.add(lower);
+            }
+        }
+        unsigned.sort(Comparator.naturalOrder());
+        return unsigned;
     }
 
     @Nullable
