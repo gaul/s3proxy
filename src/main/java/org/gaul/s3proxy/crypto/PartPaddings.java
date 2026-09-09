@@ -66,6 +66,35 @@ public final class PartPaddings {
     }
 
     /**
+     * Refuse a part whose padding claims a length the object cannot hold.
+     * The field is read from the stored object rather than from the request,
+     * so a corrupt or forged padding steers the walk below: a negative length
+     * leaves the accounting standing still or running backwards, which is a
+     * loop that never ends and one backend read on every turn of it, and a
+     * length past what remains ranges outside the object.  Refusing both
+     * leaves every turn consuming at least one whole padding block, so the
+     * walk ends after at most one read per block the object holds.
+     *
+     * @param remaining bytes not yet accounted for by the parts already read,
+     *     which this part's ciphertext and its own padding must fit inside
+     */
+    private static void checkPartSize(long size, long remaining,
+            String blobName) throws IOException {
+        if (size < 0) {
+            throw malformed(blobName, "a part of negative length " + size);
+        }
+        if (size > remaining - Constants.PADDING_BLOCK_SIZE) {
+            throw malformed(blobName, "a part of length " + size +
+                    " with only " + remaining + " bytes left to hold it");
+        }
+    }
+
+    private static IOException malformed(String blobName, String detail) {
+        return new IOException("Encrypted object " + blobName +
+                " has malformed part padding: " + detail + ".");
+    }
+
+    /**
      * Reads an object's paddings, answering an unencrypted object where it
      * finds none.  A blob that does not exist or is smaller than a single
      * padding cannot be encrypted; an empty object encrypts to exactly one
@@ -100,6 +129,8 @@ public final class PartPaddings {
             return NOT_ENCRYPTED;
         }
 
+        checkPartSize(lastPartPadding.getSize(), metaSize, blobName);
+
         var partList = new TreeMap<Integer, PartPadding>();
         long unencryptedSize;
         long encryptedSize;
@@ -122,11 +153,19 @@ public final class PartPaddings {
             // loop part by part from end to the beginning
             // to build a list of all blocks
             while (encryptedSize < metaSize) {
+                // What the parts read so far have not accounted for.  Less
+                // than one padding block of it cannot be another part, and
+                // ranging for one anyway would ask for a negative offset.
+                long remaining = metaSize - encryptedSize;
+                if (remaining < Constants.PADDING_BLOCK_SIZE) {
+                    throw malformed(blobName, "a trailing " + remaining +
+                            " bytes too short to be a part");
+                }
+
                 // get the next block
                 // rewind by the current encrypted block size
                 // minus the encryption padding
-                long startAt = (metaSize - encryptedSize) -
-                    Constants.PADDING_BLOCK_SIZE;
+                long startAt = remaining - Constants.PADDING_BLOCK_SIZE;
                 long endAt = metaSize - encryptedSize - 1;
                 blob = requireNonNull(blobStore.getBlob(
                         GetObjectRequest.builder()
@@ -139,6 +178,7 @@ public final class PartPaddings {
 
                 // read the padding structure
                 PartPadding partPadding = PartPadding.readPartPadding(blob);
+                checkPartSize(partPadding.getSize(), remaining, blobName);
 
                 // add the part to the list
                 partList.put(part, partPadding);

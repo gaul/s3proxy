@@ -30,6 +30,11 @@ import org.slf4j.LoggerFactory;
 public final class PartPadding {
     private static final Logger logger =
         LoggerFactory.getLogger(PartPadding.class);
+    /** The bytes {@link #readPartPadding} reads, the rest being reserved. */
+    private static final int FIELDS_LENGTH =
+        Constants.PADDING_DELIMITER_LENGTH + Constants.PADDING_IV_LENGTH +
+        Constants.PADDING_PART_LENGTH + Constants.PADDING_SIZE_LENGTH +
+        Constants.PADDING_VERSION_LENGTH;
 
     private final String delimiter;
     private final IvParameterSpec iv;
@@ -48,6 +53,15 @@ public final class PartPadding {
             throws IOException {
         try (var is = stream) {
             byte[] paddingBytes = is.readAllBytes();
+            // A padding shorter than the fields read below is one the object
+            // does not actually carry -- a truncated or corrupt blob.  Say so
+            // rather than letting ByteBuffer raise BufferUnderflowException,
+            // which reaches the caller as an internal error naming nothing.
+            if (paddingBytes.length < FIELDS_LENGTH) {
+                throw new IOException("Malformed part padding: " +
+                        paddingBytes.length + " bytes, fewer than the " +
+                        FIELDS_LENGTH + " a padding carries.");
+            }
             ByteBuffer bb = ByteBuffer.wrap(paddingBytes);
 
             byte[] delimiterBytes =
