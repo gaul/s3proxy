@@ -1356,6 +1356,22 @@ public class S3ProxyHandler {
         throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
     }
 
+    /**
+     * Whether x-amz-acl asks for an access other than the private that an
+     * object is written with anyway.  An anonymous PUT reaches the store on
+     * the bucket's WRITE grant alone, which says the caller may add an object,
+     * not that it may choose who else reads it; without this the header let
+     * anyone who could write to a public-write bucket publish what it wrote,
+     * the very thing the neighbouring ?acl and x-amz-copy-source checks
+     * refuse.  A header naming private asks for no change and is let through:
+     * clients send it as a matter of course, and refusing it would break
+     * uploads that requested nothing.
+     */
+    private static boolean requestsNonPrivateAcl(HttpServletRequest request) {
+        String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
+        return cannedAcl != null && !cannedAcl.equalsIgnoreCase("private");
+    }
+
     private static void setOperation(@Nullable RequestContext ctx,
             S3Operation operation) {
         if (ctx != null) {
@@ -1534,10 +1550,14 @@ public class S3ProxyHandler {
         case "PUT" -> {
             // Only a plain object write: bucket creation, ACLs, copies, and
             // multipart parts stay authenticated, since bucket WRITE grants
-            // none of them.
+            // none of them.  x-amz-acl is the header spelling of ?acl and is
+            // refused for the same reason: handlePutBlob would otherwise
+            // honour it and let anyone who may add an object to a
+            // public-write bucket publish what it wrote.
             if (path.length > 2 && !path[2].isEmpty() &&
                     request.getParameter("uploadId") == null &&
                     request.getParameter("acl") == null &&
+                    !requestsNonPrivateAcl(request) &&
                     request.getHeader(AwsHttpHeaders.COPY_SOURCE) == null) {
                 String containerName = path[1];
                 String blobName = path[2];
