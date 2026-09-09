@@ -1490,17 +1490,33 @@ public class S3ProxyHandler {
                     setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
+                // A bucket ACL granting READ -- which is all public-read
+                // grants, and all an ACL can grant a reader -- carries
+                // exactly ListBucket, ListBucketVersions and
+                // ListBucketMultipartUploads.  So the three listings below
+                // are answered unsigned and the configuration subresources
+                // are not: reading an encryption or versioning
+                // configuration answers to a permission no ACL grant
+                // carries, and refusing it is what S3 does.  The refusals
+                // are spelled out rather than left to fall through, since
+                // falling through would answer a plain object listing to a
+                // request that asked for something else.  Ordered as the
+                // authenticated path orders the same parameters, so that a
+                // request naming two of them is answered the same way on
+                // both.
                 if (request.getParameter("encryption") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_ENCRYPTION);
-                    handleGetBucketEncryption(request, response, blobStore,
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("uploads") != null) {
+                    setOperation(ctx, S3Operation.LIST_MULTIPART_UPLOADS);
+                    handleListMultipartUploads(request, response, blobStore,
                             containerName);
                     return;
                 }
                 if (request.getParameter("versioning") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_VERSIONING);
-                    handleGetBucketVersioning(request, response, blobStore,
-                            containerName);
-                    return;
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 if (request.getParameter("versions") != null) {
                     setOperation(ctx, S3Operation.LIST_OBJECT_VERSIONS);
