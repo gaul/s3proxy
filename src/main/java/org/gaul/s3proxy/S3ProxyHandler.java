@@ -677,7 +677,7 @@ public class S3ProxyHandler {
         // than the key those escapes stand for.
         String[] path = uri.split("/", 3);
         for (int i = 0; i < path.length; i++) {
-            path[i] = URLDecoder.decode(path[i], StandardCharsets.UTF_8);
+            path[i] = percentDecode(path[i]);
         }
 
         // when access information is not provided in request header,
@@ -3935,9 +3935,8 @@ public class S3ProxyHandler {
         if (!queryString.startsWith("versionId=")) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
-        String versionId = URLDecoder.decode(
-                queryString.substring("versionId=".length()),
-                StandardCharsets.UTF_8);
+        String versionId = percentDecode(
+                queryString.substring("versionId=".length()));
         if (versionId.isEmpty()) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
@@ -3981,8 +3980,8 @@ public class S3ProxyHandler {
         String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         String sourceVersionId = parseCopySourceVersionId(rawCopySource,
                 blobStore);
-        String copySourceHeader = URLDecoder.decode(
-                stripCopySourceQuery(rawCopySource), StandardCharsets.UTF_8);
+        String copySourceHeader = percentDecode(
+                stripCopySourceQuery(rawCopySource));
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -5706,8 +5705,8 @@ public class S3ProxyHandler {
         String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         String sourceVersionId = parseCopySourceVersionId(rawCopySource,
                 blobStore);
-        String copySourceHeader = URLDecoder.decode(
-                stripCopySourceQuery(rawCopySource), StandardCharsets.UTF_8);
+        String copySourceHeader = percentDecode(
+                stripCopySourceQuery(rawCopySource));
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
             copySourceHeader = copySourceHeader.substring(1);
@@ -6829,6 +6828,24 @@ public class S3ProxyHandler {
 
     // Encode blob name if client requests it.  This allows for characters
     // which XML 1.0 cannot represent.
+    /**
+     * Percent-decode a name the request spelled with escapes.  The mirror of
+     * {@link #encodeBlob}, whose escaper already writes a space as %20 and a
+     * plus as %2B.  URLDecoder does not mirror it: it implements the
+     * application/x-www-form-urlencoded grammar, in which a bare "+" stands
+     * for a space.  A URI path and an x-amz-copy-source header are not forms,
+     * and a "+" in either is a literal character of the name, so decoding one
+     * as a space looks for an object nobody stored -- and, under a
+     * BlobStoreLocator that scopes buckets by pattern, for a name other than
+     * the one the signature covered.  Escaping the literal plus first leaves
+     * the remainder of that grammar, which is percent-decoding, to do the
+     * work.
+     */
+    private static String percentDecode(String value) {
+        return URLDecoder.decode(value.replace("+", "%2B"),
+                StandardCharsets.UTF_8);
+    }
+
     private static String encodeBlob(String encodingType, String blobName) {
         if (encodingType != null && encodingType.equals("url")) {
             return urlEscaper.escape(blobName);
