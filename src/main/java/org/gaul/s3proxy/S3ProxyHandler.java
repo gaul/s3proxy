@@ -1504,8 +1504,22 @@ public class S3ProxyHandler {
                 // authenticated path orders the same parameters, so that a
                 // request naming two of them is answered the same way on
                 // both.
+                if (request.getParameter("acl") != null) {
+                    // Reading the ACL answers to READ_ACP, which public-read
+                    // does not grant; READ alone is what it carries.
+                    setOperation(ctx, S3Operation.GET_BUCKET_ACL);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
                 if (request.getParameter("encryption") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_ENCRYPTION);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("location") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_LOCATION);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("policy") != null) {
+                    setOperation(ctx, S3Operation.GET_BUCKET_POLICY);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 if (request.getParameter("uploads") != null) {
@@ -1532,6 +1546,28 @@ public class S3ProxyHandler {
                 String blobName = path[2];
                 if (!checkPublicAccess(blobStore, containerName, blobName)) {
                     setOperation(ctx, S3Operation.GET_OBJECT);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                // An object ACL granting READ carries GetObject and
+                // GetObjectVersion, and public-read grants nothing else.
+                // Each subresource below answers to a permission beyond
+                // those -- the ACL to READ_ACP, the attributes to
+                // s3:GetObjectAttributes, the parts to
+                // s3:ListMultipartUploadParts, none of which an ACL grant
+                // carries -- so each is refused rather than left to fall
+                // through, which answered the object itself to a request
+                // that asked about it instead.  Ordered as the
+                // authenticated path orders them.
+                if (request.getParameter("acl") != null) {
+                    setOperation(ctx, S3Operation.GET_OBJECT_ACL);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("attributes") != null) {
+                    setOperation(ctx, S3Operation.GET_OBJECT_ATTRIBUTES);
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+                }
+                if (request.getParameter("uploadId") != null) {
+                    setOperation(ctx, S3Operation.LIST_PARTS);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.GET_OBJECT);

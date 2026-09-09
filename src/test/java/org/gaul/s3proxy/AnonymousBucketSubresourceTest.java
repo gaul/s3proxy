@@ -34,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 /**
  * What an unsigned request may ask of a public-read bucket.  A bucket ACL
@@ -47,6 +48,7 @@ import software.amazon.awssdk.services.s3.model.BucketCannedACL;
  */
 public final class AnonymousBucketSubresourceTest {
     private static final String KEY = "object";
+    private static final String CONTENT = "content";
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -66,7 +68,12 @@ public final class AnonymousBucketSubresourceTest {
         blobStore.setContainerAccess(publicBucket,
                 BucketCannedACL.PUBLIC_READ);
         TestUtils.putBlob(blobStore, publicBucket, KEY,
-                ByteSource.wrap("content".getBytes(StandardCharsets.UTF_8)));
+                ByteSource.wrap(CONTENT.getBytes(StandardCharsets.UTF_8)));
+        // The object carries its own public-read grant, so a request for it
+        // reaches the subresource cases below rather than stopping at the
+        // access check ahead of them.
+        blobStore.setBlobAccess(publicBucket, KEY,
+                ObjectCannedACL.PUBLIC_READ);
 
         s3Proxy = S3Proxy.builder()
                 .stopTimeout(0)
@@ -141,11 +148,81 @@ public final class AnonymousBucketSubresourceTest {
         assertThat(response.body()).doesNotContain("<ListBucketResult");
     }
 
+    /** Reading the bucket ACL answers to READ_ACP, which READ does not
+     *  carry.  It used to answer the object listing instead. */
+    @Test
+    public void testBucketAclIsRefused() throws Exception {
+        HttpResponse<String> response = get(publicBucket + "?acl");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).doesNotContain("<ListBucketResult");
+    }
+
+    /** GetBucketLocation answers to a permission no ACL grant carries. */
+    @Test
+    public void testBucketLocationIsRefused() throws Exception {
+        HttpResponse<String> response = get(publicBucket + "?location");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).doesNotContain("<ListBucketResult");
+    }
+
+    /** So does GetBucketPolicy. */
+    @Test
+    public void testBucketPolicyIsRefused() throws Exception {
+        HttpResponse<String> response = get(publicBucket + "?policy");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).doesNotContain("<ListBucketResult");
+    }
+
+    /**
+     * An object ACL answers to the object's READ_ACP, which public-read does
+     * not grant.  Each of these used to answer the object's own bytes.
+     */
+    @Test
+    public void testObjectAclIsRefused() throws Exception {
+        HttpResponse<String> response = get(publicBucket + "/" + KEY + "?acl");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).doesNotContain(CONTENT);
+    }
+
+    /**
+     * GetObjectAttributes needs s3:GetObject and s3:GetObjectAttributes; an
+     * object ACL granting READ carries only the first.
+     */
+    @Test
+    public void testObjectAttributesIsRefused() throws Exception {
+        HttpResponse<String> response = get(
+                publicBucket + "/" + KEY + "?attributes");
+        System.err.println("anonymous ?attributes: " + response.statusCode() +
+                " " + response.body());
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).doesNotContain(CONTENT);
+    }
+
+    /** ListParts answers to s3:ListMultipartUploadParts. */
+    @Test
+    public void testObjectListPartsIsRefused() throws Exception {
+        HttpResponse<String> response = get(
+                publicBucket + "/" + KEY + "?uploadId=nonexistent");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).doesNotContain(CONTENT);
+    }
+
+    /** The object itself is still readable, which is what READ carries. */
+    @Test
+    public void testObjectItselfIsAnswered() throws Exception {
+        HttpResponse<String> response = get(publicBucket + "/" + KEY);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(CONTENT);
+    }
+
     /** A private bucket answers none of them. */
     @Test
     public void testPrivateBucketRefusesEveryListing() throws Exception {
         String[] queries = {
             "", "?versions", "?uploads", "?versioning", "?encryption",
+            "?acl", "?location", "?policy",
         };
         for (String query : queries) {
             HttpResponse<String> response = get(privateBucket + query);
