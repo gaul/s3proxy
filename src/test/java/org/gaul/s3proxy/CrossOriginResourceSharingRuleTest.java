@@ -203,4 +203,37 @@ public final class CrossOriginResourceSharingRuleTest {
         assertThat(corsOff.isAllowCredentials()).isFalse();
         assertThat(corsCfg.isAllowCredentials()).isTrue();
     }
+
+    @Test
+    public void testEqualsComparesOriginPatternsByValue() {
+        // Two instances built from the same explicit origins must be equal,
+        // as happens with one properties file per backend. Pattern itself
+        // only has identity equality.
+        var corsCfgAgain = new CrossOriginResourceSharing(
+                List.of("https://example\\.com",
+                        "https://.+\\.example\\.com",
+                        "https://example\\.cloud"),
+                List.of("GET", "PUT"),
+                List.of("Accept", "Content-Type"),
+                List.of(),
+                "true");
+        assertThat(corsCfg).isEqualTo(corsCfgAgain);
+        assertThat(corsCfg.hashCode()).isEqualTo(corsCfgAgain.hashCode());
+
+        var corsOther = new CrossOriginResourceSharing(
+                List.of("https://other\\.example"),
+                List.of("GET", "PUT"),
+                List.of("Accept", "Content-Type"),
+                List.of(),
+                "true");
+        assertThat(corsCfg).isNotEqualTo(corsOther);
+    }
+
+    @Test
+    public void testEqualsDistinguishesAnyOriginFromNoOrigin() {
+        // "*" and an empty origin list both leave the pattern list empty but
+        // behave differently, so they must not compare equal.
+        assertThat(corsAll).isNotEqualTo(corsOff);
+        assertThat(corsAll).isEqualTo(new CrossOriginResourceSharing());
+    }
 }

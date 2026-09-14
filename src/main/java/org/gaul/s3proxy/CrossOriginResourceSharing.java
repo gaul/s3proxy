@@ -232,14 +232,21 @@ public final class CrossOriginResourceSharing {
             return false;
         }
 
-        return this.allowedOrigins.equals(that.allowedOrigins) &&
+        // Pattern does not override equals, so compare the source strings.
+        return this.anyOriginAllowed == that.anyOriginAllowed &&
+                allowedOriginPatterns().equals(
+                        that.allowedOriginPatterns()) &&
                 this.allowedMethodsRaw.equals(that.allowedMethodsRaw) &&
                 this.allowedHeadersRaw.equals(that.allowedHeadersRaw);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.allowedOrigins, this.allowedMethodsRaw,
-                this.allowedHeadersRaw);
+        return Objects.hash(this.anyOriginAllowed, allowedOriginPatterns(),
+                this.allowedMethodsRaw, this.allowedHeadersRaw);
+    }
+
+    private List<String> allowedOriginPatterns() {
+        return this.allowedOrigins.stream().map(Pattern::pattern).toList();
     }
 }
