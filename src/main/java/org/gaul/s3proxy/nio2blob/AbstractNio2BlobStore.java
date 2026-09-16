@@ -2079,6 +2079,44 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     /**
+     * User metadata lives in its own extended attribute here, so a checksum
+     * that arrived too late for the write can be attached afterwards without
+     * rewriting the object.  The ETag guards against labelling whatever a
+     * concurrent write left under the key instead of the object just
+     * written.
+     */
+    @Override
+    public final boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        checkNotReserved(name);
+        var containerPath = requireContainerPath(container);
+        Path path;
+        try {
+            path = aclPath(container, containerPath, name, /*versionId=*/ null);
+        } catch (S3Exception se) {
+            return false;
+        }
+        var current = blobMetadataIfPresent(container, name);
+        if (current == null || current.eTag() == null ||
+                !maybeQuoteETag(eTag).equals(
+                        maybeQuoteETag(current.eTag()))) {
+            return false;
+        }
+        var view = getXattrView(path);
+        if (view == null) {
+            return false;
+        }
+        try {
+            writeStringAttributeIfPresent(view,
+                    XATTR_USER_METADATA_PREFIX + metadataKey, value);
+            return true;
+        } catch (IOException | UnsupportedOperationException e) {
+            logger.debug("xattrs not supported on {}", path);
+            return false;
+        }
+    }
+
+    /**
      * Name of the hidden blob storing one uploaded part's content.  Exposed
      * so S3ProxyHandler can read part content back, e.g. to compute the
      * composite checksum during CompleteMultipartUpload.

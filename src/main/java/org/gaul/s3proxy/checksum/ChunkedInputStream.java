@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.checksum;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.EOFException;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -62,6 +64,12 @@ public final class ChunkedInputStream extends FilterInputStream {
     @Nullable private String currentSignature;
     private final int maxChunkSize;
     @Nullable private final SdkChecksum checksum;
+    /** The algorithm x-amz-trailer promised, null when none was. */
+    @Nullable private final FlexChecksum trailerAlgorithm;
+    /** The trailer's value, known only once the body it describes has gone
+     * by, which is why the caller reads it back from here rather than from
+     * the request. */
+    @Nullable private String trailerValue;
     private final byte @Nullable [] signingKey;
     @Nullable private final String hmacAlgorithm;
     @Nullable private final String timestamp;
@@ -72,6 +80,7 @@ public final class ChunkedInputStream extends FilterInputStream {
         super(is);
         this.maxChunkSize = maxChunkSize;
         checksum = null;
+        trailerAlgorithm = null;
         signingKey = null;
         hmacAlgorithm = null;
         timestamp = null;
@@ -84,6 +93,7 @@ public final class ChunkedInputStream extends FilterInputStream {
         this.maxChunkSize = maxChunkSize;
         var algorithm = trailer == null ? null :
                 FlexChecksum.fromHeaderName(trailer);
+        trailerAlgorithm = algorithm;
         checksum = algorithm == null ? null : algorithm.newChecksum();
         signingKey = null;
         hmacAlgorithm = null;
@@ -120,6 +130,7 @@ public final class ChunkedInputStream extends FilterInputStream {
         this.maxChunkSize = maxChunkSize;
         var algorithm = trailer == null ? null :
                 FlexChecksum.fromHeaderName(trailer);
+        trailerAlgorithm = algorithm;
         checksum = algorithm == null ? null : algorithm.newChecksum();
         this.signingKey = signingKey.clone();
         this.hmacAlgorithm = hmacAlgorithm;
@@ -158,7 +169,9 @@ public final class ChunkedInputStream extends FilterInputStream {
                     throw new IOException(new S3ProxyException(
                             S3ErrorCode.INVALID_REQUEST));
                 }
-                var expectedHash = checksumParts[1];
+                // Trimmed because a client may pad the value -- minio-go
+                // ends the line with a newline of its own, which S3 accepts.
+                var expectedHash = checksumParts[1].trim();
                 if (FlexChecksum.fromHeaderName(
                         checksumParts[0]) == null) {
                     throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
@@ -169,6 +182,7 @@ public final class ChunkedInputStream extends FilterInputStream {
                 if (!expectedHash.equals(Base64.getEncoder().encodeToString(actualHash))) {
                     throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));
                 }
+                trailerValue = expectedHash;
                 currentLength = 0;
             } else {
                 currentLength = Integer.parseInt(parts[0], 16);
@@ -213,7 +227,7 @@ public final class ChunkedInputStream extends FilterInputStream {
                         if (trailerLine == null || trailerLine.isEmpty()) {
                             break;
                         }
-                        validateTrailerHash(checksum, trailerLine);
+                        validateTrailerHash(trailerLine);
                     }
                 }
                 finished = true;
@@ -292,25 +306,44 @@ public final class ChunkedInputStream extends FilterInputStream {
     }
 
     /**
-     * If {@code line} is an x-amz-checksum-* trailer, validate the encoded
-     * hash against the running hasher.  Other trailer lines (e.g.
-     * x-amz-trailer-signature) are ignored.
+     * The algorithm the request promised in x-amz-trailer, null when it
+     * promised none.
      */
-    private static void validateTrailerHash(SdkChecksum checksum, String line)
-            throws IOException {
+    @Nullable
+    public FlexChecksum trailerAlgorithm() {
+        return trailerAlgorithm;
+    }
+
+    /**
+     * The base64 checksum the trailer carried, null until the body has been
+     * read through to it.  It has been checked against the bytes that went
+     * by, so a caller that reaches it holds the object's true checksum.
+     */
+    @Nullable
+    public String trailerValue() {
+        return trailerValue;
+    }
+
+    /**
+     * If {@code line} is an x-amz-checksum-* trailer, validate the encoded
+     * hash against the running hasher and remember it.  Other trailer lines
+     * (e.g. x-amz-trailer-signature) are ignored.
+     */
+    private void validateTrailerHash(String line) throws IOException {
         String[] parts = line.split(":", 2);
         if (parts.length != 2 || !parts[0].startsWith("x-amz-checksum-")) {
             return;
         }
-        String expectedHash = parts[1];
-        if (FlexChecksum.fromHeaderName(parts[0]) == null) {
+        String expectedHash = parts[1].trim();
+        if (FlexChecksum.fromHeaderName(parts[0].trim()) == null) {
             throw new IOException("unknown trailer: " + parts[0]);
         }
-        var actualHash = checksum.getChecksumBytes();
+        var actualHash = requireNonNull(checksum).getChecksumBytes();
         if (!expectedHash.equals(
                 Base64.getEncoder().encodeToString(actualHash))) {
             throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));
         }
+        trailerValue = expectedHash;
     }
 
     private static boolean constantTimeEquals(String a, String b) {

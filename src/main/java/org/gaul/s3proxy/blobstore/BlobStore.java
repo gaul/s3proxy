@@ -829,6 +829,28 @@ public interface BlobStore extends AutoCloseable {
         throw new UnsupportedOperationException("versioning not supported");
     }
 
+    /**
+     * Records a checksum the object was written without: one sent as an
+     * aws-chunked trailer is read only after the body it describes has gone
+     * by, too late for {@link #putBlob} to carry it, so the read side has
+     * nothing to answer a later checksum-mode GET or HEAD with.
+     *
+     * <p>Answers whether the store recorded it.  Only a store that can amend
+     * an object's metadata in place implements this: everywhere else the
+     * alternative is rewriting the object to relabel it, and paying a copy
+     * of every uploaded object for a checksum the client already holds is
+     * the worse of the two answers.  {@code eTag} is the one {@link #putBlob}
+     * reported, and the checksum is dropped rather than attached to whatever
+     * a concurrent write left under the key instead.
+     *
+     * @param metadataKey the user-metadata key to write, already in the
+     *     store's own spelling
+     */
+    default boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return false;
+    }
+
     MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request);
 

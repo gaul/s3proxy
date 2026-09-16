@@ -99,6 +99,7 @@ import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.checksum.BodyLimitInputStream;
 import org.gaul.s3proxy.checksum.ChecksumValidatingInputStream;
 import org.gaul.s3proxy.checksum.ChunkedInputStream;
 import org.gaul.s3proxy.checksum.FlexChecksum;
@@ -890,20 +891,7 @@ public class S3ProxyHandler {
             // an hour later has been told something untrue.
             checkPresignedExpiry(request);
             blobStore = grant.blobStore();
-            String contentSha256 = request.getHeader(
-                    AwsHttpHeaders.CONTENT_SHA256);
-            if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
-                is = new ChunkedInputStream(is, v4MaxChunkSize);
-            } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
-                    contentSha256) ||
-                    "STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(
-                    contentSha256)) {
-                // The proxy does not verify per-chunk signatures when
-                // authorization is disabled, so the signed and unsigned
-                // trailer variants decode identically.
-                is = new ChunkedInputStream(is, v4MaxChunkSize,
-                        request.getHeader(AwsHttpHeaders.TRAILER));
-            }
+            is = maybeDecodeChunked(request, is);
         } else if (requestIdentity == null) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         } else {
@@ -1445,6 +1433,12 @@ public class S3ProxyHandler {
             String[] path, BlobStore blobStore, @Nullable RequestContext ctx)
             throws IOException {
         String method = request.getMethod();
+
+        // An unsigned request encodes its body the same way a signed one
+        // does, so it is decoded the same way: this path answers before the
+        // authenticated one gets to, and a body left in its aws-chunked
+        // frames is stored with the frames in it.
+        is = maybeDecodeChunked(request, is);
 
         if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
             ctx.setBucket(path[1]);
@@ -4296,6 +4290,11 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName)
             throws IOException {
+        // Held before the wrappers below hide it: a checksum promised as a
+        // trailer is only readable from here, and only once the body has
+        // been read through to it.
+        ChunkedInputStream chunked = is instanceof ChunkedInputStream c ?
+                c : null;
         // Flag headers present since HttpServletResponse.getHeader returns
         // null for empty headers values.
         String contentLengthString = null;
@@ -4348,7 +4347,9 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_LARGE);
         }
         if (decodedContentLengthString != null) {
-            is = ByteStreams.limit(is, contentLength);
+            // Not a plain limit: the trailer a chunked body ends with is
+            // read only by the read that runs past the last declared byte.
+            is = new BodyLimitInputStream(is, contentLength);
         }
         FlexChecksum checksum = FlexChecksum.fromRequest(request);
         String checksumValue = null;
@@ -4497,7 +4498,61 @@ public class S3ProxyHandler {
                 result.sseCustomerAlgorithm(), result.sseCustomerKeyMD5());
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
+        } else {
+            // The trailer form arrives too late for the write to carry it,
+            // so the value is attached afterwards by a store that can amend
+            // metadata in place.  A store that cannot still answers with the
+            // checksum here, as S3 does; only a later checksum-mode GET or
+            // HEAD goes without.
+            FlexChecksum trailerChecksum = addTrailerChecksumHeader(
+                    response, chunked);
+            if (trailerChecksum != null && eTag != null) {
+                blobStore.recordChecksumMetadata(containerName, blobName,
+                        eTag, trailerChecksum.metadataKey(),
+                        requireNonNull(requireNonNull(chunked).trailerValue()));
+            }
         }
+    }
+
+    /**
+     * Decode an aws-chunked body, where the request says it sent one.  The
+     * proxy does not verify per-chunk signatures for a request it did not
+     * authenticate, so the signed and unsigned variants decode identically
+     * here; what the trailer names is still checked against the bytes.
+     */
+    private InputStream maybeDecodeChunked(HttpServletRequest request,
+            InputStream is) {
+        String contentSha256 = request.getHeader(
+                AwsHttpHeaders.CONTENT_SHA256);
+        if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD".equals(contentSha256)) {
+            return new ChunkedInputStream(is, v4MaxChunkSize);
+        } else if ("STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER".equals(
+                contentSha256) ||
+                "STREAMING-UNSIGNED-PAYLOAD-TRAILER".equals(contentSha256)) {
+            return new ChunkedInputStream(is, v4MaxChunkSize,
+                    request.getHeader(AwsHttpHeaders.TRAILER));
+        }
+        return is;
+    }
+
+    /**
+     * Report a checksum that rode as an aws-chunked trailer, answering the
+     * algorithm reported or null when the request carried none.
+     */
+    @Nullable
+    private static FlexChecksum addTrailerChecksumHeader(
+            HttpServletResponse response,
+            @Nullable ChunkedInputStream chunked) {
+        if (chunked == null) {
+            return null;
+        }
+        FlexChecksum algorithm = chunked.trailerAlgorithm();
+        String value = chunked.trailerValue();
+        if (algorithm == null || value == null) {
+            return null;
+        }
+        response.addHeader(algorithm.header(), value);
+        return algorithm;
     }
 
     private void handleStatuszRequest(HttpServletResponse response)
@@ -5092,12 +5147,16 @@ public class S3ProxyHandler {
                 blobStore))) {
             var stubMetadata = new LinkedHashMap<>(
                     contentHeaders.userMetadata());
-            if (fullObject) {
+            if (mpuAlgorithm != null) {
                 // Remember the choice, since the completion request does not
-                // reliably restate it and the two types are computed
-                // differently.
+                // restate it and the two types are computed differently.
+                // Composite is recorded as deliberately as full object: it is
+                // what an upload that named an algorithm and no type asked
+                // for, and without it the completion has only the shape of
+                // the value the client sends to go on, which does not say.
                 stubMetadata.put(MpuChecksums.TYPE_METADATA_KEY,
-                        MpuChecksums.FULL_OBJECT);
+                        fullObject ? MpuChecksums.FULL_OBJECT :
+                                MpuChecksums.COMPOSITE);
             }
             var stub = PutObjectRequest.builder()
                     .bucket(containerName)
@@ -6144,6 +6203,8 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName, String uploadId)
             throws IOException {
+        ChunkedInputStream chunked = is instanceof ChunkedInputStream c ?
+                c : null;
         // TODO: duplicated from handlePutBlob
         String contentLengthString = null;
         String decodedContentLengthString = null;
@@ -6192,7 +6253,9 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         if (decodedContentLengthString != null) {
-            is = ByteStreams.limit(is, contentLength);
+            // Not a plain limit: the trailer a chunked body ends with is
+            // read only by the read that runs past the last declared byte.
+            is = new BodyLimitInputStream(is, contentLength);
         }
         FlexChecksum checksum = FlexChecksum.fromRequest(request);
         String checksumValue = null;
@@ -6252,6 +6315,12 @@ public class S3ProxyHandler {
         }
         if (checksum != null) {
             response.addHeader(checksum.header(), checksumValue);
+        } else {
+            // A part whose checksum rode as a trailer still answers with it,
+            // the way S3 does: the client keeps what this reports to name the
+            // part in CompleteMultipartUpload, and a part it cannot name
+            // there leaves the finished object with no checksum at all.
+            addTrailerChecksumHeader(response, chunked);
         }
         addServerSideEncryptionHeaders(response,
                 part.serverSideEncryptionAsString(), part.ssekmsKeyId(),

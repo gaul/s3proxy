@@ -184,7 +184,10 @@ public final class MpuChecksums {
      * Whether the upload asked for a checksum describing the whole object
      * rather than the parts.  The stub records the choice made at initiation;
      * backends without one have only the completion request to go on, where a
-     * value carrying no "-&lt;partCount&gt;" suffix implies a full object.
+     * value carrying no "-&lt;partCount&gt;" suffix is the weaker hint that a
+     * full object was meant -- weaker because a composite may be spelled
+     * without its suffix too, so a store that records the choice is believed
+     * ahead of it.
      */
     public static boolean fullObjectUpload(
             Map<String, String> recordedMetadata,
@@ -274,13 +277,15 @@ public final class MpuChecksums {
         }
 
         // If the client asserted the expected checksum on the completion
-        // request, validate our computation against it.  Only a composite
-        // carries the "-<partCount>" suffix; for a composite upload a bare
-        // value in this header is the SDK's request-body integrity checksum,
-        // which is unrelated to the completed object.
+        // request, validate our computation against it.  S3 reads this
+        // header only as the finished object's checksum -- never as the
+        // request body's, even alongside x-amz-sdk-checksum-algorithm -- and
+        // takes a composite with the "-<partCount>" suffix left off, which
+        // is how minio-go spells it.
         String provided = request.getHeader(algorithm.header());
-        if (provided != null && (fullObject || provided.indexOf('-') >= 0) &&
-                !provided.equals(computed)) {
+        if (provided != null && !provided.equals(computed) &&
+                !(!fullObject && provided.equals(
+                        computed.substring(0, computed.lastIndexOf('-'))))) {
             throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
         }
 

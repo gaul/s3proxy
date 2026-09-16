@@ -3888,8 +3888,10 @@ public final class AwsSdkTest {
     @Test
     public void testGetObjectAttributesWithoutChecksum() throws Exception {
         var key = "testGetObjectAttributesWithoutChecksum";
-        client.putObject(b -> b.bucket(containerName).key(key),
-                RequestBody.fromBytes(BYTE_SOURCE.read()));
+        // Written through the store rather than the client: the SDK sends a
+        // CRC32 trailer with every upload unless told not to, and an object
+        // that arrived with a checksum reports one, as it does on S3.
+        TestUtils.putBlob(blobStore, containerName, key, BYTE_SOURCE);
 
         GetObjectAttributesResponse response = client.getObjectAttributes(
                 b -> b.bucket(containerName).key(key).objectAttributes(
