@@ -367,8 +367,10 @@ public final class AwsSdkTest {
         var response = client.getObjectAsBytes(b -> b.bucket(containerName)
                 .key(blobName));
         assertThat(response.asByteArray()).isEqualTo(BYTE_SOURCE.read());
-        assertThat(response.response().contentType())
-                .isEqualTo("application/x-www-form-urlencoded");
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(response.response().contentType())
+                    .isEqualTo("application/x-www-form-urlencoded");
+        }
     }
 
     /** And the same of a part. */
