@@ -107,6 +107,14 @@ public final class S3Proxy {
         // S3ProxyHandler.  S3 does not, and the version tells an attacker
         // which Jetty advisories to try.
         httpConfiguration.setSendServerVersion(false);
+        // Read an S3 request's parameters from its query string alone.
+        // Jetty otherwise parses a PUT or POST body labelled
+        // application/x-www-form-urlencoded as form fields the first time a
+        // parameter is asked for, consuming the object a client uploads and
+        // adding its bytes to the parameters that signing and routing read.
+        // S3 treats that Content-Type as the object's metadata and nothing
+        // more; POST policy uploads are multipart/form-data, parsed apart.
+        httpConfiguration.setFormEncodedMethods();
 
         var src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);

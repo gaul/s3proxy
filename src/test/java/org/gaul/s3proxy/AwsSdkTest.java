@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -122,6 +123,8 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest;
 import software.amazon.awssdk.utils.AttributeMap;
 
 public final class AwsSdkTest {
@@ -339,6 +342,77 @@ public final class AwsSdkTest {
         try (InputStream actual = url.toURL().openStream();
                 InputStream expected = BYTE_SOURCE.openStream()) {
             assertThat(actual).hasSameContentAs(expected);
+        }
+    }
+
+    /**
+     * A PUT body is the object whatever Content-Type says of it: a form
+     * content type is only metadata, not a cue to parse the body as a form,
+     * which consumed it before the object could be written.
+     */
+    @Test
+    public void testAwsV4UrlSigningPutFormContentType() throws Exception {
+        String blobName = "foo";
+        URI url;
+        try (S3Presigner presigner = buildPresigner()) {
+            url = presigner.presignPutObject(PutObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofHours(1))
+                    .putObjectRequest(b -> b.bucket(containerName)
+                            .key(blobName))
+                    .build()).url().toURI();
+        }
+
+        assertThat(putFormEncoded(url, BYTE_SOURCE.read())).isEqualTo(200);
+
+        var response = client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName));
+        assertThat(response.asByteArray()).isEqualTo(BYTE_SOURCE.read());
+        assertThat(response.response().contentType())
+                .isEqualTo("application/x-www-form-urlencoded");
+    }
+
+    /** And the same of a part. */
+    @Test
+    public void testAwsV4UrlSigningUploadPartFormContentType()
+            throws Exception {
+        String blobName = "foo";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        URI url;
+        try (S3Presigner presigner = buildPresigner()) {
+            url = presigner.presignUploadPart(UploadPartPresignRequest.builder()
+                    .signatureDuration(Duration.ofHours(1))
+                    .uploadPartRequest(b -> b.bucket(containerName)
+                            .key(blobName).uploadId(uploadId).partNumber(1))
+                    .build()).url().toURI();
+        }
+
+        assertThat(putFormEncoded(url, BYTE_SOURCE.read())).isEqualTo(200);
+
+        var parts = client.listParts(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)).parts();
+        assertThat(parts).hasSize(1);
+        assertThat(parts.get(0).size()).isEqualTo(BYTE_SOURCE.size());
+        client.abortMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId));
+    }
+
+    /** PUTs {@code content} to {@code url} labelled as a form. */
+    private static int putFormEncoded(URI url, byte[] content)
+            throws Exception {
+        var connection = (HttpURLConnection) url.toURL().openConnection();
+        try {
+            connection.setRequestMethod("PUT");
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode((long) content.length);
+            connection.setRequestProperty("Content-Type",
+                    "application/x-www-form-urlencoded");
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(content);
+            }
+            return connection.getResponseCode();
+        } finally {
+            connection.disconnect();
         }
     }
 
