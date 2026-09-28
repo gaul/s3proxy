@@ -1049,6 +1049,8 @@ public final class AzureBlobStore implements BlobStore {
             // Copy Blob API, which it does implement.  Request metadata
             // replaces the source metadata as with S3's REPLACE directive,
             // but content headers can only be set after the copy.
+            // TODO: remove this fallback after upgrading to Azurite 3.38.0,
+            // which implements Put Blob From URL (Azure/Azurite#2749).
             try {
                 var copyOptions = new BlobBeginCopyOptions(sourceUrl)
                         .setPollInterval(Duration.ofMillis(10));
