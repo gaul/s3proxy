@@ -513,7 +513,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <modernizer.version>3.5.0</modernizer.version>
     <njord.version>0.7.5</njord.version>
     <opentelemetry.version>1.66.0</opentelemetry.version>
-    <opentelemetry-semconv.version>1.43.0</opentelemetry-semconv.version>
+    <opentelemetry-semconv.version>1.44.0</opentelemetry-semconv.version>
     <slf4j.version>2.0.20</slf4j.version>
     <shade.prefix>${project.groupId}.shaded</shade.prefix>
     <sshd.version>2.20.0</sshd.version>
