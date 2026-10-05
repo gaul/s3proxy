@@ -21,6 +21,7 @@ import static java.util.Objects.requireNonNull;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -49,6 +50,7 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.sts.StsHandler;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -181,7 +183,9 @@ public final class S3Proxy {
                 builder.v4MaxNonChunkedRequestSize,
                 builder.v4MaxChunkSize,
                 builder.ignoreUnknownHeaders, builder.corsRules,
-                builder.servicePath, builder.maximumTimeSkew, metrics);
+                builder.servicePath, builder.maximumTimeSkew, metrics,
+                builder.stsEnabled ?
+                        new StsHandler(builder.stsMaxDuration) : null);
 
         var context = new ServletContextHandler();
         if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
@@ -267,6 +271,8 @@ public final class S3Proxy {
         private int metricsPort = -1;
         @Nullable private String metricsHost;
         private long stopTimeout = STOP_TIMEOUT_MS;
+        private boolean stsEnabled;
+        private Duration stsMaxDuration = StsHandler.MAX_DURATION;
 
         Builder() {
         }
@@ -465,6 +471,19 @@ public final class S3Proxy {
                 builder.metricsHost(metricsHost);
             }
 
+            String stsEnabled = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_STS_ENABLED);
+            if (!Strings.isNullOrEmpty(stsEnabled)) {
+                builder.stsEnabled(Boolean.parseBoolean(stsEnabled));
+            }
+
+            String stsMaxDuration = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_STS_MAX_DURATION);
+            if (!Strings.isNullOrEmpty(stsMaxDuration)) {
+                builder.stsMaxDuration(Duration.ofSeconds(
+                        Long.parseLong(stsMaxDuration)));
+            }
+
             return builder;
         }
 
@@ -611,6 +630,16 @@ public final class S3Proxy {
             return this;
         }
 
+        public Builder stsEnabled(boolean stsEnabled) {
+            this.stsEnabled = stsEnabled;
+            return this;
+        }
+
+        public Builder stsMaxDuration(Duration stsMaxDuration) {
+            this.stsMaxDuration = requireNonNull(stsMaxDuration);
+            return this;
+        }
+
         public Builder servicePath(String s3ProxyServicePath) {
             String path = Strings.nullToEmpty(s3ProxyServicePath);
 
@@ -711,6 +740,12 @@ public final class S3Proxy {
             if (!Objects.equals(this.metricsHost, that.metricsHost)) {
                 differences.add(S3ProxyConstants.PROPERTY_METRICS_HOST);
             }
+            if (this.stsEnabled != that.stsEnabled) {
+                differences.add(S3ProxyConstants.PROPERTY_STS_ENABLED);
+            }
+            if (!Objects.equals(this.stsMaxDuration, that.stsMaxDuration)) {
+                differences.add(S3ProxyConstants.PROPERTY_STS_MAX_DURATION);
+            }
             return List.copyOf(differences);
         }
 
@@ -734,7 +769,8 @@ public final class S3Proxy {
                     endpoint, secureEndpoint, sslContext,
                     keyStorePath, keyStorePassword, virtualHost, servicePath,
                     maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,
-                    v4MaxChunkSize, ignoreUnknownHeaders, corsRules);
+                    v4MaxChunkSize, ignoreUnknownHeaders, corsRules,
+                    stsEnabled, stsMaxDuration);
         }
     }
 

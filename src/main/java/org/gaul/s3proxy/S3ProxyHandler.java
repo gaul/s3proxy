@@ -110,6 +110,10 @@ import org.gaul.s3proxy.checksum.ChecksumValidatingInputStream;
 import org.gaul.s3proxy.checksum.ChunkedInputStream;
 import org.gaul.s3proxy.checksum.FlexChecksum;
 import org.gaul.s3proxy.checksum.MpuChecksums;
+import org.gaul.s3proxy.sts.Session;
+import org.gaul.s3proxy.sts.SessionPolicy;
+import org.gaul.s3proxy.sts.SessionToken;
+import org.gaul.s3proxy.sts.StsHandler;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -273,8 +277,23 @@ public class S3ProxyHandler {
      * this side of that limit has other problems.
      */
     private static final long MAX_BUFFERED_PAYLOAD = Integer.MAX_VALUE - 8;
+    /**
+     * The largest STS request body read.  A GetFederationToken form is a
+     * policy of at most 2048 UTF-8 bytes, each at most three characters once
+     * percent-encoded, and a few short parameters.
+     */
+    private static final int MAX_STS_REQUEST_SIZE = 16 * 1024;
+    /** Marks a request answered in the STS error format. */
+    private static final String STS_REQUEST_ATTRIBUTE =
+            S3ProxyHandler.class.getName() + ".sts";
+    /** The session of a request made with temporary credentials. */
+    private static final String SESSION_ATTRIBUTE =
+            S3ProxyHandler.class.getName() + ".session";
     /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
     private static final int MAX_BUCKETS = 10_000;
+    /** A SHA-256 as x-amz-content-sha256 spells it. */
+    private static final Pattern SHA256_HEX = Pattern.compile(
+            "[0-9a-fA-F]{64}");
     /** An S3 composite ETag: the parts' MD5s hashed, then the part count. */
     private static final Pattern COMPOSITE_ETAG = Pattern.compile(
             "[0-9a-fA-F]{32}-([0-9]+)");
@@ -469,6 +488,7 @@ public class S3ProxyHandler {
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
+    @Nullable private final StsHandler stsHandler;
     // TODO: hack to allow per-request anonymous access
     private final BlobStore defaultBlobStore;
 
@@ -480,7 +500,19 @@ public class S3ProxyHandler {
             int v4MaxChunkSize,
             boolean ignoreUnknownHeaders,
             @Nullable CrossOriginResourceSharing corsRules,
-            @Nullable final String servicePath, int maximumTimeSkew) {
+            @Nullable final String servicePath, int maximumTimeSkew,
+            @Nullable StsHandler stsHandler) {
+        if (stsHandler != null &&
+                authenticationType != AuthenticationType.AWS_V4 &&
+                authenticationType != AuthenticationType.AWS_V2_OR_V4) {
+            // A temporary credential narrows the access of the identity that
+            // minted it; with authorization off there is no identity to mint
+            // one and no signature to bind it to a request, and both STS and
+            // temporary credentials sign with V4 only.
+            throw new IllegalArgumentException(
+                    "STS requires aws-v4 or aws-v2-or-v4 authorization");
+        }
+        this.stsHandler = stsHandler;
         if (corsRules != null) {
             this.corsRules = corsRules;
         } else {
@@ -570,12 +602,14 @@ public class S3ProxyHandler {
     }
 
     // A few request headers carry secrets that must not reach the logs: the
-    // SSE-C customer keys are the object's encryption key and Authorization
-    // carries the request signature.  Their -md5 companions are not secret --
-    // S3 echoes them back -- so only the keys and the signature are held out
-    // of the header trace.
+    // SSE-C customer keys are the object's encryption key, Authorization
+    // carries the request signature, and x-amz-security-token is half of a
+    // temporary credential.  The keys' -md5 companions are not secret -- S3
+    // echoes them back -- so only the keys, the signature and the token are
+    // held out of the header trace.
     private static boolean isSensitiveHeader(String headerName) {
         return headerName.equalsIgnoreCase(HttpHeaders.AUTHORIZATION) ||
+                headerName.equalsIgnoreCase(AwsHttpHeaders.SECURITY_TOKEN) ||
                 headerName.equalsIgnoreCase(
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY) ||
                 headerName.equalsIgnoreCase(AwsHttpHeaders
@@ -818,6 +852,12 @@ public class S3ProxyHandler {
                 HttpHeaders.AUTHORIZATION);
         S3AuthorizationHeader authHeader = null;
         boolean presignedUrl = false;
+        // A request signed with temporary credentials carries their session
+        // token; one signed for the sts service asks for such credentials.
+        String sessionToken = null;
+        boolean stsRequest = false;
+        byte[] stsBody = null;
+        Session session = null;
 
         if (!anonymousIdentity) {
             // An Authorization header naming a scheme that is not ours belongs
@@ -875,6 +915,15 @@ public class S3ProxyHandler {
                 }
             }
             requestIdentity = authHeader.getIdentity();
+            if (stsHandler != null) {
+                sessionToken = sessionToken(request);
+                stsRequest = StsHandler.SERVICE.equals(
+                        authHeader.getService());
+                if (stsRequest) {
+                    request.setAttribute(STS_REQUEST_ATTRIBUTE, true);
+                    checkStsRequest(request, uri, presignedUrl, sessionToken);
+                }
+            }
         }
 
         long dateSkew = 0; //date for timeskew check
@@ -950,8 +999,18 @@ public class S3ProxyHandler {
 
         checkSupportedParameters(request);
 
+        // Temporary credentials act for the identity that minted them, so the
+        // blob store and the secret to verify against are that identity's.
+        String locatorIdentity = requestIdentity;
+        if (sessionToken != null) {
+            try {
+                locatorIdentity = SessionToken.parentAccessKeyId(sessionToken);
+            } catch (IllegalArgumentException iae) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_TOKEN, iae);
+            }
+        }
         AccessGrant grant = blobStoreLocator.locateBlobStore(
-                requestIdentity, path.length > 1 ? path[1] : null,
+                locatorIdentity, path.length > 1 ? path[1] : null,
                 path.length > 2 ? path[2] : null);
         if (anonymousIdentity) {
             if (grant == null) {
@@ -972,7 +1031,11 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         } else {
             if (grant == null) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_ACCESS_KEY_ID);
+                // STS names an unknown access key differently from S3.
+                throw new S3ProxyException(sessionToken != null ?
+                        S3ErrorCode.INVALID_TOKEN : stsRequest ?
+                        S3ErrorCode.INVALID_CLIENT_TOKEN_ID :
+                        S3ErrorCode.INVALID_ACCESS_KEY_ID);
             }
             // non-anonymous requests always parse an Authorization header
             requireNonNull(authHeader);
@@ -980,6 +1043,19 @@ public class S3ProxyHandler {
             String credential = grant.credential().orElseThrow(
                     () -> new S3ProxyException(S3ErrorCode.INVALID_ACCESS_KEY_ID));
             blobStore = grant.blobStore();
+            if (sessionToken != null) {
+                session = openSession(sessionToken, credential, authHeader);
+                request.setAttribute(SESSION_ATTRIBUTE, session);
+                // The signature is made with the temporary secret, which the
+                // parent's secret and the temporary access key id determine.
+                credential = SessionToken.secretAccessKey(
+                        session.token().parentAccessKeyId(),
+                        session.token().accessKeyId(), credential);
+                // From here on the request acts as the parent: the bucket
+                // listing and copy-source checks ask the locator what that
+                // identity may reach, before the policy narrows it further.
+                requestIdentity = requireNonNull(locatorIdentity);
+            }
 
             checkPresignedExpiry(request);
             // The aim ?
@@ -1048,6 +1124,17 @@ public class S3ProxyHandler {
                 expectedSignature = requireNonNull(signatureDetail)
                         .signature();
             } else {
+                // The signature names the service it was made for, and a
+                // signature made for one service must not authorize a
+                // request to the other.
+                String service = stsRequest ? StsHandler.SERVICE : "s3";
+                if (!method.equals("OPTIONS") &&
+                        !service.equals(authHeader.getService())) {
+                    throw new S3ProxyException(
+                            S3ErrorCode.SIGNATURE_DOES_NOT_MATCH,
+                            "Credential should be scoped to correct" +
+                            " service: '" + service + "'.");
+                }
                 String contentSha256 = request.getHeader(
                         AwsHttpHeaders.CONTENT_SHA256);
                 // The header value once the buffered payload has hashed to
@@ -1083,8 +1170,10 @@ public class S3ProxyHandler {
                         // read a length that will fit into a buffer of
                         // exactly that size, since growing one of unknown
                         // size ends up holding twice the body it keeps.
+                        long maxLength = stsRequest ? MAX_STS_REQUEST_SIZE :
+                                v4MaxNonChunkedRequestSize;
                         long declaredLength = request.getContentLengthLong();
-                        if (declaredLength > v4MaxNonChunkedRequestSize) {
+                        if (declaredLength > maxLength) {
                             throw new S3ProxyException(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
                         }
@@ -1094,29 +1183,35 @@ public class S3ProxyHandler {
                         } else {
                             // A body of unannounced length, e.g. one framed
                             // by Transfer-Encoding: chunked.
-                            payload = ByteStreams.limit(is,
-                                    v4MaxNonChunkedRequestSize + 1)
+                            payload = ByteStreams.limit(is, maxLength + 1)
                                     .readAllBytes();
-                            if (payload.length ==
-                                    v4MaxNonChunkedRequestSize + 1) {
+                            if (payload.length == maxLength + 1) {
                                 throw new S3ProxyException(
                                         S3ErrorCode
                                         .MAX_MESSAGE_LENGTH_EXCEEDED);
                             }
                         }
 
-                        // maybe we should check this when signing,
-                        // a lot of dup code with aws sign code.
-                        MessageDigest md = MessageDigest.getInstance(
-                            requireNonNull(authHeader.getHashAlgorithm()));
-                        byte[] hash = md.digest(payload);
-                        if (!HexFormat.of().formatHex(hash)
-                                .equals(contentSha256)) {
-                            throw new S3ProxyException(
-                                    S3ErrorCode
-                                    .X_AMZ_CONTENT_S_H_A_256_MISMATCH);
+                        // An STS client sends no x-amz-content-sha256: the
+                        // payload hash goes into the canonical request
+                        // instead, computed from the body itself.
+                        if (!(stsRequest && contentSha256 == null)) {
+                            // maybe we should check this when signing,
+                            // a lot of dup code with aws sign code.
+                            MessageDigest md = MessageDigest.getInstance(
+                                requireNonNull(authHeader.getHashAlgorithm()));
+                            byte[] hash = md.digest(payload);
+                            if (!HexFormat.of().formatHex(hash)
+                                    .equals(contentSha256)) {
+                                throw new S3ProxyException(
+                                        S3ErrorCode
+                                        .X_AMZ_CONTENT_S_H_A_256_MISMATCH);
+                            }
+                            verifiedContentSha256 = contentSha256;
                         }
-                        verifiedContentSha256 = contentSha256;
+                        if (stsRequest) {
+                            stsBody = payload;
+                        }
                         is = new ByteArrayInputStream(payload);
                     }
 
@@ -1218,6 +1313,16 @@ public class S3ProxyHandler {
                         request.getContentLengthLong(),
                         S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH);
             }
+
+            if (stsRequest) {
+                setOperation(ctx, S3Operation.GET_FEDERATION_TOKEN);
+                requireNonNull(stsHandler).handle(requireNonNull(stsBody),
+                        response, requestIdentity, credential,
+                        Strings.nullToEmpty(response.getHeader(
+                                AwsHttpHeaders.REQUEST_ID)),
+                        Instant.now());
+                return;
+            }
         }
 
         // Emit NotImplemented for unknown x-amz- headers.  This comes after
@@ -1236,7 +1341,9 @@ public class S3ProxyHandler {
             if (headerName.startsWith(USER_METADATA_PREFIX)) {
                 continue;
             }
-            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
+            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName) &&
+                    !(stsHandler != null && headerName.equals(
+                            AwsHttpHeaders.SECURITY_TOKEN))) {
                 logger.error("Unknown header {} with URI {}",
                         headerName, request.getRequestURI());
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
@@ -1274,7 +1381,8 @@ public class S3ProxyHandler {
         case "DELETE" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("encryption") != null) {
-                    setOperation(ctx, S3Operation.DELETE_BUCKET_ENCRYPTION);
+                    authorize(ctx, session, request, path,
+                            S3Operation.DELETE_BUCKET_ENCRYPTION);
                     handleDeleteBucketEncryption(request, response, blobStore,
                             path[1]);
                     return;
@@ -1314,16 +1422,19 @@ public class S3ProxyHandler {
                                 S3ErrorCode.NOT_IMPLEMENTED);
                     }
                 }
-                setOperation(ctx, S3Operation.DELETE_BUCKET);
+                authorize(ctx, session, request, path,
+                        S3Operation.DELETE_BUCKET);
                 handleContainerDelete(request, response, blobStore, path[1]);
                 return;
             } else if (uploadId != null) {
-                setOperation(ctx, S3Operation.ABORT_MULTIPART_UPLOAD);
+                authorize(ctx, session, request, path,
+                        S3Operation.ABORT_MULTIPART_UPLOAD);
                 handleAbortMultipartUpload(request, response, blobStore,
                         path[1], path[2], uploadId);
                 return;
             } else {
-                setOperation(ctx, S3Operation.DELETE_OBJECT);
+                authorize(ctx, session, request, path,
+                        S3Operation.DELETE_OBJECT);
                 handleBlobRemove(request, response, blobStore, path[1],
                         path[2]);
                 return;
@@ -1331,23 +1442,27 @@ public class S3ProxyHandler {
         }
         case "GET" -> {
             if (uri.equals("/")) {
-                setOperation(ctx, S3Operation.LIST_BUCKETS);
+                authorize(ctx, session, request, path,
+                        S3Operation.LIST_BUCKETS);
                 handleContainerList(request, response, blobStore,
                         requestIdentity);
                 return;
             } else if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
-                    setOperation(ctx, S3Operation.GET_BUCKET_ACL);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_BUCKET_ACL);
                     handleGetContainerAcl(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("encryption") != null) {
-                    setOperation(ctx, S3Operation.GET_BUCKET_ENCRYPTION);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_BUCKET_ENCRYPTION);
                     handleGetBucketEncryption(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("location") != null) {
-                    setOperation(ctx, S3Operation.GET_BUCKET_LOCATION);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_BUCKET_LOCATION);
                     handleContainerLocation(request, response, blobStore,
                             path[1]);
                     return;
@@ -1369,36 +1484,43 @@ public class S3ProxyHandler {
                             blobStore, path[1]);
                     return;
                 } else if (request.getParameter("policy") != null) {
-                    setOperation(ctx, S3Operation.GET_BUCKET_POLICY);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_BUCKET_POLICY);
                     handleBucketPolicy(blobStore, path[1]);
                     return;
                 } else if (request.getParameter("uploads") != null) {
-                    setOperation(ctx, S3Operation.LIST_MULTIPART_UPLOADS);
+                    authorize(ctx, session, request, path,
+                            S3Operation.LIST_MULTIPART_UPLOADS);
                     handleListMultipartUploads(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("versioning") != null) {
-                    setOperation(ctx, S3Operation.GET_BUCKET_VERSIONING);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_BUCKET_VERSIONING);
                     handleGetBucketVersioning(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("versions") != null) {
-                    setOperation(ctx, S3Operation.LIST_OBJECT_VERSIONS);
+                    authorize(ctx, session, request, path,
+                            S3Operation.LIST_OBJECT_VERSIONS);
                     handleListObjectVersions(request, response, blobStore,
                             path[1]);
                     return;
                 }
-                setOperation(ctx, S3Operation.LIST_OBJECTS_V2);
+                authorize(ctx, session, request, path,
+                        S3Operation.LIST_OBJECTS_V2);
                 handleBlobList(request, response, blobStore, path[1]);
                 return;
             } else {
                 if (request.getParameter("acl") != null) {
-                    setOperation(ctx, S3Operation.GET_OBJECT_ACL);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_OBJECT_ACL);
                     handleGetBlobAcl(request, response, blobStore, path[1],
                             path[2]);
                     return;
                 } else if (request.getParameter("attributes") != null) {
-                    setOperation(ctx, S3Operation.GET_OBJECT_ATTRIBUTES);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_OBJECT_ATTRIBUTES);
                     handleGetObjectAttributes(request, response, blobStore,
                             path[1], path[2]);
                     return;
@@ -1413,12 +1535,14 @@ public class S3ProxyHandler {
                             path[1], path[2]);
                     return;
                 } else if (uploadId != null) {
-                    setOperation(ctx, S3Operation.LIST_PARTS);
+                    authorize(ctx, session, request, path,
+                            S3Operation.LIST_PARTS);
                     handleListParts(request, response, blobStore, path[1],
                             path[2], uploadId);
                     return;
                 }
-                setOperation(ctx, S3Operation.GET_OBJECT);
+                authorize(ctx, session, request, path,
+                        S3Operation.GET_OBJECT);
                 handleGetBlob(request, response, blobStore, path[1],
                         path[2]);
                 return;
@@ -1426,11 +1550,13 @@ public class S3ProxyHandler {
         }
         case "HEAD" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
-                setOperation(ctx, S3Operation.HEAD_BUCKET);
+                authorize(ctx, session, request, path,
+                        S3Operation.HEAD_BUCKET);
                 handleContainerExists(request, response, blobStore, path[1]);
                 return;
             } else {
-                setOperation(ctx, S3Operation.HEAD_OBJECT);
+                authorize(ctx, session, request, path,
+                        S3Operation.HEAD_OBJECT);
                 handleBlobMetadata(request, response, blobStore, path[1],
                         path[2]);
                 return;
@@ -1438,7 +1564,8 @@ public class S3ProxyHandler {
         }
         case "POST" -> {
             if (request.getParameter("delete") != null) {
-                setOperation(ctx, S3Operation.DELETE_OBJECTS);
+                authorize(ctx, session, request, path,
+                        S3Operation.DELETE_OBJECTS);
                 handleMultiBlobRemove(request, response, is, blobStore,
                         path[1]);
                 return;
@@ -1450,13 +1577,15 @@ public class S3ProxyHandler {
                 // key to give them.
                 throw new S3ProxyException(S3ErrorCode.METHOD_NOT_ALLOWED);
             } else if (request.getParameter("uploads") != null) {
-                setOperation(ctx, S3Operation.CREATE_MULTIPART_UPLOAD);
+                authorize(ctx, session, request, path,
+                        S3Operation.CREATE_MULTIPART_UPLOAD);
                 handleInitiateMultipartUpload(request, response, blobStore,
                         path[1], path[2]);
                 return;
             } else if (uploadId != null &&
                     request.getParameter("partNumber") == null) {
-                setOperation(ctx, S3Operation.COMPLETE_MULTIPART_UPLOAD);
+                authorize(ctx, session, request, path,
+                        S3Operation.COMPLETE_MULTIPART_UPLOAD);
                 handleCompleteMultipartUpload(request, response, is, blobStore,
                         path[1], path[2], uploadId);
                 return;
@@ -1465,13 +1594,15 @@ public class S3ProxyHandler {
         case "PUT" -> {
             if (path.length <= 2 || path[2].isEmpty()) {
                 if (request.getParameter("acl") != null) {
-                    setOperation(ctx, S3Operation.PUT_BUCKET_ACL);
+                    authorize(ctx, session, request, path,
+                            S3Operation.PUT_BUCKET_ACL);
                     handleSetContainerAcl(request, response, is, blobStore,
                             path[1]);
                     return;
                 }
                 if (request.getParameter("encryption") != null) {
-                    setOperation(ctx, S3Operation.PUT_BUCKET_ENCRYPTION);
+                    authorize(ctx, session, request, path,
+                            S3Operation.PUT_BUCKET_ENCRYPTION);
                     handleSetBucketEncryption(request, response, is, blobStore,
                             path[1]);
                     return;
@@ -1497,12 +1628,14 @@ public class S3ProxyHandler {
                     return;
                 }
                 if (request.getParameter("versioning") != null) {
-                    setOperation(ctx, S3Operation.PUT_BUCKET_VERSIONING);
+                    authorize(ctx, session, request, path,
+                            S3Operation.PUT_BUCKET_VERSIONING);
                     handleSetBucketVersioning(request, response, is, blobStore,
                             path[1]);
                     return;
                 }
-                setOperation(ctx, S3Operation.CREATE_BUCKET);
+                authorize(ctx, session, request, path,
+                        S3Operation.CREATE_BUCKET);
                 handleContainerCreate(request, response, is, blobStore,
                         path[1]);
                 return;
@@ -1518,35 +1651,41 @@ public class S3ProxyHandler {
                 return;
             } else if (uploadId != null) {
                 if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
-                    setOperation(ctx, S3Operation.UPLOAD_PART_COPY);
+                    authorize(ctx, session, request, path,
+                            S3Operation.UPLOAD_PART_COPY);
                     handleCopyPart(request, response, blobStore,
                             requestIdentity, path[1], path[2], uploadId);
                 } else {
-                    setOperation(ctx, S3Operation.UPLOAD_PART);
+                    authorize(ctx, session, request, path,
+                            S3Operation.UPLOAD_PART);
                     handleUploadPart(request, response, is, blobStore, path[1],
                             path[2], uploadId);
                 }
                 return;
             } else if (request.getHeader(AwsHttpHeaders.COPY_SOURCE) != null) {
-                setOperation(ctx, S3Operation.COPY_OBJECT);
+                authorize(ctx, session, request, path,
+                        S3Operation.COPY_OBJECT);
                 handleCopyBlob(request, response, blobStore,
                         requestIdentity, path[1], path[2]);
                 return;
             } else {
                 if (request.getParameter("acl") != null) {
-                    setOperation(ctx, S3Operation.PUT_OBJECT_ACL);
+                    authorize(ctx, session, request, path,
+                            S3Operation.PUT_OBJECT_ACL);
                     handleSetBlobAcl(request, response, is, blobStore, path[1],
                             path[2]);
                     return;
                 }
-                setOperation(ctx, S3Operation.PUT_OBJECT);
+                authorize(ctx, session, request, path,
+                        S3Operation.PUT_OBJECT);
                 handlePutBlob(request, response, is, blobStore, path[1],
                         path[2]);
                 return;
             }
         }
         case "OPTIONS" -> {
-            setOperation(ctx, S3Operation.OPTIONS_OBJECT);
+            authorize(ctx, session, request, path,
+                    S3Operation.OPTIONS_OBJECT);
             handleOptionsBlob(request, response, blobStore, path[1]);
             return;
         }
@@ -1578,6 +1717,108 @@ public class S3ProxyHandler {
             S3Operation operation) {
         if (ctx != null) {
             ctx.setOperation(operation);
+        }
+    }
+
+    /**
+     * Record the operation a request performs and, for a request made with
+     * temporary credentials, refuse it unless the session policy allows it.
+     * Every operation an authenticated request can reach passes through here
+     * before its handler runs.
+     */
+    private static void authorize(@Nullable RequestContext ctx,
+            @Nullable Session session, HttpServletRequest request,
+            String[] path, S3Operation operation) {
+        setOperation(ctx, operation);
+        if (session != null) {
+            session.authorize(operation, request,
+                    path.length > 1 ? path[1] : null,
+                    path.length > 2 ? path[2] : null);
+        }
+    }
+
+    /**
+     * The session token a request carries, in the header a signed request
+     * sends it in or the query parameter a presigned URL does.  Either way it
+     * is signed: a V4 signature refuses an unsigned x-amz-* header, and the
+     * query string is part of what it signs.  A request carrying more than
+     * one is refused rather than read one way or the other.
+     */
+    private static @Nullable String sessionToken(HttpServletRequest request) {
+        List<String> headers = Collections.list(request.getHeaders(
+                AwsHttpHeaders.SECURITY_TOKEN));
+        String[] params = request.getParameterValues("X-Amz-Security-Token");
+        int count = headers.size() + (params == null ? 0 : params.length);
+        if (count == 0) {
+            return null;
+        } else if (count > 1) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_TOKEN,
+                    "The request carries more than one session token.");
+        }
+        return headers.isEmpty() ? requireNonNull(params)[0] : headers.get(0);
+    }
+
+    /**
+     * Refuse an STS request this proxy cannot answer before reading it.  The
+     * query protocol posts a form to the service root, and its body is
+     * signed by hash, so a presigned URL or an unsigned or streamed payload
+     * cannot carry one.  Temporary credentials may not mint more, which would
+     * let a session renew itself past the expiry it was given.
+     */
+    private static void checkStsRequest(HttpServletRequest request,
+            String uri, boolean presignedUrl, @Nullable String sessionToken) {
+        if (!request.getMethod().equals("POST") || !uri.equals("/")) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ACTION,
+                    "STS requests are POSTed to /.");
+        }
+        if (presignedUrl) {
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                    "STS requests must be signed in the Authorization" +
+                    " header.");
+        }
+        if (sessionToken != null) {
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                    "Cannot call GetFederationToken with session" +
+                    " credentials.");
+        }
+        String contentSha256 = request.getHeader(AwsHttpHeaders.CONTENT_SHA256);
+        if (contentSha256 != null &&
+                !SHA256_HEX.matcher(contentSha256).matches()) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                    "STS requests must sign their payload.");
+        }
+    }
+
+    /**
+     * Verify a session token against the secret of the identity it names
+     * and open the session it describes.  The token is authenticated
+     * encryption under a key only that secret yields, so a token that
+     * decodes was minted by this proxy for that identity and has not been
+     * altered since.
+     */
+    private static Session openSession(String sessionToken,
+            String parentCredential, S3AuthorizationHeader authHeader) {
+        if (authHeader.getAuthenticationType() != AuthenticationType.AWS_V4) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                    "Temporary credentials require AWS Signature Version 4.");
+        }
+        SessionToken token;
+        try {
+            token = SessionToken.decode(sessionToken, parentCredential);
+        } catch (IllegalArgumentException iae) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_TOKEN, iae);
+        }
+        if (!token.accessKeyId().equals(authHeader.getIdentity())) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_TOKEN,
+                    "The session token does not belong to this access key.");
+        }
+        if (!Instant.now().isBefore(token.expiration())) {
+            throw new S3ProxyException(S3ErrorCode.EXPIRED_TOKEN);
+        }
+        try {
+            return new Session(token, SessionPolicy.parse(token.policy()));
+        } catch (IllegalArgumentException iae) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_TOKEN, iae);
         }
     }
 
@@ -3504,6 +3745,21 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
 
+        // The keys are in the body rather than the URI, so a session's policy
+        // is checked here, for each of them, before any is deleted.  One key
+        // the policy refuses refuses the request: reporting it in the result
+        // alongside the others, as S3 does, would need both delete paths
+        // below to skip it.
+        Session session = session(request);
+        if (session != null) {
+            for (DeleteMultipleObjectsRequest.S3Object s3Object :
+                    dmor.objects()) {
+                session.authorizeObject(s3Object.versionId() != null ?
+                        "s3:DeleteObjectVersion" : "s3:DeleteObject",
+                        containerName, Strings.nullToEmpty(s3Object.key()));
+            }
+        }
+
         boolean supportsVersioning = blobStore.supportsVersioning();
         String blobStoreType = getBlobStoreType(blobStore);
         boolean anyCondition = false;
@@ -4969,12 +5225,25 @@ public class S3ProxyHandler {
      * GlobBlobStoreLocator does -- would otherwise still let a caller read a
      * bucket it cannot address directly by copying out of it.
      */
-    private void authorizeCopySource(@Nullable String requestIdentity,
-            String sourceContainerName, String sourceBlobName) {
+    private void authorizeCopySource(HttpServletRequest request,
+            @Nullable String requestIdentity, String sourceContainerName,
+            String sourceBlobName, @Nullable String sourceVersionId) {
         if (blobStoreLocator.locateBlobStore(requestIdentity,
                 sourceContainerName, sourceBlobName) == null) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
+        // A session may write where it may not read; a copy reads the
+        // source as surely as a GET would.
+        Session session = session(request);
+        if (session != null) {
+            session.authorizeObject(sourceVersionId != null ?
+                    "s3:GetObjectVersion" : "s3:GetObject",
+                    sourceContainerName, sourceBlobName);
+        }
+    }
+
+    private static @Nullable Session session(HttpServletRequest request) {
+        return (Session) request.getAttribute(SESSION_ATTRIBUTE);
     }
 
     private void handleCopyBlob(HttpServletRequest request,
@@ -5000,8 +5269,8 @@ public class S3ProxyHandler {
         // The source names an object in a header rather than the URI, so it
         // has not passed the check in doHandle either.
         checkReservedBlobName(sourceBlobName);
-        authorizeCopySource(requestIdentity, sourceContainerName,
-                sourceBlobName);
+        authorizeCopySource(request, requestIdentity, sourceContainerName,
+                sourceBlobName, sourceVersionId);
         boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
                 AwsHttpHeaders.METADATA_DIRECTIVE));
 
@@ -6932,8 +7201,8 @@ public class S3ProxyHandler {
         // The source names an object in a header rather than the URI, so it
         // has not passed the check in doHandle either.
         checkReservedBlobName(sourceBlobName);
-        authorizeCopySource(requestIdentity, sourceContainerName,
-                sourceBlobName);
+        authorizeCopySource(request, requestIdentity, sourceContainerName,
+                sourceBlobName, sourceVersionId);
 
         var getRequest = GetObjectRequest.builder()
                 .bucket(sourceContainerName)
@@ -7753,6 +8022,16 @@ public class S3ProxyHandler {
             return;
         }
 
+        String requestId = response.getHeader(AwsHttpHeaders.REQUEST_ID);
+        if (requestId == null) {
+            requestId = generateRequestId();
+        }
+
+        // STS clients read the query protocol's error document, which wraps
+        // the S3 one's Code and Message in an ErrorResponse.
+        boolean sts = Boolean.TRUE.equals(
+                request.getAttribute(STS_REQUEST_ATTRIBUTE));
+
         // The document is rendered whole and sent with its length, as S3
         // sends its errors.  Streamed through the response's writer it went
         // out unframed whenever Connection: close was set above: Jetty then
@@ -7765,22 +8044,31 @@ public class S3ProxyHandler {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
-            xml.writeStartElement("Error");
+            if (sts) {
+                xml.writeStartElement("ErrorResponse");
+                xml.writeDefaultNamespace(StsHandler.XMLNS);
+                xml.writeStartElement("Error");
+                writeSimpleElement(xml, "Type",
+                        httpStatusCode >= 500 ? "Receiver" : "Sender");
+                writeSimpleElement(xml, "Code", code);
+                writeSimpleElement(xml, "Message", message);
+                xml.writeEndElement();
+                writeSimpleElement(xml, "RequestId", requestId);
+                xml.writeEndElement();
+            } else {
+                xml.writeStartElement("Error");
 
-            writeSimpleElement(xml, "Code", code);
-            writeSimpleElement(xml, "Message", message);
+                writeSimpleElement(xml, "Code", code);
+                writeSimpleElement(xml, "Message", message);
 
-            for (var entry : elements.entrySet()) {
-                writeSimpleElement(xml, entry.getKey(), entry.getValue());
+                for (var entry : elements.entrySet()) {
+                    writeSimpleElement(xml, entry.getKey(), entry.getValue());
+                }
+
+                writeSimpleElement(xml, "RequestId", requestId);
+
+                xml.writeEndElement();
             }
-
-            String requestId = response.getHeader(AwsHttpHeaders.REQUEST_ID);
-            if (requestId == null) {
-                requestId = generateRequestId();
-            }
-            writeSimpleElement(xml, "RequestId", requestId);
-
-            xml.writeEndElement();
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
