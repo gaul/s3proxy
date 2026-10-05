@@ -550,9 +550,48 @@ public class S3ProxyHandler {
      * Name of the stub blob holding multipart-upload metadata for an upload id
      * on MULTIPART_REQUIRES_STUB backends.  The returned name is filtered from
      * list() so the stub is not exposed as a user-visible object.
+     *
+     * <p>The name carries a digest of the key the upload was initiated for
+     * as well as its id.  Named by id alone, a request naming one key could
+     * complete or abort an upload begun for another, publishing under its
+     * own name the ACL and metadata that upload was given; S3 answers
+     * NoSuchUpload to an upload id paired with the wrong key, and so does
+     * the proxy, since no stub answers to that pair.  The name rather than
+     * the stub's metadata holds the key because a client chooses metadata
+     * and some stores, SFTP among them, keep none.
      */
-    private static String multipartStubName(String uploadId) {
-        return MULTIPART_STUB_PREFIX + uploadId;
+    private static String multipartStubName(String uploadId,
+            String blobName) {
+        try {
+            return MULTIPART_STUB_PREFIX + uploadId + "." +
+                    HexFormat.of().formatHex(MessageDigest.getInstance(
+                            "SHA-256").digest(blobName.getBytes(
+                                    StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * The stub of an upload of this key, or null when there is none.  An
+     * upload initiated before stubs named their key has a stub named by id
+     * alone, which is still honoured so that an upgrade does not strand it.
+     */
+    private static @Nullable String findMultipartStub(BlobStore blobStore,
+            String containerName, String uploadId, String blobName) {
+        String stubName = multipartStubName(uploadId, blobName);
+        if (blobStore.blobExists(containerName, stubName)) {
+            return stubName;
+        }
+        // An id holding a dot is not one the stub backends mint, and its
+        // legacy name could spell the stub of another key's upload: that
+        // upload's id, a dot, and the digest of its key.
+        String legacyName = MULTIPART_STUB_PREFIX + uploadId;
+        if (uploadId.indexOf('.') == -1 &&
+                blobStore.blobExists(containerName, legacyName)) {
+            return legacyName;
+        }
+        return null;
     }
 
     /**
@@ -564,8 +603,7 @@ public class S3ProxyHandler {
      * the whole of it.
      */
     private static void removeMultipartStub(BlobStore blobStore,
-            String containerName, String uploadId) {
-        String stubName = multipartStubName(uploadId);
+            String containerName, String stubName) {
         if (!blobStore.supportsVersioning()) {
             blobStore.removeBlob(containerName, stubName);
             return;
@@ -3557,16 +3595,17 @@ public class S3ProxyHandler {
     }
 
     /**
-     * Refuse an upload id that names no upload.  A backend whose multipart
-     * needs a stub has no other record of one: its parts are plain objects,
-     * so without this a part is written under an id that was never issued,
-     * or under one already aborted, and nothing ever removes it.
+     * Refuse an upload id that names no upload of this key.  A backend
+     * whose multipart needs a stub has no other record of one: its parts
+     * are plain objects, so without this a part is written under an id that
+     * was never issued, or under one already aborted, or under another
+     * key's, and nothing ever removes it.
      */
     private static void requireMultipartUpload(BlobStore blobStore,
-            String containerName, String uploadId) {
+            String containerName, String blobName, String uploadId) {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
-                blobStore)) && !blobStore.blobExists(containerName,
-                multipartStubName(uploadId))) {
+                blobStore)) && findMultipartStub(blobStore, containerName,
+                uploadId, blobName) == null) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
         }
     }
@@ -3579,8 +3618,8 @@ public class S3ProxyHandler {
     private static void requireMultipartUploadAfterPart(BlobStore blobStore,
             String containerName, MultipartUpload mpu) {
         if (!Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
-                blobStore)) || blobStore.blobExists(containerName,
-                multipartStubName(mpu.id()))) {
+                blobStore)) || findMultipartStub(blobStore, containerName,
+                mpu.id(), mpu.blobName()) != null) {
             return;
         }
         try {
@@ -5365,7 +5404,7 @@ public class S3ProxyHandler {
             }
             var stub = PutObjectRequest.builder()
                     .bucket(containerName)
-                    .key(multipartStubName(mpu.id()))
+                    .key(multipartStubName(mpu.id(), blobName))
                     .contentLength(0L)
                     .cacheControl(contentHeaders.cacheControl())
                     .contentDisposition(contentHeaders.contentDisposition())
@@ -5443,12 +5482,14 @@ public class S3ProxyHandler {
         }
 
         CreateMultipartUploadRequest carrierRequest;
+        String stubName = null;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            String stubName = multipartStubName(uploadId);
-            HeadObjectResponse stubHead = blobStore.blobMetadataIfPresent(
-                    containerName, stubName);
-            if (stubHead == null) {
+            stubName = findMultipartStub(blobStore, containerName, uploadId,
+                    blobName);
+            HeadObjectResponse stubHead = stubName == null ? null :
+                    blobStore.blobMetadataIfPresent(containerName, stubName);
+            if (stubName == null || stubHead == null) {
                 if (respondAlreadyCompleted(request, response, blobStore,
                         containerName, blobName, cmu)) {
                     return;
@@ -5704,13 +5745,15 @@ public class S3ProxyHandler {
         // less than answering 412 where S3 answers 412.  A versioning store
         // completes synchronously for the same reason: the version it mints
         // is a response header, unsendable once the prolog is out.
+        final String completedStubName = stubName;
         CompleteMultipartUploadResponse syncResult = null;
         if (completeIfMatch != null || completeIfNoneMatch != null ||
                 blobStore.supportsVersioning()) {
             syncResult = blobStore.completeMultipartUpload(completeMpu,
                     sdkComplete);
             if (Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType)) {
-                removeMultipartStub(blobStore, containerName, uploadId);
+                removeMultipartStub(blobStore, containerName,
+                        requireNonNull(completedStubName));
             }
         }
         final CompleteMultipartUploadResponse completedResult =
@@ -5770,7 +5813,7 @@ public class S3ProxyHandler {
                         if (Quirks.MULTIPART_REQUIRES_STUB.contains(
                                 blobStoreType)) {
                             removeMultipartStub(blobStore, containerName,
-                                    uploadId);
+                                    requireNonNull(completedStubName));
                         }
                     } catch (RuntimeException re) {
                         exception.set(re);
@@ -6000,12 +6043,13 @@ public class S3ProxyHandler {
             String uploadId) throws IOException {
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
                 blobStore))) {
-            String stubName = multipartStubName(uploadId);
-            if (!blobStore.blobExists(containerName, stubName)) {
+            String stubName = findMultipartStub(blobStore, containerName,
+                    uploadId, blobName);
+            if (stubName == null) {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
 
-            removeMultipartStub(blobStore, containerName, uploadId);
+            removeMultipartStub(blobStore, containerName, stubName);
         }
 
         addCorsResponseHeader(request, response);
@@ -6030,7 +6074,8 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
-        requireMultipartUpload(blobStore, containerName, uploadId);
+        requireMultipartUpload(blobStore, containerName, blobName,
+                uploadId);
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
@@ -6207,7 +6252,8 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
-        requireMultipartUpload(blobStore, containerName, uploadId);
+        requireMultipartUpload(blobStore, containerName, blobName,
+                uploadId);
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
@@ -6539,7 +6585,8 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
-        requireMultipartUpload(blobStore, containerName, uploadId);
+        requireMultipartUpload(blobStore, containerName, blobName,
+                uploadId);
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
