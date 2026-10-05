@@ -33,6 +33,7 @@ import org.eclipse.jetty.ee10.servlet.ServletContextRequest;
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.sts.StsHandler;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,12 +57,13 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             boolean ignoreUnknownHeaders,
             @Nullable CrossOriginResourceSharing corsRules,
             @Nullable String servicePath, int maximumTimeSkew,
-            @Nullable S3ProxyMetrics metrics) {
+            @Nullable S3ProxyMetrics metrics,
+            @Nullable StsHandler stsHandler) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
                 credential, virtualHost, maxSinglePartObjectSize,
                 v4MaxNonChunkedRequestSize, v4MaxChunkSize,
                 ignoreUnknownHeaders, corsRules,
-                servicePath, maximumTimeSkew);
+                servicePath, maximumTimeSkew, stsHandler);
         this.metrics = metrics;
     }
 

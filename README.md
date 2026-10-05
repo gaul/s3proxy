@@ -244,6 +244,11 @@ S3Proxy can modify its behavior based on middlewares:
 * [storage class override](https://github.com/gaul/s3proxy/wiki/Middleware-storage-class-override)
 * [user metadata replacer](https://github.com/gaul/s3proxy/wiki/Middleware-user-metadata-replacer)
 
+## Temporary credentials
+
+S3Proxy can issue scoped-down temporary credentials through the STS
+`GetFederationToken` action; see [docs/STS.md](docs/STS.md).
+
 ## SSL Support
 
 S3Proxy can listen on HTTPS by setting `s3proxy.secure-endpoint` and a keystore.  The [wiki](https://github.com/gaul/s3proxy/wiki/SSL-support) explains how to create the keystore and configure HTTPS with Docker, Kubernetes, or plain Java.

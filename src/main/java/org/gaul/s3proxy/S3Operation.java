@@ -62,6 +62,7 @@ public enum S3Operation {
     GET_OBJECT_LEGAL_HOLD("GetObjectLegalHold"),
     PUT_OBJECT_LEGAL_HOLD("PutObjectLegalHold"),
     OPTIONS_OBJECT("OptionsObject"),
+    GET_FEDERATION_TOKEN("GetFederationToken"),
     UNKNOWN("Unknown");
 
     private final String value;
