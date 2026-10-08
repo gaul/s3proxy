@@ -165,6 +165,20 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_METRICS_HOST =
             "s3proxy.metrics.host";
 
+    /**
+     * Answer STS GetFederationToken, letting a configured identity mint
+     * temporary credentials scoped down by a session policy.
+     */
+    public static final String PROPERTY_STS_ENABLED =
+            "s3proxy.sts.enabled";
+
+    /**
+     * The longest session GetFederationToken issues, in seconds; a request
+     * for longer is shortened to it.  Defaults to the AWS limit of 129600.
+     */
+    public static final String PROPERTY_STS_MAX_DURATION =
+            "s3proxy.sts.max-duration";
+
     public static final String PROPERTY_ALT_JCLOUDS_PREFIX = "alt.";
 
     private S3ProxyConstants() {
