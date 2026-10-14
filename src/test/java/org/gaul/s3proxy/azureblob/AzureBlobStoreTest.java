@@ -230,9 +230,9 @@ public final class AzureBlobStoreTest {
         var response = store(/*versioning=*/ true).versionsPage(page, "k");
 
         var unversioned = response.versions().stream()
-                .filter(v -> v.versionId().equals("null")).findFirst();
-        assertThat(unversioned).isPresent();
-        assertThat(unversioned.get().isLatest()).isTrue();
+                .filter(v -> v.versionId().equals("null")).findFirst()
+                .orElseThrow();
+        assertThat(unversioned.isLatest()).isTrue();
     }
 
     /**
