@@ -76,14 +76,15 @@ public final class AzureBlobStoreTranslateTest {
     }
 
     /**
-     * A read, head or delete naming a well-formed versionId the key does not
-     * have: a real account answers 404 BlobNotFound, where S3 answers 404
-     * NoSuchVersion.
+     * A read or head naming a well-formed versionId the key does not have: a
+     * real account answers 404 BlobNotFound, where S3 answers 404
+     * NoSuchVersion.  Naming no version, the same answer is NoSuchKey.
      */
     @Test
     public void testUnknownVersionIdIsNoSuchVersion() {
         RuntimeException translated = AzureBlobStore.translate(
-                azureException(404, "BlobNotFound"), "container", "key");
+                azureException(404, "BlobNotFound"), "container", "key",
+                "2026-01-01T00:00:00.0000000Z");
 
         assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
                 e -> {
@@ -91,6 +92,12 @@ public final class AzureBlobStoreTranslateTest {
                     assertThat(e.awsErrorDetails().errorCode())
                             .isEqualTo("NoSuchVersion");
                 });
+
+        assertThat(AzureBlobStore.translate(
+                azureException(404, "BlobNotFound"), "container", "key"))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("NoSuchKey"));
     }
 
     /**
