@@ -161,26 +161,21 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * Azure judges a version delete's If-Match against the version named: on a
-     * real account a non-current version deletes under its own ETag and is
-     * refused 412 ConditionNotMet under the current blob's.  So the condition
-     * can go to the service rather than be refused here.  Nothing listens on
-     * the endpoint; getting as far as dialing it is the point.
+     * S3 refuses If-Match on a delete naming a version -- 501 NotImplemented,
+     * whether or not the ETag matches -- so the store refuses it too, before
+     * dialing the service, though Azure itself could judge the condition
+     * against the version named.
      */
     @Test
-    public void testConditionalDeleteOfVersionReachesAzure() {
-        var store = new AzureBlobStore(
-                () -> new Credentials("account", "a2V5"),
-                "http://127.0.0.1:1", /*eTagMode=*/ "opaque",
-                /*versioning=*/ true);
-        assertThatThrownBy(() -> store.removeBlob(
+    public void testRefusesConditionalDeleteOfVersion() {
+        assertThatThrownBy(() -> store(/*versioning=*/ true).removeBlob(
                 DeleteObjectRequest.builder()
                         .bucket("container")
                         .key("key")
                         .versionId("2026-01-01T00:00:00.0000000Z")
                         .ifMatch("\"0x8DE0000000000000-1\"")
                         .build()))
-                .isNotInstanceOf(UnsupportedOperationException.class);
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     /**
@@ -193,12 +188,13 @@ public final class AzureBlobStoreTest {
      */
     @Test
     public void testVersionsPageMapsVersions() {
-        var page = new AzureBlobStore.Page<>(List.of(
+        var rows = List.of(
                 versionBlob("k", "0xV1", /*current=*/ false, /*size=*/ 3L),
-                versionBlob("k", "0xV2", /*current=*/ true, /*size=*/ 5L)),
-                /*continuationToken=*/ (String) null);
+                versionBlob("k", "0xV2", /*current=*/ true, /*size=*/ 5L));
 
-        var response = store(/*versioning=*/ true).versionsPage(page, "k");
+        var response = store(/*versioning=*/ true).versionsPage(
+                rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 1000);
 
         assertThat(response.isTruncated()).isFalse();
         assertThat(response.deleteMarkers()).isEmpty();
@@ -222,12 +218,13 @@ public final class AzureBlobStoreTest {
      */
     @Test
     public void testVersionsPageNamesUnversionedBlobNull() {
-        var page = new AzureBlobStore.Page<>(List.of(
+        var rows = List.of(
                 versionBlob("k", "0xV1", /*current=*/ false, 3L),
-                versionBlob("k", /*versionId=*/ null, /*current=*/ false, 1L)),
-                /*continuationToken=*/ (String) null);
+                versionBlob("k", /*versionId=*/ null, /*current=*/ false, 1L));
 
-        var response = store(/*versioning=*/ true).versionsPage(page, "k");
+        var response = store(/*versioning=*/ true).versionsPage(
+                rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 1000);
 
         var unversioned = response.versions().stream()
                 .filter(v -> v.versionId().equals("null")).findFirst()
@@ -236,21 +233,44 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * A truncated page carries Azure's opaque continuation token as the
-     * version-id marker and the last key as the key marker, so a client that
-     * echoes both resumes and neither marker comes out null.
+     * A page that fills inside a key -- one whose versions may straddle
+     * Azure's pages -- ends on S3's own (key, version-id) markers, and
+     * resuming from them, which startFrom lists from the marker's key again,
+     * picks up with that key's next older version.  A key marker naming no
+     * version resumes after the key.
      */
     @Test
-    public void testVersionsPageTruncationCarriesMarkers() {
-        var page = new AzureBlobStore.Page<>(List.of(
-                versionBlob("k", "0xV1", /*current=*/ true, 3L)),
-                /*continuationToken=*/ "TOKEN");
+    public void testVersionsPageResumesInsideAKey() {
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 1L),
+                versionBlob("k", "2026-01-01T00:00:02.0000000Z", false, 2L),
+                versionBlob("k", "2026-01-01T00:00:03.0000000Z", true, 3L),
+                versionBlob("m", "2026-01-01T00:00:04.0000000Z", true, 4L));
+        AzureBlobStore store = store(/*versioning=*/ true);
 
-        var response = store(/*versioning=*/ true).versionsPage(page, "k");
+        var first = store.versionsPage(rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 2);
+        assertThat(first.isTruncated()).isTrue();
+        assertThat(first.versions()).extracting(v -> v.versionId())
+                .containsExactly("2026-01-01T00:00:03.0000000Z",
+                        "2026-01-01T00:00:02.0000000Z");
+        assertThat(first.nextKeyMarker()).isEqualTo("k");
+        assertThat(first.nextVersionIdMarker())
+                .isEqualTo("2026-01-01T00:00:02.0000000Z");
 
-        assertThat(response.isTruncated()).isTrue();
-        assertThat(response.nextKeyMarker()).isEqualTo("k");
-        assertThat(response.nextVersionIdMarker()).isEqualTo("TOKEN");
+        var second = store.versionsPage(rows.iterator(),
+                first.nextKeyMarker(), first.nextVersionIdMarker(),
+                /*maxKeys=*/ 2);
+        assertThat(second.isTruncated()).isFalse();
+        assertThat(second.versions()).extracting(v -> v.key())
+                .containsExactly("k", "m");
+        assertThat(second.versions().get(0).versionId())
+                .isEqualTo("2026-01-01T00:00:01.0000000Z");
+
+        var afterKey = store.versionsPage(rows.iterator(), "k",
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 2);
+        assertThat(afterKey.versions()).extracting(v -> v.key())
+                .containsExactly("m");
     }
 
     /** The SAS token joins with '&' when the URL already carries a query. */
