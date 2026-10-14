@@ -214,19 +214,25 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * A version Azure stamps with no id stands in as S3's "null" version.
-     * Not reproduced on a real account yet: a blob written just after
-     * versioning was turned off still came back with an id.
+     * A blob written while the account's versioning was off has no version
+     * id.  Once versioning is back on, a real account lists it after the
+     * versions written before it, with no id and with isCurrentVersion unset
+     * like every other version, though it is the one a plain read serves.  It
+     * stands in as S3's "null" version, and is the latest.
      */
     @Test
     public void testVersionsPageNamesUnversionedBlobNull() {
         var page = new AzureBlobStore.Page<>(List.of(
-                versionBlob("k", /*versionId=*/ null, /*current=*/ true, 1L)),
+                versionBlob("k", "0xV1", /*current=*/ false, 3L),
+                versionBlob("k", /*versionId=*/ null, /*current=*/ false, 1L)),
                 /*continuationToken=*/ (String) null);
 
         var response = store(/*versioning=*/ true).versionsPage(page, "k");
 
-        assertThat(response.versions().get(0).versionId()).isEqualTo("null");
+        var unversioned = response.versions().stream()
+                .filter(v -> v.versionId().equals("null")).findFirst();
+        assertThat(unversioned).isPresent();
+        assertThat(unversioned.get().isLatest()).isTrue();
     }
 
     /**
