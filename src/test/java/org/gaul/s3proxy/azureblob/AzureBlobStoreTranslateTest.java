@@ -61,14 +61,14 @@ public final class AzureBlobStoreTranslateTest {
     }
 
     /**
-     * A read or delete naming a bad or unknown versionId; Azure answers 400
-     * InvalidQueryParameterValue, which S3 phrases as a 400 rather than the
-     * 500 an unmapped error would become.
+     * A read, head or delete naming a malformed versionId: a real account
+     * answers 400 with no x-ms-error-code at all, which S3 phrases as a 400
+     * rather than the 500 an unmapped error would become.
      */
     @Test
-    public void testBadVersionIdIsClientError() {
+    public void testMalformedVersionIdIsClientError() {
         RuntimeException translated = AzureBlobStore.translate(
-                azureException(400, "InvalidQueryParameterValue"),
+                azureException(400, /*errorCode=*/ null),
                 "container", "key");
 
         assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
@@ -76,9 +76,28 @@ public final class AzureBlobStoreTranslateTest {
     }
 
     /**
-     * A HEAD (Get Blob Properties) carries no body, so a failure names no
-     * x-ms-error-code; the status alone has to carry it, lest a bad-version
-     * HEAD or a permission failure become a 500.
+     * A read, head or delete naming a well-formed versionId the key does not
+     * have: a real account answers 404 BlobNotFound, where S3 answers 404
+     * NoSuchVersion.
+     */
+    @Test
+    public void testUnknownVersionIdIsNoSuchVersion() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(404, "BlobNotFound"), "container", "key");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(404);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("NoSuchVersion");
+                });
+    }
+
+    /**
+     * A failure Azure names no x-ms-error-code for has to fall back on its
+     * status, lest it become a 500.  On a real account that is the 400 for a
+     * malformed query parameter, on every method; a HEAD's 404 still carries
+     * the code in its header.  403 stands in for any other codeless status.
      */
     @Test
     public void testErrorWithoutCodeFallsBackToStatus() {

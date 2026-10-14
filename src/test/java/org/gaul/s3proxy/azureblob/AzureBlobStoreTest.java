@@ -161,33 +161,41 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * Azure judges a delete's If-Match against the current blob, never the
-     * version named, so a conditional delete of a version is refused rather
-     * than carried out unconditionally.
+     * Azure judges a version delete's If-Match against the version named: on a
+     * real account a non-current version deletes under its own ETag and is
+     * refused 412 ConditionNotMet under the current blob's.  So the condition
+     * can go to the service rather than be refused here.  Nothing listens on
+     * the endpoint; getting as far as dialing it is the point.
      */
     @Test
-    public void testRefusesConditionalDeleteOfVersion() {
-        assertThatThrownBy(() -> store(/*versioning=*/ true).removeBlob(
+    public void testConditionalDeleteOfVersionReachesAzure() {
+        var store = new AzureBlobStore(
+                () -> new Credentials("account", "a2V5"),
+                "http://127.0.0.1:1", /*eTagMode=*/ "opaque",
+                /*versioning=*/ true);
+        assertThatThrownBy(() -> store.removeBlob(
                 DeleteObjectRequest.builder()
                         .bucket("container")
                         .key("key")
                         .versionId("2026-01-01T00:00:00.0000000Z")
                         .ifMatch("\"0x8DE0000000000000-1\"")
                         .build()))
-                .isInstanceOf(UnsupportedOperationException.class);
+                .isNotInstanceOf(UnsupportedOperationException.class);
     }
 
     /**
-     * A page of versions maps onto Version entries newest-first, each with its
-     * own id, size and reported ETag, exactly one flagged latest; Azure keeps
-     * no delete markers, so that list stays empty and the page is not
-     * truncated when no token follows.
+     * Azure lists a key's versions oldest first and flags only the current one
+     * (isCurrentVersion is null, not false, on the rest), as a real account
+     * answers.  S3 lists them newest first, so the page maps onto Version
+     * entries newest first, each with its own id, size and reported ETag,
+     * exactly one flagged latest; Azure keeps no delete markers, so that list
+     * stays empty and the page is not truncated when no token follows.
      */
     @Test
     public void testVersionsPageMapsVersions() {
         var page = new AzureBlobStore.Page<>(List.of(
-                versionBlob("k", "0xV2", /*current=*/ true, /*size=*/ 5L),
-                versionBlob("k", "0xV1", /*current=*/ false, /*size=*/ 3L)),
+                versionBlob("k", "0xV1", /*current=*/ false, /*size=*/ 3L),
+                versionBlob("k", "0xV2", /*current=*/ true, /*size=*/ 5L)),
                 /*continuationToken=*/ (String) null);
 
         var response = store(/*versioning=*/ true).versionsPage(page, "k");
@@ -205,7 +213,11 @@ public final class AzureBlobStoreTest {
         assertThat(response.versions().get(1).isLatest()).isFalse();
     }
 
-    /** A version Azure stamps with no id stands in as S3's "null" version. */
+    /**
+     * A version Azure stamps with no id stands in as S3's "null" version.
+     * Not reproduced on a real account yet: a blob written just after
+     * versioning was turned off still came back with an id.
+     */
     @Test
     public void testVersionsPageNamesUnversionedBlobNull() {
         var page = new AzureBlobStore.Page<>(List.of(
@@ -252,7 +264,9 @@ public final class AzureBlobStoreTest {
         return new BlobItem()
                 .setName(name)
                 .setVersionId(versionId)
-                .setCurrentVersion(current)
+                // Azure omits the flag, rather than sending false, on
+                // every version but the current one.
+                .setCurrentVersion(current ? Boolean.TRUE : null)
                 .setProperties(new BlobItemProperties()
                         .setETag(versionId == null ? "0x0" : versionId)
                         .setContentLength(size)
