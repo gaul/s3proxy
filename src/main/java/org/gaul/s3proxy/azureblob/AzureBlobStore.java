@@ -1386,6 +1386,14 @@ public final class AzureBlobStore implements BlobStore {
      * is the version named, delete the base blob first, which demotes it to a
      * non-current version, then remove it by id.  Unlike S3 this does not
      * promote the prior version back to current; emulating that is deferred.
+     *
+     * <p>The base blob is deleted only while it still is the version named:
+     * a write landing between the refusal and that delete would otherwise
+     * have its own fresh version demoted, leaving the key with no current
+     * version.  The condition is the named version's ETag, which the base
+     * blob carries for as long as that version is current; when the
+     * condition fails, or the base blob is already gone, something else has
+     * demoted the version and it can simply be removed.
      */
     private static void deleteVersion(BlobClient base, String versionId) {
         var version = base.getVersionClient(versionId);
@@ -1396,7 +1404,18 @@ public final class AzureBlobStore implements BlobStore {
                     bse.getErrorCode())) {
                 throw bse;
             }
-            base.delete();
+            String eTag = version.getProperties().getETag();
+            try {
+                base.deleteWithResponse(
+                        /*deleteBlobSnapshotOptions=*/ null,
+                        new BlobRequestConditions().setIfMatch(eTag),
+                        /*timeout=*/ null, Context.NONE);
+            } catch (BlobStorageException raced) {
+                if (!BlobErrorCode.CONDITION_NOT_MET.equals(
+                        raced.getErrorCode()) && !isAbsent(raced)) {
+                    throw raced;
+                }
+            }
             version.delete();
         }
     }
