@@ -81,6 +81,7 @@ import com.azure.storage.blob.options.BlockBlobSimpleUploadOptions;
 import com.azure.storage.blob.options.BlockBlobStageBlockFromUrlOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
+import com.azure.storage.blob.specialized.BlobClientBase;
 import com.azure.storage.blob.specialized.BlobInputStream;
 import com.azure.storage.blob.specialized.BlockBlobAsyncClient;
 import com.azure.storage.common.policy.RequestRetryOptions;
@@ -119,6 +120,7 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
@@ -139,6 +141,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -148,6 +151,7 @@ import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -181,6 +185,13 @@ public final class AzureBlobStore implements BlobStore {
     private static final int STATUS_NOT_FOUND = 404;
     /** S3's name for the version of an object written while unversioned. */
     private static final String NULL_VERSION_ID = "null";
+    /**
+     * Metadata marking a blob as an S3 delete marker.  Azure keeps none, so
+     * a delete on a versioned store writes an empty blob carrying this,
+     * which Azure versions like any other write; the google-cloud-storage
+     * store marks its markers the same way.
+     */
+    private static final String DELETE_MARKER_KEY = "s3proxy_delete_marker";
     /**
      * Azure refuses to delete the current ("root") version of a blob by its
      * version id; the base blob has to be deleted instead.  No SDK constant
@@ -426,6 +437,12 @@ public final class AzureBlobStore implements BlobStore {
         var azureOptions = new ListBlobsOptions();
         azureOptions.setPrefix(request.prefix());
         azureOptions.setMaxResultsPerPage(request.maxKeys());
+        if (versioning) {
+            // A key whose current version is a delete marker holds nothing
+            // an unversioned listing shows, and only the metadata says so.
+            azureOptions.setDetails(
+                    new BlobListDetails().setRetrieveMetadata(true));
+        }
         // start-after names any blob, which is what startFrom takes; the
         // marker takes only a token Azure minted, and handing it a name is
         // the error this parameter exists to avoid.  Pass the continuation
@@ -442,7 +459,8 @@ public final class AzureBlobStore implements BlobStore {
                     request.delimiter(), azureOptions, /*timeout=*/ null);
             page = firstPageWithEntries(
                     m -> pages.iterableByPage(m).iterator().next(), marker,
-                    blobs -> afterStartAfter(blobs, startAfter));
+                    blobs -> withoutDeleteMarkers(
+                            afterStartAfter(blobs, startAfter)));
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
@@ -461,6 +479,22 @@ public final class AzureBlobStore implements BlobStore {
 
         return SdkResponses.objectsPage(contents.build(), prefixes.build(),
                 page.continuationToken());
+    }
+
+    /** A listing page's entries less the blobs that are delete markers. */
+    static List<BlobItem> withoutDeleteMarkers(List<BlobItem> blobs) {
+        if (blobs.stream().noneMatch(b -> isDeleteMarker(b.getMetadata()))) {
+            return blobs;
+        }
+        return blobs.stream()
+                .filter(b -> !isDeleteMarker(b.getMetadata()))
+                .toList();
+    }
+
+    private static boolean isDeleteMarker(
+            @Nullable Map<String, String> metadata) {
+        return metadata != null &&
+                "true".equals(metadata.get(DELETE_MARKER_KEY));
     }
 
     /** The entries of a listing page and the marker onward from it. */
@@ -597,8 +631,26 @@ public final class AzureBlobStore implements BlobStore {
         return client.exists();
     }
 
+    /**
+     * Reads the version a request names, or the current one.  On a versioned
+     * store a key whose current version was deleted by id has none until
+     * another write, where S3 makes the newest remaining version current;
+     * that version is read instead, as the google-cloud-storage store does,
+     * and a delete marker there answers as one.
+     */
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
+            GetObjectRequest request) {
+        try {
+            return readBlob(request);
+        } catch (NoSuchKeyException nske) {
+            String newest = promotedVersion(nske, request.bucket(),
+                    request.key(), request.versionId());
+            return readBlob(request.toBuilder().versionId(newest).build());
+        }
+    }
+
+    private ResponseInputStream<GetObjectResponse> readBlob(
             GetObjectRequest request) {
         String container = request.bucket();
         String key = request.key();
@@ -613,13 +665,17 @@ public final class AzureBlobStore implements BlobStore {
             // unknown versionId would otherwise fail mid-stream in the frontend
             // as a 500.  Probe the version's properties up front to surface it
             // as the 400/404 S3 answers instead.
+            BlobProperties named;
             try {
-                client.getProperties();
+                named = client.getProperties();
             } catch (BlobStorageException bse) {
                 // An absent blob or version answers 404 through translate,
                 // matching how the openInputStream read below reports one --
                 // getBlob no longer returns null for an absent object.
                 throw translate(bse, container, key, request.versionId());
+            }
+            if (versioning && isDeleteMarker(named.getMetadata())) {
+                throw deleteMarkerNamed(request.versionId());
             }
         }
         // Azure rejects the literal If-None-Match: * with 400
@@ -628,10 +684,16 @@ public final class AzureBlobStore implements BlobStore {
         // fails the precondition (412, which the frontend maps to 304 for
         // GET/HEAD) and a missing blob falls through to 404.
         if ("*".equals(request.ifNoneMatch())) {
+            BlobProperties current;
             try {
-                client.getProperties();
+                current = client.getProperties();
             } catch (BlobStorageException bse) {
                 throw translate(bse, container, key, request.versionId());
+            }
+            if (versioning && isDeleteMarker(current.getMetadata())) {
+                throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                        current.getVersionId(),
+                        "current version is a delete marker");
             }
             throw S3Exceptions.fromStatusCode(412);
         }
@@ -679,6 +741,15 @@ public final class AzureBlobStore implements BlobStore {
             throw translate(bse, container, key, request.versionId());
         }
         var properties = blobStream.getProperties();
+        if (versioning && isDeleteMarker(properties.getMetadata())) {
+            blobStream.close();
+            if (request.versionId() != null) {
+                throw deleteMarkerNamed(request.versionId());
+            }
+            throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                    properties.getVersionId(),
+                    "current version is a delete marker");
+        }
         var expires = properties.getExpiresOn();
         long contentLength;
         if (azureRange == null) {
@@ -798,10 +869,9 @@ public final class AzureBlobStore implements BlobStore {
 
     /**
      * Lists a container's object versions.  Azure returns a row per version
-     * when asked to retrieve them, each carrying its own version id, which
-     * map onto S3's Version entries; Azure keeps no delete markers, so the
-     * DeleteMarker list is always empty and a plain delete simply drops the
-     * current version.
+     * when asked to retrieve them, each carrying its own version id and its
+     * metadata, which map onto S3's Version entries -- or DeleteMarker
+     * entries, for the empty blobs a versioned delete writes in their place.
      *
      * <p>Paging uses S3's own (key, version-id) markers rather than Azure's
      * continuation token: the listing restarts from the key marker, which
@@ -822,7 +892,9 @@ public final class AzureBlobStore implements BlobStore {
                 .setStartFrom(request.keyMarker())
                 .setMaxResultsPerPage(
                         Math.max(1, Math.min(maxKeys + 1, 5000)))
-                .setDetails(new BlobListDetails().setRetrieveVersions(true));
+                .setDetails(new BlobListDetails()
+                        .setRetrieveVersions(true)
+                        .setRetrieveMetadata(true));
         try {
             return versionsPage(client.listBlobsByHierarchy(
                     request.delimiter(), options, /*timeout=*/ null)
@@ -842,14 +914,16 @@ public final class AzureBlobStore implements BlobStore {
      * names no version, as S3 does.  The latest version is the one Azure
      * flags current or, failing that, the one with no version id: a blob
      * written while the account was unversioned, which Azure lists last and
-     * leaves unflagged though a plain read serves it.  A key whose current
-     * version was deleted has none, there being no delete marker to report
-     * in its place.
+     * leaves unflagged though a plain read serves it -- or, failing both,
+     * the newest: a key whose current version was deleted by id has none
+     * flagged, and S3 promotes the newest remaining one.  Rows tagged as
+     * delete markers are reported as DeleteMarker entries.
      */
     ListObjectVersionsResponse versionsPage(Iterator<BlobItem> rows,
             @Nullable String keyMarker, @Nullable String versionIdMarker,
             int maxKeys) {
         var entries = new ArrayList<ObjectVersion>();
+        var markers = new ArrayList<DeleteMarkerEntry>();
         var prefixes = ImmutableList.<CommonPrefix>builder();
         PeekingIterator<BlobItem> it = Iterators.peekingIterator(rows);
         String lastKey = null;
@@ -896,6 +970,12 @@ public final class AzureBlobStore implements BlobStore {
                     }
                 }
             }
+            if (latest == null) {
+                // No version is current once the current one was deleted by
+                // id; S3 makes the newest remaining one current, and reads
+                // of the key fall to it here as well.
+                latest = versions.get(versions.size() - 1);
+            }
             for (var version : Lists.reverse(versions)) {
                 String vid = version.getVersionId() != null ?
                         version.getVersionId() : NULL_VERSION_ID;
@@ -907,7 +987,19 @@ public final class AzureBlobStore implements BlobStore {
                     truncated = true;
                     break rows;
                 }
-                entries.add(objectVersion(version, vid, version == latest));
+                if (isDeleteMarker(version.getMetadata())) {
+                    var modified = version.getProperties().getLastModified();
+                    markers.add(DeleteMarkerEntry.builder()
+                            .key(name)
+                            .versionId(vid)
+                            .isLatest(version == latest)
+                            .lastModified(modified == null ? null :
+                                    modified.toInstant())
+                            .build());
+                } else {
+                    entries.add(objectVersion(version, vid,
+                            version == latest));
+                }
                 ++count;
                 lastKey = name;
                 lastVersionId = vid;
@@ -916,6 +1008,7 @@ public final class AzureBlobStore implements BlobStore {
 
         var builder = ListObjectVersionsResponse.builder()
                 .versions(entries)
+                .deleteMarkers(markers)
                 .commonPrefixes(prefixes.build())
                 .isTruncated(truncated);
         if (truncated) {
@@ -1053,13 +1146,8 @@ public final class AzureBlobStore implements BlobStore {
                 tier = toAccessTier(request.storageClass());
             }
 
-            BlobRequestConditions requestConditions = null;
-            if (request.ifMatch() != null || request.ifNoneMatch() != null) {
-                requestConditions = new BlobRequestConditions()
-                        .setIfMatch(backendCondition(request.ifMatch()))
-                        .setIfNoneMatch(
-                                backendCondition(request.ifNoneMatch()));
-            }
+            BlobRequestConditions requestConditions = writeConditions(
+                    client, request.ifMatch(), request.ifNoneMatch());
 
             Long contentLength = request.contentLength();
             if (contentLength != null && contentLength >= 0) {
@@ -1241,6 +1329,8 @@ public final class AzureBlobStore implements BlobStore {
             fromClient = versionClient(fromClient, fromContainer, fromName,
                     request.sourceVersionId());
         }
+        fromClient = copySource(fromClient, fromContainer, fromName,
+                request.sourceVersionId());
         var sourceUrl = signedSourceUrl(fromClient);
         var azureOptions = new BlobUploadFromUrlOptions(sourceUrl);
         var client = blobServiceClient
@@ -1422,13 +1512,25 @@ public final class AzureBlobStore implements BlobStore {
             } else if (namesVersion) {
                 // A versioned delete removes the one version named.
                 deleteVersion(client, versionId);
+            } else if (versioning) {
+                // S3 lays a delete marker over the key, even one that holds
+                // nothing, and keeps every version under it.  Azure keeps no
+                // markers, so one is written: an empty blob tagged as one,
+                // which Azure versions over the current blob like any write.
+                var options = new BlockBlobSimpleUploadOptions(
+                        new ByteArrayInputStream(new byte[0]), 0)
+                        .setMetadata(Map.of(DELETE_MARKER_KEY, "true"));
+                if (ifMatch != null) {
+                    options.setRequestConditions(
+                            new BlobRequestConditions().setIfMatch(ifMatch));
+                }
+                var marker = client.getBlockBlobClient().uploadWithResponse(
+                        options, /*timeout=*/ null, Context.NONE).getValue();
+                return DeleteObjectResponse.builder()
+                        .deleteMarker(true)
+                        .versionId(marker.getVersionId())
+                        .build();
             } else if (ifMatch == null) {
-                // A null-versionId delete against a versioned Azure account
-                // removes the current version and retains the prior ones, but
-                // Azure writes no delete marker: there is nothing to undelete
-                // and no marker version to report, so the response carries
-                // neither.  This diverges from S3, which would insert a delete
-                // marker; emulating one is deferred.
                 client.delete();
             } else {
                 // The service judges the condition as it removes the blob,
@@ -1464,6 +1566,139 @@ public final class AzureBlobStore implements BlobStore {
             builder.versionId(versionId);
         }
         return builder.build();
+    }
+
+    /**
+     * The version a read of a key's current version falls to when the key
+     * has none: the newest remaining one, which S3 makes current once the
+     * current version is deleted by id.  Rethrows {@code nske} when the read
+     * named a version, the store is unversioned, the key's current version
+     * is a delete marker, or nothing remains; a marker as the newest version
+     * answers as the delete marker it is.
+     */
+    private String promotedVersion(NoSuchKeyException nske, String container,
+            String key, @Nullable String versionId) {
+        if (!versioning || versionId != null || nske.awsErrorDetails()
+                .sdkHttpResponse().firstMatchingHeader("x-amz-delete-marker")
+                .isPresent()) {
+            throw nske;
+        }
+        BlobItem newest = newestVersion(blobServiceClient
+                .getBlobContainerClient(container).getBlobClient(key));
+        if (newest == null) {
+            throw nske;
+        }
+        if (isDeleteMarker(newest.getMetadata())) {
+            throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                    newest.getVersionId(),
+                    "current version is a delete marker");
+        }
+        return newest.getVersionId();
+    }
+
+    /** The newest version of a blob, delete markers included, or null. */
+    private static @Nullable BlobItem newestVersion(BlobClientBase base) {
+        var options = new ListBlobsOptions()
+                .setPrefix(base.getBlobName())
+                .setDetails(new BlobListDetails()
+                        .setRetrieveVersions(true)
+                        .setRetrieveMetadata(true));
+        BlobItem newest = null;
+        for (BlobItem blob : base.getContainerClient().listBlobs(options,
+                /*timeout=*/ null)) {
+            if (blob.getName().equals(base.getBlobName()) &&
+                    blob.getVersionId() != null && (newest == null ||
+                    blob.getVersionId().compareTo(newest.getVersionId()) > 0)) {
+                newest = blob;
+            }
+        }
+        return newest;
+    }
+
+    /**
+     * S3's answer to a read naming a delete marker's version: 405, since a
+     * marker stands for no object, saying which version is the marker.
+     */
+    private static S3Exception deleteMarkerNamed(String versionId) {
+        return S3Exceptions.fromStatusCode(405, /*eTag=*/ null,
+                Map.of("x-amz-delete-marker", "true",
+                        "x-amz-version-id", versionId),
+                /*cause=*/ null);
+    }
+
+    /**
+     * The condition a write's If-None-Match: * stands for on a versioned
+     * store.  A key whose current version is a delete marker holds no
+     * object, so the write must succeed -- replacing that marker, under its
+     * ETag -- and a key whose current version was deleted by id still holds
+     * the newest remaining one, so the write must fail.
+     */
+    private @Nullable BlobRequestConditions writeConditions(
+            BlobClientBase base,
+            @Nullable String ifMatch, @Nullable String ifNoneMatch) {
+        if (ifMatch == null && ifNoneMatch == null) {
+            return null;
+        }
+        var conditions = new BlobRequestConditions()
+                .setIfMatch(backendCondition(ifMatch))
+                .setIfNoneMatch(backendCondition(ifNoneMatch));
+        if (!versioning || ifMatch != null || !"*".equals(ifNoneMatch)) {
+            return conditions;
+        }
+        try {
+            var current = base.getProperties();
+            if (isDeleteMarker(current.getMetadata())) {
+                return new BlobRequestConditions().setIfMatch(
+                        current.getETag());
+            }
+        } catch (BlobStorageException bse) {
+            if (!BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                throw bse;
+            }
+            BlobItem newest = newestVersion(base);
+            if (newest != null && !isDeleteMarker(newest.getMetadata())) {
+                throw S3Exceptions.fromStatusCode(412);
+            }
+        }
+        return conditions;
+    }
+
+    /**
+     * The blob a copy reads on a versioned store.  A source whose current
+     * version is a delete marker holds no object, and one naming a marker
+     * outright is refused as S3 refuses it; a source whose current version
+     * was deleted by id is read from its newest remaining version.  An
+     * unversioned store copies what it is given.
+     */
+    private BlobClient copySource(BlobClient source, String container,
+            String key, @Nullable String versionId) {
+        if (!versioning) {
+            return source;
+        }
+        BlobProperties properties;
+        try {
+            properties = source.getProperties();
+        } catch (BlobStorageException bse) {
+            if (versionId != null ||
+                    !BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                throw translate(bse, container, key, versionId);
+            }
+            String newest = promotedVersion(
+                    S3Exceptions.noSuchKey(container, key, bse.getMessage()),
+                    container, key, /*versionId=*/ null);
+            return source.getVersionClient(newest);
+        }
+        if (isDeleteMarker(properties.getMetadata())) {
+            if (versionId != null) {
+                throw S3Exceptions.invalidRequest("The source of a copy " +
+                        "request may not specifically refer to a delete " +
+                        "marker by version id.");
+            }
+            throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
+                    properties.getVersionId(),
+                    "current version is a delete marker");
+        }
+        return source;
     }
 
     /**
@@ -1555,8 +1790,9 @@ public final class AzureBlobStore implements BlobStore {
      * Permanently removes one version.  Azure refuses to delete the current
      * ("root") version by id -- OperationNotAllowedOnRootBlob -- so when that
      * is the version named, delete the base blob first, which demotes it to a
-     * non-current version, then remove it by id.  Unlike S3 this does not
-     * promote the prior version back to current; emulating that is deferred.
+     * non-current version, then remove it by id.  That leaves the key with
+     * no current version; reads and listings then take the newest remaining
+     * one as current, which is S3's promotion (see {@link #getBlob}).
      *
      * <p>The base blob is deleted only while it still is the version named:
      * a write landing between the refusal and that delete would otherwise
@@ -1609,10 +1845,10 @@ public final class AzureBlobStore implements BlobStore {
             return DeleteObjectsResponse.builder().build();
         }
         // A batch names blobs by URL alone and cannot carry a per-object
-        // versionId, so a versioned delete falls to the per-object path, which
-        // routes each through the version-aware removeBlob overload.
-        if (versioning &&
-                objects.stream().anyMatch(o -> o.versionId() != null)) {
+        // versionId, nor write the delete marker a versioned delete leaves,
+        // so a versioned store takes the per-object path, which routes each
+        // through removeBlob and reports the markers it writes.
+        if (versioning) {
             return BlobStore.super.removeBlobs(request);
         }
         var containerClient =
@@ -1679,8 +1915,19 @@ public final class AzureBlobStore implements BlobStore {
                 BlobErrorCode.CONTAINER_NOT_FOUND.equals(code);
     }
 
+    /** As {@link #getBlob}, for the version's properties alone. */
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        try {
+            return readMetadata(request);
+        } catch (NoSuchKeyException nske) {
+            String newest = promotedVersion(nske, request.bucket(),
+                    request.key(), request.versionId());
+            return readMetadata(request.toBuilder().versionId(newest).build());
+        }
+    }
+
+    private HeadObjectResponse readMetadata(HeadObjectRequest request) {
         String container = request.bucket();
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(request.key());
@@ -1694,6 +1941,14 @@ public final class AzureBlobStore implements BlobStore {
         } catch (BlobStorageException bse) {
             throw translate(bse, container, request.key(),
                     request.versionId());
+        }
+        if (versioning && isDeleteMarker(properties.getMetadata())) {
+            if (request.versionId() != null) {
+                throw deleteMarkerNamed(request.versionId());
+            }
+            throw S3Exceptions.noSuchKeyDeleteMarker(container, request.key(),
+                    properties.getVersionId(),
+                    "current version is a delete marker");
         }
         @SuppressWarnings("deprecation")
         HeadObjectResponse head = HeadObjectResponse.builder()
@@ -1999,11 +2254,10 @@ public final class AzureBlobStore implements BlobStore {
         }
 
         // Support conditional writes (If-Match/If-None-Match)
-        if (request.ifMatch() != null || request.ifNoneMatch() != null) {
-            options.setRequestConditions(new BlobRequestConditions()
-                    .setIfMatch(backendCondition(request.ifMatch()))
-                    .setIfNoneMatch(
-                            backendCondition(request.ifNoneMatch())));
+        var conditions = writeConditions(client, request.ifMatch(),
+                request.ifNoneMatch());
+        if (conditions != null) {
+            options.setRequestConditions(conditions);
         }
 
         try {
@@ -2144,6 +2398,8 @@ public final class AzureBlobStore implements BlobStore {
             fromClient = versionClient(fromClient, request.sourceBucket(),
                     request.sourceKey(), sourceVersionId);
         }
+        fromClient = copySource(fromClient, request.sourceBucket(),
+                request.sourceKey(), sourceVersionId);
 
         var options = new BlockBlobStageBlockFromUrlOptions(blockId,
                 signedSourceUrl(fromClient))

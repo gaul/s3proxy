@@ -23,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 
 import com.azure.core.http.HttpHeaders;
@@ -273,6 +274,64 @@ public final class AzureBlobStoreTest {
                 .containsExactly("m");
     }
 
+    /**
+     * A versioned delete writes an empty blob tagged as a delete marker,
+     * which a real account lists with its metadata like any version.  It is
+     * reported as a DeleteMarker entry, not a Version, and as the latest
+     * when it is the current blob.
+     */
+    @Test
+    public void testVersionsPageReportsDeleteMarkers() {
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 3L),
+                deleteMarker(versionBlob("k", "2026-01-01T00:00:02.0000000Z",
+                        /*current=*/ true, 0L)));
+
+        var response = store(/*versioning=*/ true).versionsPage(
+                rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.deleteMarkers()).hasSize(1);
+        var marker = response.deleteMarkers().get(0);
+        assertThat(marker.versionId()).isEqualTo("2026-01-01T00:00:02.0000000Z");
+        assertThat(marker.isLatest()).isTrue();
+        assertThat(response.versions()).extracting(v -> v.versionId())
+                .containsExactly("2026-01-01T00:00:01.0000000Z");
+        assertThat(response.versions().get(0).isLatest()).isFalse();
+    }
+
+    /**
+     * Once the current version is deleted by id a real account flags no
+     * version of the key current; S3 promotes the newest remaining one, so
+     * that one is the latest.
+     */
+    @Test
+    public void testVersionsPagePromotesNewestWhenNoneCurrent() {
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 3L),
+                versionBlob("k", "2026-01-01T00:00:02.0000000Z", false, 5L));
+
+        var response = store(/*versioning=*/ true).versionsPage(
+                rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.versions()).extracting(v -> v.isLatest())
+                .containsExactly(true, false);
+        assertThat(response.versions().get(0).versionId())
+                .isEqualTo("2026-01-01T00:00:02.0000000Z");
+    }
+
+    /** An unversioned listing drops the keys whose current blob is a marker. */
+    @Test
+    public void testListingHidesDeleteMarkers() {
+        var kept = versionBlob("a", null, true, 1L);
+        var rows = List.of(kept,
+                deleteMarker(versionBlob("b", null, true, 0L)));
+
+        assertThat(AzureBlobStore.withoutDeleteMarkers(rows))
+                .containsExactly(kept);
+    }
+
     /** The SAS token joins with '&' when the URL already carries a query. */
     @Test
     public void testSasSourceUrlJoins() {
@@ -298,6 +357,10 @@ public final class AzureBlobStoreTest {
                         .setContentLength(size)
                         .setLastModified(
                                 OffsetDateTime.parse("2026-01-01T00:00:00Z")));
+    }
+
+    private static BlobItem deleteMarker(BlobItem blob) {
+        return blob.setMetadata(Map.of("s3proxy_delete_marker", "true"));
     }
 
     private static AzureBlobStore store(boolean versioning) {
