@@ -76,6 +76,25 @@ public final class AzureBlobStoreTranslateTest {
     }
 
     /**
+     * Naming the version, the same codeless 400 is S3's InvalidArgument, not
+     * the BadDigest a bare 400 becomes -- which tells a client to retry a
+     * request that can never succeed.
+     */
+    @Test
+    public void testMalformedVersionIdIsInvalidArgument() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(400, /*errorCode=*/ null), "container", "key",
+                "not-a-version");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("InvalidArgument");
+                });
+    }
+
+    /**
      * A read or head naming a well-formed versionId the key does not have: a
      * real account answers 404 BlobNotFound, where S3 answers 404
      * NoSuchVersion.  Naming no version, the same answer is NoSuchKey.
