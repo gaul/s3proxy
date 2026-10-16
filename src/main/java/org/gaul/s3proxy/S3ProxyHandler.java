@@ -2344,7 +2344,12 @@ public class S3ProxyHandler {
                     /*size=*/ null, /*storageClass=*/ null);
         }
 
-        /** S3 listing order: keys ascending, then newest first. */
+        /**
+         * S3 listing order: keys ascending, then newest first.  Times are
+         * compared whole, not to the millisecond, since a store may know
+         * them more finely than it reports them; and of two stamped alike,
+         * the latest goes first, as nothing written after it can be.
+         */
         static int compareOrder(VersionEntry left, VersionEntry right) {
             int compare = left.name().compareTo(right.name());
             if (compare != 0) {
@@ -2352,9 +2357,13 @@ public class S3ProxyHandler {
             }
             var leftModified = left.lastModified();
             var rightModified = right.lastModified();
-            return Long.compare(
-                    rightModified == null ? 0 : rightModified.toEpochMilli(),
-                    leftModified == null ? 0 : leftModified.toEpochMilli());
+            compare = (rightModified == null ? Instant.EPOCH : rightModified)
+                    .compareTo(leftModified == null ? Instant.EPOCH :
+                            leftModified);
+            if (compare != 0) {
+                return compare;
+            }
+            return Boolean.compare(right.latest(), left.latest());
         }
     }
 
@@ -2417,8 +2426,8 @@ public class S3ProxyHandler {
         // ordered document, but the SDK models them as two lists, each still
         // in that order.  Merge them back by S3's order -- keys ascending,
         // then newest first -- which recovers the original sequence except
-        // for a version and a marker of the same key stamped in the same
-        // millisecond.
+        // for a non-latest version and marker of the same key stamped at the
+        // same instant.
         var versionEntries = page.versions().stream()
                 .filter(version -> !filterStub || !version.key().startsWith(
                         MULTIPART_STUB_PREFIX))

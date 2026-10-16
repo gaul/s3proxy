@@ -28,6 +28,7 @@ import com.azure.core.http.HttpRequest;
 import com.azure.core.http.HttpResponse;
 import com.azure.storage.blob.models.BlobStorageException;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import reactor.core.publisher.Flux;
@@ -59,11 +60,92 @@ public final class AzureBlobStoreTranslateTest {
                 });
     }
 
+    /**
+     * A read, head or delete naming a malformed versionId: a real account
+     * answers 400 with no x-ms-error-code at all, which S3 phrases as a 400
+     * rather than the 500 an unmapped error would become.
+     */
+    @Test
+    public void testMalformedVersionIdIsClientError() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(400, /*errorCode=*/ null),
+                "container", "key");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> assertThat(e.statusCode()).isEqualTo(400));
+    }
+
+    /**
+     * Naming the version, the same codeless 400 is S3's InvalidArgument, not
+     * the BadDigest a bare 400 becomes -- which tells a client to retry a
+     * request that can never succeed.
+     */
+    @Test
+    public void testMalformedVersionIdIsInvalidArgument() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(400, /*errorCode=*/ null), "container", "key",
+                "not-a-version");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("InvalidArgument");
+                });
+    }
+
+    /**
+     * A read or head naming a well-formed versionId the key does not have: a
+     * real account answers 404 BlobNotFound, where S3 answers 404
+     * NoSuchVersion.  Naming no version, the same answer is NoSuchKey.
+     */
+    @Test
+    public void testUnknownVersionIdIsNoSuchVersion() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(404, "BlobNotFound"), "container", "key",
+                "2026-01-01T00:00:00.0000000Z");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(404);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("NoSuchVersion");
+                });
+
+        assertThat(AzureBlobStore.translate(
+                azureException(404, "BlobNotFound"), "container", "key"))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("NoSuchKey"));
+    }
+
+    /**
+     * A failure Azure names no x-ms-error-code for has to fall back on its
+     * status, lest it become a 500.  On a real account that is the 400 for a
+     * malformed query parameter, on every method; a HEAD's 404 still carries
+     * the code in its header.  403 stands in for any other codeless status.
+     */
+    @Test
+    public void testErrorWithoutCodeFallsBackToStatus() {
+        assertThat(AzureBlobStore.translate(
+                azureException(400, /*errorCode=*/ null), "container", "key"))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(400));
+
+        assertThat(AzureBlobStore.translate(
+                azureException(403, /*errorCode=*/ null), "container", "key"))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(403));
+    }
+
     /** An Azure service error as the SDK would raise it. */
     private static BlobStorageException azureException(int statusCode,
-            String errorCode) {
-        var headers = new HttpHeaders().set(
-                HttpHeaderName.fromString("x-ms-error-code"), errorCode);
+            @Nullable String errorCode) {
+        var headers = new HttpHeaders();
+        if (errorCode != null) {
+            headers.set(HttpHeaderName.fromString("x-ms-error-code"),
+                    errorCode);
+        }
         var request = new HttpRequest(HttpMethod.HEAD,
                 "https://account.blob.example.com/container/key");
         var response = new HttpResponse(request) {
