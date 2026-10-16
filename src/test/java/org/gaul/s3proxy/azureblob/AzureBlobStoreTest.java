@@ -321,15 +321,133 @@ public final class AzureBlobStoreTest {
                 .isEqualTo("2026-01-01T00:00:02.0000000Z");
     }
 
-    /** An unversioned listing drops the keys whose current blob is a marker. */
+    /**
+     * A versioned listing reports each key once, by its latest version, and
+     * leaves out a key whose latest version is a delete marker.
+     */
     @Test
-    public void testListingHidesDeleteMarkers() {
-        var kept = versionBlob("a", null, true, 1L);
-        var rows = List.of(kept,
-                deleteMarker(versionBlob("b", null, true, 0L)));
+    public void testLatestPageHidesDeleteMarkers() {
+        var rows = List.of(
+                versionBlob("a", "2026-01-01T00:00:01.0000000Z", false, 1L),
+                versionBlob("a", "2026-01-01T00:00:02.0000000Z", true, 2L),
+                versionBlob("b", "2026-01-01T00:00:01.0000000Z", false, 3L),
+                deleteMarker(versionBlob("b",
+                        "2026-01-01T00:00:02.0000000Z", true, 0L)));
 
-        assertThat(AzureBlobStore.withoutDeleteMarkers(rows))
-                .containsExactly(kept);
+        var response = store(/*versioning=*/ true).latestPage(
+                rows.iterator(), /*after=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.contents()).hasSize(1);
+        assertThat(response.contents().get(0).key()).isEqualTo("a");
+        assertThat(response.contents().get(0).size()).isEqualTo(2L);
+        assertThat(response.isTruncated()).isFalse();
+    }
+
+    /**
+     * A key whose current version was deleted by id has no current version
+     * left, and is listed by its newest remaining one, which reads serve --
+     * including a key "undeleted" by deleting its delete marker.
+     */
+    @Test
+    public void testLatestPageListsPromotedVersion() {
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 1L),
+                versionBlob("k", "2026-01-01T00:00:02.0000000Z", false, 2L));
+
+        var response = store(/*versioning=*/ true).latestPage(
+                rows.iterator(), /*after=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.contents()).hasSize(1);
+        assertThat(response.contents().get(0).key()).isEqualTo("k");
+        assertThat(response.contents().get(0).size()).isEqualTo(2L);
+    }
+
+    /**
+     * A truncated versioned listing resumes after the last key it reported,
+     * however that key's versions fell across Azure's pages.
+     */
+    @Test
+    public void testLatestPageResumesAfterLastKey() {
+        var rows = List.of(
+                versionBlob("a", "2026-01-01T00:00:01.0000000Z", false, 1L),
+                versionBlob("a", "2026-01-01T00:00:02.0000000Z", true, 2L),
+                versionBlob("b", "2026-01-01T00:00:01.0000000Z", true, 3L),
+                versionBlob("c", "2026-01-01T00:00:01.0000000Z", true, 4L));
+        var store = store(/*versioning=*/ true);
+
+        var first = store.latestPage(rows.iterator(), /*after=*/ null,
+                /*maxKeys=*/ 2);
+        assertThat(first.contents()).extracting(o -> o.key())
+                .containsExactly("a", "b");
+        assertThat(first.isTruncated()).isTrue();
+
+        // startFrom includes the name the page resumes after.
+        String after = AzureBlobStore.decodeListToken(
+                first.nextContinuationToken());
+        assertThat(after).isEqualTo("b");
+        var second = store.latestPage(rows.subList(2, 4).iterator(), after,
+                /*maxKeys=*/ 2);
+        assertThat(second.contents()).extracting(o -> o.key())
+                .containsExactly("c");
+        assertThat(second.isTruncated()).isFalse();
+    }
+
+    /** S3 answers a listing asking for no keys as complete. */
+    @Test
+    public void testLatestPageMaxKeysZero() {
+        var rows = List.of(
+                versionBlob("a", "2026-01-01T00:00:01.0000000Z", true, 1L));
+
+        var response = store(/*versioning=*/ true).latestPage(
+                rows.iterator(), /*after=*/ null, /*maxKeys=*/ 0);
+
+        assertThat(response.contents()).isEmpty();
+        assertThat(response.isTruncated()).isFalse();
+    }
+
+    /** A continuation token round-trips any key, '+' and '%' included. */
+    @Test
+    public void testListTokenRoundTrips() {
+        String name = "dir/a+b %2F\u00e9";
+        assertThat(AzureBlobStore.decodeListToken(
+                AzureBlobStore.encodeListToken(name))).isEqualTo(name);
+        assertThatThrownBy(() -> AzureBlobStore.decodeListToken("not*base64"))
+                .isInstanceOf(S3Exception.class);
+    }
+
+    /**
+     * A caller cannot mark an object as a delete marker, or retarget a
+     * multipart upload, through user metadata, in any spelling.
+     */
+    @Test
+    public void testReservedMetadataDropped() {
+        var metadata = Map.of("S3Proxy_Delete_Marker", "true",
+                "s3proxy_target_blob_name", "other", "color", "blue");
+
+        assertThat(AzureBlobStore.withoutReservedMetadata(metadata))
+                .containsExactlyEntriesOf(Map.of("color", "blue"));
+        var plain = Map.of("color", "blue");
+        assertThat(AzureBlobStore.withoutReservedMetadata(plain))
+                .isSameAs(plain);
+    }
+
+    /**
+     * A version is timed by its id, which Azure stamps to a tenth of a
+     * microsecond, not by the whole-second Last-Modified it lists: a PUT and
+     * the delete marker after it in the same second still order.  The
+     * version written while unversioned has no id and keeps Last-Modified.
+     */
+    @Test
+    public void testVersionTimeFromVersionId() {
+        var put = versionBlob("k", "2026-01-01T00:00:00.1000000Z", false, 1L);
+        var marker = deleteMarker(versionBlob("k",
+                "2026-01-01T00:00:00.2000000Z", true, 0L));
+
+        assertThat(AzureBlobStore.versionTime(marker))
+                .isAfter(AzureBlobStore.versionTime(put));
+        assertThat(AzureBlobStore.versionTime(versionBlob("k", null, true, 1L)))
+                .isEqualTo(OffsetDateTime.parse("2026-01-01T00:00:00Z")
+                        .toInstant());
     }
 
     /** The SAS token joins with '&' when the URL already carries a query. */
