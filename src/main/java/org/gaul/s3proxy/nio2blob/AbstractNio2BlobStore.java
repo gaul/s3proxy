@@ -236,6 +236,19 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
     protected AbstractNio2BlobStore(Path root) {
         this.root = root;
+        // Everything about an object but its bytes lives in user extended
+        // attributes, and a filesystem without them -- NFSv3, vfat, some
+        // container bind mounts -- accepts the object and drops the rest.
+        // Each write logs that only at debug, so say it once, here, where an
+        // operator will see it.  A root that does not exist yet has nothing
+        // to ask; the filesystem store refuses one anyway.
+        if (Files.isDirectory(root) && !supportsUserAttributes(root)) {
+            logger.warn("{} does not keep user extended attributes, so" +
+                    " objects stored there lose their ETag, Content-Type" +
+                    " and user metadata; use a filesystem that keeps" +
+                    " them, such as NFS 4.2 over one that does.  See" +
+                    " https://github.com/gaul/s3proxy/issues/1210", root);
+        }
     }
 
     protected final Path getRoot() {
@@ -2876,6 +2889,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var sep = path.getFileSystem().getSeparator();
         var name = containerPath.relativize(path).toString();
         return sep.equals("/") ? name : name.replace(sep, "/");
+    }
+
+    /**
+     * Whether the filesystem holding {@code path} keeps user extended
+     * attributes.  The JDK answers from the mount's options where they say,
+     * and otherwise by asking the mount point for one, which a filesystem
+     * without them refuses as unsupported.
+     */
+    static boolean supportsUserAttributes(Path path) {
+        try {
+            return Files.getFileStore(path).supportsFileAttributeView(
+                    UserDefinedFileAttributeView.class);
+        } catch (IOException ioe) {
+            return false;
+        }
     }
 
     @Nullable
