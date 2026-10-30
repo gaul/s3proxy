@@ -41,6 +41,7 @@ import java.util.function.UnaryOperator;
 
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.credential.AzureSasCredential;
+import com.azure.core.credential.TokenCredential;
 import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpPipelineCallContext;
 import com.azure.core.http.HttpPipelinePosition;
@@ -86,6 +87,7 @@ import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -202,6 +204,44 @@ public final class AzureBlobStore implements BlobStore {
             Supplier<Credentials> creds,
             String endpointUrl,
             String eTagMode) {
+        this(creds, /*tokenCredential=*/ null, endpointUrl, eTagMode);
+    }
+
+    /**
+     * Authenticates with the bearer tokens that {@code tokenCredential}
+     * returns.  Use this when the application obtains Microsoft Entra
+     * access tokens itself, for example from a sidecar or a token broker,
+     * which {@code DefaultAzureCredential} cannot read.  S3Proxy 3.x
+     * supported this through jclouds ({@code jclouds.azureblob.auth=azureAd}
+     * with the token supplied as the credential); this constructor keeps it
+     * working for applications that embed S3Proxy 4.x.
+     *
+     * <p>The Azure client caches each token and calls {@code
+     * tokenCredential} again shortly before it expires, so a credential that
+     * returns fresh tokens needs no further handling.  Server-side copies
+     * sign their source URL with a user delegation key, the same as when
+     * {@code DefaultAzureCredential} is used.
+     */
+    public AzureBlobStore(
+            TokenCredential tokenCredential,
+            String endpointUrl) {
+        this(tokenCredential, endpointUrl, /*eTagMode=*/ "opaque");
+    }
+
+    public AzureBlobStore(
+            TokenCredential tokenCredential,
+            String endpointUrl,
+            String eTagMode) {
+        this(Suppliers.ofInstance(new Credentials(/*identity=*/ "",
+                /*credential=*/ "")), requireNonNull(tokenCredential),
+                endpointUrl, eTagMode);
+    }
+
+    private AzureBlobStore(
+            Supplier<Credentials> creds,
+            @Nullable TokenCredential tokenCredential,
+            String endpointUrl,
+            String eTagMode) {
         this.opaqueETags = switch (eTagMode) {
         case "opaque" -> true;
         case "native" -> false;
@@ -241,8 +281,13 @@ public final class AzureBlobStore implements BlobStore {
                 new AzureNamedKeyCredential(cred.identity(),
                         cred.credential()));
         } else {
-            blobServiceClientBuilder.credential(
-                new DefaultAzureCredentialBuilder().build());
+            // Use the caller's TokenCredential if one was given, otherwise
+            // DefaultAzureCredential, which checks the environment, the
+            // workload identity token file, managed identity and the
+            // developer tools.
+            blobServiceClientBuilder.credential(tokenCredential != null ?
+                    tokenCredential :
+                    new DefaultAzureCredentialBuilder().build());
         }
         // Build the sync and async clients once from a single builder so they
         // share one credential instance.  Rebuilding the credential per request

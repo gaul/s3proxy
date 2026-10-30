@@ -114,6 +114,14 @@ read -- environment, profile, container, and instance role for `aws-s3`,
 `DefaultAzureCredential` for `azureblob`, and application default credentials
 for `google-cloud-storage` -- every one of which renews what it finds.
 
+An application that embeds S3Proxy and obtains Microsoft Entra access tokens
+itself, for example from a sidecar or a token broker that
+`DefaultAzureCredential` cannot read, can pass a `TokenCredential` to the
+`AzureBlobStore` constructor.  The Azure client requests a new token from it
+shortly before the current one expires.  S3Proxy 3.x supported this through
+jclouds (`jclouds.azureblob.auth=azureAd` with the token supplied as the
+credential), and this keeps it working after the move to the Azure SDK.
+
 Three credentials are read only when the store is built, because nothing
 about them expires: an Azure account key, which the client copies out when it
 is created; a Google service account key, which mints and renews access
