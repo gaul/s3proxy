@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.cloud.NoCredentials;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.sun.net.httpserver.HttpExchange;
@@ -44,6 +45,9 @@ import org.junit.jupiter.api.Test;
  * workload identity exchange, say -- nowhere to put it.  A session token is
  * that place, and since nothing says how long it lasts the supplier is asked
  * again for each request rather than one answer being presented twice.
+ * Naming neither a key nor a token leaves the tokens to application default
+ * credentials, Workload Identity among them, except at an emulator, which
+ * gets none.
  */
 public final class GCloudOAuthTokenTest {
     private final List<String> authorizations =
@@ -93,6 +97,62 @@ public final class GCloudOAuthTokenTest {
         assertThat(authorizations.get(0)).startsWith("Bearer token-");
         assertThat(authorizations.get(1))
                 .isNotEqualTo(authorizations.get(0));
+    }
+
+    /**
+     * Google's endpoints without a key defer to the SDK's lookup, the
+     * regional and private ones still reached at the host they name.
+     */
+    @Test
+    public void testNoKeyUsesApplicationDefaultCredentials() {
+        Supplier<Credentials> creds = Suppliers.ofInstance(
+                new Credentials("project", /*credential=*/ ""));
+
+        for (String endpoint : List.of(
+                "https://storage.googleapis.com",
+                "https://storage.googleapis.com/",
+                "https://storage.me-central2.rep.googleapis.com",
+                "https://us-central1-storage.googleapis.com",
+                "https://storage-xyz.p.googleapis.com")) {
+            try (var blobStore = new GCloudBlobStore(creds, endpoint)) {
+                assertThat(blobStore.options().getCredentials())
+                        .as(endpoint)
+                        .isNotSameAs(NoCredentials.getInstance());
+                // The SDK reports its own default with a trailing slash.
+                assertThat(blobStore.options().getHost()).startsWith(endpoint);
+            }
+        }
+    }
+
+    /** A host that only resembles Google's is taken for an emulator. */
+    @Test
+    public void testLookalikeHostGetsNoCredentials() {
+        Supplier<Credentials> creds = Suppliers.ofInstance(
+                new Credentials("project", /*credential=*/ ""));
+
+        for (String endpoint : List.of(
+                "https://storage.googleapis.com.example.com",
+                "https://notgoogleapis.com",
+                "http://storage.googleapis.com")) {
+            try (var blobStore = new GCloudBlobStore(creds, endpoint)) {
+                assertThat(blobStore.options().getCredentials())
+                        .as(endpoint)
+                        .isSameAs(NoCredentials.getInstance());
+            }
+        }
+    }
+
+    /** An emulator without a key is sent no credentials at all. */
+    @Test
+    public void testEmulatorGetsNoCredentials() {
+        Supplier<Credentials> creds = Suppliers.ofInstance(
+                new Credentials("project", /*credential=*/ ""));
+
+        try (BlobStore blobStore = store(creds)) {
+            blobStore.list();
+        }
+
+        assertThat(authorizations).containsExactly((String) null);
     }
 
     private BlobStore store(Supplier<Credentials> creds) {

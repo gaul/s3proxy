@@ -21,6 +21,7 @@ import static java.util.Objects.requireNonNull;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
@@ -198,6 +199,19 @@ public final class GCloudBlobStore implements BlobStore {
         if (cred.identity() != null && !cred.identity().isEmpty()) {
             storageBuilder.setProjectId(cred.identity());
         }
+        var endpoint = endpointUrl;
+        boolean customEndpoint = endpoint != null && !endpoint.isEmpty() &&
+                !endpoint.equals("https://storage.googleapis.com");
+        // Google names its regional, locational and Private Service Connect
+        // endpoints under googleapis.com, so a custom endpoint elsewhere, or
+        // one reached over plain HTTP, is assumed to be an emulator.
+        boolean emulator = false;
+        if (customEndpoint) {
+            URI endpointUri = URI.create(endpoint);
+            String host = endpointUri.getHost();
+            emulator = !"https".equals(endpointUri.getScheme()) ||
+                    host == null || !host.endsWith(".googleapis.com");
+        }
         String sessionToken = cred.sessionToken();
         if (!Strings.isNullOrEmpty(sessionToken)) {
             storageBuilder.setCredentials(new SuppliedTokenCredentials(creds));
@@ -222,26 +236,38 @@ public final class GCloudBlobStore implements BlobStore {
                             "Failed to initialize GCS credentials", ioe2);
                 }
             }
-        } else {
-            // No credentials provided — use NoCredentials for emulator
+        } else if (emulator) {
+            // No credentials were provided and the endpoint is not Google's.
+            // So we assume this is an emulator that takes no credentials.
             storageBuilder.setCredentials(NoCredentials.getInstance());
         }
-        var endpoint = endpointUrl;
-        boolean customEndpoint = endpoint != null && !endpoint.isEmpty() &&
-                !endpoint.equals("https://storage.googleapis.com");
+        // If no credentials are provided AND the endpoint is Google's then
+        // we will rely on the SDK's mechanisms, which also support workload
+        // identity.
+        // The SDK looks up application default credentials: the file
+        // GOOGLE_APPLICATION_CREDENTIALS names, gcloud's own, or the metadata
+        // server, which is how GKE Workload Identity serves them.  Finding
+        // none, it sends requests unauthenticated, as for a public bucket.
+
+
         if (customEndpoint) {
             storageBuilder.setHost(endpoint);
         }
         // Only Google's own service is known to apply a predefined ACL named
         // on buckets.insert; fake-gcs-server accepts the parameter and drops
-        // it, leaving a private bucket.  Anything but the real endpoint
-        // therefore sets the ACL in a second request.  Keyed on the endpoint
-        // rather than on it being local because an emulator is often reached
-        // by container hostname rather than at localhost.
+        // it, leaving a private bucket.  An emulator therefore gets the ACL
+        // set in a second request.  Keyed on the endpoint rather than on it
+        // being local because an emulator is often reached by container
+        // hostname rather than at localhost.
         // TODO: create every bucket atomically after
         // https://github.com/fsouza/fake-gcs-server/pull/2309 is released
-        atomicBucketAcl = !customEndpoint;
+        atomicBucketAcl = !emulator;
         storage = storageBuilder.build().getService();
+    }
+
+    // Lets tests see which credentials the client settled on.
+    StorageOptions options() {
+        return storage.getOptions();
     }
 
     // Releases the SDK client's transport channels and background threads when
