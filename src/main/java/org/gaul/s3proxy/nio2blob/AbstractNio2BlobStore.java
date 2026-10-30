@@ -954,8 +954,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 try {
                     writeCommonMetadataAttr(view, blob);
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
-                } catch (IOException | UnsupportedOperationException ioe) {
-                    logger.debug("xattrs not supported on {}", path);
+                } catch (IOException | UnsupportedOperationException e) {
+                    try {
+                        attributeWriteFailed(path, e);
+                    } catch (IOException ioe) {
+                        throw new RuntimeException(ioe);
+                    }
                 }
             }
 
@@ -1037,7 +1041,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                     writeEncryptionAttr(view, blob);
                 } catch (IOException | UnsupportedOperationException e) {
-                    logger.debug("xattrs not supported on {}", tmpPath);
+                    attributeWriteFailed(tmpPath, e);
                 }
             }
 
@@ -1486,7 +1490,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     view.delete(XATTR_CONTENT_MD5);
                 }
             } catch (IOException | UnsupportedOperationException e) {
-                logger.debug("could not clear directory marker on {}", path);
+                try {
+                    attributeWriteFailed(path, e);
+                } catch (IOException ioe) {
+                    throw new RuntimeException(ioe);
+                }
             }
         }
     }
@@ -2904,6 +2912,23 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             return false;
         }
+    }
+
+    /**
+     * Decides what a failed write of user attributes means.  Where the
+     * filesystem keeps none, the object goes without them as it always has,
+     * and the store warned of that when it was built.  Anywhere else the
+     * failure is real -- an I/O error, or more than the filesystem holds for
+     * one file -- and the writes before it may already have landed, so
+     * answering success would report metadata as stored when some or all of
+     * it was dropped.  The write fails instead.
+     */
+    private static void attributeWriteFailed(Path path, Exception e)
+            throws IOException {
+        if (e instanceof IOException ioe && supportsUserAttributes(path)) {
+            throw ioe;
+        }
+        logger.debug("xattrs not supported on {}", path);
     }
 
     @Nullable
