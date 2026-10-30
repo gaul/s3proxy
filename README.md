@@ -194,6 +194,7 @@ Some limitations depend on the storage backend:
 | --- | --- |
 | no per-object ACLs, including public-read | `azureblob`, `openstack-swift` |
 | ETag is not the object MD5 | `azureblob`, `google-cloud-storage` |
+| on a filesystem without user extended attributes, such as NFSv3: Content-Type and user metadata are not kept, and the ETag is derived from the file rather than the MD5, see [#1210](https://github.com/gaul/s3proxy/issues/1210) | `filesystem` |
 | `Cache-Control` not preserved | `google-cloud-storage`, `openstack-swift` |
 | `Content-Encoding` not preserved | `google-cloud-storage` |
 | `Content-Language` not preserved | `openstack-swift` |

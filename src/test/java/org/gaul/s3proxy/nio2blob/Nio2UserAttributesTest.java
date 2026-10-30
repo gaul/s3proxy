@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import com.google.common.io.ByteSource;
@@ -129,5 +130,80 @@ public final class Nio2UserAttributesTest {
         try (var entries = Files.list(temp.resolve(CONTAINER))) {
             assertThat(entries).isEmpty();
         }
+    }
+
+    /**
+     * Without an ETag stored, one is derived from the file, and the write,
+     * a HEAD and a listing all report the same one.  It is shaped as a
+     * one-part multipart ETag, since it is no MD5 of the payload.
+     */
+    @Test
+    public void testWithoutAttributesTheETagIsDerivedFromTheFile()
+            throws IOException {
+        var put = TestUtils.putBlob(store, CONTAINER, "key", CONTENT);
+
+        assertThat(put.eTag()).matches("\"?[0-9a-f]{32}-1\"?");
+        assertThat(unquote(store.blobMetadata(CONTAINER, "key").eTag()))
+                .isEqualTo(unquote(put.eTag()));
+        assertThat(unquote(store.list(CONTAINER).contents().get(0).eTag()))
+                .isEqualTo(unquote(put.eTag()));
+    }
+
+    /** Rewriting a key, even with the same bytes, gives a new ETag. */
+    @Test
+    public void testDerivedETagChangesWhenTheKeyIsRewritten()
+            throws IOException {
+        var first = TestUtils.putBlob(store, CONTAINER, "key", CONTENT);
+        var second = TestUtils.putBlob(store, CONTAINER, "key", CONTENT);
+
+        assertThat(unquote(second.eTag())).isNotEqualTo(
+                unquote(first.eTag()));
+        assertThat(unquote(store.blobMetadata(CONTAINER, "key").eTag()))
+                .isEqualTo(unquote(second.eTag()));
+    }
+
+    /**
+     * A multipart upload completes over parts whose ETags were derived, and
+     * reports the ETag a HEAD of the assembled object then gives.
+     */
+    @Test
+    public void testMultipartWithoutAttributes() throws IOException {
+        var mpu = store.initiateMultipartUpload(
+                TestUtils.createRequest(CONTAINER, "mpu"));
+        var part = TestUtils.uploadPart(store, mpu, 1, CONTENT.openStream(),
+                CONTENT.size());
+        List<software.amazon.awssdk.services.s3.model.Part> parts =
+                store.listMultipartUpload(mpu);
+        assertThat(parts).hasSize(1);
+        assertThat(unquote(parts.get(0).eTag())).isEqualTo(
+                unquote(part.eTag()));
+
+        var completed = store.completeMultipartUpload(mpu,
+                TestUtils.completeRequest(mpu, parts));
+
+        assertThat(unquote(store.blobMetadata(CONTAINER, "mpu").eTag()))
+                .isEqualTo(unquote(completed.eTag()));
+    }
+
+    /**
+     * A file written around S3Proxy on a filesystem that does keep
+     * attributes has no ETag of ours either, and gets one the same way.
+     */
+    @Test
+    public void testFileWrittenAroundS3ProxyHasAnETag(@TempDir Path temp)
+            throws IOException {
+        var real = new FilesystemNio2BlobStore(temp.toString());
+        real.createContainer(CONTAINER);
+        Files.write(temp.resolve(CONTAINER).resolve("outside"),
+                CONTENT.read());
+
+        String eTag = real.blobMetadata(CONTAINER, "outside").eTag();
+        assertThat(eTag).matches("\"?[0-9a-f]{32}-1\"?");
+        assertThat(unquote(real.list(CONTAINER).contents().get(0).eTag()))
+                .isEqualTo(unquote(eTag));
+    }
+
+    private static String unquote(String eTag) {
+        return eTag.replace("\"", "");
     }
 }

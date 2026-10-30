@@ -55,6 +55,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.collect.ImmutableList;
@@ -244,9 +245,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // to ask; the filesystem store refuses one anyway.
         if (Files.isDirectory(root) && !supportsUserAttributes(root)) {
             logger.warn("{} does not keep user extended attributes, so" +
-                    " objects stored there lose their ETag, Content-Type" +
-                    " and user metadata; use a filesystem that keeps" +
-                    " them, such as NFS 4.2 over one that does.  See" +
+                    " objects stored there lose their Content-Type and" +
+                    " user metadata, and report an ETag derived from the" +
+                    " file rather than its MD5; use a filesystem that" +
+                    " keeps them, such as NFS 4.2 over one that does.  See" +
                     " https://github.com/gaul/s3proxy/issues/1210", root);
         }
     }
@@ -537,6 +539,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             var xattrs = safeGetXattrs(path);
             String eTag = readETagXattr(xattrs);
+            if (eTag == null) {
+                eTag = fileETag(attr);
+            }
             StorageClass storageClass = StorageClass.STANDARD;
             if (xattrs.view() != null) {
                 var tierString = readStringAttributeIfPresent(
@@ -699,6 +704,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     // multi-part object
                     eTag = new String(etagBytes, StandardCharsets.US_ASCII);
                 }
+            } else {
+                eTag = "\"" + fileETag(attr) + "\"";
             }
             if (view != null && attributes.contains(XATTR_EXPIRES)) {
                 int xattrSize = view.size(XATTR_EXPIRES);
@@ -1011,6 +1018,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     requireNonNull(blob.getMetadata().eTag());
 
             var view = getXattrView(tmpPath);
+            boolean attributesStored = false;
             if (view != null) {
                 try {
                     // A multipart-completion blob carries the S3 multipart
@@ -1040,6 +1048,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
                     writeEncryptionAttr(view, blob);
+                    attributesStored = true;
                 } catch (IOException | UnsupportedOperationException e) {
                     attributeWriteFailed(tmpPath, e);
                 }
@@ -1066,6 +1075,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     Files.setLastModifiedTime(tmpPath,
                             FileTime.from(mintTime()));
                 }
+            }
+
+            // With nowhere to keep the ETag, report the one every later read
+            // will derive from the file, so that this write and a HEAD after
+            // it agree.  Renaming keeps the inode and modification time.
+            if (!attributesStored) {
+                storedETag = fileETag(Files.readAttributes(tmpPath,
+                        BasicFileAttributes.class));
             }
 
             if ("*".equals(ifNoneMatch)) {
@@ -2234,7 +2251,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             contentLength += requireNonNull(meta.contentLength());
             partNames.add(partName);
-            if (meta.eTag() != null) {
+            // A part stored without attributes reports an ETag derived from
+            // its file, which is no MD5 to fold in; the object assembled
+            // from it will report one of its own the same way.
+            if (meta.eTag() != null && !meta.eTag().contains("-")) {
                 var eTag = meta.eTag();
                 if (eTag.startsWith("\"") && eTag.endsWith("\"") &&
                        eTag.length() >= 2) {
@@ -2322,7 +2342,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 SdkRequests.aclOrPrivate(mpuRequest.acl()));
 
         return CompleteMultipartUploadResponse.builder()
-                .eTag(mpuETag)
+                .eTag(result.eTag())
                 .versionId(result.reportedVersionId())
                 .serverSideEncryption(encryption == null ? null :
                         encryption.algorithm())
@@ -2897,6 +2917,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var sep = path.getFileSystem().getSeparator();
         var name = containerPath.relativize(path).toString();
         return sep.equals("/") ? name : name.replace(sep, "/");
+    }
+
+    /**
+     * The ETag of a file carrying none of ours: one written around S3Proxy,
+     * or stored where the filesystem keeps no user attributes (#1210).  It is
+     * derived from what the filesystem itself keeps -- size, modification
+     * time and identity, which on POSIX is the inode -- so it holds while the
+     * file does and changes when S3Proxy replaces it, which renames a new
+     * file over the old.  Reading the payload for its MD5 instead would cost
+     * a full read on every HEAD and listing.
+     *
+     * <p>It is shaped as the ETag of an object assembled from one part,
+     * because it is no MD5 of the payload and clients check a bare 32-digit
+     * ETag against one, while a suffixed one they take as opaque.
+     */
+    private static String fileETag(BasicFileAttributes attr) {
+        var digest = MD5.newDigest();
+        digest.update(Longs.toByteArray(attr.size()));
+        digest.update(Longs.toByteArray(
+                attr.lastModifiedTime().to(TimeUnit.NANOSECONDS)));
+        Object fileKey = attr.fileKey();
+        if (fileKey != null) {
+            digest.update(fileKey.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        return HexFormat.of().formatHex(digest.digest()) + "-1";
     }
 
     /**
