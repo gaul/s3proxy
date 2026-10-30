@@ -67,6 +67,9 @@ BEGIN {
         "false")
     propdef("s3proxy.no-cache-blobstore", "S3PROXY_NO_CACHE_BLOBSTORE",
         "false")
+    if (ENVIRON["S3PROXY_JETTY_IDLE_TIMEOUT"] != "") {
+        prop("s3proxy.jetty.idle-timeout", "S3PROXY_JETTY_IDLE_TIMEOUT")
+    }
     prop("s3proxy.maximum-timeskew", "S3PROXY_MAXIMUM_TIMESKEW")
     prop("s3proxy.metrics.enabled", "S3PROXY_METRICS_ENABLED")
     prop("s3proxy.metrics.port", "S3PROXY_METRICS_PORT")

@@ -126,6 +126,9 @@ public final class S3Proxy {
             connector = new ServerConnector(server, httpConnectionFactory);
             connector.setHost(builder.endpoint.getHost());
             connector.setPort(builder.endpoint.getPort());
+            if (builder.jettyIdleTimeout != null) {
+                connector.setIdleTimeout(builder.jettyIdleTimeout);
+            }
             server.addConnector(connector);
             listenHTTP = true;
         } else {
@@ -145,6 +148,9 @@ public final class S3Proxy {
                     httpConnectionFactory);
             connector.setHost(builder.secureEndpoint.getHost());
             connector.setPort(builder.secureEndpoint.getPort());
+            if (builder.jettyIdleTimeout != null) {
+                connector.setIdleTimeout(builder.jettyIdleTimeout);
+            }
             server.addConnector(connector);
             listenHTTPS = true;
         } else {
@@ -230,6 +236,7 @@ public final class S3Proxy {
         private boolean ignoreUnknownHeaders;
         @Nullable private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
+        @Nullable private Long jettyIdleTimeout;
         private int maximumTimeSkew = 15 * 60;
         private boolean metricsEnabled;
         private int metricsPort = -1;
@@ -394,6 +401,12 @@ public final class S3Proxy {
                         allowCredentials));
             }
 
+            String jettyIdleTimeout = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_JETTY_IDLE_TIMEOUT);
+            if (jettyIdleTimeout != null) {
+                builder.jettyIdleTimeout(Long.parseLong(jettyIdleTimeout));
+            }
+
             String jettyMaxThreads = properties.getProperty(
                     S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS);
             if (jettyMaxThreads != null) {
@@ -509,6 +522,19 @@ public final class S3Proxy {
 
         public Builder corsRules(CrossOriginResourceSharing corsRules) {
             this.corsRules = corsRules;
+            return this;
+        }
+
+        /**
+         * Maximum time in milliseconds without connection progress on the
+         * HTTP and HTTPS S3 listeners.  Zero disables the idle timeout.
+         * If unset, the listeners retain Jetty's default.
+         */
+        public Builder jettyIdleTimeout(long jettyIdleTimeout) {
+            checkArgument(jettyIdleTimeout >= 0,
+                    "jetty idle timeout must not be negative, was: %s",
+                    jettyIdleTimeout);
+            this.jettyIdleTimeout = jettyIdleTimeout;
             return this;
         }
 
