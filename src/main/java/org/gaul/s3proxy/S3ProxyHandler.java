@@ -1407,7 +1407,23 @@ public class S3ProxyHandler {
         } catch (NoSuchBucketException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
         } catch (NoSuchKeyException e) {
-            throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, e);
+            // S3 answers a missing key NoSuchKey only to a caller who may
+            // list the bucket, and AccessDenied to anyone else, so that
+            // asking for a key does not tell such a caller what listing would
+            // not.  An anonymous caller may list a bucket whose ACL grants
+            // AllUsers READ; any other bucket answered 404 here, letting
+            // anyone probe a private bucket for which keys it holds.
+            BucketCannedACL bucketAccess;
+            try {
+                bucketAccess = blobStore.getContainerAccess(containerName);
+            } catch (NoSuchBucketException nsbe) {
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, nsbe);
+            }
+            if (bucketAccess == BucketCannedACL.PUBLIC_READ ||
+                    bucketAccess == BucketCannedACL.PUBLIC_READ_WRITE) {
+                throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, e);
+            }
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, e);
         }
     }
 
