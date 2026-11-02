@@ -6497,6 +6497,38 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * Whether the request declared a body that was not read to its end, e.g.
+     * a PUT refused AccessDenied before its content was looked at.  Once the
+     * response completes, Jetty drains whatever of the body has already
+     * arrived, but it will not wait for bytes still in flight: it closes the
+     * connection instead, after the error was committed without saying so.
+     * A client that pooled the connection on the strength of that response
+     * then writes its next request into a closing socket and reads EOF, which
+     * the JDK HttpClient does not retry for a PUT.  Saying Connection: close
+     * up front sends that client to a fresh socket.
+     *
+     * <p>This can name a body Jetty would in the end have drained, either one
+     * already sitting in its buffer or one read to its length but never to
+     * EOF, and so close a connection that could have been kept; that costs a
+     * reconnect after an error, where the reverse costs the next request.  A
+     * client waiting on 100-continue gains nothing it did not have: Jetty
+     * already answers a final status sent before the 100 with a close.
+     */
+    private static boolean hasUnreadBody(HttpServletRequest request)
+            throws IOException {
+        if (request.getContentLengthLong() <= 0 &&
+                request.getHeader(HttpHeaders.TRANSFER_ENCODING) == null) {
+            return false;
+        }
+        try {
+            return !request.getInputStream().isFinished();
+        } catch (IllegalStateException ise) {
+            // getReader() claimed the body, so something read it as text.
+            return false;
+        }
+    }
+
     static String generateRequestId() {
         return "%016X".formatted(ThreadLocalRandom.current().nextLong());
     }
@@ -6530,14 +6562,16 @@ public class S3ProxyHandler {
         // sent N+k bytes; we read exactly N per the HTTP framing rules and
         // the leftover k bytes would corrupt the next request on a keep-
         // alive connection).  Close the connection on those cases so the
-        // client retries on a fresh socket.
+        // client retries on a fresh socket.  An error that refused the
+        // request before reading its body closes it too; see hasUnreadBody.
         if (code.equals(S3ErrorCode.BAD_DIGEST.getErrorCode()) ||
                 code.equals(S3ErrorCode.INVALID_DIGEST.getErrorCode()) ||
                 code.equals(S3ErrorCode.INVALID_REQUEST.getErrorCode()) ||
                 code.equals(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED
                         .getErrorCode()) ||
                 code.equals(S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH
-                        .getErrorCode())) {
+                        .getErrorCode()) ||
+                hasUnreadBody(request)) {
             response.setHeader(HttpHeaders.CONNECTION, "close");
         }
 
