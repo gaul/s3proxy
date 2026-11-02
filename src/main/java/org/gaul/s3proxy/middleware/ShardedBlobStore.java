@@ -151,13 +151,14 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                             .formatted(allMissingShards));
         }
         var bucketsBuilder = new ImmutableMap.Builder<String, ShardedBucket>();
-        for (String bucket : shards.keySet()) {
+        for (var entry : shards.entrySet()) {
+            String bucket = entry.getKey();
             String prefix = prefixes.get(bucket);
             if (prefix == null) {
                 prefix = bucket;
             }
             bucketsBuilder.put(bucket, new ShardedBucket(prefix,
-                    shards.get(bucket)));
+                    entry.getValue()));
         }
         this.buckets = bucketsBuilder.build();
 

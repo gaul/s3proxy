@@ -91,12 +91,12 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     private LatencyBlobStore(BlobStore blobStore, Map<String, Long> latencies, Map<String, Long> speeds) {
         super(blobStore);
         this.latencies = requireNonNull(latencies);
-        for (String op : latencies.keySet()) {
-            checkArgument(latencies.get(op) >= 0, "Latency must be non negative for %s", op);
+        for (var entry : latencies.entrySet()) {
+            checkArgument(entry.getValue() >= 0, "Latency must be non negative for %s", entry.getKey());
         }
         this.speeds = requireNonNull(speeds);
-        for (String op : speeds.keySet()) {
-            checkArgument(speeds.get(op) > 0, "Speed must be positive for %s", op);
+        for (var entry : speeds.entrySet()) {
+            checkArgument(entry.getValue() > 0, "Speed must be positive for %s", entry.getKey());
         }
     }
 
