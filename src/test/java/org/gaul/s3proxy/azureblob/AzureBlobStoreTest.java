@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 
+import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpHeaders;
 import com.azure.core.http.HttpMethod;
 import com.azure.core.http.HttpRequest;
@@ -174,22 +175,265 @@ public final class AzureBlobStoreTest {
 
     /**
      * Versioning is off unless the operator opts in, since Azure enables it
-     * out of band and the SDK cannot read the setting back.  Opted in, the
-     * store reports the account versioned and refuses the per-bucket suspend
-     * Azure has no way to honor, before it looks for the container.  Reading
-     * or enabling versioning checks the container exists, so needs a backend.
+     * out of band and the SDK cannot read the setting back.  Reading,
+     * enabling or suspending it reads the container's metadata, so needs a
+     * backend.
      */
     @Test
     public void testVersioningIsOptIn() {
         assertThat(store(/*versioning=*/ false).supportsVersioning()).isFalse();
+        assertThat(store(/*versioning=*/ true).supportsVersioning()).isTrue();
+    }
 
-        AzureBlobStore on = store(/*versioning=*/ true);
-        assertThat(on.supportsVersioning()).isTrue();
-        // Suspending is refused NotImplemented (501).
-        assertThatThrownBy(() -> on.putBucketVersioning(
-                "container", BucketVersioningStatus.SUSPENDED))
-                .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(501));
+    /**
+     * A container records Suspended in its metadata, in any spelling Azure
+     * hands back, and a container without the entry -- one nobody has
+     * suspended -- is Enabled, never unversioned.
+     */
+    @Test
+    public void testVersioningStatusFromContainerMetadata() {
+        assertThat(AzureBlobStore.versioningStatus(Map.of()))
+                .isEqualTo(BucketVersioningStatus.ENABLED);
+        assertThat(AzureBlobStore.versioningStatus(
+                Map.of("S3Proxy_Versioning", "suspended")))
+                .isEqualTo(BucketVersioningStatus.SUSPENDED);
+        assertThat(AzureBlobStore.versioningStatus(
+                Map.of("s3proxy_versioning", "Enabled")))
+                .isEqualTo(BucketVersioningStatus.ENABLED);
+    }
+
+    /**
+     * Azure replaces a container's metadata whole, so suspending or enabling
+     * keeps every other entry, and a request that changes nothing writes
+     * nothing.  Enabled is the entry's absence.
+     */
+    @Test
+    public void testVersioningStatusMergesContainerMetadata() {
+        var other = Map.of("owner", "team");
+
+        var suspended = AzureBlobStore.withVersioningStatus(other,
+                BucketVersioningStatus.SUSPENDED);
+        assertThat(suspended).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "owner", "team", "s3proxy_versioning", "Suspended"));
+        assertThat(AzureBlobStore.withVersioningStatus(suspended,
+                BucketVersioningStatus.SUSPENDED)).isNull();
+
+        assertThat(AzureBlobStore.withVersioningStatus(
+                Map.of("owner", "team", "S3PROXY_VERSIONING", "Suspended"),
+                BucketVersioningStatus.ENABLED))
+                .containsExactlyEntriesOf(other);
+        assertThat(AzureBlobStore.withVersioningStatus(other,
+                BucketVersioningStatus.ENABLED)).isNull();
+    }
+
+    /**
+     * A version written while Suspended carries the null-version tag, and
+     * one written while Enabled carries nothing of the store's own.
+     */
+    @Test
+    public void testWithNullVersionTag() {
+        var metadata = Map.of("color", "blue");
+
+        assertThat(AzureBlobStore.withNullVersionTag(metadata,
+                /*suspended=*/ false)).isSameAs(metadata);
+        assertThat(AzureBlobStore.withNullVersionTag(metadata,
+                /*suspended=*/ true)).containsExactlyInAnyOrderEntriesOf(
+                        Map.of("color", "blue",
+                                "s3proxy_null_version", "true"));
+    }
+
+    /**
+     * The null version is reported as "null" whether it is the blob written
+     * before the account was versioned, which has no id, or one written
+     * while Suspended, whose Azure id is never handed out.
+     */
+    @Test
+    public void testReportedVersionId() {
+        assertThat(AzureBlobStore.reportedVersionId(
+                "2026-01-01T00:00:01.0000000Z", Map.of()))
+                .isEqualTo("2026-01-01T00:00:01.0000000Z");
+        assertThat(AzureBlobStore.reportedVersionId(
+                "2026-01-01T00:00:01.0000000Z",
+                Map.of("s3proxy_null_version", "true")))
+                .isEqualTo("null");
+        assertThat(AzureBlobStore.reportedVersionId(/*versionId=*/ null,
+                /*metadata=*/ null)).isEqualTo("null");
+    }
+
+    /**
+     * Of a key's versions, the null version is the newest one written while
+     * Suspended -- an older one being a null version that a later write
+     * replaced but did not get to remove -- or the blob that carries no id,
+     * which no versioned write can have come after.  A key written only
+     * while Enabled has none.
+     */
+    @Test
+    public void testNullVersionIsTheNewestTagged() {
+        var older = nullTagged(versionBlob("k",
+                "2026-01-01T00:00:01.0000000Z", false, 1L));
+        var newer = nullTagged(versionBlob("k",
+                "2026-01-01T00:00:03.0000000Z", false, 3L));
+        var enabled = versionBlob("k", "2026-01-01T00:00:04.0000000Z",
+                true, 4L);
+
+        assertThat(AzureBlobStore.nullVersion(List.of(older, newer, enabled)))
+                .isSameAs(newer);
+        assertThat(AzureBlobStore.nullVersion(List.of(enabled))).isNull();
+        var unversioned = versionBlob("k", /*versionId=*/ null, false, 1L);
+        assertThat(AzureBlobStore.nullVersion(List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 1L),
+                unversioned))).isSameAs(unversioned);
+    }
+
+    /**
+     * A null version written while Suspended lists as "null", in its place
+     * by time: versioning enabled again since, the versions written after it
+     * list before it, and the newest of them is the latest.  An older tagged
+     * version, one a later suspended write replaced, is no version S3 has
+     * and is left out.
+     */
+    @Test
+    public void testVersionsPageNamesTaggedVersionNull() {
+        var rows = List.of(
+                nullTagged(versionBlob("k", "2026-01-01T00:00:01.0000000Z",
+                        false, 1L)),
+                versionBlob("k", "2026-01-01T00:00:02.0000000Z", false, 2L),
+                nullTagged(versionBlob("k", "2026-01-01T00:00:03.0000000Z",
+                        false, 3L)),
+                versionBlob("k", "2026-01-01T00:00:04.0000000Z", true, 4L));
+
+        var response = store(/*versioning=*/ true).versionsPage(
+                rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.versions()).extracting(v -> v.versionId())
+                .containsExactly("2026-01-01T00:00:04.0000000Z", "null",
+                        "2026-01-01T00:00:02.0000000Z");
+        assertThat(response.versions()).extracting(v -> v.isLatest())
+                .containsExactly(true, false, false);
+        assertThat(response.versions().get(1).size()).isEqualTo(3L);
+    }
+
+    /**
+     * A page ending on the null version hands out "null" as the version-id
+     * marker, which says nothing of where the null version sits once
+     * versions newer than it exist; resuming from it picks up with the
+     * versions older than the null version, not every version of the key.
+     */
+    @Test
+    public void testVersionsPageResumesAfterTheNullVersion() {
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 1L),
+                nullTagged(versionBlob("k", "2026-01-01T00:00:02.0000000Z",
+                        false, 2L)),
+                versionBlob("k", "2026-01-01T00:00:03.0000000Z", true, 3L));
+        AzureBlobStore store = store(/*versioning=*/ true);
+
+        var first = store.versionsPage(rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 2);
+        assertThat(first.versions()).extracting(v -> v.versionId())
+                .containsExactly("2026-01-01T00:00:03.0000000Z", "null");
+        assertThat(first.nextVersionIdMarker()).isEqualTo("null");
+
+        var second = store.versionsPage(rows.iterator(),
+                first.nextKeyMarker(), first.nextVersionIdMarker(),
+                /*maxKeys=*/ 2);
+        assertThat(second.isTruncated()).isFalse();
+        assertThat(second.versions()).extracting(v -> v.versionId())
+                .containsExactly("2026-01-01T00:00:01.0000000Z");
+    }
+
+    /**
+     * A delete while Suspended writes a delete marker that is itself the null
+     * version, which lists as a DeleteMarker entry named "null".
+     */
+    @Test
+    public void testVersionsPageReportsNullDeleteMarker() {
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 3L),
+                nullTagged(deleteMarker(versionBlob("k",
+                        "2026-01-01T00:00:02.0000000Z", true, 0L))));
+
+        var response = store(/*versioning=*/ true).versionsPage(
+                rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.deleteMarkers()).hasSize(1);
+        assertThat(response.deleteMarkers().get(0).versionId())
+                .isEqualTo("null");
+        assertThat(response.deleteMarkers().get(0).isLatest()).isTrue();
+        assertThat(response.versions()).extracting(v -> v.versionId())
+                .containsExactly("2026-01-01T00:00:01.0000000Z");
+    }
+
+    /**
+     * A suspended write that landed removes the null versions it replaced:
+     * those written while Suspended before it, and the version Azure minted
+     * for the base blob that had no id, found by the ETag it had.  It keeps
+     * versions written while Enabled, itself, and a null version written
+     * after it by a write it raced, which replaces it in turn.
+     */
+    @Test
+    public void testReplacedNullVersions() {
+        String written = "2026-01-01T00:00:05.0000000Z";
+        var rows = List.of(
+                versionBlob("k", "2026-01-01T00:00:01.0000000Z", false, 1L)
+                        .setProperties(new BlobItemProperties()
+                                .setETag("0xLEGACY")),
+                nullTagged(versionBlob("k", "2026-01-01T00:00:02.0000000Z",
+                        false, 2L)),
+                versionBlob("k", "2026-01-01T00:00:03.0000000Z", false, 3L),
+                nullTagged(versionBlob("k", written, false, 5L)),
+                nullTagged(versionBlob("k", "2026-01-01T00:00:06.0000000Z",
+                        true, 6L)));
+
+        assertThat(AzureBlobStore.replacedNullVersions(rows, written,
+                /*legacyETag=*/ "0xLEGACY")).containsExactly(
+                        "2026-01-01T00:00:01.0000000Z",
+                        "2026-01-01T00:00:02.0000000Z");
+        assertThat(AzureBlobStore.replacedNullVersions(rows, written,
+                /*legacyETag=*/ null)).containsExactly(
+                        "2026-01-01T00:00:02.0000000Z");
+    }
+
+    /**
+     * A copy lands with the source's metadata, or the request's under
+     * REPLACE, never the store's own entries: a copy of the null version
+     * made while Enabled is not the null version.  Made while the
+     * destination is Suspended, the copy is.
+     */
+    @Test
+    public void testCopiedMetadata() {
+        var source = Map.of("color", "blue", "s3proxy_null_version", "true");
+        var requested = Map.of("shape", "round");
+
+        assertThat(AzureBlobStore.copiedMetadata(source, requested,
+                /*replace=*/ false, /*suspended=*/ false))
+                .containsExactlyEntriesOf(Map.of("color", "blue"));
+        assertThat(AzureBlobStore.copiedMetadata(source, requested,
+                /*replace=*/ true, /*suspended=*/ false))
+                .containsExactlyEntriesOf(requested);
+        assertThat(AzureBlobStore.copiedMetadata(Map.of("color", "blue"),
+                requested, /*replace=*/ false, /*suspended=*/ true))
+                .containsExactlyInAnyOrderEntriesOf(Map.of("color", "blue",
+                        "s3proxy_null_version", "true"));
+        assertThat(AzureBlobStore.copiedMetadata(/*source=*/ null,
+                Map.of(), /*replace=*/ false, /*suspended=*/ false))
+                .isEmpty();
+    }
+
+    /** Metadata rides on Put Blob From URL as x-ms-meta-* headers. */
+    @Test
+    public void testMetadataHeaders() {
+        var headers = AzureBlobStore.metadataHeaders(
+                Map.of("color", "blue", "s3proxy_null_version", "true"));
+
+        assertThat(headers.getValue(
+                HttpHeaderName.fromString("x-ms-meta-color")))
+                .isEqualTo("blue");
+        assertThat(headers.getValue(HttpHeaderName.fromString(
+                "x-ms-meta-s3proxy_null_version"))).isEqualTo("true");
+        assertThat(headers.getSize()).isEqualTo(2);
     }
 
     /**
@@ -453,6 +697,7 @@ public final class AzureBlobStoreTest {
     @Test
     public void testReservedMetadataDropped() {
         var metadata = Map.of("S3Proxy_Delete_Marker", "true",
+                "S3Proxy_Null_Version", "true",
                 "s3proxy_target_blob_name", "other", "color", "blue");
 
         assertThat(AzureBlobStore.withoutReservedMetadata(metadata))
@@ -506,7 +751,7 @@ public final class AzureBlobStoreTest {
     @Test
     public void testRefusedVersionListingIsAccessDenied() throws IOException {
         listStatus = 403;
-        var store = fakeAzureStore();
+        var store = promotionStore();
 
         assertThatThrownBy(() -> store.getBlob(GetObjectRequest.builder()
                 .bucket("container").key("key").build()))
@@ -554,7 +799,7 @@ public final class AzureBlobStoreTest {
      */
     @Test
     public void testPromotesNewestRemainingVersion() throws IOException {
-        var store = fakeAzureStore();
+        var store = promotionStore();
 
         try (var stream = store.getBlob(GetObjectRequest.builder()
                 .bucket("container").key("key").build())) {
@@ -576,15 +821,15 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * A versioned store in front of a fake Azure whose key "key" has no
-     * current version, only the non-current {@link #REMAINING} that a
-     * listing of the container's versions names, answered with {@link
-     * #listStatus}.
+     * A versioned store in front of a fake Azure whose Enabled container
+     * holds a key "key" with no current version, only the non-current
+     * {@link #REMAINING} that a listing of the container's versions names,
+     * answered with {@link #listStatus}.
      */
-    private AzureBlobStore fakeAzureStore() throws IOException {
+    private AzureBlobStore promotionStore() throws IOException {
         server = HttpServer.create(new InetSocketAddress(
                 InetAddress.getLoopbackAddress(), 0), 0);
-        server.createContext("/", this::handleAzure);
+        server.createContext("/", this::handlePromotion);
         server.start();
         return new AzureBlobStore(
                 () -> new Credentials("", "", "sv=2026-02-06&sig=fake"),
@@ -593,7 +838,7 @@ public final class AzureBlobStoreTest {
                 /*eTagMode=*/ "opaque", /*auth=*/ null, /*versioning=*/ true);
     }
 
-    private void handleAzure(HttpExchange exchange) throws IOException {
+    private void handlePromotion(HttpExchange exchange) throws IOException {
         try (var in = exchange.getRequestBody()) {
             in.readAllBytes();
         }
@@ -633,6 +878,11 @@ public final class AzureBlobStoreTest {
                         "<Error><Code>AuthorizationResourceTypeMismatch" +
                         "</Code><Message>refused</Message></Error>";
             }
+        } else if (path.equals("/account/container")) {
+            // Get Container Properties: versioning Enabled.
+            status = 200;
+            headers.set("ETag", "\"0xC\"");
+            headers.set("Last-Modified", "Thu, 01 Jan 2026 00:00:00 GMT");
         } else if (path.equals("/account/container/key") &&
                 !recorded.contains("versionid=")) {
             // The key has no current version.
@@ -698,6 +948,16 @@ public final class AzureBlobStoreTest {
 
     private static BlobItem deleteMarker(BlobItem blob) {
         return blob.setMetadata(Map.of("s3proxy_delete_marker", "true"));
+    }
+
+    /** A version written while its container was Suspended. */
+    private static BlobItem nullTagged(BlobItem blob) {
+        var metadata = new java.util.HashMap<String, String>();
+        if (blob.getMetadata() != null) {
+            metadata.putAll(blob.getMetadata());
+        }
+        metadata.put("s3proxy_null_version", "true");
+        return blob.setMetadata(metadata);
     }
 
     private static AzureBlobStore store(boolean versioning) {

@@ -226,7 +226,7 @@ Some limitations depend on the storage backend:
 | `max-keys=0` not honored | `azureblob` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
-| object versioning is opt-in and needs the account versioned out of band; delete markers are emulated as tagged blobs; no per-bucket suspend, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
+| object versioning is opt-in and needs the account versioned out of band; delete markers and the Suspended state are emulated with tagged blobs and container metadata; a bucket never reports unversioned, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
@@ -248,7 +248,9 @@ cannot be read or set through the data-plane SDK -- so it is opt-in through
 has versioning on.  Azure keeps no delete markers, so, as
 `google-cloud-storage` does, a versioned delete writes an empty blob tagged as
 one, and a key whose current version is deleted by id reads as its newest
-remaining version.  Versioning cannot be suspended per bucket.
+remaining version.  Azure cannot stop versioning a container, so Suspended is
+recorded in the container's metadata: each write while suspended is tagged as
+the "null" version and removes the null version it replaces.
 
 Server-side encryption divides `aws-s3` and `transient` from most of the
 rest, and divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
