@@ -20,6 +20,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 import javax.crypto.spec.IvParameterSpec;
 
@@ -54,7 +55,7 @@ public class EncryptionInputStream extends InputStream {
 
         if (!hasPadding) {
             ByteBuffer bb = ByteBuffer.allocate(Constants.PADDING_BLOCK_SIZE);
-            bb.put(Constants.DELIMITER);
+            bb.put(Constants.DELIMITER.getBytes(StandardCharsets.UTF_8));
             bb.put(iv.getIV());
             bb.putInt(part);
             bb.putLong(size);

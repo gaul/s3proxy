@@ -37,9 +37,9 @@ public final class Constants {
         "s3proxy_encryption_multipart";
     public static final int AES_BLOCK_SIZE = 16;
     public static final int PADDING_BLOCK_SIZE = 64;
-    public static final byte[] DELIMITER =
-        "-S3-ENC-".getBytes(StandardCharsets.UTF_8);
-    public static final int PADDING_DELIMITER_LENGTH = DELIMITER.length;
+    public static final String DELIMITER = "-S3-ENC-";
+    public static final int PADDING_DELIMITER_LENGTH =
+        DELIMITER.getBytes(StandardCharsets.UTF_8).length;
     public static final int PADDING_IV_LENGTH = 16;
     public static final int PADDING_PART_LENGTH = 4;
     public static final int PADDING_SIZE_LENGTH = 8;

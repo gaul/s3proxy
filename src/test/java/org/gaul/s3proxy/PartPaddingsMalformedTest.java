@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.gaul.s3proxy.crypto.Constants;
@@ -52,7 +53,7 @@ public final class PartPaddingsMalformedTest {
     /** A padding block naming a part number and a plaintext size. */
     private static byte[] padding(int part, long size) {
         var bb = ByteBuffer.allocate(Constants.PADDING_BLOCK_SIZE);
-        bb.put(Constants.DELIMITER);
+        bb.put(Constants.DELIMITER.getBytes(StandardCharsets.UTF_8));
         bb.put(new byte[Constants.PADDING_IV_LENGTH]);
         bb.putInt(part);
         bb.putLong(size);

@@ -19,8 +19,6 @@ package org.gaul.s3proxy.crypto;
 import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -122,10 +120,7 @@ public final class PartPaddings {
 
         // read the padding structure
         PartPadding lastPartPadding = PartPadding.readPartPadding(blob);
-        if (!Arrays.equals(
-                lastPartPadding.getDelimiter().getBytes(
-                        StandardCharsets.UTF_8),
-                Constants.DELIMITER)) {
+        if (!lastPartPadding.getDelimiter().equals(Constants.DELIMITER)) {
             return NOT_ENCRYPTED;
         }
 
