@@ -86,6 +86,8 @@ public final class AzureBlobStoreTest {
     private String versionDeleteCode = "";
     /** How the fake Azure answers a listing of the container's versions. */
     private int listStatus = 200;
+    /** How the fake Azure answers Put Blob From URL: 501 as Azurite does. */
+    private int copyStatus = 201;
     private @Nullable HttpServer server;
 
     @AfterEach
@@ -833,6 +835,29 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * A versioned store does not fall back to Copy Blob when Put Blob From
+     * URL answers 501: Copy Blob would copy the source's metadata, the null
+     * version's tag among it, and REPLACE's content headers would be a
+     * second, versioned write.  The copy is refused and nothing else is
+     * written.
+     */
+    @Test
+    public void testVersionedCopyDoesNotFallBackToCopyBlob()
+            throws IOException {
+        copyStatus = 501;
+        var store = promotionStore();
+
+        assertThatThrownBy(() -> store.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket("container").sourceKey("key")
+                .destinationBucket("container").destinationKey("copy")
+                .build()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        // The one PUT is the refused Put Blob From URL; no Copy Blob.
+        assertThat(azureRequests).filteredOn(r -> r.startsWith("PUT "))
+                .containsExactly("PUT /account/container/copy");
+    }
+
+    /**
      * A versioned store in front of a fake Azure whose Enabled container
      * holds a key "key" with no current version, only the non-current
      * {@link #REMAINING} that a listing of the container's versions names,
@@ -921,6 +946,14 @@ public final class AzureBlobStoreTest {
                 status = 200;
                 headers.set("Content-Length", "1");
             }
+        } else if (method.equals("PUT") && copyStatus != 201) {
+            // Put Blob From URL refused, as Azurite refuses it.
+            status = copyStatus;
+            headers.set("x-ms-error-code", "APINotImplemented");
+            headers.set("Content-Type", "application/xml");
+            body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                    "<Error><Code>APINotImplemented</Code>" +
+                    "<Message>not implemented</Message></Error>";
         } else if (method.equals("PUT")) {
             // Put Blob From URL, the copy.
             status = 201;

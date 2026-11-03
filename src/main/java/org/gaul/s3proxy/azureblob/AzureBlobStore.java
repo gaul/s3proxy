@@ -1914,6 +1914,17 @@ public final class AzureBlobStore implements BlobStore {
                 throw translate(bse, fromContainer, fromName,
                         request.sourceVersionId());
             }
+            if (versioning) {
+                // The fallback below cannot copy onto a versioned store:
+                // Copy Blob copies the source's metadata when handed none,
+                // so a copy of the null version would keep its tag, and
+                // REPLACE's content headers are a second write that leaves
+                // a version of its own.  Only Azurite answers 501 here, and
+                // it keeps no versions, so a versioned store never needs it.
+                throw new UnsupportedOperationException(
+                        "copy without Put Blob From URL not supported on" +
+                        " a versioned store");
+            }
             // Azurite does not implement Put Blob From URL (501
             // APINotImplemented); fall back to the classic asynchronous
             // Copy Blob API, which it does implement.  Request metadata
@@ -1924,11 +1935,7 @@ public final class AzureBlobStore implements BlobStore {
             try {
                 var copyOptions = new BlobBeginCopyOptions(sourceUrl)
                         .setPollInterval(Duration.ofMillis(10));
-                if (versionedMetadata != null) {
-                    // Copy Blob, like Put Blob From URL, copies the source's
-                    // metadata when handed none.
-                    copyOptions.setMetadata(versionedMetadata);
-                } else if (replace) {
+                if (replace) {
                     copyOptions.setMetadata(
                             withoutReservedMetadata(request.metadata()));
                 }
@@ -1957,10 +1964,6 @@ public final class AzureBlobStore implements BlobStore {
                     client.setHttpHeaders(headers);
                 }
                 var properties = client.getProperties();
-                if (pending != null) {
-                    replaceNullVersion(client, properties.getVersionId(),
-                            pending);
-                }
                 return SdkResponses.copyResponse(
                         reportETag(properties.getETag()),
                         properties.getLastModified() == null ? null :
@@ -1968,8 +1971,7 @@ public final class AzureBlobStore implements BlobStore {
                         .toBuilder()
                         .serverSideEncryption(
                                 reportedSse(properties.isServerEncrypted()))
-                        .versionId(writtenVersionId(properties.getVersionId(),
-                                pending))
+                        .versionId(properties.getVersionId())
                         .build();
             } catch (BlobStorageException bse2) {
                 throw translate(bse2, fromContainer, fromName,
