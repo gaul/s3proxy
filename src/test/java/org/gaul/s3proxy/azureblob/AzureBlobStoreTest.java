@@ -19,9 +19,16 @@ package org.gaul.s3proxy.azureblob;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -33,12 +40,20 @@ import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.PagedResponseBase;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobItemProperties;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
@@ -47,9 +62,25 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
  * a truncated result with nothing in it has no key to resume from.
  */
 public final class AzureBlobStoreTest {
+    /** The version a key left without a current one falls to. */
+    private static final String REMAINING = "2026-01-01T00:00:00.0000000Z";
+
     /** The markers each call asked for, in order. */
     private final List<String> requested = new ArrayList<>();
     private final Queue<PagedResponse<BlobItem>> pages = new ArrayDeque<>();
+    /** What the fake Azure was asked, as "METHOD path?query". */
+    private final List<String> azureRequests =
+            Collections.synchronizedList(new ArrayList<String>());
+    /** How the fake Azure answers a listing of the container's versions. */
+    private int listStatus = 200;
+    private @Nullable HttpServer server;
+
+    @AfterEach
+    public void tearDown() {
+        if (server != null) {
+            server.stop(0);
+        }
+    }
 
     @Test
     public void testSkipsEmptyPages() {
@@ -460,6 +491,194 @@ public final class AzureBlobStoreTest {
                 "https://a.blob.core.windows.net/c/b?versionid=V", "sig=x"))
                 .isEqualTo(
                         "https://a.blob.core.windows.net/c/b?versionid=V&sig=x");
+    }
+
+    /**
+     * A read of a key with no current version lists its versions to find the
+     * one to promote.  A credential refused that listing -- an account SAS
+     * without resource type c, which Azure answers 403
+     * AuthorizationResourceTypeMismatch -- is answered AccessDenied naming
+     * the permission, as S3 answers a missing key to a caller that may not
+     * list the bucket, rather than 500.  A HEAD, a copy from the key and an
+     * If-None-Match: * write of it, which must know whether a version
+     * remains, are answered alike.
+     */
+    @Test
+    public void testRefusedVersionListingIsAccessDenied() throws IOException {
+        listStatus = 403;
+        var store = fakeAzureStore();
+
+        assertThatThrownBy(() -> store.getBlob(GetObjectRequest.builder()
+                .bucket("container").key("key").build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(403);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("AccessDenied");
+                    assertThat(e.awsErrorDetails().errorMessage())
+                            .contains("containers/blobs/read")
+                            .contains("permission l")
+                            .contains("resource type c")
+                            .contains("AuthorizationResourceTypeMismatch");
+                });
+        assertThatThrownBy(() -> store.blobMetadata(HeadObjectRequest
+                .builder().bucket("container").key("key").build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(403);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("AccessDenied");
+                });
+        assertThatThrownBy(() -> store.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket("container").sourceKey("key")
+                .destinationBucket("container").destinationKey("copy")
+                .build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(403);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("AccessDenied");
+                });
+        assertThatThrownBy(() -> store.putBlob(PutObjectRequest.builder()
+                .bucket("container").key("key").ifNoneMatch("*")
+                .contentLength(1L).build(),
+                new ByteArrayInputStream(new byte[1])))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("AccessDenied"));
+        // Nothing was written.
+        assertThat(azureRequests).noneMatch(r -> r.startsWith("PUT "));
+    }
+
+    /**
+     * With the listing allowed, a key whose current version was deleted by
+     * id still serves its newest remaining version, to a GET, a HEAD and a
+     * copy alike.
+     */
+    @Test
+    public void testPromotesNewestRemainingVersion() throws IOException {
+        var store = fakeAzureStore();
+
+        try (var stream = store.getBlob(GetObjectRequest.builder()
+                .bucket("container").key("key").build())) {
+            assertThat(stream.response().versionId()).isEqualTo(REMAINING);
+            assertThat(stream.readAllBytes()).containsExactly('x');
+        }
+        assertThat(store.blobMetadata(HeadObjectRequest.builder()
+                .bucket("container").key("key").build()).versionId())
+                .isEqualTo(REMAINING);
+        store.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket("container").sourceKey("key")
+                .destinationBucket("container").destinationKey("copy")
+                .build());
+
+        assertThat(azureRequests).contains(
+                "GET /account/container/key?versionid=" + REMAINING,
+                "HEAD /account/container/key?versionid=" + REMAINING,
+                "PUT /account/container/copy");
+    }
+
+    /**
+     * A versioned store in front of a fake Azure whose key "key" has no
+     * current version, only the non-current {@link #REMAINING} that a
+     * listing of the container's versions names, answered with {@link
+     * #listStatus}.
+     */
+    private AzureBlobStore fakeAzureStore() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(
+                InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", this::handleAzure);
+        server.start();
+        return new AzureBlobStore(
+                () -> new Credentials("", "", "sv=2026-02-06&sig=fake"),
+                "http://127.0.0.1:" + server.getAddress().getPort() +
+                        "/account",
+                /*eTagMode=*/ "opaque", /*auth=*/ null, /*versioning=*/ true);
+    }
+
+    private void handleAzure(HttpExchange exchange) throws IOException {
+        try (var in = exchange.getRequestBody()) {
+            in.readAllBytes();
+        }
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String query = exchange.getRequestURI().getQuery();
+        // The signature rides on every request; leave it out of the record.
+        String recorded = query == null ? "" : String.join("&",
+                Arrays.stream(query.split("&"))
+                        .filter(p -> !p.startsWith("sv=") &&
+                                !p.startsWith("sig="))
+                        .toList());
+        azureRequests.add(method + " " + path +
+                (recorded.isEmpty() ? "" : "?" + recorded));
+        var headers = exchange.getResponseHeaders();
+        headers.set("x-ms-version", "2026-02-06");
+        String body = "";
+        int status;
+        if (path.equals("/account/container") &&
+                recorded.contains("comp=list")) {
+            status = listStatus;
+            headers.set("Content-Type", "application/xml");
+            if (status == 200) {
+                body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                        "<EnumerationResults ContainerName=\"container\">" +
+                        "<Blobs><Blob><Name>key</Name><VersionId>" +
+                        REMAINING + "</VersionId><Properties>" +
+                        "<Last-Modified>Thu, 01 Jan 2026 00:00:00 GMT" +
+                        "</Last-Modified><Etag>0x1</Etag>" +
+                        "<Content-Length>1</Content-Length>" +
+                        "<BlobType>BlockBlob</BlobType></Properties>" +
+                        "</Blob></Blobs><NextMarker /></EnumerationResults>";
+            } else {
+                headers.set("x-ms-error-code",
+                        "AuthorizationResourceTypeMismatch");
+                body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                        "<Error><Code>AuthorizationResourceTypeMismatch" +
+                        "</Code><Message>refused</Message></Error>";
+            }
+        } else if (path.equals("/account/container/key") &&
+                !recorded.contains("versionid=")) {
+            // The key has no current version.
+            status = 404;
+            headers.set("x-ms-error-code", "BlobNotFound");
+            if (method.equals("GET")) {
+                headers.set("Content-Type", "application/xml");
+                body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                        "<Error><Code>BlobNotFound</Code>" +
+                        "<Message>gone</Message></Error>";
+            }
+        } else if (path.equals("/account/container/key")) {
+            // The remaining version, read by id.
+            headers.set("ETag", "\"0x1\"");
+            headers.set("Last-Modified", "Thu, 01 Jan 2026 00:00:00 GMT");
+            headers.set("x-ms-version-id", REMAINING);
+            headers.set("x-ms-blob-type", "BlockBlob");
+            headers.set("x-ms-access-tier", "Hot");
+            if (method.equals("GET")) {
+                status = 206;
+                headers.set("Content-Range", "bytes 0-0/1");
+                body = "x";
+            } else {
+                status = 200;
+                headers.set("Content-Length", "1");
+            }
+        } else if (method.equals("PUT")) {
+            // Put Blob From URL, the copy.
+            status = 201;
+            headers.set("ETag", "\"0x2\"");
+            headers.set("Last-Modified", "Fri, 02 Jan 2026 00:00:00 GMT");
+            headers.set("x-ms-version-id", "2026-01-02T00:00:00.0000000Z");
+            headers.set("x-ms-request-server-encrypted", "true");
+        } else {
+            status = 400;
+        }
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0) {
+            exchange.sendResponseHeaders(status, -1);
+        } else {
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        }
+        exchange.close();
     }
 
     private static BlobItem versionBlob(String name, String versionId,

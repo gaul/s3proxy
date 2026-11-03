@@ -1812,7 +1812,17 @@ public final class AzureBlobStore implements BlobStore {
         return newest.getVersionId();
     }
 
-    /** The newest version of a blob, delete markers included, or null. */
+    /**
+     * The newest version of a blob, delete markers included, or null.
+     *
+     * <p>Finding it lists the container's versions, which a credential
+     * allowed to read and write blobs may still be refused -- an account SAS
+     * without resource type c, say.  That refusal answers 403 AccessDenied
+     * naming the permission, as S3 answers a missing key to a caller that
+     * may not list the bucket, rather than the 500 an untranslated Azure
+     * error becomes, or a NoSuchKey that would deny a version which may be
+     * there.
+     */
     private static @Nullable BlobItem newestVersion(BlobClientBase base) {
         var options = new ListBlobsOptions()
                 .setPrefix(base.getBlobName())
@@ -1820,13 +1830,32 @@ public final class AzureBlobStore implements BlobStore {
                         .setRetrieveVersions(true)
                         .setRetrieveMetadata(true));
         BlobItem newest = null;
-        for (BlobItem blob : base.getContainerClient().listBlobs(options,
-                /*timeout=*/ null)) {
-            if (blob.getName().equals(base.getBlobName()) &&
-                    blob.getVersionId() != null && (newest == null ||
-                    blob.getVersionId().compareTo(newest.getVersionId()) > 0)) {
-                newest = blob;
+        try {
+            for (BlobItem blob : base.getContainerClient().listBlobs(options,
+                    /*timeout=*/ null)) {
+                if (blob.getName().equals(base.getBlobName()) &&
+                        blob.getVersionId() != null && (newest == null ||
+                        blob.getVersionId().compareTo(
+                                newest.getVersionId()) > 0)) {
+                    newest = blob;
+                }
             }
+        } catch (BlobStorageException bse) {
+            String container = base.getContainerName();
+            if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
+                throw S3Exceptions.accessDenied(("s3proxy.azureblob." +
+                        "versioning is on, so a read, copy or If-None-Match" +
+                        " write of key %s, which has no current version," +
+                        " lists its versions in container %s to find the" +
+                        " newest remaining one, and Azure refused the" +
+                        " listing (%s).  Grant Microsoft.Storage/" +
+                        "storageAccounts/blobServices/containers/blobs/read" +
+                        " (Storage Blob Data Reader or above), or use a SAS" +
+                        " with permission l and, for an account SAS," +
+                        " resource type c.").formatted(base.getBlobName(),
+                        container, bse.getErrorCode()), bse);
+            }
+            throw translate(bse, container, base.getBlobName());
         }
         return newest;
     }
