@@ -186,6 +186,21 @@ public final class S3Exceptions {
     }
 
     /**
+     * A 403 saying what the backend refused, for a refusal the caller can
+     * act on only by knowing which permission its credential lacks.
+     */
+    public static S3Exception accessDenied(String message,
+            @Nullable Throwable cause) {
+        return (S3Exception) S3Exception.builder()
+                .message(message)
+                .cause(cause)
+                .statusCode(403)
+                .awsErrorDetails(details(403, "AccessDenied", message,
+                        Map.of()))
+                .build();
+    }
+
+    /**
      * The 412 a condition earns when the object it guards is not the one
      * the caller named.  Prefer this to a bare 412 wherever the refusal
      * can only be a failed precondition: the frontend maps a status alone
