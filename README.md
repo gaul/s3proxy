@@ -114,6 +114,30 @@ read -- environment, profile, container, and instance role for `aws-s3`,
 `DefaultAzureCredential` for `azureblob`, and application default credentials
 for `google-cloud-storage` -- every one of which renews what it finds.
 
+A Microsoft Entra access token that the application obtained itself, for
+example from a sidecar or a token broker that `DefaultAzureCredential` cannot
+read, also goes in `jclouds.session-token`, with `s3proxy.azureblob.auth=bearer`
+saying that it is a bearer token rather than a shared access signature.  The
+other values of `s3proxy.azureblob.auth` are `sas`, `key` and `default`.  When
+the property is not set, the store uses `sas` if there is a session token,
+`key` if there are an identity and a credential, and `default` otherwise.
+S3Proxy asks the supplier for a bearer token again on every request, as it
+does for a signature, and does not renew it: the supplier must always return
+one that is still valid.  The endpoint must be https, since the Azure client
+refuses to send a bearer token over http.  Server-side copies sign their
+source with a user delegation key, so the token's principal needs a role that
+includes `generateUserDelegationKey`, such as Storage Blob Delegator; without
+it reads and writes succeed but copies fail.
+
+S3Proxy 3.x reached Microsoft Entra through jclouds, and its
+`jclouds.azureblob.auth=azureAd` is no longer read.  By default it took a
+client id and secret in `jclouds.identity` and `jclouds.credential` and
+fetched and renewed tokens itself; that setup moves to `default`, where
+`DefaultAzureCredential` does the same from `AZURE_TENANT_ID`,
+`AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`.  `bearer` replaces only the setup
+in which `jclouds.oauth.credential-type` was overridden so that the
+application supplied the access token itself.
+
 Three credentials are read only when the store is built, because nothing
 about them expires: an Azure account key, which the client copies out when it
 is created; a Google service account key, which mints and renews access
