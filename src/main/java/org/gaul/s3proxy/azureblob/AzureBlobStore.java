@@ -1636,6 +1636,17 @@ public final class AzureBlobStore implements BlobStore {
                 throw translate(bse, fromContainer, fromName,
                         request.sourceVersionId());
             }
+            if (versioning) {
+                // The fallback below cannot copy onto a versioned store:
+                // REPLACE's content headers can only follow the copy as a
+                // second write, which Azure versions, leaving a version the
+                // caller never made.  Only Azurite before 3.38.0 answers 501
+                // here, and the versioned Azurite lane builds one that
+                // implements Put Blob From URL.
+                throw new UnsupportedOperationException(
+                        "copy without Put Blob From URL not supported on" +
+                        " a versioned store");
+            }
             // Azurite does not implement Put Blob From URL (501
             // APINotImplemented); fall back to the classic asynchronous
             // Copy Blob API, which it does implement.  Request metadata
