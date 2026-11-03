@@ -250,7 +250,16 @@ has versioning on.  Azure keeps no delete markers, so, as
 one, and a key whose current version is deleted by id reads as its newest
 remaining version.  Azure cannot stop versioning a container, so Suspended is
 recorded in the container's metadata: each write while suspended is tagged as
-the "null" version and removes the null version it replaces.
+the "null" version and removes the null version it replaces.  That asks
+more of the credential than an unversioned store does: every write reads the
+container's properties (RBAC
+`Microsoft.Storage/storageAccounts/blobServices/containers/read`, or an
+account SAS with resource type `c`) and is refused AccessDenied without them;
+deletes by version and suspended overwrites need
+`Microsoft.Storage/storageAccounts/blobServices/containers/blobs/deleteBlobVersion/action`
+(SAS permission `x`), which Storage Blob Data Contributor lacks; and changing
+the versioning status needs container write.  A container service SAS cannot
+read container properties at all, so it cannot be used with versioning on.
 
 Server-side encryption divides `aws-s3` and `transient` from most of the
 rest, and divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --

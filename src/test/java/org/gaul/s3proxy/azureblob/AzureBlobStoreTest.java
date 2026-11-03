@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -55,6 +57,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
@@ -63,6 +66,10 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
  * a truncated result with nothing in it has no key to resume from.
  */
 public final class AzureBlobStoreTest {
+    /** The null version a suspended write in the fake Azure replaces. */
+    private static final String OLD_NULL = "2026-01-01T00:00:00.0000000Z";
+    /** The version the fake Azure mints for every write. */
+    private static final String WRITTEN = "2026-01-02T00:00:00.0000000Z";
     /** The version a key left without a current one falls to. */
     private static final String REMAINING = "2026-01-01T00:00:00.0000000Z";
 
@@ -72,6 +79,11 @@ public final class AzureBlobStoreTest {
     /** What the fake Azure was asked, as "METHOD path?query". */
     private final List<String> azureRequests =
             Collections.synchronizedList(new ArrayList<String>());
+    /** How the fake Azure answers Get Container Properties. */
+    private int containerStatus = 200;
+    /** How the fake Azure answers a delete of a version by id. */
+    private int versionDeleteStatus = 202;
+    private String versionDeleteCode = "";
     /** How the fake Azure answers a listing of the container's versions. */
     private int listStatus = 200;
     private @Nullable HttpServer server;
@@ -929,6 +941,217 @@ public final class AzureBlobStoreTest {
             }
         }
         exchange.close();
+    }
+
+    /**
+     * A versioned store whose credential is refused the container's
+     * properties cannot tell whether the container is Suspended, so it
+     * refuses the write -- AccessDenied naming the permission -- rather
+     * than land a version S3 would have replaced.  Nothing is written.
+     */
+    @Test
+    public void testRefusesWriteWhenVersioningStateUnreadable()
+            throws IOException {
+        containerStatus = 403;
+        var store = fakeAzureStore();
+
+        assertThatThrownBy(() -> store.putBlob(PutObjectRequest.builder()
+                .bucket("container")
+                .key("key")
+                .contentLength(1L)
+                .build(), new ByteArrayInputStream(new byte[1])))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(403);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("AccessDenied");
+                    assertThat(e.awsErrorDetails().errorMessage())
+                            .contains("containers/read")
+                            .contains("resource type c");
+                });
+        // A delete naming no version writes a marker, so is refused alike.
+        assertThatThrownBy(() -> store.removeBlob(DeleteObjectRequest
+                .builder().bucket("container").key("key").build()))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("AccessDenied"));
+
+        assertThat(azureRequests).containsExactly(
+                "GET /account/container?restype=container",
+                "GET /account/container?restype=container");
+    }
+
+    /**
+     * A suspended overwrite whose credential is refused the removal of the
+     * null version it replaced -- deleteBlobVersion missing, as Storage Blob
+     * Data Contributor lacks it -- still succeeds, as the null version: the
+     * write has landed, and failing it would only have the client retry and
+     * leave another.  The refusal is taken as one of permission, which logs
+     * at ERROR once for the container and then holds off.
+     */
+    @Test
+    public void testSuspendedOverwriteSurvivesRefusedCleanup()
+            throws IOException {
+        versionDeleteStatus = 403;
+        versionDeleteCode = "OperationNotAllowedOnAutomaticSnapshot";
+        var store = fakeAzureStore();
+
+        var response = putOneByte(store);
+
+        assertThat(response.versionId()).isNull();
+        assertThat(azureRequests).contains(
+                "PUT /account/container/key",
+                "DELETE /account/container/key?versionid=" + OLD_NULL);
+        assertThat(store.reportCleanupRefusal("container", Instant.now()))
+                .isFalse();
+    }
+
+    /**
+     * Any other failure to clean up is presumed passing: the write still
+     * succeeds and the failure is logged at WARN, leaving the permission
+     * report for the container untouched.
+     */
+    @Test
+    public void testSuspendedOverwriteSurvivesFailedCleanup()
+            throws IOException {
+        versionDeleteStatus = 500;
+        versionDeleteCode = "InternalError";
+        var store = fakeAzureStore();
+
+        var response = putOneByte(store);
+
+        assertThat(response.versionId()).isNull();
+        assertThat(azureRequests).contains(
+                "DELETE /account/container/key?versionid=" + OLD_NULL);
+        assertThat(store.reportCleanupRefusal("container", Instant.now()))
+                .isTrue();
+    }
+
+    /** The permission report is made once per container per interval. */
+    @Test
+    public void testReportCleanupRefusalIsRateLimited() {
+        var store = store(/*versioning=*/ true);
+        var now = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThat(store.reportCleanupRefusal("a", now)).isTrue();
+        assertThat(store.reportCleanupRefusal("a",
+                now.plus(Duration.ofMinutes(1)))).isFalse();
+        assertThat(store.reportCleanupRefusal("b",
+                now.plus(Duration.ofMinutes(1)))).isTrue();
+        assertThat(store.reportCleanupRefusal("a",
+                now.plus(Duration.ofMinutes(5)))).isTrue();
+    }
+
+    private static PutObjectResponse putOneByte(AzureBlobStore store) {
+        return store.putBlob(PutObjectRequest.builder()
+                .bucket("container")
+                .key("key")
+                .contentLength(1L)
+                .build(), new ByteArrayInputStream(new byte[1]));
+    }
+
+    /**
+     * A versioned store in front of a fake Azure holding one Suspended
+     * container, whose key "key" has a null version {@link #OLD_NULL} that
+     * the next write, minted {@link #WRITTEN}, replaces.
+     */
+    private AzureBlobStore fakeAzureStore() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(
+                InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", this::handleAzure);
+        server.start();
+        return new AzureBlobStore(
+                () -> new Credentials("", "", "sv=2026-02-06&sig=fake"),
+                "http://127.0.0.1:" + server.getAddress().getPort() +
+                        "/account",
+                /*eTagMode=*/ "opaque", /*auth=*/ null, /*versioning=*/ true);
+    }
+
+    private void handleAzure(HttpExchange exchange) throws IOException {
+        try (var in = exchange.getRequestBody()) {
+            in.readAllBytes();
+        }
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String query = exchange.getRequestURI().getQuery();
+        // The signature rides on every request; leave it out of the record.
+        String recorded = query == null ? "" : String.join("&",
+                Arrays.stream(query.split("&"))
+                        .filter(p -> !p.startsWith("sv=") &&
+                                !p.startsWith("sig="))
+                        .toList());
+        azureRequests.add(method + " " + path +
+                (recorded.isEmpty() ? "" : "?" + recorded));
+        var headers = exchange.getResponseHeaders();
+        headers.set("x-ms-version", "2026-02-06");
+        String body = "";
+        int status;
+        boolean listing = recorded.contains("comp=list");
+        if (path.equals("/account/container") && !listing) {
+            // Get Container Properties, which the SDK sends as a GET.
+            status = containerStatus;
+            if (status == 200) {
+                headers.set("ETag", "\"0xC\"");
+                headers.set("Last-Modified", "Thu, 01 Jan 2026 00:00:00 GMT");
+                headers.set("x-ms-meta-s3proxy_versioning", "Suspended");
+            } else {
+                headers.set("x-ms-error-code",
+                        "AuthorizationPermissionMismatch");
+            }
+        } else if (path.equals("/account/container")) {
+            status = 200;
+            headers.set("Content-Type", "application/xml");
+            body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                    "<EnumerationResults ContainerName=\"container\">" +
+                    "<Blobs>" + listedVersion(OLD_NULL, false) +
+                    listedVersion(WRITTEN, true) + "</Blobs>" +
+                    "<NextMarker /></EnumerationResults>";
+        } else if (method.equals("HEAD")) {
+            // The key's current version, written while Suspended.
+            status = 200;
+            headers.set("ETag", "\"0x1\"");
+            headers.set("Last-Modified", "Thu, 01 Jan 2026 00:00:00 GMT");
+            headers.set("x-ms-version-id", OLD_NULL);
+            headers.set("x-ms-blob-type", "BlockBlob");
+        } else if (method.equals("PUT")) {
+            status = 201;
+            headers.set("ETag", "\"0x2\"");
+            headers.set("Last-Modified", "Fri, 02 Jan 2026 00:00:00 GMT");
+            headers.set("x-ms-version-id", WRITTEN);
+            headers.set("x-ms-request-server-encrypted", "true");
+        } else if (method.equals("DELETE")) {
+            status = versionDeleteStatus;
+            if (status >= 400) {
+                headers.set("x-ms-error-code", versionDeleteCode);
+                headers.set("Content-Type", "application/xml");
+                body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                        "<Error><Code>" + versionDeleteCode + "</Code>" +
+                        "<Message>refused</Message></Error>";
+            }
+        } else {
+            status = 400;
+        }
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0) {
+            exchange.sendResponseHeaders(status, -1);
+        } else {
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        }
+        exchange.close();
+    }
+
+    private static String listedVersion(String versionId, boolean current) {
+        return "<Blob><Name>key</Name><VersionId>" + versionId +
+                "</VersionId>" +
+                (current ? "<IsCurrentVersion>true</IsCurrentVersion>" : "") +
+                "<Properties><Last-Modified>Thu, 01 Jan 2026 00:00:00 GMT" +
+                "</Last-Modified><Etag>0x" + (current ? "2" : "1") +
+                "</Etag><Content-Length>1</Content-Length>" +
+                "<BlobType>BlockBlob</BlobType></Properties>" +
+                "<Metadata><s3proxy_null_version>true</s3proxy_null_version>" +
+                "</Metadata></Blob>";
     }
 
     private static BlobItem versionBlob(String name, String versionId,
