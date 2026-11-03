@@ -1284,10 +1284,12 @@ public final class AzureBlobStore implements BlobStore {
      * instance in front of it agrees the moment one suspends it; that costs
      * one request per write on a versioned store.
      *
-     * <p>A credential refused the container's properties -- a shared access
-     * signature scoped to blobs, say -- could not have suspended it either,
-     * and versioned writes worked for it before Suspended existed, so it
-     * writes as Enabled rather than failing every write.
+     * <p>A credential refused the container's properties -- a container
+     * service SAS, or an account SAS without resource type c -- is refused
+     * the write too, as AccessDenied naming what it lacks.  It cannot tell
+     * whether someone else, with a broader credential, has suspended the
+     * container, and writing as Enabled when it has would leave a version
+     * S3 would have replaced, silently.
      */
     private boolean isSuspended(String container) {
         if (!versioning) {
@@ -1298,10 +1300,16 @@ public final class AzureBlobStore implements BlobStore {
             metadata = blobServiceClient.getBlobContainerClient(container)
                     .getProperties().getMetadata();
         } catch (BlobStorageException bse) {
-            if (bse.getStatusCode() == 403) {
-                logger.debug("cannot read versioning state of {}; writing" +
-                        " as Enabled", container, bse);
-                return false;
+            if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
+                throw S3Exceptions.accessDenied(("s3proxy.azureblob." +
+                        "versioning is on, so a write reads the properties" +
+                        " of container %s to learn whether versioning is" +
+                        " Suspended, and Azure refused them (%s).  Grant" +
+                        " Microsoft.Storage/storageAccounts/blobServices/" +
+                        "containers/read, or use an account SAS with" +
+                        " resource type c; a container service SAS cannot" +
+                        " read container properties.").formatted(container,
+                        bse.getErrorCode()), bse);
             }
             throw translate(bse, container, /*key=*/ null);
         }
@@ -2596,10 +2604,18 @@ public final class AzureBlobStore implements BlobStore {
      * from listings and removed by the next suspended write or by a delete
      * of the null version.  Only null versions older than {@code written}
      * are removed, so of two suspended writes racing, the later survives
-     * whichever finishes first.  A failure to remove one is logged rather
-     * than failing a write that has already happened.
+     * whichever finishes first.
+     *
+     * <p>A failure to remove one is logged rather than failing a write that
+     * has already happened: the client would retry it, adding a version of
+     * its own.  A credential refused the removal -- one without
+     * deleteBlobVersion, which Storage Blob Data Contributor lacks -- will be
+     * refused it on every suspended overwrite, each leaving a hidden version
+     * behind, so that is logged at ERROR naming the permission, at most once
+     * per container per {@link #CLEANUP_REFUSAL_LOG_INTERVAL}; any other
+     * failure is presumed passing and logged at WARN.
      */
-    private static void replaceNullVersion(BlobClientBase base,
+    private void replaceNullVersion(BlobClientBase base,
             @Nullable String written, NullVersionWrite pending) {
         if (written == null) {
             // Azure minted no version, so the account is not versioned
@@ -2618,10 +2634,46 @@ public final class AzureBlobStore implements BlobStore {
                 }
             }
         } catch (BlobStorageException bse) {
-            logger.warn("could not remove the null version that {} replaced" +
-                    " in {}", base.getBlobName(),
-                    base.getContainerName(), bse);
+            String container = base.getContainerName();
+            if (!isPermissionRefusal(bse)) {
+                logger.warn("could not remove the null version that {}" +
+                        " replaced in {}", base.getBlobName(), container,
+                        bse);
+            } else if (reportCleanupRefusal(container, Instant.now())) {
+                logger.error("Azure refused ({}) to remove the null version" +
+                        " that {} replaced in Suspended container {}, so" +
+                        " hidden versions will accumulate there until it" +
+                        " is granted Microsoft.Storage/storageAccounts/" +
+                        "blobServices/containers/blobs/deleteBlobVersion/" +
+                        "action (Storage Blob Data Owner or a custom role;" +
+                        " SAS permission x).  Logged at most once per {}" +
+                        " minutes per container.", bse.getErrorCode(),
+                        base.getBlobName(), container,
+                        CLEANUP_REFUSAL_LOG_INTERVAL.toMinutes(), bse);
+            }
         }
+    }
+
+    /** Whether Azure refused the request for want of a permission. */
+    static boolean isPermissionRefusal(BlobStorageException bse) {
+        return bse.getStatusCode() == 403 || bse.getStatusCode() == 401 ||
+                OPERATION_NOT_ALLOWED_ON_AUTOMATIC_SNAPSHOT.equals(
+                        bse.getErrorCode());
+    }
+
+    /**
+     * Whether to log, at {@code now}, that the credential cannot remove the
+     * null versions suspended writes to {@code container} replace: true at
+     * most once per {@link #CLEANUP_REFUSAL_LOG_INTERVAL} per container, so
+     * a busy one does not log on every write.
+     */
+    boolean reportCleanupRefusal(String container, Instant now) {
+        Instant last = cleanupRefusalsLogged.get(container);
+        if (last == null) {
+            return cleanupRefusalsLogged.putIfAbsent(container, now) == null;
+        }
+        return !now.isBefore(last.plus(CLEANUP_REFUSAL_LOG_INTERVAL)) &&
+                cleanupRefusalsLogged.replace(container, last, now);
     }
 
     /**
@@ -3101,28 +3153,6 @@ public final class AzureBlobStore implements BlobStore {
                         CLEANUP_REFUSAL_LOG_INTERVAL.toMinutes(), bse);
             }
         }
-    }
-
-    /** Whether Azure refused the request for want of a permission. */
-    static boolean isPermissionRefusal(BlobStorageException bse) {
-        return bse.getStatusCode() == 403 || bse.getStatusCode() == 401 ||
-                OPERATION_NOT_ALLOWED_ON_AUTOMATIC_SNAPSHOT.equals(
-                        bse.getErrorCode());
-    }
-
-    /**
-     * Whether to log, at {@code now}, that the credential cannot remove
-     * versions the store cleans up in {@code container}: true at most once
-     * per {@link #CLEANUP_REFUSAL_LOG_INTERVAL} per container, so a busy one
-     * does not log on every request.
-     */
-    boolean reportCleanupRefusal(String container, Instant now) {
-        Instant last = cleanupRefusalsLogged.get(container);
-        if (last == null) {
-            return cleanupRefusalsLogged.putIfAbsent(container, now) == null;
-        }
-        return !now.isBefore(last.plus(CLEANUP_REFUSAL_LOG_INTERVAL)) &&
-                cleanupRefusalsLogged.replace(container, last, now);
     }
 
     /**
