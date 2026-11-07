@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -87,7 +88,9 @@ import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.common.collect.PeekingIterator;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
@@ -105,6 +108,7 @@ import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -120,6 +124,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -128,12 +134,17 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
@@ -168,6 +179,15 @@ public final class AzureBlobStore implements BlobStore {
      */
     private static final String OPAQUE_ETAG_SUFFIX = "-1";
     private static final int STATUS_NOT_FOUND = 404;
+    /** S3's name for the version of an object written while unversioned. */
+    private static final String NULL_VERSION_ID = "null";
+    /**
+     * Azure refuses to delete the current ("root") version of a blob by its
+     * version id; the base blob has to be deleted instead.  No SDK constant
+     * names this code, so it is interned here.
+     */
+    private static final BlobErrorCode OPERATION_NOT_ALLOWED_ON_ROOT_BLOB =
+            BlobErrorCode.fromString("OperationNotAllowedOnRootBlob");
     /** How many deletes Azure accepts in one batch request. */
     private static final int MAX_BATCH_DELETES = 256;
     // Azure refuses maxresults past 5000 where S3's max-buckets reaches
@@ -191,6 +211,17 @@ public final class AzureBlobStore implements BlobStore {
      * when they cannot, which Azure's is not.
      */
     private final boolean opaqueETags;
+    /**
+     * Whether to honor S3 versioning against this account.  Azure Blob
+     * versioning is enabled per storage account on the management plane
+     * (ARM); the data-plane SDK can neither turn it on nor read whether it is
+     * on.  So the operator asserts it here -- "versioning is enabled on this
+     * account" -- and only then does the store report {@link
+     * #supportsVersioning} and map the version-aware operations onto the
+     * native blob-version APIs.  Left false, every versioning request is
+     * answered NotImplemented exactly as before.
+     */
+    private final boolean versioning;
 
     public AzureBlobStore(
             Supplier<Credentials> creds,
@@ -202,6 +233,15 @@ public final class AzureBlobStore implements BlobStore {
             Supplier<Credentials> creds,
             String endpointUrl,
             String eTagMode) {
+        this(creds, endpointUrl, eTagMode, /*versioning=*/ false);
+    }
+
+    public AzureBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl,
+            String eTagMode,
+            boolean versioning) {
+        this.versioning = versioning;
         this.opaqueETags = switch (eTagMode) {
         case "opaque" -> true;
         case "native" -> false;
@@ -292,7 +332,7 @@ public final class AzureBlobStore implements BlobStore {
             token = fromClient.generateUserDelegationSas(values,
                     userDelegationKey);
         }
-        return fromClient.getBlobUrl() + "?" + token;
+        return sasSourceUrl(fromClient.getBlobUrl(), token);
     }
 
     /**
@@ -560,14 +600,28 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
-        if (request.versionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String container = request.bucket();
         String key = request.key();
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
+        if (request.versionId() != null) {
+            // Read the named version rather than the current one; every
+            // getProperties/openInputStream below then addresses that version.
+            client = versionClient(client, container, key,
+                    request.versionId());
+            // openInputStream defers its first service call, so a malformed or
+            // unknown versionId would otherwise fail mid-stream in the frontend
+            // as a 500.  Probe the version's properties up front to surface it
+            // as the 400/404 S3 answers instead.
+            try {
+                client.getProperties();
+            } catch (BlobStorageException bse) {
+                // An absent blob or version answers 404 through translate,
+                // matching how the openInputStream read below reports one --
+                // getBlob no longer returns null for an absent object.
+                throw translate(bse, container, key, request.versionId());
+            }
+        }
         // Azure rejects the literal If-None-Match: * with 400
         // UnsatisfiableCondition rather than treating it as "matches any
         // existing blob", so emulate the S3 semantics here: an existing blob
@@ -577,7 +631,7 @@ public final class AzureBlobStore implements BlobStore {
             try {
                 client.getProperties();
             } catch (BlobStorageException bse) {
-                throw translate(bse, container, key);
+                throw translate(bse, container, key, request.versionId());
             }
             throw S3Exceptions.fromStatusCode(412);
         }
@@ -593,7 +647,7 @@ public final class AzureBlobStore implements BlobStore {
                 try {
                     blobSize = client.getProperties().getBlobSize();
                 } catch (BlobStorageException bse) {
-                    throw translate(bse, container, key);
+                    throw translate(bse, container, key, request.versionId());
                 }
                 long count = Math.min(tail, blobSize);
                 azureRange = new BlobRange(blobSize - count, count);
@@ -622,7 +676,7 @@ public final class AzureBlobStore implements BlobStore {
                     416) {
                 throw S3Exceptions.fromStatusCode(416);
             }
-            throw translate(bse, container, key);
+            throw translate(bse, container, key, request.versionId());
         }
         var properties = blobStream.getProperties();
         var expires = properties.getExpiresOn();
@@ -656,6 +710,7 @@ public final class AzureBlobStore implements BlobStore {
                 .metadata(properties.getMetadata())
                 .serverSideEncryption(
                         reportedSse(properties.isServerEncrypted()))
+                .versionId(properties.getVersionId())
                 .cacheControl(properties.getCacheControl())
                 .contentDisposition(properties.getContentDisposition())
                 .contentEncoding(properties.getContentEncoding())
@@ -683,6 +738,225 @@ public final class AzureBlobStore implements BlobStore {
         // (AES256). SSE-C and SSE-KMS are refused (see refuseUnsupportedSse)
         // rather than silently accepted.
         return true;
+    }
+
+    @Override
+    public boolean supportsVersioning() {
+        return versioning;
+    }
+
+    /**
+     * Reports the account's versioning as Enabled.  When {@link #versioning}
+     * is set the operator has asserted the account has versioning turned on
+     * (ARM), and the data plane offers no way to read the setting back to
+     * confirm or refine it, so Enabled is the only honest answer.  Never
+     * returns Suspended -- Azure has no per-container suspend -- nor an empty
+     * status, since a store that reports {@link #supportsVersioning} treats
+     * the account as versioned throughout.
+     */
+    @Override
+    public GetBucketVersioningResponse getBucketVersioning(
+            GetBucketVersioningRequest request) {
+        requireContainer(request.bucket());
+        return GetBucketVersioningResponse.builder()
+                .status(BucketVersioningStatus.ENABLED)
+                .build();
+    }
+
+    /**
+     * Accepts a request to enable versioning as the no-op it is -- the
+     * account is already versioned out of band, which is the precondition for
+     * running with {@link #versioning} set -- and refuses Suspended, which
+     * Azure cannot honor: suspension is an account-level, not container-level,
+     * setting and the data plane cannot toggle it at all.
+     */
+    @Override
+    public PutBucketVersioningResponse putBucketVersioning(
+            PutBucketVersioningRequest request) {
+        var configuration = request.versioningConfiguration();
+        if (configuration != null &&
+                configuration.status() == BucketVersioningStatus.SUSPENDED) {
+            // 501 NotImplemented: we cannot stop minting versions per
+            // container, so pretending to suspend would lie to the caller.
+            throw S3Exceptions.fromStatusCode(501);
+        }
+        requireContainer(request.bucket());
+        return PutBucketVersioningResponse.builder().build();
+    }
+
+    /**
+     * Refuse a versioning request for a container that does not exist.  The
+     * account-wide answer the two calls above give never touches the
+     * container, and a store that reports {@link #supportsVersioning} is
+     * trusted by the frontend to answer NoSuchBucket itself.
+     */
+    private void requireContainer(String container) {
+        if (!blobServiceClient.getBlobContainerClient(container).exists()) {
+            throw S3Exceptions.noSuchBucket(container, "");
+        }
+    }
+
+    /**
+     * Lists a container's object versions.  Azure returns a row per version
+     * when asked to retrieve them, each carrying its own version id, which
+     * map onto S3's Version entries; Azure keeps no delete markers, so the
+     * DeleteMarker list is always empty and a plain delete simply drops the
+     * current version.
+     *
+     * <p>Paging uses S3's own (key, version-id) markers rather than Azure's
+     * continuation token: the listing restarts from the key marker, which
+     * Azure's startFrom includes, and drops what the client has already
+     * seen.  Azure lists a key's versions oldest first where S3 lists them
+     * newest first, so a key is gathered whole before any of it is reported,
+     * and a page that ends inside a key -- even one whose versions straddle
+     * Azure pages -- resumes inside it.
+     */
+    @Override
+    public ListObjectVersionsResponse listVersions(
+            ListObjectVersionsRequest request) {
+        String container = request.bucket();
+        var client = blobServiceClient.getBlobContainerClient(container);
+        int maxKeys = request.maxKeys() == null ? 1000 : request.maxKeys();
+        var options = new ListBlobsOptions()
+                .setPrefix(request.prefix())
+                .setStartFrom(request.keyMarker())
+                .setMaxResultsPerPage(
+                        Math.max(1, Math.min(maxKeys + 1, 5000)))
+                .setDetails(new BlobListDetails().setRetrieveVersions(true));
+        try {
+            return versionsPage(client.listBlobsByHierarchy(
+                    request.delimiter(), options, /*timeout=*/ null)
+                    .iterator(),
+                    request.keyMarker(), request.versionIdMarker(), maxKeys);
+        } catch (BlobStorageException bse) {
+            throw translate(bse, container, /*key=*/ null);
+        }
+    }
+
+    /**
+     * Maps Azure's version rows, in the order Azure lists them, onto one page
+     * of a ListObjectVersions response: each key's versions newest first, at
+     * most {@code maxKeys} entries, after the (key, version-id) marker.  The
+     * marker's key is listed again by startFrom; its versions up to and
+     * including the marker's are dropped, or all of them when the marker
+     * names no version, as S3 does.  The latest version is the one Azure
+     * flags current or, failing that, the one with no version id: a blob
+     * written while the account was unversioned, which Azure lists last and
+     * leaves unflagged though a plain read serves it.  A key whose current
+     * version was deleted has none, there being no delete marker to report
+     * in its place.
+     */
+    ListObjectVersionsResponse versionsPage(Iterator<BlobItem> rows,
+            @Nullable String keyMarker, @Nullable String versionIdMarker,
+            int maxKeys) {
+        var entries = new ArrayList<ObjectVersion>();
+        var prefixes = ImmutableList.<CommonPrefix>builder();
+        PeekingIterator<BlobItem> it = Iterators.peekingIterator(rows);
+        String lastKey = null;
+        String lastVersionId = null;
+        boolean truncated = false;
+        int count = 0;
+        rows:
+        while (it.hasNext()) {
+            BlobItem first = it.next();
+            String name = first.getName();
+            if (Boolean.TRUE.equals(first.isPrefix())) {
+                if (keyMarker != null && name.compareTo(keyMarker) <= 0) {
+                    continue;
+                }
+                if (count == maxKeys) {
+                    truncated = true;
+                    break;
+                }
+                prefixes.add(SdkResponses.commonPrefix(name));
+                ++count;
+                lastKey = name;
+                lastVersionId = null;
+                continue;
+            }
+            var versions = new ArrayList<BlobItem>();
+            versions.add(first);
+            while (it.hasNext() && !Boolean.TRUE.equals(it.peek().isPrefix()) &&
+                    it.peek().getName().equals(name)) {
+                versions.add(it.next());
+            }
+            if (keyMarker != null && name.compareTo(keyMarker) < 0) {
+                continue;
+            }
+            BlobItem latest = null;
+            for (var version : versions) {
+                if (Boolean.TRUE.equals(version.isCurrentVersion())) {
+                    latest = version;
+                }
+            }
+            if (latest == null) {
+                for (var version : versions) {
+                    if (version.getVersionId() == null) {
+                        latest = version;
+                    }
+                }
+            }
+            for (var version : Lists.reverse(versions)) {
+                String vid = version.getVersionId() != null ?
+                        version.getVersionId() : NULL_VERSION_ID;
+                if (name.equals(keyMarker) && (versionIdMarker == null ||
+                        !isOlder(vid, versionIdMarker))) {
+                    continue;
+                }
+                if (count == maxKeys) {
+                    truncated = true;
+                    break rows;
+                }
+                entries.add(objectVersion(version, vid, version == latest));
+                ++count;
+                lastKey = name;
+                lastVersionId = vid;
+            }
+        }
+
+        var builder = ListObjectVersionsResponse.builder()
+                .versions(entries)
+                .commonPrefixes(prefixes.build())
+                .isTruncated(truncated);
+        if (truncated) {
+            // A page with room for nothing resumes where it was asked to.
+            builder.nextKeyMarker(lastKey != null ? lastKey : keyMarker)
+                    .nextVersionIdMarker(lastKey != null ? lastVersionId :
+                            versionIdMarker);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Whether a version listed under {@code versionId} comes after, which is
+     * to say is older than, the marker's in S3's newest-first order.  Azure
+     * version ids are UTC timestamps that sort as strings; the "null"
+     * version, written before any of them were, is the newest still listed.
+     */
+    private static boolean isOlder(String versionId, String marker) {
+        if (versionId.equals(NULL_VERSION_ID)) {
+            return false;
+        }
+        if (marker.equals(NULL_VERSION_ID)) {
+            return true;
+        }
+        return versionId.compareTo(marker) < 0;
+    }
+
+    private ObjectVersion objectVersion(BlobItem blob, String versionId,
+            boolean latest) {
+        var properties = blob.getProperties();
+        return ObjectVersion.builder()
+                .key(blob.getName())
+                .versionId(versionId)
+                .isLatest(latest)
+                .lastModified(properties.getLastModified() == null ? null :
+                        properties.getLastModified().toInstant())
+                .eTag(reportETag(properties.getETag()))
+                .size(properties.getContentLength())
+                .storageClass(fromAccessTier(
+                        properties.getAccessTier()).toString())
+                .build();
     }
 
     /**
@@ -808,6 +1082,7 @@ public final class AzureBlobStore implements BlobStore {
                         .toBuilder()
                         .serverSideEncryption(
                                 reportedSse(uploaded.isServerEncrypted()))
+                        .versionId(uploaded.getVersionId())
                         .build();
             }
 
@@ -837,6 +1112,7 @@ public final class AzureBlobStore implements BlobStore {
                     .toBuilder()
                     .serverSideEncryption(
                             reportedSse(properties.isServerEncrypted()))
+                    .versionId(properties.getVersionId())
                     .build();
         } catch (BlobStorageException bse) {
             throw translateWrite(bse, container, key, request.ifMatch());
@@ -926,6 +1202,16 @@ public final class AzureBlobStore implements BlobStore {
         ).subscribeOn(Schedulers.boundedElastic());
     }
 
+    /**
+     * Appends a SAS token to a source blob URL.  A version client's URL
+     * already carries a {@code ?versionid=} query, so the token must join
+     * with {@code &}; a bare {@code ?} would double it and Azure answers
+     * CannotVerifyCopySource.
+     */
+    static String sasSourceUrl(String url, String token) {
+        return url + (url.contains("?") ? "&" : "?") + token;
+    }
+
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         refuseUnsupportedSse(request.serverSideEncryptionAsString(),
@@ -937,10 +1223,6 @@ public final class AzureBlobStore implements BlobStore {
                 request.copySourceSSECustomerAlgorithm(),
                 request.copySourceSSECustomerKey(),
                 request.copySourceSSECustomerKeyMD5());
-        if (request.sourceVersionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String fromContainer = request.sourceBucket();
         String fromName = request.sourceKey();
         boolean replace =
@@ -953,7 +1235,12 @@ public final class AzureBlobStore implements BlobStore {
         var fromClient = blobServiceClient
                 .getBlobContainerClient(fromContainer)
                 .getBlobClient(fromName);
-
+        if (request.sourceVersionId() != null) {
+            // Copy from the named source version: the version client's URL
+            // carries the versionId query the service copies that version by.
+            fromClient = versionClient(fromClient, fromContainer, fromName,
+                    request.sourceVersionId());
+        }
         var sourceUrl = signedSourceUrl(fromClient);
         var azureOptions = new BlobUploadFromUrlOptions(sourceUrl);
         var client = blobServiceClient
@@ -1039,10 +1326,12 @@ public final class AzureBlobStore implements BlobStore {
                     .toBuilder()
                     .serverSideEncryption(
                             reportedSse(copied.isServerEncrypted()))
+                    .versionId(copied.getVersionId())
                     .build();
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
-                throw translate(bse, fromContainer, fromName);
+                throw translate(bse, fromContainer, fromName,
+                        request.sourceVersionId());
             }
             // Azurite does not implement Put Blob From URL (501
             // APINotImplemented); fall back to the classic asynchronous
@@ -1089,22 +1378,17 @@ public final class AzureBlobStore implements BlobStore {
                         .toBuilder()
                         .serverSideEncryption(
                                 reportedSse(properties.isServerEncrypted()))
+                        .versionId(properties.getVersionId())
                         .build();
             } catch (BlobStorageException bse2) {
-                throw translate(bse2, fromContainer, fromName);
+                throw translate(bse2, fromContainer, fromName,
+                        request.sourceVersionId());
             }
         }
     }
 
     @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
-        // The literal "null" names the null version, which on an
-        // unversioned namespace is the object itself.
-        if (request.versionId() != null &&
-                !request.versionId().equals("null")) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         if (request.ifMatchSize() != null ||
                 request.ifMatchLastModifiedTime() != null) {
             // Azure conditions a delete on the blob's ETag or on a time
@@ -1113,11 +1397,40 @@ public final class AzureBlobStore implements BlobStore {
             throw new UnsupportedOperationException(
                     "conditional delete not supported");
         }
+        // The literal "null" names the null version, which on an
+        // unversioned namespace is the object itself; on a versioned one it
+        // is a version like any other, and maybe not there.
+        String versionId = request.versionId();
+        boolean namesVersion = versionId != null &&
+                (versioning || !versionId.equals(NULL_VERSION_ID));
+        if (namesVersion && !versioning) {
+            throw new UnsupportedOperationException(
+                    "versioning not supported");
+        }
         String ifMatch = backendCondition(request.ifMatch());
+        if (namesVersion && ifMatch != null) {
+            // S3 itself refuses If-Match on a delete naming a version, 501
+            // NotImplemented whether or not the ETag matches, and honors it
+            // only on a delete of the current object; refuse it the same
+            // way rather than carry out a delete S3 would not.
+            throw new UnsupportedOperationException(
+                    "conditional delete of a version not supported");
+        }
         var client = blobServiceClient.getBlobContainerClient(request.bucket())
                 .getBlobClient(request.key());
         try {
-            if (ifMatch == null) {
+            if (namesVersion && versionId.equals(NULL_VERSION_ID)) {
+                deleteNullVersion(client);
+            } else if (namesVersion) {
+                // A versioned delete removes the one version named.
+                deleteVersion(client, versionId);
+            } else if (ifMatch == null) {
+                // A null-versionId delete against a versioned Azure account
+                // removes the current version and retains the prior ones, but
+                // Azure writes no delete marker: there is nothing to undelete
+                // and no marker version to report, so the response carries
+                // neither.  This diverges from S3, which would insert a delete
+                // marker; emulating one is deferred.
                 client.delete();
             } else {
                 // The service judges the condition as it removes the blob,
@@ -1146,9 +1459,138 @@ public final class AzureBlobStore implements BlobStore {
                 // code the store gives it into that key's Error element.
                 throw S3Exceptions.preconditionFailed(bse);
             }
-            throw translate(bse, request.bucket(), request.key());
+            throw translate(bse, request.bucket(), request.key(), versionId);
         }
-        return DeleteObjectResponse.builder().build();
+        var builder = DeleteObjectResponse.builder();
+        if (namesVersion) {
+            builder.versionId(versionId);
+        }
+        return builder.build();
+    }
+
+    /**
+     * The client addressing one version of a blob.  "null" names S3's null
+     * version: on an unversioned store the object itself, and on a versioned
+     * one the base blob only while it carries no version id -- a blob written
+     * while the account was unversioned.  A key without one answers
+     * NoSuchVersion, as S3 does, rather than handing Azure a version id it
+     * rejects as malformed.
+     */
+    private BlobClient versionClient(BlobClient base, String container,
+            String key, String versionId) {
+        if (!versionId.equals(NULL_VERSION_ID)) {
+            return base.getVersionClient(versionId);
+        }
+        if (!versioning) {
+            return base;
+        }
+        BlobProperties properties;
+        try {
+            properties = base.getProperties();
+        } catch (BlobStorageException bse) {
+            if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                throw S3Exceptions.noSuchVersion(container, key, versionId,
+                        "no null version");
+            }
+            throw translate(bse, container, key);
+        }
+        if (properties.getVersionId() != null) {
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "no null version");
+        }
+        return base;
+    }
+
+    /**
+     * Removes S3's null version: the base blob while it carries no version
+     * id.  A key with no null version, every write to it since the account
+     * was versioned carrying an id, is left as it is and the delete still
+     * succeeds, as S3 answers it.  The base blob is deleted under the ETag it
+     * was checked by, so a write landing after the check is not removed in
+     * its place.
+     *
+     * <p>Deleting the base blob of a versioned account does not discard it:
+     * Azure keeps its content as a non-current version under an id of its
+     * own minting, where S3 removes the null version for good.  That version
+     * is found by the ETag the null version had and removed as well.
+     */
+    private static void deleteNullVersion(BlobClient base) {
+        BlobProperties properties;
+        try {
+            properties = base.getProperties();
+        } catch (BlobStorageException bse) {
+            if (isAbsent(bse)) {
+                return;
+            }
+            throw bse;
+        }
+        if (properties.getVersionId() != null) {
+            return;
+        }
+        String eTag = properties.getETag();
+        try {
+            base.deleteWithResponse(
+                    /*deleteBlobSnapshotOptions=*/ null,
+                    new BlobRequestConditions().setIfMatch(eTag),
+                    /*timeout=*/ null, Context.NONE);
+        } catch (BlobStorageException raced) {
+            if (!BlobErrorCode.CONDITION_NOT_MET.equals(
+                    raced.getErrorCode()) && !isAbsent(raced)) {
+                throw raced;
+            }
+            return;
+        }
+        var options = new ListBlobsOptions()
+                .setPrefix(base.getBlobName())
+                .setDetails(new BlobListDetails().setRetrieveVersions(true));
+        for (BlobItem blob : base.getContainerClient().listBlobs(options,
+                /*timeout=*/ null)) {
+            if (blob.getName().equals(base.getBlobName()) &&
+                    blob.getVersionId() != null &&
+                    eTag.equals(blob.getProperties().getETag())) {
+                base.getVersionClient(blob.getVersionId()).delete();
+            }
+        }
+    }
+
+    /**
+     * Permanently removes one version.  Azure refuses to delete the current
+     * ("root") version by id -- OperationNotAllowedOnRootBlob -- so when that
+     * is the version named, delete the base blob first, which demotes it to a
+     * non-current version, then remove it by id.  Unlike S3 this does not
+     * promote the prior version back to current; emulating that is deferred.
+     *
+     * <p>The base blob is deleted only while it still is the version named:
+     * a write landing between the refusal and that delete would otherwise
+     * have its own fresh version demoted, leaving the key with no current
+     * version.  The condition is the named version's ETag, which the base
+     * blob carries for as long as that version is current; when the
+     * condition fails, or the base blob is already gone, something else has
+     * demoted the version and it can simply be removed.
+     */
+    private static void deleteVersion(BlobClient base, String versionId) {
+        var version = base.getVersionClient(versionId);
+        try {
+            version.delete();
+        } catch (BlobStorageException bse) {
+            if (!OPERATION_NOT_ALLOWED_ON_ROOT_BLOB.equals(
+                    bse.getErrorCode())) {
+                throw bse;
+            }
+            String eTag = version.getProperties().getETag();
+            try {
+                base.deleteWithResponse(
+                        /*deleteBlobSnapshotOptions=*/ null,
+                        new BlobRequestConditions().setIfMatch(eTag),
+                        /*timeout=*/ null, Context.NONE);
+            } catch (BlobStorageException raced) {
+                if (!BlobErrorCode.CONDITION_NOT_MET.equals(
+                        raced.getErrorCode()) && !isAbsent(raced)) {
+                    throw raced;
+                }
+            }
+            version.delete();
+        }
     }
 
     /**
@@ -1167,6 +1609,13 @@ public final class AzureBlobStore implements BlobStore {
                 request.delete().objects();
         if (objects.isEmpty()) {
             return DeleteObjectsResponse.builder().build();
+        }
+        // A batch names blobs by URL alone and cannot carry a per-object
+        // versionId, so a versioned delete falls to the per-object path, which
+        // routes each through the version-aware removeBlob overload.
+        if (versioning &&
+                objects.stream().anyMatch(o -> o.versionId() != null)) {
+            return BlobStore.super.removeBlobs(request);
         }
         var containerClient =
                 blobServiceClient.getBlobContainerClient(request.bucket());
@@ -1234,24 +1683,26 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
-        if (request.versionId() != null) {
-            throw new UnsupportedOperationException(
-                    "versioning not supported");
-        }
         String container = request.bucket();
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(request.key());
+        if (request.versionId() != null) {
+            client = versionClient(client, container, request.key(),
+                    request.versionId());
+        }
         BlobProperties properties;
         try {
             properties = client.getProperties();
         } catch (BlobStorageException bse) {
-            throw translate(bse, container, request.key());
+            throw translate(bse, container, request.key(),
+                    request.versionId());
         }
         @SuppressWarnings("deprecation")
         HeadObjectResponse head = HeadObjectResponse.builder()
                 .metadata(properties.getMetadata())
                 .serverSideEncryption(
                         reportedSse(properties.isServerEncrypted()))
+                .versionId(properties.getVersionId())
                 .eTag(reportETag(properties.getETag()))
                 .lastModified(properties.getLastModified() == null ? null :
                         properties.getLastModified().toInstant())
@@ -1569,6 +2020,7 @@ public final class AzureBlobStore implements BlobStore {
                     .toBuilder()
                     .serverSideEncryption(
                             reportedSse(committed.isServerEncrypted()))
+                    .versionId(committed.getVersionId())
                     .build();
         } catch (BlobStorageException bse) {
             var errorCode = bse.getErrorCode();
@@ -1663,7 +2115,8 @@ public final class AzureBlobStore implements BlobStore {
                 request.copySourceSSECustomerAlgorithm(),
                 request.copySourceSSECustomerKey(),
                 request.copySourceSSECustomerKeyMD5());
-        if (request.sourceVersionId() != null) {
+        String sourceVersionId = request.sourceVersionId();
+        if (sourceVersionId != null && !versioning) {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
@@ -1687,6 +2140,12 @@ public final class AzureBlobStore implements BlobStore {
         var fromClient = blobServiceClient
                 .getBlobContainerClient(request.sourceBucket())
                 .getBlobClient(request.sourceKey());
+        if (sourceVersionId != null) {
+            // As in copyBlob, the version client's URL carries the versionId
+            // query the service copies that version by.
+            fromClient = versionClient(fromClient, request.sourceBucket(),
+                    request.sourceKey(), sourceVersionId);
+        }
 
         var options = new BlockBlobStageBlockFromUrlOptions(blockId,
                 signedSourceUrl(fromClient))
@@ -1725,10 +2184,11 @@ public final class AzureBlobStore implements BlobStore {
             eTag = md5 == null ? blockId : HexFormat.of().formatHex(
                     Base64.getDecoder().decode(md5));
         } catch (BlobStorageException bse) {
-            throw translate(bse, request.sourceBucket(), request.sourceKey());
+            throw translate(bse, request.sourceBucket(), request.sourceKey(),
+                    sourceVersionId);
         }
         return SdkResponses.copiedPart(eTag, /*lastModified=*/ null,
-                /*copySourceVersionId=*/ null);
+                sourceVersionId);
     }
 
     /** Parses the strict bytes=first-last form S3 CopyPart requires. */
@@ -1970,9 +2430,44 @@ public final class AzureBlobStore implements BlobStore {
      */
     static RuntimeException translate(BlobStorageException bse,
             String container, @Nullable String key) {
+        return translate(bse, container, key, /*versionId=*/ null);
+    }
+
+    /**
+     * As {@link #translate(BlobStorageException, String, String)} for a
+     * request naming a version.  Azure answers a version the blob does not
+     * have 404 BlobNotFound, the same as for a blob that is not there, where
+     * S3 says NoSuchVersion; a container that is not there is still
+     * NoSuchBucket.
+     */
+    static RuntimeException translate(BlobStorageException bse,
+            String container, @Nullable String key,
+            @Nullable String versionId) {
         var code = bse.getErrorCode();
+        if (versionId != null && !versionId.equals(NULL_VERSION_ID) &&
+                BlobErrorCode.BLOB_NOT_FOUND.equals(code)) {
+            return S3Exceptions.noSuchVersion(container, key, versionId,
+                    bse.getMessage());
+        }
         if (code == null) {
-            // e.g. errors without an x-ms-error-code response header
+            // Azure names no x-ms-error-code for a malformed query parameter
+            // -- a versionId that is no version id, say -- on any method, not
+            // only a HEAD; fall back to the HTTP status so a client error
+            // stays a client error rather than becoming the 500 a raw
+            // exception would.
+            int status = bse.getStatusCode();
+            if (status == 403 || status == 401) {
+                return S3Exceptions.fromStatusCode(403, bse);
+            }
+            if (status == 400 && versionId != null) {
+                // S3 answers a versionId it cannot parse with InvalidArgument;
+                // a bare 400 would become BadDigest, which says to retry.
+                return S3Exceptions.invalidArgument(
+                        "Invalid version id specified");
+            }
+            if (status == 400) {
+                return S3Exceptions.fromStatusCode(400, bse);
+            }
             return bse;
         }
         if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
@@ -1986,6 +2481,11 @@ public final class AzureBlobStore implements BlobStore {
         } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
             return S3Exceptions.fromStatusCode(412, bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
+            return S3Exceptions.fromStatusCode(400, bse);
+        } else if (code.equals(BlobErrorCode.INVALID_QUERY_PARAMETER_VALUE)) {
+            // A query parameter Azure rejects by name.  S3 answers such a
+            // request 400 rather than the 500 an unmapped Azure error would
+            // otherwise become.
             return S3Exceptions.fromStatusCode(400, bse);
         } else if (code.equals(BlobErrorCode.MD5MISMATCH) ||
                 code.equals(BlobErrorCode.INVALID_MD5)) {
