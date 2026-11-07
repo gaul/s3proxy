@@ -44,15 +44,21 @@ public enum S3ErrorCode {
             "Your proposed upload is smaller than the minimum allowed object" +
             " size. Each part must be at least 5 MB in size, except the last" +
             " part."),
+    EXPIRED_TOKEN(HttpServletResponse.SC_BAD_REQUEST,
+            "The provided token has expired."),
     INCOMPLETE_BODY(HttpServletResponse.SC_BAD_REQUEST,
             "You did not provide the number of bytes specified by the" +
             " Content-Length HTTP header."),
     INTERNAL_ERROR(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
             "An internal error occurred. Try again."),
     INVALID_ACCESS_KEY_ID(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    INVALID_ACTION(HttpServletResponse.SC_BAD_REQUEST,
+            "The action or operation requested is invalid."),
     INVALID_ARGUMENT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_BUCKET_NAME(HttpServletResponse.SC_BAD_REQUEST,
             "The specified bucket is not valid."),
+    INVALID_CLIENT_TOKEN_ID(HttpServletResponse.SC_FORBIDDEN,
+            "The security token included in the request is invalid."),
     INVALID_CORS_ORIGIN(HttpServletResponse.SC_BAD_REQUEST,
             "Insufficient information. Origin request header needed."),
     INVALID_CORS_METHOD(HttpServletResponse.SC_BAD_REQUEST,
@@ -77,8 +83,13 @@ public enum S3ErrorCode {
     INVALID_REQUEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     INVALID_STORAGE_CLASS(HttpServletResponse.SC_BAD_REQUEST,
             "The storage class you specified is not valid."),
+    INVALID_TOKEN(HttpServletResponse.SC_BAD_REQUEST,
+            "The provided token is malformed or otherwise invalid."),
     INVALID_U_R_I(HttpServletResponse.SC_BAD_REQUEST,
             "Couldn't parse the specified URI."),
+    MALFORMED_POLICY_DOCUMENT(HttpServletResponse.SC_BAD_REQUEST,
+            "The policy document is malformed or uses unsupported" +
+            " elements."),
     MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
             " against our published schema."),
@@ -86,6 +97,8 @@ public enum S3ErrorCode {
             "Your request was too big."),
     METHOD_NOT_ALLOWED(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
             "Method Not Allowed"),
+    MISSING_ACTION(HttpServletResponse.SC_BAD_REQUEST,
+            "The request is missing an action."),
     MISSING_CONTENT_LENGTH(HttpServletResponse.SC_LENGTH_REQUIRED,
             "Length Required"),
     NO_SUCH_BUCKET(HttpServletResponse.SC_NOT_FOUND,
@@ -103,6 +116,8 @@ public enum S3ErrorCode {
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    VALIDATION_ERROR(HttpServletResponse.SC_BAD_REQUEST,
+            "The request did not satisfy a parameter constraint."),
     X_AMZ_CONTENT_S_H_A_256_MISMATCH(HttpServletResponse.SC_BAD_REQUEST,
             "The provided 'x-amz-content-sha256' header does not match what" +
             " was computed.");
