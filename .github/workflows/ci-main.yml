@@ -210,12 +210,22 @@ jobs:
         run: |
           mvn package -DskipTests
 
-      - name: Install Azurite
-        run: npx --yes --loglevel info azurite@3.37.0 --version
+      # No released Azurite has blob versioning (Azure/Azurite#2735), which
+      # the azureblob backend will map S3 versioning onto, so build a commit
+      # carrying it.  Return this to a published azurite@<version> once one
+      # does.  npm ci builds dist/ through Azurite's prepare script.
+      - name: Build Azurite
+        run: |
+          git clone --filter=blob:none https://github.com/Azure/Azurite \
+            "${RUNNER_TEMP}/azurite"
+          git -C "${RUNNER_TEMP}/azurite" checkout --quiet \
+            716539c59a4f86d0a84552dff41fbf67033fdf6b
+          cd "${RUNNER_TEMP}/azurite"
+          npm ci
       - name: Start Azurite
         shell: bash
         run: |
-          npx --yes --package azurite@3.37.0 azurite-blob &
+          node "${RUNNER_TEMP}/azurite/dist/src/blob/main.js" &
           # A 403 AuthorizationFailure means the blob service is up and
           # reached its authentication layer.
           ./src/test/resources/wait-for-url.sh \
