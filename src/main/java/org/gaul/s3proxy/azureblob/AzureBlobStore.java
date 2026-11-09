@@ -189,7 +189,6 @@ public final class AzureBlobStore implements BlobStore {
     private final BlobBatchClient blobBatchClient;
     private final BlobServiceAsyncClient blobServiceAsyncClient;
     private final String endpoint;
-    private final Supplier<Credentials> creds;
     private final Auth auth;
     /** The signature the client presents, under {@link Auth#SAS} only. */
     private final @Nullable AzureSasCredential sasCredential;
@@ -271,7 +270,6 @@ public final class AzureBlobStore implements BlobStore {
         // e.g., default to https://<account>.blob.core.windows.net based on
         // the configured identity.
         this.endpoint = endpointUrl;
-        this.creds = creds;
         var cred = creds.get();
         var blobServiceClientBuilder = new BlobServiceClientBuilder()
                 // The oldest version that carries startFrom on List Blobs,
