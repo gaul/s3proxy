@@ -538,8 +538,8 @@ public final class AwsSignature {
         }
         String signatureString = "AWS4-HMAC-SHA256\n" +
                 date + "\n" +
-                authHeader.getDate() + "/" + authHeader.getRegion() +
-                "/s3/aws4_request\n" +
+                authHeader.getDate() + "/" + authHeader.getRegion() + "/" +
+                authHeader.getService() + "/aws4_request\n" +
                 getMessageDigest(canonicalRequest.getBytes(
                         StandardCharsets.UTF_8), hashAlgorithm);
         byte[] signature = signMessage(

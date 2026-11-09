@@ -50,6 +50,7 @@ public enum S3Operation {
     PUT_BUCKET_VERSIONING("PutBucketVersioning"),
     LIST_OBJECT_VERSIONS("ListObjectVersions"),
     OPTIONS_OBJECT("OptionsObject"),
+    GET_FEDERATION_TOKEN("GetFederationToken"),
     UNKNOWN("Unknown");
 
     private final String value;

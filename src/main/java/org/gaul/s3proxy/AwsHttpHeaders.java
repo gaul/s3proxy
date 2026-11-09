@@ -62,6 +62,7 @@ public final class AwsHttpHeaders {
     public static final String REQUEST_ID = "x-amz-request-id";
     public static final String SDK_CHECKSUM_ALGORITHM =
             "x-amz-sdk-checksum-algorithm";
+    public static final String SECURITY_TOKEN = "x-amz-security-token";
     public static final String SERVER_SIDE_ENCRYPTION =
             "x-amz-server-side-encryption";
     public static final String SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID =
