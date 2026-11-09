@@ -90,7 +90,8 @@ public final class BlobStores {
         case "azureblob" -> {
             String eTagMode = properties.getProperty(
                     "s3proxy.azureblob.etag", "opaque");
-            yield new AzureBlobStore(creds, endpoint, eTagMode);
+            String auth = properties.getProperty("s3proxy.azureblob.auth");
+            yield new AzureBlobStore(creds, endpoint, eTagMode, auth);
         }
         case "google-cloud-storage" ->
             new GCloudBlobStore(creds, endpoint);

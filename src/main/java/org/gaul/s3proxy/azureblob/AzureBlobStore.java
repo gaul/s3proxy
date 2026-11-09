@@ -39,8 +39,12 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
+import com.azure.core.credential.AccessToken;
 import com.azure.core.credential.AzureNamedKeyCredential;
 import com.azure.core.credential.AzureSasCredential;
+import com.azure.core.credential.TokenCredential;
+import com.azure.core.credential.TokenRequestContext;
+import com.azure.core.http.HttpClient;
 import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpPipelineCallContext;
 import com.azure.core.http.HttpPipelinePosition;
@@ -101,6 +105,7 @@ import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -184,7 +189,9 @@ public final class AzureBlobStore implements BlobStore {
     private final BlobBatchClient blobBatchClient;
     private final BlobServiceAsyncClient blobServiceAsyncClient;
     private final String endpoint;
-    private final Supplier<Credentials> creds;
+    private final Auth auth;
+    /** The signature the client presents, under {@link Auth#SAS} only. */
+    private final @Nullable AzureSasCredential sasCredential;
     /**
      * Report the ETag Azure mints under {@link #OPAQUE_ETAG_SUFFIX} rather
      * than bare.  S3 SDKs decode a dashless ETag as hex and abort the request
@@ -202,6 +209,56 @@ public final class AzureBlobStore implements BlobStore {
             Supplier<Credentials> creds,
             String endpointUrl,
             String eTagMode) {
+        this(creds, endpointUrl, eTagMode, /*auth=*/ null);
+    }
+
+    /**
+     * {@code auth} names how the store authenticates: {@code sas} with the
+     * shared access signature in the session token, {@code key} with the
+     * account name and key in the identity and credential, {@code default}
+     * through {@code DefaultAzureCredential}, or {@code bearer} with a
+     * Microsoft Entra access token in the session token that the
+     * application obtained itself, for example from a sidecar or a token
+     * broker that {@code DefaultAzureCredential} cannot read.  Left null,
+     * the store uses {@code sas} if there is a session token, {@code key}
+     * if there are an identity and a credential, and {@code default}
+     * otherwise.
+     *
+     * <p>S3Proxy 3.x reached Microsoft Entra through jclouds.  Its {@code
+     * jclouds.azureblob.auth=azureAd} took a client id and secret in the
+     * identity and credential and fetched and renewed tokens itself; that
+     * setup moves to {@code default}, where {@code DefaultAzureCredential}
+     * does the same from {@code AZURE_TENANT_ID}, {@code AZURE_CLIENT_ID}
+     * and {@code AZURE_CLIENT_SECRET}.  {@code bearer} replaces only the
+     * setup in which {@code jclouds.oauth.credential-type} was overridden
+     * so that the application supplied the access token itself.
+     *
+     * <p>Nothing in a {@code Credentials} says how long a bearer token
+     * lasts, so the supplier is asked again for every request, as it is for
+     * a shared access signature.  The store does not renew tokens itself:
+     * it is the caller's responsibility that {@code creds} always returns
+     * one that is still valid.  The endpoint must be https, since the Azure
+     * client refuses to send a bearer token over http.  Server-side copies
+     * sign their source URL with a user delegation key, so the token's
+     * principal needs a role that includes {@code
+     * generateUserDelegationKey}, such as Storage Blob Delegator; without
+     * it reads and writes succeed but copies fail.
+     */
+    public AzureBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl,
+            String eTagMode,
+            @Nullable String auth) {
+        this(creds, endpointUrl, eTagMode, auth, /*httpClient=*/ null);
+    }
+
+    /** {@code httpClient}, when given, carries the requests: for tests. */
+    AzureBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl,
+            String eTagMode,
+            @Nullable String auth,
+            @Nullable HttpClient httpClient) {
         this.opaqueETags = switch (eTagMode) {
         case "opaque" -> true;
         case "native" -> false;
@@ -213,7 +270,6 @@ public final class AzureBlobStore implements BlobStore {
         // e.g., default to https://<account>.blob.core.windows.net based on
         // the configured identity.
         this.endpoint = endpointUrl;
-        this.creds = creds;
         var cred = creds.get();
         var blobServiceClientBuilder = new BlobServiceClientBuilder()
                 // The oldest version that carries startFrom on List Blobs,
@@ -223,17 +279,26 @@ public final class AzureBlobStore implements BlobStore {
                 .serviceVersion(BlobServiceVersion.V2026_02_06)
                 .endpoint(endpoint)
                 .retryOptions(NO_RETRY_OPTIONS);
-        String sessionToken = cred.sessionToken();
-        if (!Strings.isNullOrEmpty(sessionToken)) {
+        if (httpClient != null) {
+            blobServiceClientBuilder.httpClient(httpClient);
+        }
+        this.auth = auth == null ? Auth.infer(cred) : Auth.parse(auth, cred);
+        AzureSasCredential sasCredential = null;
+        if (this.auth == Auth.BEARER) {
+            // The client sends the token as a bearer token, over TLS only,
+            // and reads it from the supplier through SuppliedTokenCredential.
+            blobServiceClientBuilder.credential(
+                    new SuppliedTokenCredential(creds));
+        } else if (this.auth == Auth.SAS) {
             // A shared access signature is the one Azure credential that
             // carries an expiry, so the client holds a mutable one that
             // SasRefreshPolicy re-reads from the supplier per request.
-            var sasCredential = new AzureSasCredential(sasToken(sessionToken));
+            sasCredential = new AzureSasCredential(
+                    sasToken(requireNonNull(cred.sessionToken())));
             blobServiceClientBuilder
                     .credential(sasCredential)
                     .addPolicy(new SasRefreshPolicy(creds, sasCredential));
-        } else if (!cred.identity().isEmpty() &&
-                !cred.credential().isEmpty()) {
+        } else if (this.auth == Auth.KEY) {
             // An account key does not expire, and the builder copies it out
             // of the credential rather than reading it again, so a supplier
             // that rotates one is followed no further than here.
@@ -241,9 +306,12 @@ public final class AzureBlobStore implements BlobStore {
                 new AzureNamedKeyCredential(cred.identity(),
                         cred.credential()));
         } else {
+            // DefaultAzureCredential checks the environment, the workload
+            // identity token file, managed identity and the developer tools.
             blobServiceClientBuilder.credential(
                 new DefaultAzureCredentialBuilder().build());
         }
+        this.sasCredential = sasCredential;
         // Build the sync and async clients once from a single builder so they
         // share one credential instance.  Rebuilding the credential per request
         // would defeat token caching and, for DefaultAzureCredential, trigger a
@@ -268,9 +336,10 @@ public final class AzureBlobStore implements BlobStore {
      * The source URL a copy hands Azure, signed for read so that the service
      * can fetch it itself.  A store authenticating with a shared access
      * signature has no key to sign a fresh one with and so lends the source
-     * the same signature it presents everywhere else; one holding an account
-     * key mints a signature per copy; one holding neither borrows the
-     * account's own delegation key.
+     * the signature it presents everywhere else, the last one the supplier
+     * named rather than whatever it holds this instant; one holding an account
+     * key mints a signature per copy; one presenting a bearer token, or
+     * holding nothing at all, borrows the account's own delegation key.
      */
     // TODO: is this the best way to generate a SAS URL?
     private String signedSourceUrl(BlobClient fromClient) {
@@ -278,20 +347,16 @@ public final class AzureBlobStore implements BlobStore {
         var permission = new BlobSasPermission().setReadPermission(true);
         var values = new BlobServiceSasSignatureValues(expiryTime, permission)
                 .setStartTime(OffsetDateTime.now());
-        var cred = creds.get();
-        String sessionToken = cred.sessionToken();
-        String token;
-        if (!Strings.isNullOrEmpty(sessionToken)) {
-            token = sasToken(sessionToken);
-        } else if (!cred.identity().isEmpty() &&
-                !cred.credential().isEmpty()) {
-            token = fromClient.generateSas(values);
-        } else {
+        String token = switch (auth) {
+        case SAS -> requireNonNull(sasCredential).getSignature();
+        case KEY -> fromClient.generateSas(values);
+        case BEARER, DEFAULT -> {
             var userDelegationKey = blobServiceClient.getUserDelegationKey(
                     OffsetDateTime.now().minusMinutes(5), expiryTime);
-            token = fromClient.generateUserDelegationSas(values,
+            yield fromClient.generateUserDelegationSas(values,
                     userDelegationKey);
         }
+        };
         return fromClient.getBlobUrl() + "?" + token;
     }
 
@@ -2011,6 +2076,81 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.fromStatusCode(403, bse);
         }
         return bse;
+    }
+
+    /** How the store authenticates to Azure. */
+    private enum Auth {
+        /** A shared access signature in the session token. */
+        SAS,
+        /** The account name and key in the identity and credential. */
+        KEY,
+        /** A Microsoft Entra access token in the session token. */
+        BEARER,
+        /** Whatever DefaultAzureCredential finds. */
+        DEFAULT;
+
+        /** The mode that the parts of {@code cred} present imply. */
+        static Auth infer(Credentials cred) {
+            if (!Strings.isNullOrEmpty(cred.sessionToken())) {
+                return SAS;
+            } else if (!cred.identity().isEmpty() &&
+                    !cred.credential().isEmpty()) {
+                return KEY;
+            } else {
+                return DEFAULT;
+            }
+        }
+
+        /** The mode {@code auth} names, checked against {@code cred}. */
+        static Auth parse(String auth, Credentials cred) {
+            var mode = switch (auth) {
+            case "sas" -> SAS;
+            case "key" -> KEY;
+            case "bearer" -> BEARER;
+            case "default" -> DEFAULT;
+            default -> throw new IllegalArgumentException("Invalid auth: " +
+                    auth + ".  Supported values: sas, key, bearer, default");
+            };
+            boolean satisfied = switch (mode) {
+            case SAS, BEARER -> !Strings.isNullOrEmpty(cred.sessionToken());
+            case KEY -> !cred.identity().isEmpty() &&
+                    !cred.credential().isEmpty();
+            case DEFAULT -> true;
+            };
+            if (!satisfied) {
+                throw new IllegalArgumentException("auth " + auth +
+                        " needs " + (mode == KEY ?
+                        "an identity and a credential" : "a session token"));
+            }
+            return mode;
+        }
+    }
+
+    /**
+     * Bearer tokens read from the credential supplier.  Nothing in a
+     * Credentials names how long the token it carries lasts, so each one is
+     * handed over already lapsed and the supplier is asked again for the
+     * next request rather than a withdrawn token being presented twice.
+     */
+    private static final class SuppliedTokenCredential
+            implements TokenCredential {
+        private final Supplier<Credentials> creds;
+
+        SuppliedTokenCredential(Supplier<Credentials> creds) {
+            this.creds = creds;
+        }
+
+        @Override
+        public Mono<AccessToken> getToken(TokenRequestContext request) {
+            return Mono.fromSupplier(() -> {
+                String sessionToken = creds.get().sessionToken();
+                if (Strings.isNullOrEmpty(sessionToken)) {
+                    throw new IllegalStateException(
+                            "Credential supplier named no session token");
+                }
+                return new AccessToken(sessionToken, OffsetDateTime.now());
+            });
+        }
     }
 
     /**
