@@ -188,6 +188,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     private static final int STATUS_CONFLICT = 409;
     private static final int STATUS_PRECONDITION_FAILED = 412;
     private static final int STATUS_RANGE_NOT_SATISFIABLE = 416;
+    private static final int DELETE_CONTAINER_MAX_ATTEMPTS = 6;
+    private static final long DELETE_CONTAINER_RETRY_BASE_MILLIS = 100L;
 
     /**
      * Write an HTTP date, which RFC 7231 fixes the width of: the day of month
@@ -688,6 +690,39 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // still answers with the container's true state.
             if (Objects.equals(marker, before)) {
                 return sawSegment;
+            }
+        }
+    }
+
+    @Override
+    public void deleteContainer(String container) {
+        deleteContainerWithRetries(
+                () -> BlobStore.super.deleteContainer(container));
+    }
+
+    static void deleteContainerWithRetries(Runnable deleteAttempt) {
+        for (int attempt = 0; attempt < DELETE_CONTAINER_MAX_ATTEMPTS;
+                attempt++) {
+            try {
+                deleteAttempt.run();
+                return;
+            } catch (S3Exception se) {
+                if (!"BucketNotEmpty".equals(S3Exceptions.errorCode(se)) ||
+                        attempt + 1 == DELETE_CONTAINER_MAX_ATTEMPTS) {
+                    throw se;
+                }
+                // Swift acknowledges writes before every container listing
+                // reflects them.  Re-running the full clear after a short,
+                // bounded delay lets late entries become visible before the
+                // next delete attempt.
+                try {
+                    Thread.sleep(DELETE_CONTAINER_RETRY_BASE_MILLIS <<
+                            attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    se.addSuppressed(ie);
+                    throw se;
+                }
             }
         }
     }
