@@ -52,6 +52,8 @@ public final class S3ProxyConstants {
             "s3proxy.keystore-path";
     public static final String PROPERTY_KEYSTORE_PASSWORD =
             "s3proxy.keystore-password";
+    public static final String PROPERTY_JETTY_IDLE_TIMEOUT =
+            "s3proxy.jetty.idle-timeout";
     public static final String PROPERTY_JETTY_MAX_THREADS =
             "s3proxy.jetty.max-threads";
 
