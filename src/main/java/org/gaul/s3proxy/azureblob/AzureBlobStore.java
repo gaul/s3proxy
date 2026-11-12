@@ -853,7 +853,31 @@ public final class AzureBlobStore implements BlobStore {
     public boolean blobExists(String container, String key) {
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
-        return client.exists();
+        if (!versioning) {
+            return client.exists();
+        }
+        // As a read answers: a key whose current version is a delete marker
+        // holds no object, and one whose current version was deleted by id
+        // holds its newest remaining version, unless that is a marker.  A
+        // multipart stub is only ever its current blob; see deleteStub.
+        try {
+            return !isDeleteMarker(client.getProperties().getMetadata());
+        } catch (BlobStorageException bse) {
+            if (!isAbsent(bse)) {
+                throw translate(bse, container, key);
+            }
+            if (BlobErrorCode.CONTAINER_NOT_FOUND.equals(bse.getErrorCode()) ||
+                    key.startsWith(STUB_BLOB_PREFIX)) {
+                return false;
+            }
+        }
+        BlobItem newest;
+        try {
+            newest = newestVersion(client);
+        } catch (BlobStorageException bse) {
+            throw translate(bse, container, key);
+        }
+        return newest != null && !isDeleteMarker(newest.getMetadata());
     }
 
     /**
@@ -1925,7 +1949,9 @@ public final class AzureBlobStore implements BlobStore {
      * store.  A key whose current version is a delete marker holds no
      * object, so the write must succeed -- replacing that marker, under its
      * ETag -- and a key whose current version was deleted by id still holds
-     * the newest remaining one, so the write must fail.
+     * the newest remaining one, so the write must fail.  An If-Match on a
+     * key whose current version is a delete marker is NoSuchKey, as S3
+     * answers it, rather than judged against the marker Azure holds.
      */
     private @Nullable BlobRequestConditions writeConditions(
             BlobClientBase base,
@@ -1936,7 +1962,11 @@ public final class AzureBlobStore implements BlobStore {
         var conditions = new BlobRequestConditions()
                 .setIfMatch(backendCondition(ifMatch))
                 .setIfNoneMatch(backendCondition(ifNoneMatch));
-        if (!versioning || ifMatch != null || !"*".equals(ifNoneMatch)) {
+        if (versioning && ifMatch != null) {
+            refuseIfMatchOnDeleteMarker(base);
+            return conditions;
+        }
+        if (!versioning || !"*".equals(ifNoneMatch)) {
             return conditions;
         }
         try {
@@ -1955,6 +1985,26 @@ public final class AzureBlobStore implements BlobStore {
             }
         }
         return conditions;
+    }
+
+    /**
+     * Refuses an If-Match write to a key whose current version is a delete
+     * marker as NoSuchKey: the key holds no object for the ETag to match,
+     * where Azure would judge the condition against the empty blob the
+     * marker is.  A key with any other current version is left to Azure.
+     */
+    private void refuseIfMatchOnDeleteMarker(BlobClientBase base) {
+        try {
+            if (isDeleteMarker(base.getProperties().getMetadata())) {
+                throw S3Exceptions.noSuchKey(base.getContainerName(),
+                        base.getBlobName(),
+                        "current version is a delete marker");
+            }
+        } catch (BlobStorageException bse) {
+            if (!BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                throw bse;
+            }
+        }
     }
 
     /**
