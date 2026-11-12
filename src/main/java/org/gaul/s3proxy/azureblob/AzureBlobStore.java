@@ -222,10 +222,11 @@ public final class AzureBlobStore implements BlobStore {
      */
     private static final String NEWEST_ORDER = "\uffff";
     /**
-     * Container metadata recording that S3 versioning is Suspended on it.
-     * Azure versions per account, never per container, so the state S3 keeps
-     * per bucket lives here, absent meaning Enabled; every instance of the
-     * proxy reading the container sees the same answer.
+     * Container metadata recording the S3 versioning status of a container,
+     * Enabled or Suspended.  Azure versions per account, never per
+     * container, so the state S3 keeps per bucket lives here, absent meaning
+     * the bucket was never configured and behaves unversioned; every
+     * instance of the proxy reading the container sees the same answer.
      */
     private static final String VERSIONING_STATUS_KEY = "s3proxy_versioning";
     /**
@@ -1180,13 +1181,12 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
-     * Reports the container's versioning: Enabled, or Suspended once a caller
-     * has suspended it.  When {@link #versioning} is set the operator has
-     * asserted the account has versioning turned on (ARM), and the data plane
-     * offers no way to read the setting back, so a container nobody has
-     * suspended answers Enabled -- never the empty status of a bucket that
-     * was never versioned, since a store that reports {@link
-     * #supportsVersioning} treats the account as versioned throughout.
+     * Reports the container's versioning as a caller last configured it:
+     * Enabled or Suspended, or no status for a container nobody has
+     * configured, as S3 reports a bucket that was never versioned.  The
+     * account keeps versions regardless; a container without a status
+     * writes null versions that replace each other and deletes for good, so
+     * it behaves as an unversioned bucket.
      */
     @Override
     public GetBucketVersioningResponse getBucketVersioning(
@@ -1247,23 +1247,30 @@ public final class AzureBlobStore implements BlobStore {
         }
     }
 
-    /** The S3 versioning state a container's metadata records. */
-    static BucketVersioningStatus versioningStatus(
+    /**
+     * The S3 versioning state a container's metadata records, null for a
+     * container never configured.
+     */
+    static @Nullable BucketVersioningStatus versioningStatus(
             Map<String, String> containerMetadata) {
         for (var entry : containerMetadata.entrySet()) {
-            if (entry.getKey().equalsIgnoreCase(VERSIONING_STATUS_KEY) &&
-                    BucketVersioningStatus.SUSPENDED.toString()
-                            .equalsIgnoreCase(entry.getValue())) {
-                return BucketVersioningStatus.SUSPENDED;
+            if (!entry.getKey().equalsIgnoreCase(VERSIONING_STATUS_KEY)) {
+                continue;
+            }
+            for (var status : List.of(BucketVersioningStatus.ENABLED,
+                    BucketVersioningStatus.SUSPENDED)) {
+                if (status.toString().equalsIgnoreCase(entry.getValue())) {
+                    return status;
+                }
             }
         }
-        return BucketVersioningStatus.ENABLED;
+        return null;
     }
 
     /**
      * A container's metadata recording {@code status}, keeping every other
-     * entry, or null when it already records it.  Enabled is recorded as the
-     * entry's absence, so a container never suspended carries none.
+     * entry, or null when it already records it.  A container never
+     * configured carries no entry, and S3 offers no way back to that state.
      */
     static @Nullable Map<String, String> withVersioningStatus(
             Map<String, String> containerMetadata,
@@ -1271,30 +1278,25 @@ public final class AzureBlobStore implements BlobStore {
         var updated = new LinkedHashMap<String, String>(containerMetadata);
         updated.keySet().removeIf(
                 key -> key.equalsIgnoreCase(VERSIONING_STATUS_KEY));
-        if (status == BucketVersioningStatus.SUSPENDED) {
-            updated.put(VERSIONING_STATUS_KEY,
-                    BucketVersioningStatus.SUSPENDED.toString());
-        }
+        updated.put(VERSIONING_STATUS_KEY, status.toString());
         return updated.equals(containerMetadata) ? null : updated;
     }
 
     /**
-     * Whether a write to the container lands as the null version.  Asked of
-     * the container on every write rather than cached, so that every proxy
-     * instance in front of it agrees the moment one suspends it; that costs
-     * one request per write on a versioned store.
+     * The container's versioning status, null when never configured.  Asked
+     * of the container on every write rather than cached, so that every
+     * proxy instance in front of it agrees the moment one changes it; that
+     * costs one request per write on a versioned store.
      *
      * <p>A credential refused the container's properties -- a container
      * service SAS, or an account SAS without resource type c -- is refused
      * the write too, as AccessDenied naming what it lacks.  It cannot tell
-     * whether someone else, with a broader credential, has suspended the
-     * container, and writing as Enabled when it has would leave a version
-     * S3 would have replaced, silently.
+     * whether someone else, with a broader credential, has configured the
+     * container, and guessing wrong would either leave a version S3 would
+     * have replaced or replace one S3 would have kept, silently.
      */
-    private boolean isSuspended(String container) {
-        if (!versioning) {
-            return false;
-        }
+    private @Nullable BucketVersioningStatus containerVersioning(
+            String container) {
         Map<String, String> metadata;
         try {
             metadata = blobServiceClient.getBlobContainerClient(container)
@@ -1303,8 +1305,8 @@ public final class AzureBlobStore implements BlobStore {
             if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
                 throw S3Exceptions.accessDenied(("s3proxy.azureblob." +
                         "versioning is on, so a write reads the properties" +
-                        " of container %s to learn whether versioning is" +
-                        " Suspended, and Azure refused them (%s).  Grant" +
+                        " of container %s to learn its versioning status," +
+                        " and Azure refused them (%s).  Grant" +
                         " Microsoft.Storage/storageAccounts/blobServices/" +
                         "containers/read, or use an account SAS with" +
                         " resource type c; a container service SAS cannot" +
@@ -1313,8 +1315,7 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, container, /*key=*/ null);
         }
-        return versioningStatus(metadata == null ? Map.of() : metadata) ==
-                BucketVersioningStatus.SUSPENDED;
+        return versioningStatus(metadata == null ? Map.of() : metadata);
     }
 
     /**
@@ -2083,12 +2084,18 @@ public final class AzureBlobStore implements BlobStore {
         }
         var client = blobServiceClient.getBlobContainerClient(request.bucket())
                 .getBlobClient(request.key());
+        BucketVersioningStatus status = versioning && !namesVersion ?
+                containerVersioning(request.bucket()) : null;
         try {
             if (namesVersion && versionId.equals(NULL_VERSION_ID)) {
                 deleteNullVersion(client);
             } else if (namesVersion) {
                 // A versioned delete removes the one version named.
                 deleteVersion(client, versionId);
+            } else if (versioning && status == null) {
+                // A container never configured is unversioned to S3: the
+                // delete removes the object for good, with no marker.
+                deleteUnversioned(client, ifMatch);
             } else if (versioning) {
                 // S3 lays a delete marker over the key, even one that holds
                 // nothing, and keeps every version under it.  Azure keeps no
@@ -2096,8 +2103,8 @@ public final class AzureBlobStore implements BlobStore {
                 // which Azure versions over the current blob like any write.
                 // While Suspended the marker is the null version, and
                 // replaces the one the key had, as any suspended write does.
-                NullVersionWrite pending = nullVersionWrite(request.bucket(),
-                        client);
+                NullVersionWrite pending = nullVersionWrite(status,
+                        request.bucket(), client);
                 var options = new BlockBlobSimpleUploadOptions(
                         new ByteArrayInputStream(new byte[0]), 0)
                         .setMetadata(withNullVersionTag(
@@ -2544,6 +2551,42 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
+     * Deletes a key of a container that was never configured for
+     * versioning, as S3 deletes from an unversioned bucket: the current blob,
+     * under {@code ifMatch} when given, and then every version Azure kept
+     * of the key, none of which S3 would have.  Only non-current versions
+     * are removed after the delete, so a write that lands in between
+     * survives it.
+     */
+    private static void deleteUnversioned(BlobClient base,
+            @Nullable String ifMatch) {
+        try {
+            base.deleteWithResponse(/*deleteBlobSnapshotOptions=*/ null,
+                    ifMatch == null ? null :
+                            new BlobRequestConditions().setIfMatch(ifMatch),
+                    /*timeout=*/ null, Context.NONE);
+        } catch (BlobStorageException bse) {
+            if (!isAbsent(bse) ||
+                    BlobErrorCode.CONTAINER_NOT_FOUND.equals(
+                            bse.getErrorCode())) {
+                throw bse;
+            }
+        }
+        for (BlobItem version : versions(base)) {
+            if (version.getVersionId() != null &&
+                    !Boolean.TRUE.equals(version.isCurrentVersion())) {
+                try {
+                    base.getVersionClient(version.getVersionId()).delete();
+                } catch (BlobStorageException bse) {
+                    if (!isAbsent(bse)) {
+                        throw bse;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Removes the versions Azure minted for a base blob it versioned when
      * the base blob was deleted or overwritten -- found by the ETag the base
      * blob had, which Azure keeps on the version -- other than {@code
@@ -2571,13 +2614,23 @@ public final class AzureBlobStore implements BlobStore {
 
     /**
      * Null unless the write about to land on {@code base} lands as S3's null
-     * version, its container being Suspended.  Costs the container's
-     * properties on every write to a versioned store, and the blob's on a
-     * suspended one.
+     * version, its container being Suspended or never configured.  Costs
+     * the container's properties on every write to a versioned store, and
+     * the blob's on one writing null versions.
      */
     private @Nullable NullVersionWrite nullVersionWrite(String container,
             BlobClientBase base) {
-        if (!isSuspended(container)) {
+        if (!versioning) {
+            return null;
+        }
+        return nullVersionWrite(containerVersioning(container), container,
+                base);
+    }
+
+    private @Nullable NullVersionWrite nullVersionWrite(
+            @Nullable BucketVersioningStatus status, String container,
+            BlobClientBase base) {
+        if (status == BucketVersioningStatus.ENABLED) {
             return null;
         }
         try {

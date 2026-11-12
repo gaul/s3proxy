@@ -201,14 +201,15 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * A container records Suspended in its metadata, in any spelling Azure
-     * hands back, and a container without the entry -- one nobody has
-     * suspended -- is Enabled, never unversioned.
+     * A container records Enabled or Suspended in its metadata, in any
+     * spelling Azure hands back, and a container without the entry -- one
+     * nobody has configured -- has no status, as an unversioned S3 bucket.
      */
     @Test
     public void testVersioningStatusFromContainerMetadata() {
-        assertThat(AzureBlobStore.versioningStatus(Map.of()))
-                .isEqualTo(BucketVersioningStatus.ENABLED);
+        assertThat(AzureBlobStore.versioningStatus(Map.of())).isNull();
+        assertThat(AzureBlobStore.versioningStatus(
+                Map.of("owner", "team"))).isNull();
         assertThat(AzureBlobStore.versioningStatus(
                 Map.of("S3Proxy_Versioning", "suspended")))
                 .isEqualTo(BucketVersioningStatus.SUSPENDED);
@@ -220,7 +221,8 @@ public final class AzureBlobStoreTest {
     /**
      * Azure replaces a container's metadata whole, so suspending or enabling
      * keeps every other entry, and a request that changes nothing writes
-     * nothing.  Enabled is the entry's absence.
+     * nothing.  Both states are recorded, the entry's absence being the
+     * never-configured state.
      */
     @Test
     public void testVersioningStatusMergesContainerMetadata() {
@@ -236,8 +238,13 @@ public final class AzureBlobStoreTest {
         assertThat(AzureBlobStore.withVersioningStatus(
                 Map.of("owner", "team", "S3PROXY_VERSIONING", "Suspended"),
                 BucketVersioningStatus.ENABLED))
-                .containsExactlyEntriesOf(other);
-        assertThat(AzureBlobStore.withVersioningStatus(other,
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        "owner", "team", "s3proxy_versioning", "Enabled"));
+        var enabled = AzureBlobStore.withVersioningStatus(other,
+                BucketVersioningStatus.ENABLED);
+        assertThat(enabled).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "owner", "team", "s3proxy_versioning", "Enabled"));
+        assertThat(AzureBlobStore.withVersioningStatus(enabled,
                 BucketVersioningStatus.ENABLED)).isNull();
     }
 
@@ -939,6 +946,7 @@ public final class AzureBlobStoreTest {
         } else if (path.equals("/account/container")) {
             // Get Container Properties: versioning Enabled.
             status = 200;
+            headers.set("x-ms-meta-s3proxy_versioning", "Enabled");
             headers.set("ETag", "\"0xC\"");
             headers.set("Last-Modified", "Thu, 01 Jan 2026 00:00:00 GMT");
         } else if (path.equals("/account/container/key") &&
