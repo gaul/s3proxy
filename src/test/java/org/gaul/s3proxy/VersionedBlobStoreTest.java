@@ -206,6 +206,32 @@ public final class VersionedBlobStoreTest {
         }
     }
 
+    /**
+     * Skips a test on a store that refuses a conditional delete naming a
+     * version, as S3 itself does: AWS answers If-Match on a delete that
+     * names a version with 501 NotImplemented, whether or not the ETag
+     * matches, and honors it only on a delete of the current object.  A
+     * store that judges it, as the transient one does, runs the test.
+     * Needs versioning enabled on the bucket.
+     */
+    private void assumeVersionedConditionalDeletes() {
+        String probe = "conditional-version-delete-probe";
+        String versionId = put(probe, FIRST);
+        String eTag = eTag(probe, versionId);
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(probe)
+                    .versionId(versionId).ifMatch(eTag));
+        } catch (S3Exception se) {
+            var details = se.awsErrorDetails();
+            if (details != null &&
+                    "NotImplemented".equals(details.errorCode())) {
+                Assumptions.abort("store refuses a conditional delete" +
+                        " naming a version, as S3 does: " + se);
+            }
+            throw se;
+        }
+    }
+
     @Test
     public void testBucketStartsUnversioned() {
         assertThat(client.getBucketVersioning(b -> b.bucket(containerName))
@@ -482,6 +508,7 @@ public final class VersionedBlobStoreTest {
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
+        assumeVersionedConditionalDeletes();
         String first = put("blob", FIRST);
         String firstETag = eTag("blob", first);
         String second = put("blob", SECOND);
@@ -516,6 +543,7 @@ public final class VersionedBlobStoreTest {
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
+        assumeVersionedConditionalDeletes();
         String first = put("blob", FIRST);
         String firstETag = eTag("blob", first);
         String second = put("blob", SECOND);
@@ -559,6 +587,7 @@ public final class VersionedBlobStoreTest {
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
+        assumeVersionedConditionalDeletes();
         put("blob", FIRST);
         String markerId = client.deleteObject(
                 b -> b.bucket(containerName).key("blob")).versionId();
