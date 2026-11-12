@@ -74,6 +74,8 @@ public final class VersionedBlobStoreTest {
      */
     private static final int LOCALSTACK_PORT = 4566;
     private static final int MINISTACK_PORT = 4567;
+    /** The port Azurite's blob service listens on in the Azurite lanes. */
+    private static final int AZURITE_PORT = 10000;
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -124,6 +126,12 @@ public final class VersionedBlobStoreTest {
     private boolean isEmulator(int port) {
         return blobStoreType.equals("aws-s3") &&
                 blobStoreEndpoint.getPort() == port;
+    }
+
+    /** Whether the backend is Azurite rather than Azure itself. */
+    private boolean isAzurite() {
+        return blobStoreType.equals("azureblob") &&
+                blobStoreEndpoint.getPort() == AZURITE_PORT;
     }
 
     @AfterEach
@@ -368,6 +376,9 @@ public final class VersionedBlobStoreTest {
         // LocalStack reads a copy that names a source version as a copy
         // onto itself and refuses it.
         assumeTrue(!isEmulator(LOCALSTACK_PORT));
+        // Azurite refuses the SAS for one blob version (sr=bv) that the
+        // azureblob store signs the copy source with, which Azure accepts.
+        assumeTrue(!isAzurite());
         enableVersioning();
         String first = put("blob", FIRST);
         put("blob", SECOND);

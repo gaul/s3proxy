@@ -1577,8 +1577,9 @@ public final class AzureBlobStore implements BlobStore {
             fromClient = versionClient(fromClient, fromContainer, fromName,
                     request.sourceVersionId());
         }
-        fromClient = copySource(fromClient, fromContainer, fromName,
+        CopySource source = copySource(fromClient, fromContainer, fromName,
                 request.sourceVersionId());
+        fromClient = source.client();
         var sourceUrl = signedSourceUrl(fromClient);
         var azureOptions = new BlobUploadFromUrlOptions(sourceUrl);
         var client = blobServiceClient
@@ -1666,6 +1667,7 @@ public final class AzureBlobStore implements BlobStore {
                     .serverSideEncryption(
                             reportedSse(copied.isServerEncrypted()))
                     .versionId(copied.getVersionId())
+                    .copySourceVersionId(copiedVersionId(source))
                     .build();
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() != 501) {
@@ -1962,10 +1964,10 @@ public final class AzureBlobStore implements BlobStore {
      * was deleted by id is read from its newest remaining version.  An
      * unversioned store copies what it is given.
      */
-    private BlobClient copySource(BlobClient source, String container,
+    private CopySource copySource(BlobClient source, String container,
             String key, @Nullable String versionId) {
         if (!versioning) {
-            return source;
+            return new CopySource(source, /*properties=*/ null);
         }
         BlobProperties properties;
         try {
@@ -1978,7 +1980,12 @@ public final class AzureBlobStore implements BlobStore {
             String newest = promotedVersion(
                     S3Exceptions.noSuchKey(container, key, bse.getMessage()),
                     container, key, /*versionId=*/ null);
-            return source.getVersionClient(newest);
+            BlobClient promoted = source.getVersionClient(newest);
+            try {
+                return new CopySource(promoted, promoted.getProperties());
+            } catch (BlobStorageException bse2) {
+                throw translate(bse2, container, key, newest);
+            }
         }
         if (isDeleteMarker(properties.getMetadata())) {
             if (versionId != null) {
@@ -1990,7 +1997,27 @@ public final class AzureBlobStore implements BlobStore {
                     properties.getVersionId(),
                     "current version is a delete marker");
         }
-        return source;
+        return new CopySource(source, properties);
+    }
+
+    /**
+     * The blob a copy reads, and on a versioned store its properties, read
+     * to judge whether it is a delete marker.
+     */
+    private record CopySource(BlobClient client,
+            @Nullable BlobProperties properties) { }
+
+    /**
+     * The version a copy read, as S3 reports it in
+     * x-amz-copy-source-version-id: the source's own version id, whether or
+     * not the request named it, and none for the null version -- a blob
+     * written before the account was versioned, which carries no id -- as
+     * the transient store reports none.  An unversioned store reads no
+     * properties and reports none.
+     */
+    private static @Nullable String copiedVersionId(CopySource source) {
+        BlobProperties properties = source.properties();
+        return properties == null ? null : properties.getVersionId();
     }
 
     /**
@@ -2802,7 +2829,7 @@ public final class AzureBlobStore implements BlobStore {
                     request.sourceKey(), sourceVersionId);
         }
         fromClient = copySource(fromClient, request.sourceBucket(),
-                request.sourceKey(), sourceVersionId);
+                request.sourceKey(), sourceVersionId).client();
 
         var options = new BlockBlobStageBlockFromUrlOptions(blockId,
                 signedSourceUrl(fromClient))
