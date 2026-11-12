@@ -37,6 +37,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
@@ -107,6 +108,8 @@ import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -166,6 +169,8 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class AzureBlobStore implements BlobStore {
+    private static final Logger logger = LoggerFactory.getLogger(
+            AzureBlobStore.class);
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     private static final long MAXIMUM_MULTIPART_PART_SIZE =
             4000L * 1024 * 1024;
@@ -204,6 +209,21 @@ public final class AzureBlobStore implements BlobStore {
      */
     private static final BlobErrorCode OPERATION_NOT_ALLOWED_ON_ROOT_BLOB =
             BlobErrorCode.fromString("OperationNotAllowedOnRootBlob");
+    /**
+     * What Azure answers a delete by version id from a credential lacking
+     * deleteBlobVersion -- Storage Blob Data Contributor, or a shared access
+     * signature without x.  The code names the version Azure minted rather
+     * than the missing permission, and no SDK constant names it.
+     */
+    private static final BlobErrorCode
+            OPERATION_NOT_ALLOWED_ON_AUTOMATIC_SNAPSHOT = BlobErrorCode
+                    .fromString("OperationNotAllowedOnAutomaticSnapshot");
+    /**
+     * How long after logging that a container's versions cannot be cleaned
+     * up the store says so again, rather than on every request.
+     */
+    private static final Duration CLEANUP_REFUSAL_LOG_INTERVAL =
+            Duration.ofMinutes(5);
     /** How many deletes Azure accepts in one batch request. */
     private static final int MAX_BATCH_DELETES = 256;
     // Azure refuses maxresults past 5000 where S3's max-buckets reaches
@@ -240,6 +260,12 @@ public final class AzureBlobStore implements BlobStore {
      * answered NotImplemented exactly as before.
      */
     private final boolean versioning;
+    /**
+     * When each container last logged that its credential cannot remove
+     * versions the store cleans up; see {@link #reportCleanupRefusal}.
+     */
+    private final Map<String, Instant> cleanupRefusalsLogged =
+            new ConcurrentHashMap<>();
 
     public AzureBlobStore(
             Supplier<Credentials> creds,
@@ -607,7 +633,7 @@ public final class AzureBlobStore implements BlobStore {
             BlobItem first = it.next();
             String name = first.getName();
             boolean prefix = Boolean.TRUE.equals(first.isPrefix());
-            var versions = new ArrayList<BlobItem>();
+            List<BlobItem> versions = new ArrayList<>();
             versions.add(first);
             while (!prefix && it.hasNext() &&
                     !Boolean.TRUE.equals(it.peek().isPrefix()) &&
@@ -616,6 +642,12 @@ public final class AzureBlobStore implements BlobStore {
             }
             if (after != null && name.compareTo(after) <= 0) {
                 continue;
+            }
+            if (!prefix) {
+                versions = withoutDeletedStubVersions(name, versions);
+                if (versions.isEmpty()) {
+                    continue;
+                }
             }
             BlobItem latest = prefix ? first : latestVersion(versions);
             if (!prefix && isDeleteMarker(latest.getMetadata())) {
@@ -1137,13 +1169,17 @@ public final class AzureBlobStore implements BlobStore {
                 lastVersionId = null;
                 continue;
             }
-            var versions = new ArrayList<BlobItem>();
+            List<BlobItem> versions = new ArrayList<>();
             versions.add(first);
             while (it.hasNext() && !Boolean.TRUE.equals(it.peek().isPrefix()) &&
                     it.peek().getName().equals(name)) {
                 versions.add(it.next());
             }
             if (keyMarker != null && name.compareTo(keyMarker) < 0) {
+                continue;
+            }
+            versions = withoutDeletedStubVersions(name, versions);
+            if (versions.isEmpty()) {
                 continue;
             }
             BlobItem latest = latestVersion(versions);
@@ -2390,15 +2426,129 @@ public final class AzureBlobStore implements BlobStore {
         return true;
     }
 
+    /**
+     * Deletes a multipart upload's stub.  On a versioned account Azure keeps
+     * a deleted blob as a non-current version, which a versioned listing
+     * would promote back into view as an object, so every version of the
+     * stub goes too: its name is the upload's own, and nothing else is ever
+     * written there.  A refused version delete is logged rather than failing
+     * an upload that has already completed or been aborted; listings hide
+     * the stub versions it leaves (see {@link #withoutDeletedStubVersions}).
+     */
+    private void deleteStub(BlobClient stub) {
+        stub.delete();
+        if (!versioning) {
+            return;
+        }
+        try {
+            for (BlobItem version : versions(stub)) {
+                if (version.getVersionId() == null) {
+                    continue;
+                }
+                try {
+                    stub.getVersionClient(version.getVersionId()).delete();
+                } catch (BlobStorageException bse) {
+                    if (!isAbsent(bse)) {
+                        throw bse;
+                    }
+                }
+            }
+        } catch (BlobStorageException bse) {
+            String container = stub.getContainerName();
+            if (!isPermissionRefusal(bse)) {
+                logger.warn("could not remove the versions of multipart" +
+                        " stub {} in {}", stub.getBlobName(), container, bse);
+            } else if (reportCleanupRefusal(container, Instant.now())) {
+                logger.error("Azure refused ({}) to remove the versions of" +
+                        " multipart stub {} in container {}, so hidden" +
+                        " versions will accumulate there until it is" +
+                        " granted Microsoft.Storage/storageAccounts/" +
+                        "blobServices/containers/blobs/deleteBlobVersion/" +
+                        "action (Storage Blob Data Owner or a custom role;" +
+                        " SAS permission x).  Logged at most once per {}" +
+                        " minutes per container.", bse.getErrorCode(),
+                        stub.getBlobName(), container,
+                        CLEANUP_REFUSAL_LOG_INTERVAL.toMinutes(), bse);
+            }
+        }
+    }
+
+    /** Whether Azure refused the request for want of a permission. */
+    static boolean isPermissionRefusal(BlobStorageException bse) {
+        return bse.getStatusCode() == 403 || bse.getStatusCode() == 401 ||
+                OPERATION_NOT_ALLOWED_ON_AUTOMATIC_SNAPSHOT.equals(
+                        bse.getErrorCode());
+    }
+
+    /**
+     * Whether to log, at {@code now}, that the credential cannot remove
+     * versions the store cleans up in {@code container}: true at most once
+     * per {@link #CLEANUP_REFUSAL_LOG_INTERVAL} per container, so a busy one
+     * does not log on every request.
+     */
+    boolean reportCleanupRefusal(String container, Instant now) {
+        Instant last = cleanupRefusalsLogged.get(container);
+        if (last == null) {
+            return cleanupRefusalsLogged.putIfAbsent(container, now) == null;
+        }
+        return !now.isBefore(last.plus(CLEANUP_REFUSAL_LOG_INTERVAL)) &&
+                cleanupRefusalsLogged.replace(container, last, now);
+    }
+
+    /**
+     * Every version of one blob, delete markers included, with its metadata,
+     * in the order Azure lists them: oldest first, then the base blob when
+     * it carries no version id.  The listing takes the key as its prefix,
+     * which names every key under it too, and Azure lists names in order,
+     * the key's own first; so it stops at the first name past the key
+     * rather than reading every page of the keys beneath it.
+     */
+    private static List<BlobItem> versions(BlobClientBase base) {
+        var options = new ListBlobsOptions()
+                .setPrefix(base.getBlobName())
+                .setDetails(new BlobListDetails()
+                        .setRetrieveVersions(true)
+                        .setRetrieveMetadata(true));
+        var versions = new ArrayList<BlobItem>();
+        for (BlobItem blob : base.getContainerClient().listBlobs(options,
+                /*timeout=*/ null)) {
+            if (!blob.getName().equals(base.getBlobName())) {
+                break;
+            }
+            versions.add(blob);
+        }
+        return versions;
+    }
+
+    /**
+     * The versions of a key a listing shows: all of them, except under the
+     * multipart stub prefix, where only a stub still current is an upload in
+     * progress and anything else is a version Azure kept of a stub {@link
+     * #deleteStub} could not remove.
+     */
+    static List<BlobItem> withoutDeletedStubVersions(String name,
+            List<BlobItem> versions) {
+        if (!name.startsWith(STUB_BLOB_PREFIX)) {
+            return versions;
+        }
+        var current = new ArrayList<BlobItem>();
+        for (BlobItem version : versions) {
+            if (version.getVersionId() == null ||
+                    Boolean.TRUE.equals(version.isCurrentVersion())) {
+                current.add(version);
+            }
+        }
+        return current;
+    }
+
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
         // Delete the stub blob to remove the upload from listMultipartUploads
         // Note: Uncommitted blocks are automatically removed by Azure after 7 days
         try {
-            blobServiceClient
+            deleteStub(blobServiceClient
                     .getBlobContainerClient(mpu.containerName())
-                    .getBlobClient(mpu.id())
-                    .delete();
+                    .getBlobClient(mpu.id()));
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() == 404) {
                 throw S3Exceptions.noSuchKey(mpu.containerName(), mpu.id(),
@@ -2517,7 +2667,7 @@ public final class AzureBlobStore implements BlobStore {
             var response = client.commitBlockListWithResponse(
                     options, /*timeout=*/ null, /*context=*/ null);
 
-            stubBlobClient.delete();
+            deleteStub(stubBlobClient);
 
             var committed = response.getValue();
             String finalETag = reportETag(committed.getETag());

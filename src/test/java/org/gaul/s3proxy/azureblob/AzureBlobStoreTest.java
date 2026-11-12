@@ -55,6 +55,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 /**
  * Azure can answer a listing with no blobs and a continuation token onto ones
@@ -393,6 +394,27 @@ public final class AzureBlobStoreTest {
         assertThat(response.contents()).hasSize(1);
         assertThat(response.contents().get(0).key()).isEqualTo("k");
         assertThat(response.contents().get(0).size()).isEqualTo(2L);
+    }
+
+    /**
+     * A multipart stub Azure kept as a non-current version after it was
+     * deleted is no object, and is not promoted into view as one; a stub
+     * still current, an upload in progress, lists as before.
+     */
+    @Test
+    public void testLatestPageHidesDeletedStubVersions() {
+        var rows = List.of(
+                versionBlob(".s3proxy/stubs/done",
+                        "2026-01-01T00:00:01.0000000Z", false, 0L),
+                versionBlob(".s3proxy/stubs/live",
+                        "2026-01-01T00:00:02.0000000Z", true, 0L),
+                versionBlob("k", "2026-01-01T00:00:03.0000000Z", true, 1L));
+
+        var response = store(/*versioning=*/ true).latestPage(
+                rows.iterator(), /*after=*/ null, /*maxKeys=*/ 1000);
+
+        assertThat(response.contents()).extracting(S3Object::key)
+                .containsExactly(".s3proxy/stubs/live", "k");
     }
 
     /**
