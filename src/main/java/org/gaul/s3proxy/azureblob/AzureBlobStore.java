@@ -2375,9 +2375,66 @@ public final class AzureBlobStore implements BlobStore {
         return ObjectCannedACL.PRIVATE;
     }
 
+    /**
+     * A version's access, which is the same for every blob: Azure grants
+     * read at the container, so no version has an ACL of its own.  The
+     * version is looked up first, so one that does not exist is
+     * NoSuchVersion and a delete marker is 405, as S3 answers both.
+     */
+    @Override
+    public ObjectCannedACL getBlobAccess(String container, String key,
+            @Nullable String versionId) {
+        if (!versioning) {
+            return BlobStore.super.getBlobAccess(container, key, versionId);
+        }
+        if (versionId != null) {
+            requireVersion(container, key, versionId);
+        }
+        return getBlobAccess(container, key);
+    }
+
     @Override
     public void setBlobAccess(String container, String key, ObjectCannedACL access) {
         throw new UnsupportedOperationException("unsupported in Azure");
+    }
+
+    /**
+     * Refused, as {@link #setBlobAccess(String, String, ObjectCannedACL)}
+     * is, once the version is known to exist: a request naming a version
+     * that is not there is NoSuchVersion before it is anything else.
+     */
+    @Override
+    public void setBlobAccess(String container, String key,
+            ObjectCannedACL access, @Nullable String versionId) {
+        if (!versioning) {
+            BlobStore.super.setBlobAccess(container, key, access, versionId);
+            return;
+        }
+        if (versionId != null) {
+            requireVersion(container, key, versionId);
+        }
+        setBlobAccess(container, key, access);
+    }
+
+    /**
+     * Throws unless {@code versionId} names a version of the key that holds
+     * an object: NoSuchVersion when the key has no such version, 405 when
+     * it is a delete marker.
+     */
+    private void requireVersion(String container, String key,
+            String versionId) {
+        var base = blobServiceClient.getBlobContainerClient(container)
+                .getBlobClient(key);
+        BlobProperties properties;
+        try {
+            properties = versionClient(base, container, key, versionId)
+                    .getProperties();
+        } catch (BlobStorageException bse) {
+            throw translate(bse, container, key, versionId);
+        }
+        if (isDeleteMarker(properties.getMetadata())) {
+            throw deleteMarkerNamed(versionId);
+        }
     }
 
     @Override
