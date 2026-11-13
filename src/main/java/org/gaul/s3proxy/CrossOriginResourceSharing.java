@@ -232,14 +232,32 @@ public final class CrossOriginResourceSharing {
             return false;
         }
 
-        return this.allowedOrigins.equals(that.allowedOrigins) &&
+        return this.anyOriginAllowed == that.anyOriginAllowed &&
+                originPatterns().equals(that.originPatterns()) &&
                 this.allowedMethodsRaw.equals(that.allowedMethodsRaw) &&
-                this.allowedHeadersRaw.equals(that.allowedHeadersRaw);
+                this.allowedHeadersRaw.equals(that.allowedHeadersRaw) &&
+                this.exposedHeadersRaw.equals(that.exposedHeadersRaw) &&
+                Objects.equals(this.allowCredentials, that.allowCredentials);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.allowedOrigins, this.allowedMethodsRaw,
-                this.allowedHeadersRaw);
+        return Objects.hash(this.anyOriginAllowed, originPatterns(),
+                this.allowedMethodsRaw, this.allowedHeadersRaw,
+                this.exposedHeadersRaw, this.allowCredentials);
+    }
+
+    /**
+     * Pattern has no value equality, and the origins were collected in a
+     * HashSet, so compare them as their source strings without order.
+     * Otherwise two identically configured backends never compare equal and
+     * a multi-backend S3Proxy with CORS refuses to start.
+     */
+    private Set<String> originPatterns() {
+        Set<String> patterns = new HashSet<>();
+        for (Pattern pattern : this.allowedOrigins) {
+            patterns.add(pattern.pattern());
+        }
+        return patterns;
     }
 }

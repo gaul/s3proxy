@@ -203,4 +203,41 @@ public final class CrossOriginResourceSharingRuleTest {
         assertThat(corsOff.isAllowCredentials()).isFalse();
         assertThat(corsCfg.isAllowCredentials()).isTrue();
     }
+
+    @Test
+    public void testEqualWhenBuiltFromTheSameSettings() {
+        // Each --properties file builds its own instance; Main requires them
+        // to compare equal, or a multi-backend S3Proxy with CORS exits.
+        CrossOriginResourceSharing same = new CrossOriginResourceSharing(
+                List.of("https://example\\.cloud",
+                        "https://example\\.com",
+                        "https://.+\\.example\\.com"),
+                List.of("GET", "PUT"),
+                List.of("Accept", "Content-Type"),
+                List.of(),
+                "true");
+        assertThat(same).isEqualTo(corsCfg);
+        assertThat(same.hashCode()).isEqualTo(corsCfg.hashCode());
+        assertThat(new CrossOriginResourceSharing()).isEqualTo(corsAll);
+        assertThat(new CrossOriginResourceSharing(null, null, null, null,
+                null)).isEqualTo(corsOff);
+    }
+
+    @Test
+    public void testNotEqualWhenSettingsDiffer() {
+        List<String> origins = List.of("https://example\\.com",
+                "https://.+\\.example\\.com", "https://example\\.cloud");
+        List<String> methods = List.of("GET", "PUT");
+        List<String> headers = List.of("Accept", "Content-Type");
+        assertThat(new CrossOriginResourceSharing(
+                List.of("https://example\\.com"), methods, headers,
+                List.of(), "true")).isNotEqualTo(corsCfg);
+        assertThat(new CrossOriginResourceSharing(origins, List.of("GET"),
+                headers, List.of(), "true")).isNotEqualTo(corsCfg);
+        assertThat(new CrossOriginResourceSharing(origins, methods,
+                headers, List.of("ETag"), "true")).isNotEqualTo(corsCfg);
+        assertThat(new CrossOriginResourceSharing(origins, methods,
+                headers, List.of(), "")).isNotEqualTo(corsCfg);
+        assertThat(corsAll).isNotEqualTo(corsOff);
+    }
 }
