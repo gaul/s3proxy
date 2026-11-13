@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 
+import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpHeaders;
 import com.azure.core.http.HttpMethod;
 import com.azure.core.http.HttpRequest;
@@ -394,6 +395,40 @@ public final class AzureBlobStoreTest {
         assertThat(response.contents()).hasSize(1);
         assertThat(response.contents().get(0).key()).isEqualTo("k");
         assertThat(response.contents().get(0).size()).isEqualTo(2L);
+    }
+
+    /**
+     * A copy lands with the source's metadata, or the request's under
+     * REPLACE, never the store's own entries.
+     */
+    @Test
+    public void testCopiedMetadata() {
+        var source = Map.of("color", "blue", "s3proxy_delete_marker", "true");
+        var requested = Map.of("shape", "round");
+
+        assertThat(AzureBlobStore.copiedMetadata(source, requested,
+                /*replace=*/ false))
+                .containsExactlyEntriesOf(Map.of("color", "blue"));
+        assertThat(AzureBlobStore.copiedMetadata(source, requested,
+                /*replace=*/ true))
+                .containsExactlyEntriesOf(requested);
+        assertThat(AzureBlobStore.copiedMetadata(/*source=*/ null,
+                Map.of(), /*replace=*/ false)).isEmpty();
+    }
+
+    /** Metadata rides on Put Blob From URL as x-ms-meta-* headers. */
+    @Test
+    public void testMetadataHeaders() {
+        var headers = AzureBlobStore.metadataHeaders(
+                Map.of("color", "blue", "shape", "round"));
+
+        assertThat(headers.getValue(
+                HttpHeaderName.fromString("x-ms-meta-color")))
+                .isEqualTo("blue");
+        assertThat(headers.getValue(
+                HttpHeaderName.fromString("x-ms-meta-shape")))
+                .isEqualTo("round");
+        assertThat(headers.getSize()).isEqualTo(2);
     }
 
     /**
