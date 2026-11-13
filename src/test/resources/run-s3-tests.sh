@@ -124,6 +124,12 @@ backend=""
 deselect_by_name=""
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     backend="azureblob"
+elif [ "${S3PROXY_CONF}" = "s3proxy-azurite-versioning.conf" ]; then
+    # The azureblob store versioned: every container reports Enabled and
+    # Suspended answers NotImplemented, so what that leaves unanswered
+    # carries a marker of its own, alongside the azureblob ones.
+    backend="azureblob,azureblob_versioning"
+    tags="${tags/ and not versioning/}"
 elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
     backend="gcs"
     # The google-cloud-storage backend translates versioning onto GCS
