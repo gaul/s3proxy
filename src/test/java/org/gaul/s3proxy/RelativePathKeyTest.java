@@ -103,17 +103,18 @@ public final class RelativePathKeyTest {
     public void tearDown() throws Exception {
         // Leaving a container behind is how a stray one comes to outlive the
         // suite and trip a later test that counts them.
-        if (client != null) {
+        // The store's own deleteContainer removes a container whole, where
+        // deleting each object through S3 and then the bucket leaves a
+        // versioned bucket holding its versions and delete markers, which
+        // DeleteBucket refuses as not empty.
+        if (blobStore != null) {
             for (String bucket : List.of(container, other, escaped)) {
-                try {
-                    for (String key : keys(bucket)) {
-                        client.deleteObject(b -> b.bucket(bucket).key(key));
-                    }
-                    client.deleteBucket(b -> b.bucket(bucket));
-                } catch (SdkException e) {
-                    // absent, which is the usual case for the escape target
+                if (bucket != null) {
+                    blobStore.deleteContainer(bucket);
                 }
             }
+        }
+        if (client != null) {
             client.close();
         }
         if (s3Proxy != null) {
