@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Properties;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -202,5 +203,84 @@ public final class CrossOriginResourceSharingRuleTest {
     public void testAllowCredentials() {
         assertThat(corsOff.isAllowCredentials()).isFalse();
         assertThat(corsCfg.isAllowCredentials()).isTrue();
+    }
+
+    @Test
+    public void testEqualWhenBuiltFromTheSameSettings() {
+        // Each --properties file builds its own instance; Main requires them
+        // to compare equal, or a multi-backend S3Proxy with CORS exits.
+        CrossOriginResourceSharing same = new CrossOriginResourceSharing(
+                List.of("https://example\\.cloud",
+                        "https://example\\.com",
+                        "https://.+\\.example\\.com"),
+                List.of("GET", "PUT"),
+                List.of("Accept", "Content-Type"),
+                List.of(),
+                "true");
+        assertThat(same).isEqualTo(corsCfg);
+        assertThat(same.hashCode()).isEqualTo(corsCfg.hashCode());
+        assertThat(new CrossOriginResourceSharing()).isEqualTo(corsAll);
+        assertThat(new CrossOriginResourceSharing(null, null, null, null,
+                null)).isEqualTo(corsOff);
+    }
+
+    @Test
+    public void testNotEqualWhenSettingsDiffer() {
+        List<String> origins = List.of("https://example\\.com",
+                "https://.+\\.example\\.com", "https://example\\.cloud");
+        List<String> methods = List.of("GET", "PUT");
+        List<String> headers = List.of("Accept", "Content-Type");
+        assertThat(new CrossOriginResourceSharing(
+                List.of("https://example\\.com"), methods, headers,
+                List.of(), "true")).isNotEqualTo(corsCfg);
+        assertThat(new CrossOriginResourceSharing(origins, List.of("GET"),
+                headers, List.of(), "true")).isNotEqualTo(corsCfg);
+        assertThat(new CrossOriginResourceSharing(origins, methods,
+                headers, List.of("ETag"), "true")).isNotEqualTo(corsCfg);
+        assertThat(new CrossOriginResourceSharing(origins, methods,
+                headers, List.of(), "")).isNotEqualTo(corsCfg);
+        assertThat(corsAll).isNotEqualTo(corsOff);
+    }
+
+    @Test
+    public void testBuildersFromSeparatePropertiesAreEqual()
+            throws Exception {
+        // What Main checks before starting with several --properties files:
+        // backends differ only in their keys, which equals ignores.
+        S3Proxy.Builder first = S3Proxy.Builder.fromProperties(
+                backendProperties("first-identity", "first-credential"));
+        S3Proxy.Builder second = S3Proxy.Builder.fromProperties(
+                backendProperties("second-identity", "second-credential"));
+        assertThat(second).isEqualTo(first);
+        assertThat(second.hashCode()).isEqualTo(first.hashCode());
+
+        Properties otherOrigin = backendProperties("second-identity",
+                "second-credential");
+        otherOrigin.setProperty(
+                S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS,
+                "https://example\\.com");
+        assertThat(S3Proxy.Builder.fromProperties(otherOrigin))
+                .isNotEqualTo(first);
+    }
+
+    private static Properties backendProperties(String identity,
+            String credential) {
+        var properties = new Properties();
+        properties.setProperty(S3ProxyConstants.PROPERTY_ENDPOINT,
+                "http://127.0.0.1:0");
+        properties.setProperty(S3ProxyConstants.PROPERTY_AUTHORIZATION,
+                "aws-v2-or-v4");
+        properties.setProperty(S3ProxyConstants.PROPERTY_IDENTITY, identity);
+        properties.setProperty(S3ProxyConstants.PROPERTY_CREDENTIAL,
+                credential);
+        properties.setProperty(S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS,
+                "https://example\\.com https://.+\\.example\\.com");
+        properties.setProperty(S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS,
+                "GET HEAD PUT POST");
+        properties.setProperty(S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS,
+                "*");
+        properties.setProperty(S3ProxyConstants.PROPERTY_CORS_EXPOSED_HEADERS,
+                "ETag");
+        return properties;
     }
 }
