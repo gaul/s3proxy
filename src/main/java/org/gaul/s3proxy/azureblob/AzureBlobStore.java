@@ -536,6 +536,20 @@ public final class AzureBlobStore implements BlobStore {
         String container = request.bucket();
         String startAfter = request.startAfter();
         var client = blobServiceClient.getBlobContainerClient(container);
+        if (Integer.valueOf(0).equals(request.maxKeys())) {
+            // Azure refuses a page of no results as a bad request; S3
+            // answers an empty listing it reports as complete, as the
+            // versioned listing does, once the bucket is known to exist.
+            try {
+                if (!client.exists()) {
+                    throw S3Exceptions.noSuchBucket(container, "");
+                }
+            } catch (BlobStorageException bse) {
+                throw translate(bse, container, /*key=*/ null);
+            }
+            return SdkResponses.objectsPage(ImmutableList.of(),
+                    ImmutableList.of(), /*nextContinuationToken=*/ null);
+        }
         var azureOptions = new ListBlobsOptions();
         azureOptions.setPrefix(request.prefix());
         azureOptions.setMaxResultsPerPage(request.maxKeys());
