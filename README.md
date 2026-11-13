@@ -251,9 +251,14 @@ one, and a key whose current version is deleted by id reads as its newest
 remaining version.  Azure cannot stop versioning a container, so Suspended is
 recorded in the container's metadata: each write while suspended is tagged as
 the "null" version and removes the null version it replaces, as S3 does.
-That is the only version S3Proxy deletes behind the caller's back; a
-container left Enabled keeps every version Azure makes, so an account
-versioned for data protection keeps that protection.  A blob written before
+A container nobody has configured reports Enabled and keeps every version
+Azure makes, so an account versioned for data protection keeps that
+protection.  `s3proxy.azureblob.versioning.per-bucket=true` chooses
+versioning per bucket instead, as S3 does: such a container is unversioned,
+as a new S3 bucket is, so it writes null versions that replace each other
+and deletes for good, which means deleting the versions Azure keeps of its
+overwrites and deletes.  Set it only where those versions are not wanted.
+A blob written before
 the account was versioned has no Azure version id and reads as S3's null
 version, but only until it is first overwritten while Enabled: Azure then
 keeps its content as a version under an id of its own, which S3Proxy cannot

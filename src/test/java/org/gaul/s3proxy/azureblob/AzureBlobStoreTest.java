@@ -219,6 +219,27 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * A container nobody has configured answers Enabled and keeps every
+     * version, unless the operator opted in to versioning per bucket; one
+     * a caller configured answers what it recorded either way.
+     */
+    @Test
+    public void testUnconfiguredContainerIsEnabledUnlessPerBucket() {
+        assertThat(AzureBlobStore.effectiveStatus(Map.of(),
+                /*perBucket=*/ false))
+                .isEqualTo(BucketVersioningStatus.ENABLED);
+        assertThat(AzureBlobStore.effectiveStatus(Map.of(),
+                /*perBucket=*/ true)).isNull();
+        var suspended = Map.of("s3proxy_versioning", "Suspended");
+        assertThat(AzureBlobStore.effectiveStatus(suspended,
+                /*perBucket=*/ false))
+                .isEqualTo(BucketVersioningStatus.SUSPENDED);
+        assertThat(AzureBlobStore.effectiveStatus(suspended,
+                /*perBucket=*/ true))
+                .isEqualTo(BucketVersioningStatus.SUSPENDED);
+    }
+
+    /**
      * Azure replaces a container's metadata whole, so suspending or enabling
      * keeps every other entry, and a request that changes nothing writes
      * nothing.  Both states are recorded, the entry's absence being the

@@ -155,7 +155,8 @@ public final class AzureBearerTokenTest {
 
     private BlobStore store(Supplier<Credentials> creds) {
         return new AzureBlobStore(creds, "https://127.0.0.1/devstoreaccount1",
-                /*eTagMode=*/ "opaque", /*auth=*/ "bearer", /*versioning=*/ false,
+                /*eTagMode=*/ "opaque", /*auth=*/ "bearer",
+                /*versioning=*/ false, /*perBucket=*/ false,
                 this::refuse);
     }
 

@@ -288,6 +288,18 @@ public final class AzureBlobStore implements BlobStore {
      */
     private final boolean versioning;
     /**
+     * Whether versioning is chosen per bucket, as on S3: a container nobody
+     * has configured is unversioned, as a new S3 bucket is, rather than
+     * Enabled.  Azure versions it regardless, so an unversioned container
+     * has to delete the versions Azure keeps of its overwrites and deletes;
+     * an operator who versions the account for data protection would lose
+     * them.  So it is opt-in through {@code
+     * s3proxy.azureblob.versioning.per-bucket=true}, and left off a
+     * container nobody has configured reports Enabled and keeps every
+     * version.
+     */
+    private final boolean perBucket;
+    /**
      * When each container last logged that its credential cannot remove
      * versions the store cleans up; see {@link #reportCleanupRefusal}.
      */
@@ -359,7 +371,22 @@ public final class AzureBlobStore implements BlobStore {
             @Nullable String auth,
             boolean versioning) {
         this(creds, endpointUrl, eTagMode, auth, versioning,
-                /*httpClient=*/ null);
+                /*perBucket=*/ false);
+    }
+
+    /**
+     * {@code perBucket} makes a container nobody has configured
+     * unversioned rather than Enabled; see {@link #perBucket}.
+     */
+    public AzureBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl,
+            String eTagMode,
+            @Nullable String auth,
+            boolean versioning,
+            boolean perBucket) {
+        this(creds, endpointUrl, eTagMode, auth, versioning,
+                perBucket, /*httpClient=*/ null);
     }
 
     /** {@code httpClient}, when given, carries the requests: for tests. */
@@ -369,8 +396,10 @@ public final class AzureBlobStore implements BlobStore {
             String eTagMode,
             @Nullable String auth,
             boolean versioning,
+            boolean perBucket,
             @Nullable HttpClient httpClient) {
         this.versioning = versioning;
+        this.perBucket = perBucket;
         this.opaqueETags = switch (eTagMode) {
         case "opaque" -> true;
         case "native" -> false;
@@ -1192,7 +1221,7 @@ public final class AzureBlobStore implements BlobStore {
     public GetBucketVersioningResponse getBucketVersioning(
             GetBucketVersioningRequest request) {
         return GetBucketVersioningResponse.builder()
-                .status(versioningStatus(containerMetadata(request.bucket())))
+                .status(effectiveStatus(containerMetadata(request.bucket())))
                 .build();
     }
 
@@ -1315,7 +1344,24 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, container, /*key=*/ null);
         }
-        return versioningStatus(metadata == null ? Map.of() : metadata);
+        return effectiveStatus(metadata == null ? Map.of() : metadata);
+    }
+
+    /**
+     * The status a container answers as: what its metadata records, and
+     * for one nobody has configured, Enabled unless {@link #perBucket}.
+     */
+    private @Nullable BucketVersioningStatus effectiveStatus(
+            Map<String, String> containerMetadata) {
+        return effectiveStatus(containerMetadata, perBucket);
+    }
+
+    static @Nullable BucketVersioningStatus effectiveStatus(
+            Map<String, String> containerMetadata,
+            boolean perBucket) {
+        var status = versioningStatus(containerMetadata);
+        return status == null && !perBucket ?
+                BucketVersioningStatus.ENABLED : status;
     }
 
     /**
