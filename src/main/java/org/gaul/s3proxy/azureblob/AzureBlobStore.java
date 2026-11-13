@@ -1911,17 +1911,10 @@ public final class AzureBlobStore implements BlobStore {
      * there.
      */
     private static @Nullable BlobItem newestVersion(BlobClientBase base) {
-        var options = new ListBlobsOptions()
-                .setPrefix(base.getBlobName())
-                .setDetails(new BlobListDetails()
-                        .setRetrieveVersions(true)
-                        .setRetrieveMetadata(true));
         BlobItem newest = null;
         try {
-            for (BlobItem blob : base.getContainerClient().listBlobs(options,
-                    /*timeout=*/ null)) {
-                if (blob.getName().equals(base.getBlobName()) &&
-                        blob.getVersionId() != null && (newest == null ||
+            for (BlobItem blob : versions(base)) {
+                if (blob.getVersionId() != null && (newest == null ||
                         blob.getVersionId().compareTo(
                                 newest.getVersionId()) > 0)) {
                     newest = blob;
@@ -2156,13 +2149,8 @@ public final class AzureBlobStore implements BlobStore {
             }
             return;
         }
-        var options = new ListBlobsOptions()
-                .setPrefix(base.getBlobName())
-                .setDetails(new BlobListDetails().setRetrieveVersions(true));
-        for (BlobItem blob : base.getContainerClient().listBlobs(options,
-                /*timeout=*/ null)) {
-            if (blob.getName().equals(base.getBlobName()) &&
-                    blob.getVersionId() != null &&
+        for (BlobItem blob : versions(base)) {
+            if (blob.getVersionId() != null &&
                     eTag.equals(blob.getProperties().getETag())) {
                 base.getVersionClient(blob.getVersionId()).delete();
             }
