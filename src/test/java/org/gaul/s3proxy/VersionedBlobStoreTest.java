@@ -128,6 +128,17 @@ public final class VersionedBlobStoreTest {
                 blobStoreEndpoint.getPort() == port;
     }
 
+    /**
+     * Whether the store versions every bucket from the start: an azureblob
+     * store with versioning on reports every container Enabled, since Azure
+     * versions the whole account and the data plane cannot turn that off
+     * for one container, so no bucket there is ever unversioned.
+     */
+    private boolean versionsEveryBucket() {
+        return blobStoreType.equals("azureblob") &&
+                blobStore.supportsVersioning();
+    }
+
     /** Whether the backend is Azurite rather than Azure itself. */
     private boolean isAzurite() {
         return blobStoreType.equals("azureblob") &&
@@ -234,6 +245,7 @@ public final class VersionedBlobStoreTest {
 
     @Test
     public void testBucketStartsUnversioned() {
+        assumeTrue(!versionsEveryBucket());
         assertThat(client.getBucketVersioning(b -> b.bucket(containerName))
                 .status()).isNull();
     }
@@ -252,6 +264,7 @@ public final class VersionedBlobStoreTest {
     /** A write to a bucket that was never enabled carries no version. */
     @Test
     public void testUnversionedWriteHasNoVersionId() {
+        assumeTrue(!versionsEveryBucket());
         assertThat(put("blob", FIRST)).isNull();
         assertThat(get("blob")).isEqualTo(FIRST);
     }
