@@ -48,8 +48,10 @@ import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
 import com.azure.core.http.HttpClient;
 import com.azure.core.http.HttpHeaderName;
+import com.azure.core.http.HttpHeaders;
 import com.azure.core.http.HttpPipelineCallContext;
 import com.azure.core.http.HttpPipelinePosition;
+import com.azure.core.http.policy.AddHeadersFromContextPolicy;
 import com.azure.core.http.policy.HttpPipelineSyncPolicy;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.Response;
@@ -1652,6 +1654,22 @@ public final class AzureBlobStore implements BlobStore {
                 headers.setContentType(contentType);
             }
         }
+        // A versioned copy sets its metadata in the same request rather than
+        // after it: setting metadata is a write of its own, which Azure
+        // versions, so following the copy with one would leave the copy an
+        // extra version carrying the wrong metadata and report the id of
+        // that one rather than the copy's.
+        var context = Context.NONE;
+        if (versioning) {
+            var sourceProperties = requireNonNull(source.properties());
+            headers = copiedHeaders(sourceProperties, headers);
+            azureOptions.setCopySourceBlobProperties(false);
+            context = new Context(
+                    AddHeadersFromContextPolicy.AZURE_REQUEST_HTTP_HEADERS_KEY,
+                    metadataHeaders(copiedMetadata(
+                            sourceProperties.getMetadata(),
+                            request.metadata(), replace)));
+        }
         azureOptions.setHeaders(headers);
 
         // Enforce the x-amz-copy-source-if-* preconditions against the source
@@ -1689,10 +1707,10 @@ public final class AzureBlobStore implements BlobStore {
 
         try {
             var response = client.uploadFromUrlWithResponse(
-                    azureOptions, /*timeout=*/ null, /*context=*/ null);
+                    azureOptions, /*timeout=*/ null, context);
 
             // TODO: cannot do this as part of uploadFromUrlWithResponse?
-            if (replace) {
+            if (replace && !versioning) {
                 client.setMetadata(
                         withoutReservedMetadata(request.metadata()));
             }
@@ -2063,6 +2081,65 @@ public final class AzureBlobStore implements BlobStore {
      */
     private record CopySource(BlobClient client,
             @Nullable BlobProperties properties) { }
+
+    /**
+     * The metadata a copy on a versioned store lands with: the request's
+     * under REPLACE, else the source's, less the store's own entries either
+     * way, so no copy carries a delete-marker tag or a multipart target
+     * that a caller planted in its metadata.
+     */
+    static Map<String, String> copiedMetadata(
+            @Nullable Map<String, String> source,
+            Map<String, String> requested, boolean replace) {
+        Map<String, String> metadata = replace ? requested :
+                source == null ? Map.of() : source;
+        return withoutReservedMetadata(metadata);
+    }
+
+    /**
+     * The content headers a copy on a versioned store lands with: the
+     * source's, each overridden by the one REPLACE names, as Put Blob From
+     * URL merges them when it copies the source's properties itself.  A
+     * versioned copy declines that, because it would copy the source's
+     * metadata along with them, and the copy's own metadata must travel in
+     * the same request.
+     */
+    private static BlobHttpHeaders copiedHeaders(BlobProperties source,
+            BlobHttpHeaders requested) {
+        return new BlobHttpHeaders()
+                .setCacheControl(requested.getCacheControl() != null ?
+                        requested.getCacheControl() :
+                        source.getCacheControl())
+                .setContentDisposition(
+                        requested.getContentDisposition() != null ?
+                        requested.getContentDisposition() :
+                        source.getContentDisposition())
+                .setContentEncoding(requested.getContentEncoding() != null ?
+                        requested.getContentEncoding() :
+                        source.getContentEncoding())
+                .setContentLanguage(requested.getContentLanguage() != null ?
+                        requested.getContentLanguage() :
+                        source.getContentLanguage())
+                .setContentType(requested.getContentType() != null ?
+                        requested.getContentType() : source.getContentType())
+                .setContentMd5(source.getContentMd5());
+    }
+
+    /**
+     * Metadata as the x-ms-meta-* request headers that carry it, for a call
+     * whose options cannot: Put Blob From URL takes metadata, and the SDK's
+     * options for it do not.  The client's pipeline adds headers handed to
+     * it through the call's context ({@link AddHeadersFromContextPolicy})
+     * before the request is signed.
+     */
+    static HttpHeaders metadataHeaders(Map<String, String> metadata) {
+        var headers = new HttpHeaders();
+        for (var entry : metadata.entrySet()) {
+            headers.set(HttpHeaderName.fromString(
+                    "x-ms-meta-" + entry.getKey()), entry.getValue());
+        }
+        return headers;
+    }
 
     /**
      * The version a copy read, as S3 reports it in

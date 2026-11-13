@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -43,6 +44,7 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -408,6 +410,35 @@ public final class VersionedBlobStoreTest {
                 b -> b.bucket(containerName)).versions();
         assertThat(versions.stream().map(v -> v.versionId()))
                 .containsExactly("null", enabled);
+    }
+
+    /**
+     * A copy that replaces the metadata lands as one version, which the
+     * response names and a read serves: a backend that set the metadata in
+     * a second write would leave a version the caller never made, and
+     * report the first.
+     */
+    @Test
+    public void testReplaceCopyIsOneVersion() {
+        enableVersioning();
+        put("blob", FIRST);
+
+        var copy = client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("copy")
+                .metadataDirective(MetadataDirective.REPLACE)
+                .metadata(Map.of("color", "blue")));
+
+        var versions = client.listObjectVersions(b -> b
+                .bucket(containerName).prefix("copy")).versions();
+        assertThat(versions).hasSize(1);
+        assertThat(versions.get(0).versionId()).isEqualTo(copy.versionId());
+        var head = client.headObject(b -> b.bucket(containerName)
+                .key("copy"));
+        assertThat(head.versionId()).isEqualTo(copy.versionId());
+        assertThat(head.metadata()).containsExactlyEntriesOf(
+                Map.of("color", "blue"));
+        assertThat(get("copy")).isEqualTo(FIRST);
     }
 
     @Test
