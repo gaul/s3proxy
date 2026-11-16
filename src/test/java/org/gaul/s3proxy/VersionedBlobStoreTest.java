@@ -87,6 +87,7 @@ public final class VersionedBlobStoreTest {
     private BlobStore blobStore;
     private URI blobStoreEndpoint;
     private String blobStoreType;
+    private boolean perBucketVersioning;
     private S3Client client;
     private String containerName;
 
@@ -123,6 +124,8 @@ public final class VersionedBlobStoreTest {
                 Constants.PROPERTY_ENDPOINT, "http://stub"));
         blobStoreType = info.getProperties().getProperty(
                 Constants.PROPERTY_PROVIDER, "");
+        perBucketVersioning = "true".equals(info.getProperties().getProperty(
+                "s3proxy.azureblob.versioning.per-bucket"));
 
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
         blobStore.createContainer(containerName);
@@ -138,11 +141,12 @@ public final class VersionedBlobStoreTest {
      * Whether the store versions every bucket from the start: an azureblob
      * store with versioning on reports every container Enabled, since Azure
      * versions the whole account and the data plane cannot turn that off
-     * for one container, so no bucket there is ever unversioned.
+     * for one container, unless it is asked to choose versioning per bucket
+     * as S3 does.
      */
     private boolean versionsEveryBucket() {
         return blobStoreType.equals("azureblob") &&
-                blobStore.supportsVersioning();
+                blobStore.supportsVersioning() && !perBucketVersioning;
     }
 
     /** Whether the backend is Azurite rather than Azure itself. */

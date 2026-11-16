@@ -125,10 +125,16 @@ deselect_by_name=""
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     backend="azureblob"
 elif [ "${S3PROXY_CONF}" = "s3proxy-azurite-versioning.conf" ]; then
-    # The azureblob store versioned: every container reports Enabled and
-    # Suspended answers NotImplemented, so what that leaves unanswered
+    # The azureblob store versioned: every container reports Enabled until
+    # it is suspended, never unversioned, so what that leaves unanswered
     # carries a marker of its own, alongside the azureblob ones.
     backend="azureblob,azureblob_versioning"
+    tags="${tags/ and not versioning/}"
+elif [ "${S3PROXY_CONF}" = "s3proxy-azurite-versioning-per-bucket.conf" ]; then
+    # The same with versioning chosen per bucket, as on S3: a container
+    # nobody has configured starts unversioned, which answers what the
+    # versioned lane's own markers note, leaving only the azureblob ones.
+    backend="azureblob"
     tags="${tags/ and not versioning/}"
 elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
     backend="gcs"
