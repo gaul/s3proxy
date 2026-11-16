@@ -226,7 +226,7 @@ Some limitations depend on the storage backend:
 | `max-keys=0` not honored | `azureblob` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
-| object versioning is opt-in and needs the account versioned out of band; delete markers and the Suspended state are emulated with tagged blobs and container metadata; a bucket never reports unversioned, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
+| object versioning is opt-in and needs the account versioned out of band; delete markers and the Suspended state are emulated with tagged blobs and container metadata; a bucket reports unversioned only with `s3proxy.azureblob.versioning.per-bucket=true`, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
