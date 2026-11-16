@@ -230,6 +230,17 @@ public final class AwsSdkTest {
                         source.size()));
     }
 
+    /**
+     * Whether the store versions every bucket from the start: an azureblob
+     * store with versioning on reports every container Enabled, since Azure
+     * versions the whole account and the data plane cannot turn that off
+     * for one container, so no bucket there is ever unversioned.
+     */
+    private boolean versionsEveryBucket() {
+        return blobStoreType.equals("azureblob") &&
+                blobStore.supportsVersioning();
+    }
+
     @Test
     public void testAwsV4Signature() throws Exception {
         putBlob(containerName, "foo", BYTE_SOURCE);
@@ -762,6 +773,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testNotFoundIsNotADeleteMarker() throws Exception {
+        // a versioned bucket's delete does leave a marker
+        assumeTrue(!versionsEveryBucket());
         var key = "testNotADeleteMarker";
         client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromString("body"));
@@ -916,11 +929,15 @@ public final class AwsSdkTest {
         client.deleteObject(b -> b.bucket(containerName).key(key));
 
         // gone, its ETag condition is satisfied rather than failed: the
-        // service answers the pair 404 and the delete stays idempotent
-        client.deleteObject(b -> b.bucket(containerName).key(key)
-                .ifMatch("\"badetag\""));
-        client.deleteObject(b -> b.bucket(containerName).key(key)
-                .ifMatch("*"));
+        // service answers the pair 404 and the delete stays idempotent.  On
+        // a versioned bucket the key's current version is now a delete
+        // marker, which an ETag condition is judged against instead.
+        if (!versionsEveryBucket()) {
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatch("\"badetag\""));
+            client.deleteObject(b -> b.bucket(containerName).key(key)
+                    .ifMatch("*"));
+        }
     }
 
     @Test
@@ -1059,6 +1076,7 @@ public final class AwsSdkTest {
 
     @Test
     public void testGetBucketVersioningUnversioned() throws Exception {
+        assumeTrue(!versionsEveryBucket());
         // a store without versioning still answers: never versioned
         var response = client.getBucketVersioning(
                 b -> b.bucket(containerName));

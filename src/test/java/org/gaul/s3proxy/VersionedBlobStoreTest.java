@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -43,6 +44,7 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -74,6 +76,8 @@ public final class VersionedBlobStoreTest {
      */
     private static final int LOCALSTACK_PORT = 4566;
     private static final int MINISTACK_PORT = 4567;
+    /** The port Azurite's blob service listens on in the Azurite lanes. */
+    private static final int AZURITE_PORT = 10000;
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -124,6 +128,23 @@ public final class VersionedBlobStoreTest {
     private boolean isEmulator(int port) {
         return blobStoreType.equals("aws-s3") &&
                 blobStoreEndpoint.getPort() == port;
+    }
+
+    /**
+     * Whether the store versions every bucket from the start: an azureblob
+     * store with versioning on reports every container Enabled, since Azure
+     * versions the whole account and the data plane cannot turn that off
+     * for one container, so no bucket there is ever unversioned.
+     */
+    private boolean versionsEveryBucket() {
+        return blobStoreType.equals("azureblob") &&
+                blobStore.supportsVersioning();
+    }
+
+    /** Whether the backend is Azurite rather than Azure itself. */
+    private boolean isAzurite() {
+        return blobStoreType.equals("azureblob") &&
+                blobStoreEndpoint.getPort() == AZURITE_PORT;
     }
 
     @AfterEach
@@ -198,8 +219,35 @@ public final class VersionedBlobStoreTest {
         }
     }
 
+    /**
+     * Skips a test on a store that refuses a conditional delete naming a
+     * version, as S3 itself does: AWS answers If-Match on a delete that
+     * names a version with 501 NotImplemented, whether or not the ETag
+     * matches, and honors it only on a delete of the current object.  A
+     * store that judges it, as the transient one does, runs the test.
+     * Needs versioning enabled on the bucket.
+     */
+    private void assumeVersionedConditionalDeletes() {
+        String probe = "conditional-version-delete-probe";
+        String versionId = put(probe, FIRST);
+        String eTag = eTag(probe, versionId);
+        try {
+            client.deleteObject(b -> b.bucket(containerName).key(probe)
+                    .versionId(versionId).ifMatch(eTag));
+        } catch (S3Exception se) {
+            var details = se.awsErrorDetails();
+            if (details != null &&
+                    "NotImplemented".equals(details.errorCode())) {
+                Assumptions.abort("store refuses a conditional delete" +
+                        " naming a version, as S3 does: " + se);
+            }
+            throw se;
+        }
+    }
+
     @Test
     public void testBucketStartsUnversioned() {
+        assumeTrue(!versionsEveryBucket());
         assertThat(client.getBucketVersioning(b -> b.bucket(containerName))
                 .status()).isNull();
     }
@@ -218,6 +266,7 @@ public final class VersionedBlobStoreTest {
     /** A write to a bucket that was never enabled carries no version. */
     @Test
     public void testUnversionedWriteHasNoVersionId() {
+        assumeTrue(!versionsEveryBucket());
         assertThat(put("blob", FIRST)).isNull();
         assertThat(get("blob")).isEqualTo(FIRST);
     }
@@ -363,11 +412,43 @@ public final class VersionedBlobStoreTest {
                 .containsExactly("null", enabled);
     }
 
+    /**
+     * A copy that replaces the metadata lands as one version, which the
+     * response names and a read serves: a backend that set the metadata in
+     * a second write would leave a version the caller never made, and
+     * report the first.
+     */
+    @Test
+    public void testReplaceCopyIsOneVersion() {
+        enableVersioning();
+        put("blob", FIRST);
+
+        var copy = client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("copy")
+                .metadataDirective(MetadataDirective.REPLACE)
+                .metadata(Map.of("color", "blue")));
+
+        var versions = client.listObjectVersions(b -> b
+                .bucket(containerName).prefix("copy")).versions();
+        assertThat(versions).hasSize(1);
+        assertThat(versions.get(0).versionId()).isEqualTo(copy.versionId());
+        var head = client.headObject(b -> b.bucket(containerName)
+                .key("copy"));
+        assertThat(head.versionId()).isEqualTo(copy.versionId());
+        assertThat(head.metadata()).containsExactlyEntriesOf(
+                Map.of("color", "blue"));
+        assertThat(get("copy")).isEqualTo(FIRST);
+    }
+
     @Test
     public void testCopyCanNameASourceVersion() {
         // LocalStack reads a copy that names a source version as a copy
         // onto itself and refuses it.
         assumeTrue(!isEmulator(LOCALSTACK_PORT));
+        // Azurite refuses the SAS for one blob version (sr=bv) that the
+        // azureblob store signs the copy source with, which Azure accepts.
+        assumeTrue(!isAzurite());
         enableVersioning();
         String first = put("blob", FIRST);
         put("blob", SECOND);
@@ -471,6 +552,7 @@ public final class VersionedBlobStoreTest {
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
+        assumeVersionedConditionalDeletes();
         String first = put("blob", FIRST);
         String firstETag = eTag("blob", first);
         String second = put("blob", SECOND);
@@ -505,6 +587,7 @@ public final class VersionedBlobStoreTest {
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
+        assumeVersionedConditionalDeletes();
         String first = put("blob", FIRST);
         String firstETag = eTag("blob", first);
         String second = put("blob", SECOND);
@@ -548,6 +631,7 @@ public final class VersionedBlobStoreTest {
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
+        assumeVersionedConditionalDeletes();
         put("blob", FIRST);
         String markerId = client.deleteObject(
                 b -> b.bucket(containerName).key("blob")).versionId();

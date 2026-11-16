@@ -192,6 +192,17 @@ jobs:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
     needs: [meta]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - conf: s3proxy-azurite
+            account: '{}'
+          # Blob versioning is a per-account setting on Azure and in
+          # Azurite, which the backend cannot turn on itself; the conf
+          # asserts that it is on.
+          - conf: s3proxy-azurite-versioning
+            account: '{"isBlobVersioningEnabled":true}'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -211,7 +222,7 @@ jobs:
           mvn package -DskipTests
 
       # No released Azurite has blob versioning (Azure/Azurite#2735), which
-      # the azureblob backend will map S3 versioning onto, so build a commit
+      # the azureblob backend maps S3 versioning onto, so build a commit
       # carrying it.  Return this to a published azurite@<version> once one
       # does.  npm ci builds dist/ through Azurite's prepare script.
       - name: Build Azurite
@@ -225,18 +236,19 @@ jobs:
       - name: Start Azurite
         shell: bash
         run: |
-          node "${RUNNER_TEMP}/azurite/dist/src/blob/main.js" &
+          node "${RUNNER_TEMP}/azurite/dist/src/blob/main.js" \
+            --accountConfigAsJson '${{ matrix.account }}' &
           # A 403 AuthorizationFailure means the blob service is up and
           # reached its authentication layer.
           ./src/test/resources/wait-for-url.sh \
             'http://127.0.0.1:10000/devstoreaccount1?comp=list'
       - name: Maven Test with Azurite
         run: |
-          mvn test -Ds3proxy.test.conf=s3proxy-azurite.conf
+          mvn test -Ds3proxy.test.conf=${{ matrix.conf }}.conf
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: surefire-reports-azurite
+          name: surefire-reports-${{ matrix.conf }}
           path: target/surefire-reports/
 
       - name: Install s3-tests
@@ -245,12 +257,12 @@ jobs:
           pip install tox tox-gh-actions
       - name: Run s3-tests with Azurite
         run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-azurite.conf
+          ./src/test/resources/run-s3-tests.sh ${{ matrix.conf }}.conf
           kill $(pidof node)
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: s3-tests-results-azurite
+          name: s3-tests-results-${{ matrix.conf }}
           path: target/s3-tests-*.xml
 
   localstackTests:

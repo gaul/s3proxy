@@ -226,7 +226,7 @@ Some limitations depend on the storage backend:
 | `max-keys=0` not honored | `azureblob` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
-| no object versioning, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
+| object versioning is opt-in and needs the account versioned out of band; delete markers are emulated as tagged blobs; no per-bucket suspend, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |
@@ -241,7 +241,31 @@ simply on or off, it refuses the Suspended state.  `transient` implements
 versioning itself, keeping every version but the current one as a hidden
 object.  `filesystem` shares that implementation and declines it: its versions
 would outlive the process, settling a layout on disk that S3Proxy would owe
-its users from then on.
+its users from then on.  `azureblob` maps onto Azure's own blob versioning,
+which is turned on per storage account on the management plane (ARM) and
+cannot be read or set through the data-plane SDK -- so it is opt-in through
+`s3proxy.azureblob.versioning=true`, by which the operator asserts the account
+has versioning on.  Azure keeps no delete markers, so, as
+`google-cloud-storage` does, a versioned delete writes an empty blob tagged as
+one, and a key whose current version is deleted by id reads as its newest
+remaining version.  Versioning cannot be suspended per bucket.  Every bucket
+reports Enabled, never unversioned: Azure keeps a version of every write in
+the account whatever S3 is told, and S3Proxy deletes none of the versions it
+keeps behind the caller's back, so an account versioned for data protection
+keeps that protection.  PutBucketVersioning with Suspended answers
+NotImplemented.  A blob written before the account was versioned has no
+Azure version id and reads as S3's null version, but only until it is
+first overwritten: Azure then keeps its content as a version under an id
+of its own, which S3Proxy cannot tell from one written while versioned,
+so that content is listed and read by that id, not as null.
+
+Versioning on `azureblob` costs requests beyond the one each operation makes:
+a copy reads its source's properties first; a write carrying If-Match, or
+If-None-Match: \*, reads the key's current version; a read of a key whose
+current version was deleted by id lists that key's versions; completing or
+aborting a multipart upload lists and deletes its stub's versions; and a
+batch delete becomes one request per key, so that each can leave its delete
+marker.  Plain writes and reads cost nothing extra.
 
 Server-side encryption divides `aws-s3` and `transient` from most of the
 rest, and divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
