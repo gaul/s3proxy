@@ -3321,6 +3321,17 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.noSuchVersion(container, key, versionId,
                     bse.getMessage());
         }
+        if (bse.getStatusCode() == 304 ||
+                (bse.getStatusCode() == 412 && BlobErrorCode
+                        .CANNOT_VERIFY_COPY_SOURCE.equals(code))) {
+            // A copy from a URL reports a failed source condition as the
+            // source's own answer to it: a 304 with no error code and no
+            // body for If-None-Match and If-Modified-Since, and a 412
+            // CannotVerifyCopySource for If-Unmodified-Since.  S3 answers
+            // 412 to all of them.  The code alone does not say so, since it
+            // also covers a source that is missing or forbidden.
+            return S3Exceptions.fromStatusCode(412, bse);
+        }
         if (code == null) {
             // Azure names no x-ms-error-code for a malformed query parameter
             // -- a versionId that is no version id, say -- on any method, not

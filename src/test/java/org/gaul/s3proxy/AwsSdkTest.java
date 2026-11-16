@@ -1380,6 +1380,52 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testCopyObjectSourcePreconditionFailed() throws Exception {
+        assumeTrue(!blobStoreType.equals("openstack-swift"));
+        // the preconditions compare against the source's stored ETag
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String sourceBlobName = "testCopyObjectSourcePrecondition-source";
+        String targetBlobName = "testCopyObjectSourcePrecondition-target";
+
+        String sourceETag = client.putObject(
+                b -> b.bucket(containerName).key(sourceBlobName),
+                RequestBody.fromInputStream(BYTE_SOURCE.openStream(),
+                        BYTE_SOURCE.size())).eTag();
+        Instant beforeSource = client.headObject(
+                b -> b.bucket(containerName).key(sourceBlobName))
+                .lastModified().minus(Duration.ofHours(1));
+
+        // Azure answers each failed source condition its own way: a bare
+        // 304 for if-none-match and a 412 CannotVerifyCopySource for
+        // if-unmodified-since.  S3 answers 412 for all of them.
+        try {
+            client.copyObject(b -> b
+                    .sourceBucket(containerName)
+                    .sourceKey(sourceBlobName)
+                    .destinationBucket(containerName)
+                    .destinationKey(targetBlobName)
+                    .copySourceIfNoneMatch(sourceETag));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+        try {
+            client.copyObject(b -> b
+                    .sourceBucket(containerName)
+                    .sourceKey(sourceBlobName)
+                    .destinationBucket(containerName)
+                    .destinationKey(targetBlobName)
+                    .copySourceIfUnmodifiedSince(beforeSource));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+        assertThat(blobStore.blobExists(containerName, targetBlobName))
+                .isFalse();
+    }
+
+    @Test
     public void testMultipartUploadConditionalCopy() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift"));
         // the preconditions compare against the source's stored ETag
@@ -1407,6 +1453,25 @@ public final class AwsSdkTest {
                     .destinationKey(targetBlobName)
                     .uploadId(uploadId)
                     .copySourceIfNoneMatch(sourceETag)
+                    .partNumber(1));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+
+        // Nor can a copy-source-if-unmodified-since from before the source
+        // was written.
+        Instant beforeSource = client.headObject(
+                b -> b.bucket(containerName).key(sourceBlobName))
+                .lastModified().minus(Duration.ofHours(1));
+        try {
+            client.uploadPartCopy(b -> b
+                    .sourceBucket(containerName)
+                    .sourceKey(sourceBlobName)
+                    .destinationBucket(containerName)
+                    .destinationKey(targetBlobName)
+                    .uploadId(uploadId)
+                    .copySourceIfUnmodifiedSince(beforeSource)
                     .partNumber(1));
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {

@@ -138,6 +138,42 @@ public final class AzureBlobStoreTranslateTest {
                         e -> assertThat(e.statusCode()).isEqualTo(403));
     }
 
+    /**
+     * Put Blob From URL and Put Block From URL answer a failed source
+     * condition with whatever the source answered: a 304 carrying neither an
+     * error code nor a body for If-None-Match and If-Modified-Since, and a
+     * 412 CannotVerifyCopySource for If-Unmodified-Since.  S3 answers 412
+     * for each.  Only the service answers this way, so the translation is
+     * exercised on synthesized errors.
+     */
+    @Test
+    public void testCopySourceNotModified() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(304, /*errorCode=*/ null), "container", "key");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> assertThat(e.statusCode()).isEqualTo(412));
+    }
+
+    @Test
+    public void testCopySourceConditionNotVerified() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(412, "CannotVerifyCopySource"),
+                "container", "key");
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> assertThat(e.statusCode()).isEqualTo(412));
+    }
+
+    /** The same code for a source that is missing is not a precondition. */
+    @Test
+    public void testCopySourceNotFoundIsNotPrecondition() {
+        var missing = azureException(404, "CannotVerifyCopySource");
+
+        assertThat(AzureBlobStore.translate(missing, "container", "key"))
+                .isSameAs(missing);
+    }
+
     /** An Azure service error as the SDK would raise it. */
     private static BlobStorageException azureException(int statusCode,
             @Nullable String errorCode) {
