@@ -189,11 +189,14 @@ public final class AzureBlobStoreTest {
 
         AzureBlobStore on = store(/*versioning=*/ true);
         assertThat(on.supportsVersioning()).isTrue();
-        // Suspending is refused NotImplemented (501).
+        // Suspending is refused 501 NotImplemented, code and all.
         assertThatThrownBy(() -> on.putBucketVersioning(
                 "container", BucketVersioningStatus.SUSPENDED))
-                .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(501));
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(501);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("NotImplemented");
+                });
     }
 
     /**

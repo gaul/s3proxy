@@ -1114,7 +1114,9 @@ public final class AzureBlobStore implements BlobStore {
                 configuration.status() == BucketVersioningStatus.SUSPENDED) {
             // 501 NotImplemented: we cannot stop minting versions per
             // container, so pretending to suspend would lie to the caller.
-            throw S3Exceptions.fromStatusCode(501);
+            throw S3Exceptions.notImplemented("Azure versions every" +
+                    " container in a versioned account, so versioning" +
+                    " cannot be suspended per bucket");
         }
         requireContainer(request.bucket());
         return PutBucketVersioningResponse.builder().build();

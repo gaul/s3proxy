@@ -186,6 +186,20 @@ public final class S3Exceptions {
     }
 
     /**
+     * A 501 NotImplemented naming what the backend cannot do, for a request
+     * S3 itself would honor.  The code is S3's own, where a bare 501 from
+     * {@link #fromStatusCode(int)} reaches a client as an unknown error.
+     */
+    public static S3Exception notImplemented(String message) {
+        return (S3Exception) S3Exception.builder()
+                .message(message)
+                .statusCode(501)
+                .awsErrorDetails(details(501, "NotImplemented", message,
+                        Map.of()))
+                .build();
+    }
+
+    /**
      * A 403 saying what the backend refused, for a refusal the caller can
      * act on only by knowing which permission its credential lacks.
      */
