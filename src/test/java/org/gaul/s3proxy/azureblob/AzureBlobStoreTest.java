@@ -91,6 +91,8 @@ public final class AzureBlobStoreTest {
     private int copyStatus = 201;
     /** Whether the promotion fake's remaining version was written Suspended. */
     private boolean remainingNullTagged;
+    /** Whether the promotion fake's remaining version is a delete marker. */
+    private boolean remainingDeleteMarker;
     private @Nullable HttpServer server;
 
     @AfterEach
@@ -923,6 +925,31 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * A delete marker written while Suspended is a null version too: named
+     * by its Azure id it answers NoSuchVersion, to a GET and a HEAD alike,
+     * rather than the 405 that would confirm a marker stands at that id.
+     */
+    @Test
+    public void testRefusesANullDeleteMarkerByItsAzureId() throws IOException {
+        remainingNullTagged = true;
+        remainingDeleteMarker = true;
+        var store = promotionStore();
+
+        assertThatThrownBy(() -> store.getBlob(GetObjectRequest.builder()
+                .bucket("container").key("key").versionId(REMAINING)
+                .build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> assertThat(
+                        e.awsErrorDetails().errorCode())
+                        .isEqualTo("NoSuchVersion"));
+        assertThatThrownBy(() -> store.blobMetadata(HeadObjectRequest
+                .builder().bucket("container").key("key")
+                .versionId(REMAINING).build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> assertThat(
+                        e.awsErrorDetails().errorCode())
+                        .isEqualTo("NoSuchVersion"));
+    }
+
+    /**
      * The store's own read of a key with no current version still reaches
      * the newest remaining version by its Azure id when that version is a
      * null version: only a caller cannot name one that way.
@@ -1066,6 +1093,9 @@ public final class AzureBlobStoreTest {
             headers.set("x-ms-access-tier", "Hot");
             if (remainingNullTagged) {
                 headers.set("x-ms-meta-s3proxy_null_version", "true");
+            }
+            if (remainingDeleteMarker) {
+                headers.set("x-ms-meta-s3proxy_delete_marker", "true");
             }
             if (method.equals("GET")) {
                 status = 206;

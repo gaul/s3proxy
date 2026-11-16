@@ -1078,13 +1078,13 @@ public final class AzureBlobStore implements BlobStore {
                 // getBlob no longer returns null for an absent object.
                 throw translate(bse, container, key, request.versionId());
             }
-            if (versioning && isDeleteMarker(named.getMetadata())) {
-                throw deleteMarkerNamed(request.versionId());
-            }
             if (!promoted && namesNullVersionById(request.versionId(),
                     named.getMetadata())) {
                 throw S3Exceptions.noSuchVersion(container, key,
                         request.versionId(), "a null version by its Azure id");
+            }
+            if (versioning && isDeleteMarker(named.getMetadata())) {
+                throw deleteMarkerNamed(request.versionId());
             }
         }
         // Azure rejects the literal If-None-Match: * with 400
