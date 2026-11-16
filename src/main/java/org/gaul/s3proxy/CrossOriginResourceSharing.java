@@ -46,8 +46,11 @@ public final class CrossOriginResourceSharing {
     private final String allowedHeadersRaw;
     private final String exposedHeadersRaw;
     private final boolean anyOriginAllowed;
-    // Enforce ordering of values
     private final List<Pattern> allowedOrigins;
+    // Pattern has no value equality, so equals and hashCode compare the
+    // origins by their source strings, without order like isOriginAllowed.
+    private final Set<String> allowedOriginPatterns;
+    // Enforce ordering of values
     private final List<String> allowedMethods;
     private final List<String> allowedHeaders;
     private final List<String> exposedHeaders;
@@ -80,6 +83,11 @@ public final class CrossOriginResourceSharing {
         }
         this.anyOriginAllowed = anyOriginAllowed;
         this.allowedOrigins = List.copyOf(allowedPattern);
+        Set<String> originPatterns = new HashSet<>();
+        for (Pattern pattern : allowedPattern) {
+            originPatterns.add(pattern.pattern());
+        }
+        this.allowedOriginPatterns = Set.copyOf(originPatterns);
 
         if (allowedMethods == null) {
             this.allowedMethods = List.of();
@@ -232,14 +240,19 @@ public final class CrossOriginResourceSharing {
             return false;
         }
 
-        return this.allowedOrigins.equals(that.allowedOrigins) &&
+        return this.anyOriginAllowed == that.anyOriginAllowed &&
+                this.allowedOriginPatterns.equals(
+                        that.allowedOriginPatterns) &&
                 this.allowedMethodsRaw.equals(that.allowedMethodsRaw) &&
-                this.allowedHeadersRaw.equals(that.allowedHeadersRaw);
+                this.allowedHeadersRaw.equals(that.allowedHeadersRaw) &&
+                this.exposedHeadersRaw.equals(that.exposedHeadersRaw) &&
+                isAllowCredentials() == that.isAllowCredentials();
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.allowedOrigins, this.allowedMethodsRaw,
-                this.allowedHeadersRaw);
+        return Objects.hash(this.anyOriginAllowed, this.allowedOriginPatterns,
+                this.allowedMethodsRaw, this.allowedHeadersRaw,
+                this.exposedHeadersRaw, isAllowCredentials());
     }
 }
