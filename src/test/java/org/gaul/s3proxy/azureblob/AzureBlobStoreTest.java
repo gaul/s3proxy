@@ -89,6 +89,8 @@ public final class AzureBlobStoreTest {
     private int listStatus = 200;
     /** How the fake Azure answers Put Blob From URL: 501 as Azurite does. */
     private int copyStatus = 201;
+    /** Whether the promotion fake's remaining version was written Suspended. */
+    private boolean remainingNullTagged;
     private @Nullable HttpServer server;
 
     @AfterEach
@@ -885,6 +887,80 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * A version written while Suspended is S3's null version, named only
+     * "null": named by its Azure id -- as one a suspended overwrite replaced
+     * but could not remove still could be -- it answers NoSuchVersion to a
+     * GET, a HEAD and a copy alike, and nothing is read or written.
+     */
+    @Test
+    public void testRefusesANullVersionByItsAzureId() throws IOException {
+        remainingNullTagged = true;
+        var store = promotionStore();
+
+        assertThatThrownBy(() -> store.getBlob(GetObjectRequest.builder()
+                .bucket("container").key("key").versionId(REMAINING)
+                .build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> assertThat(
+                        e.awsErrorDetails().errorCode())
+                        .isEqualTo("NoSuchVersion"));
+        assertThatThrownBy(() -> store.blobMetadata(HeadObjectRequest
+                .builder().bucket("container").key("key")
+                .versionId(REMAINING).build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> assertThat(
+                        e.awsErrorDetails().errorCode())
+                        .isEqualTo("NoSuchVersion"));
+        assertThatThrownBy(() -> store.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket("container").sourceKey("key")
+                .sourceVersionId(REMAINING)
+                .destinationBucket("container").destinationKey("copy")
+                .build()))
+                .isInstanceOfSatisfying(S3Exception.class, e -> assertThat(
+                        e.awsErrorDetails().errorCode())
+                        .isEqualTo("NoSuchVersion"));
+
+        assertThat(azureRequests).noneMatch(r -> r.startsWith("GET /account/" +
+                "container/key?") || r.startsWith("PUT "));
+    }
+
+    /**
+     * The store's own read of a key with no current version still reaches
+     * the newest remaining version by its Azure id when that version is a
+     * null version: only a caller cannot name one that way.
+     */
+    @Test
+    public void testPromotesANullVersion() throws IOException {
+        remainingNullTagged = true;
+        var store = promotionStore();
+
+        try (var stream = store.getBlob(GetObjectRequest.builder()
+                .bucket("container").key("key").build())) {
+            assertThat(stream.readAllBytes()).containsExactly('x');
+        }
+        assertThat(store.blobMetadata(HeadObjectRequest.builder()
+                .bucket("container").key("key").build()).contentLength())
+                .isEqualTo(1L);
+    }
+
+    /**
+     * A version written while Suspended answers to "null" alone; any other
+     * version, and a null version that carries no tag, answer to their ids.
+     */
+    @Test
+    public void testNamesNullVersionById() {
+        var tagged = Map.of("s3proxy_null_version", "true");
+        assertThat(AzureBlobStore.namesNullVersionById(REMAINING, tagged))
+                .isTrue();
+        assertThat(AzureBlobStore.namesNullVersionById("null", tagged))
+                .isFalse();
+        assertThat(AzureBlobStore.namesNullVersionById(/*versionId=*/ null,
+                tagged)).isFalse();
+        assertThat(AzureBlobStore.namesNullVersionById(REMAINING, Map.of()))
+                .isFalse();
+        assertThat(AzureBlobStore.namesNullVersionById(REMAINING,
+                /*metadata=*/ null)).isFalse();
+    }
+
+    /**
      * A versioned store does not fall back to Copy Blob when Put Blob From
      * URL answers 501: REPLACE's content headers would be a second,
      * versioned write leaving a version the caller never made.  The copy
@@ -988,6 +1064,9 @@ public final class AzureBlobStoreTest {
             headers.set("x-ms-version-id", REMAINING);
             headers.set("x-ms-blob-type", "BlockBlob");
             headers.set("x-ms-access-tier", "Hot");
+            if (remainingNullTagged) {
+                headers.set("x-ms-meta-s3proxy_null_version", "true");
+            }
             if (method.equals("GET")) {
                 status = 206;
                 headers.set("Content-Range", "bytes 0-0/1");

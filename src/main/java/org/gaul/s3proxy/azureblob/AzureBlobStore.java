@@ -791,6 +791,20 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
+     * Whether a caller named a version written while Suspended by its Azure
+     * id.  S3 knows such a version only as "null", and one a later
+     * suspended write replaced but could not remove (see {@link
+     * #replaceNullVersion}) is no S3 version at all, so neither answers to
+     * its Azure id: what a suspended overwrite replaced stays out of reach
+     * even when Azure keeps it.
+     */
+    static boolean namesNullVersionById(@Nullable String versionId,
+            @Nullable Map<String, String> metadata) {
+        return versionId != null && !versionId.equals(NULL_VERSION_ID) &&
+                isNullVersionTagged(metadata);
+    }
+
+    /**
      * A caller's user metadata less the entries the store keeps for itself.
      * An object written with {@code x-amz-meta-s3proxy_delete_marker: true}
      * would otherwise read as a delete marker -- 404 to GET, hidden from
@@ -1025,16 +1039,23 @@ public final class AzureBlobStore implements BlobStore {
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         try {
-            return readBlob(request);
+            return readBlob(request, /*promoted=*/ false);
         } catch (NoSuchKeyException nske) {
             String newest = promotedVersion(nske, request.bucket(),
                     request.key(), request.versionId());
-            return readBlob(request.toBuilder().versionId(newest).build());
+            return readBlob(request.toBuilder().versionId(newest).build(),
+                    /*promoted=*/ true);
         }
     }
 
+    /**
+     * {@code promoted} says the version id is the store's own, the newest
+     * remaining version that a read of the key falls to, rather than one a
+     * caller named; that may be a null version, which a caller cannot name
+     * by its Azure id.
+     */
     private ResponseInputStream<GetObjectResponse> readBlob(
-            GetObjectRequest request) {
+            GetObjectRequest request, boolean promoted) {
         String container = request.bucket();
         String key = request.key();
         var client = blobServiceClient.getBlobContainerClient(container)
@@ -1059,6 +1080,11 @@ public final class AzureBlobStore implements BlobStore {
             }
             if (versioning && isDeleteMarker(named.getMetadata())) {
                 throw deleteMarkerNamed(request.versionId());
+            }
+            if (!promoted && namesNullVersionById(request.versionId(),
+                    named.getMetadata())) {
+                throw S3Exceptions.noSuchVersion(container, key,
+                        request.versionId(), "a null version by its Azure id");
             }
         }
         // Azure rejects the literal If-None-Match: * with 400
@@ -2386,6 +2412,10 @@ public final class AzureBlobStore implements BlobStore {
                 throw translate(bse2, container, key, newest);
             }
         }
+        if (namesNullVersionById(versionId, properties.getMetadata())) {
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "a null version by its Azure id");
+        }
         if (isDeleteMarker(properties.getMetadata())) {
             if (versionId != null) {
                 throw S3Exceptions.invalidRequest("The source of a copy " +
@@ -2932,15 +2962,18 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         try {
-            return readMetadata(request);
+            return readMetadata(request, /*promoted=*/ false);
         } catch (NoSuchKeyException nske) {
             String newest = promotedVersion(nske, request.bucket(),
                     request.key(), request.versionId());
-            return readMetadata(request.toBuilder().versionId(newest).build());
+            return readMetadata(request.toBuilder().versionId(newest).build(),
+                    /*promoted=*/ true);
         }
     }
 
-    private HeadObjectResponse readMetadata(HeadObjectRequest request) {
+    /** {@code promoted} as for {@link #readBlob}. */
+    private HeadObjectResponse readMetadata(HeadObjectRequest request,
+            boolean promoted) {
         String container = request.bucket();
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(request.key());
@@ -2954,6 +2987,11 @@ public final class AzureBlobStore implements BlobStore {
         } catch (BlobStorageException bse) {
             throw translate(bse, container, request.key(),
                     request.versionId());
+        }
+        if (!promoted && namesNullVersionById(request.versionId(),
+                properties.getMetadata())) {
+            throw S3Exceptions.noSuchVersion(container, request.key(),
+                    request.versionId(), "a null version by its Azure id");
         }
         if (versioning && isDeleteMarker(properties.getMetadata())) {
             if (request.versionId() != null) {
@@ -3078,6 +3116,10 @@ public final class AzureBlobStore implements BlobStore {
                     .getProperties();
         } catch (BlobStorageException bse) {
             throw translate(bse, container, key, versionId);
+        }
+        if (namesNullVersionById(versionId, properties.getMetadata())) {
+            throw S3Exceptions.noSuchVersion(container, key, versionId,
+                    "a null version by its Azure id");
         }
         if (isDeleteMarker(properties.getMetadata())) {
             throw deleteMarkerNamed(versionId);
