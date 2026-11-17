@@ -1346,12 +1346,22 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 if (contentType != null) {
                     builder.contentType(contentType);
                 }
+                if (request.expires() != null) {
+                    builder.expires(request.expires());
+                }
             } else {
                 builder.cacheControl(metadata.cacheControl())
                         .contentDisposition(metadata.contentDisposition())
                         .contentEncoding(metadata.contentEncoding())
                         .contentLanguage(metadata.contentLanguage())
-                        .contentType(metadata.contentType());
+                        .contentType(metadata.contentType())
+                        .expires(metadata.expires());
+            }
+            // The storage class is the copy's own under either directive:
+            // S3 stores a copy as STANDARD unless the request says
+            // otherwise, whatever class the source rests in.
+            if (request.storageClass() != null) {
+                builder.storageClass(request.storageClass());
             }
 
             if (replace) {

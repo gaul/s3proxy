@@ -3103,6 +3103,48 @@ public final class AwsSdkTest {
         assertThat(head.metadata()).isEmpty();
     }
 
+    /**
+     * Expires is metadata like the other content headers, kept by a copy
+     * and replaced by one that replaces; the storage class is the copy's
+     * own.  The nio2 stores carried neither.
+     */
+    @Test
+    public void testCopyObjectExpiresAndStorageClass() throws Exception {
+        assumeTrue(blobStoreType.equals("transient") ||
+                blobStoreType.equals("filesystem"));
+
+        var expires = Instant.parse("2040-01-01T00:00:00Z");
+        var later = Instant.parse("2050-01-01T00:00:00Z");
+        client.putObject(b -> b.bucket(containerName).key("expires-source")
+                .expires(expires).storageClass(StorageClass.STANDARD_IA),
+                RequestBody.fromString("content"));
+        String expiresString = client.headObject(b -> b
+                .bucket(containerName).key("expires-source"))
+                .expiresString();
+        assertThat(expiresString).isNotNull();
+
+        client.copyObject(b -> b.sourceBucket(containerName)
+                .sourceKey("expires-source").destinationBucket(containerName)
+                .destinationKey("expires-copy"));
+        var copy = client.headObject(b -> b.bucket(containerName)
+                .key("expires-copy"));
+        assertThat(copy.expiresString()).isEqualTo(expiresString);
+        // not the source's: a copy rests in STANDARD unless it asks
+        assertThat(copy.storageClass()).isNotEqualTo(
+                StorageClass.STANDARD_IA);
+
+        client.copyObject(b -> b.sourceBucket(containerName)
+                .sourceKey("expires-source").destinationBucket(containerName)
+                .destinationKey("expires-replace")
+                .metadataDirective("REPLACE").expires(later)
+                .storageClass(StorageClass.GLACIER));
+        var replace = client.headObject(b -> b.bucket(containerName)
+                .key("expires-replace"));
+        assertThat(replace.expiresString()).isNotNull()
+                .isNotEqualTo(expiresString);
+        assertThat(replace.storageClass()).isEqualTo(StorageClass.GLACIER);
+    }
+
     @Test
     public void testCopyObjectPublicRead() throws Exception {
         // Azure and Swift grant read at the container, so a per-blob ACL has

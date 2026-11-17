@@ -4316,9 +4316,23 @@ public class S3ProxyHandler {
                         userMetadata.put(key, headerValue);
                     }
                 }
-                // TODO: Expires
+            }
+            long expires = request.getDateHeader(HttpHeaders.EXPIRES);
+            if (expires != -1) {
+                copyRequest.expires(Instant.ofEpochMilli(expires));
             }
             copyRequest.metadata(userMetadata.build());
+        }
+
+        String storageClass = request.getHeader(AwsHttpHeaders.STORAGE_CLASS);
+        if (storageClass != null &&
+                !storageClass.equalsIgnoreCase("STANDARD")) {
+            try {
+                copyRequest.storageClass(StorageClass.valueOf(storageClass));
+            } catch (IllegalArgumentException iae) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_STORAGE_CLASS,
+                        iae);
+            }
         }
 
         CopyObjectResponse copyResult;
