@@ -263,7 +263,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
             <id>default-compile</id>
             <configuration>
               <compilerArgs combine.children="append">
-                <arg>-Xplugin:ErrorProne ${errorprone.checks} ${errorprone.nullchecks} -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true -XepOpt:NullAway:CheckOptionalEmptiness=true -XepOpt:NullAway:ExhaustiveOverride=true -XepOpt:NullAway:HandleWildcardGenerics=true</arg>
+                <arg>-Xplugin:ErrorProne ${errorprone.checks} ${errorprone.nullchecks} -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true -XepOpt:NullAway:JSpecifyJDKModels=true -XepOpt:NullAway:CheckOptionalEmptiness=true -XepOpt:NullAway:ExhaustiveOverride=true -XepOpt:NullAway:HandleWildcardGenerics=true</arg>
               </compilerArgs>
             </configuration>
           </execution>

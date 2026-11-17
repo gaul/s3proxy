@@ -43,11 +43,11 @@ public final class BlobStores {
      * name, which stay as they were written for the life of the store.
      */
     public static BlobStore create(String provider, Properties properties) {
-        String identity = properties.getProperty(Constants.PROPERTY_IDENTITY,
+        String identity = property(properties, Constants.PROPERTY_IDENTITY,
                 "");
-        String credential = properties.getProperty(
+        String credential = property(properties,
                 Constants.PROPERTY_CREDENTIAL, "");
-        String sessionToken = properties.getProperty(
+        String sessionToken = property(properties,
                 Constants.PROPERTY_SESSION_TOKEN, "");
         return create(provider, properties, Suppliers.ofInstance(
                 new Credentials(identity, credential,
@@ -64,23 +64,28 @@ public final class BlobStores {
     public static BlobStore create(String provider, Properties properties,
             Supplier<Credentials> creds) {
         provider = resolveProviderAlias(provider);
-        String endpoint = properties.getProperty(Constants.PROPERTY_ENDPOINT,
+        String endpoint = property(properties, Constants.PROPERTY_ENDPOINT,
                 "");
-        String region = properties.getProperty(Constants.PROPERTY_REGION, "");
+        String region = property(properties, Constants.PROPERTY_REGION, "");
 
         return switch (provider) {
         case "filesystem" -> {
             String baseDir = properties.getProperty(
                     "jclouds.filesystem.basedir");
+            if (baseDir == null) {
+                throw new IllegalArgumentException(
+                        "Properties file must contain: " +
+                        "jclouds.filesystem.basedir");
+            }
             yield new FilesystemNio2BlobStore(baseDir);
         }
         case "transient" -> new TransientNio2BlobStore();
         case "aws-s3" -> {
-            String conditionalWrites = properties.getProperty(
+            String conditionalWrites = property(properties,
                     "s3proxy.aws-s3.conditional-writes", "native");
-            String chunkedEncodingEnabled = properties.getProperty(
+            String chunkedEncodingEnabled = property(properties,
                     "s3proxy.aws-s3.chunked-encoding-enabled", "true");
-            String stripETagQuotes = properties.getProperty(
+            String stripETagQuotes = property(properties,
                     "s3proxy.aws-s3.strip-etag-quotes", "false");
             yield new AwsS3SdkBlobStore(creds, endpoint,
                     region.isEmpty() ? "us-east-1" : region,
@@ -88,14 +93,14 @@ public final class BlobStores {
                     stripETagQuotes);
         }
         case "azureblob" -> {
-            String eTagMode = properties.getProperty(
+            String eTagMode = property(properties,
                     "s3proxy.azureblob.etag", "opaque");
             String auth = properties.getProperty("s3proxy.azureblob.auth");
             // Azure Blob versioning is enabled per storage account on the
             // management plane, invisible to the data-plane SDK; the operator
             // asserts here that the account has it on so the store honors S3
             // versioning rather than answering NotImplemented.
-            boolean versioning = Boolean.parseBoolean(properties.getProperty(
+            boolean versioning = Boolean.parseBoolean(property(properties,
                     "s3proxy.azureblob.versioning", "false"));
             yield new AzureBlobStore(creds, endpoint, eTagMode, auth,
                     versioning);
@@ -103,23 +108,23 @@ public final class BlobStores {
         case "google-cloud-storage" ->
             new GCloudBlobStore(creds, endpoint);
         case "openstack-swift" -> {
-            String projectName = properties.getProperty(
+            String projectName = property(properties,
                     OpenStackSwiftBlobStore.PROPERTY_PROJECT_NAME, "");
-            String projectDomainName = properties.getProperty(
+            String projectDomainName = property(properties,
                     OpenStackSwiftBlobStore.PROPERTY_PROJECT_DOMAIN_NAME,
                     "Default");
-            String userDomainName = properties.getProperty(
+            String userDomainName = property(properties,
                     OpenStackSwiftBlobStore.PROPERTY_USER_DOMAIN_NAME,
                     "Default");
-            String swiftRegion = properties.getProperty(
+            String swiftRegion = property(properties,
                     OpenStackSwiftBlobStore.PROPERTY_REGION, "");
             yield new OpenStackSwiftBlobStore(creds, endpoint, projectName,
                     projectDomainName, userDomainName, swiftRegion);
         }
         case "sftp" -> {
-            String baseDir = properties.getProperty(
+            String baseDir = property(properties,
                     SftpBlobStore.PROPERTY_BASEDIR, "/s3proxy");
-            String hostKey = properties.getProperty(
+            String hostKey = property(properties,
                     SftpBlobStore.PROPERTY_HOST_KEY, "");
             yield new SftpBlobStore(creds, endpoint, baseDir, hostKey);
         }
@@ -150,5 +155,12 @@ public final class BlobStores {
         case "openstack-swift-sdk" -> "openstack-swift";
         default -> provider;
         };
+    }
+
+    /** The property, or the default when the properties do not set it. */
+    private static String property(Properties properties, String key,
+            String defaultValue) {
+        String value = properties.getProperty(key);
+        return value != null ? value : defaultValue;
     }
 }

@@ -109,7 +109,8 @@ public final class AliasBlobStore extends ForwardingBlobStore {
             if (key.startsWith(S3ProxyConstants.PROPERTY_ALIAS_BLOBSTORE)) {
                 String virtualBucket = key.substring(
                         S3ProxyConstants.PROPERTY_ALIAS_BLOBSTORE.length() + 1);
-                String backendBucket = properties.getProperty(key);
+                String backendBucket = requireNonNull(
+                        properties.getProperty(key));
                 checkArgument(
                         !backendBuckets.containsKey(backendBucket),
                         "Backend bucket %s is aliased twice",

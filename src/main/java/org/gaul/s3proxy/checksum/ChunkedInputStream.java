@@ -70,6 +70,8 @@ public final class ChunkedInputStream extends FilterInputStream {
      * by, which is why the caller reads it back from here rather than from
      * the request. */
     @Nullable private String trailerValue;
+    // FilterInputStream declares in as nullable
+    private final InputStream delegate;
     private final byte @Nullable [] signingKey;
     @Nullable private final String hmacAlgorithm;
     @Nullable private final String timestamp;
@@ -78,6 +80,7 @@ public final class ChunkedInputStream extends FilterInputStream {
 
     public ChunkedInputStream(InputStream is, int maxChunkSize) {
         super(is);
+        this.delegate = is;
         this.maxChunkSize = maxChunkSize;
         checksum = null;
         trailerAlgorithm = null;
@@ -90,6 +93,7 @@ public final class ChunkedInputStream extends FilterInputStream {
     public ChunkedInputStream(InputStream is, int maxChunkSize,
             @Nullable String trailer) {
         super(is);
+        this.delegate = is;
         this.maxChunkSize = maxChunkSize;
         var algorithm = trailer == null ? null :
                 FlexChecksum.fromHeaderName(trailer);
@@ -127,6 +131,7 @@ public final class ChunkedInputStream extends FilterInputStream {
             String seedSignature, byte[] signingKey, String hmacAlgorithm,
             String timestamp, String scope, @Nullable String trailer) {
         super(is);
+        this.delegate = is;
         this.maxChunkSize = maxChunkSize;
         var algorithm = trailer == null ? null :
                 FlexChecksum.fromHeaderName(trailer);
@@ -145,7 +150,7 @@ public final class ChunkedInputStream extends FilterInputStream {
             if (finished) {
                 return -1;
             }
-            String line = readLine(in);
+            String line = readLine(delegate);
             // A body that stops where the next chunk header belongs is one
             // the sender did not finish: aws-chunked says it is over with a
             // zero-length chunk, and without that this cannot tell an upload
@@ -211,7 +216,7 @@ public final class ChunkedInputStream extends FilterInputStream {
             }
             currentIndex = 0;
             try {
-                ByteStreams.readFully(in, chunk, 0, currentLength);
+                ByteStreams.readFully(delegate, chunk, 0, currentLength);
             } catch (EOFException eofe) {
                 // The chunk header promised bytes the body does not carry.
                 throw new IOException(new S3ProxyException(
@@ -231,7 +236,7 @@ public final class ChunkedInputStream extends FilterInputStream {
                 // one missing its terminator rather than one cut short.
                 if (checksum != null) {
                     while (true) {
-                        String trailerLine = readLine(in);
+                        String trailerLine = readLine(delegate);
                         if (trailerLine == null || trailerLine.isEmpty()) {
                             break;
                         }
@@ -242,7 +247,7 @@ public final class ChunkedInputStream extends FilterInputStream {
                 return -1;
             }
             // consume trailing \r\n
-            readLine(in);
+            readLine(delegate);
         }
         return chunk[currentIndex++] & 0xFF;
     }

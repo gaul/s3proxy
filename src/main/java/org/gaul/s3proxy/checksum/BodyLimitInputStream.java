@@ -39,10 +39,13 @@ import org.gaul.s3proxy.S3ProxyException;
  * the count runs out sent less, and is refused likewise.
  */
 public final class BodyLimitInputStream extends FilterInputStream {
+    // FilterInputStream declares in as nullable
+    private final InputStream delegate;
     private long remaining;
 
     public BodyLimitInputStream(InputStream is, long limit) {
         super(is);
+        this.delegate = is;
         this.remaining = limit;
     }
 
@@ -51,7 +54,7 @@ public final class BodyLimitInputStream extends FilterInputStream {
         if (remaining == 0) {
             return finish();
         }
-        int result = in.read();
+        int result = delegate.read();
         if (result == -1) {
             throw shorterThanDeclared();
         }
@@ -64,7 +67,7 @@ public final class BodyLimitInputStream extends FilterInputStream {
         if (remaining == 0) {
             return finish();
         }
-        int result = in.read(b, off, (int) Math.min(len, remaining));
+        int result = delegate.read(b, off, (int) Math.min(len, remaining));
         if (result == -1) {
             throw shorterThanDeclared();
         }
@@ -85,7 +88,7 @@ public final class BodyLimitInputStream extends FilterInputStream {
 
     @Override
     public int available() throws IOException {
-        return (int) Math.min(in.available(), remaining);
+        return (int) Math.min(delegate.available(), remaining);
     }
 
     /**
@@ -93,7 +96,7 @@ public final class BodyLimitInputStream extends FilterInputStream {
      * end, which is where an aws-chunked trailer is read and checked.
      */
     private int finish() throws IOException {
-        if (in.read() != -1) {
+        if (delegate.read() != -1) {
             throw new IOException(new S3ProxyException(
                     S3ErrorCode.INVALID_REQUEST,
                     "The request body is longer than the length it declared."));

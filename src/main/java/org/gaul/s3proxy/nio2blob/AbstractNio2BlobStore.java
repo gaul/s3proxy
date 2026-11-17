@@ -287,7 +287,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 var creationTime =
                         Instant.ofEpochMilli(attr.creationTime().toMillis());
                 set.add(SdkResponses.bucket(
-                        path.getFileName().toString(), creationTime));
+                        requireNonNull(path.getFileName()).toString(), creationTime));
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -454,7 +454,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     // PUT accepts: hiding it there kept an object out of
                     // every listing while it held the bucket undeletable.
                     if (containerPath.equals(path.getParent())) {
-                        String name = path.getFileName().toString();
+                        String name = requireNonNull(path.getFileName()).toString();
                         if (filterMultipart &&
                                 name.startsWith(MULTIPART_PREFIX)) {
                             continue;
@@ -1017,7 +1017,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
         // Create parent directories.
         try {
-            Files.createDirectories(path.getParent());
+            Files.createDirectories(requireNonNull(path.getParent()));
         } catch (FileAlreadyExistsException faee) {
             logger.debug("Parent directories already exist: {}", path.getParent());
         } catch (IOException ioe) {
@@ -1215,7 +1215,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // container at rest holds its objects and nothing else.  One
             // another write is still using is not empty and stays.
             try {
-                Files.deleteIfExists(tmpPath.getParent());
+                Files.deleteIfExists(requireNonNull(tmpPath.getParent()));
             } catch (IOException ioe) {
                 logger.debug("leaving temp directory of {}", tmpPath, ioe);
             }
@@ -1516,7 +1516,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 Files.deleteIfExists(path);
                 removeEmptyParentDirectories(containerPath, path.getParent());
                 var marker = newVersionPath(containerPath, key);
-                Files.createDirectories(marker.getParent());
+                Files.createDirectories(requireNonNull(marker.getParent()));
                 Files.createFile(marker);
                 writeVersionAttributes(marker, key, markerId,
                         /*deleteMarker=*/ true);
@@ -3401,7 +3401,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             try {
                 for (var path : stream) {
-                    var name = path.getFileName().toString();
+                    var name = requireNonNull(path.getFileName()).toString();
                     if (prefix != null && !name.startsWith(prefix)) {
                         continue;
                     }
@@ -3434,7 +3434,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // version id and the timestamp are not.
         versions.sort(Comparator.comparing(
                 (StoredVersion version) ->
-                        version.path().getFileName().toString()).reversed());
+                        requireNonNull(version.path().getFileName()).toString()).reversed());
         return versions;
     }
 
@@ -3530,7 +3530,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             return null;
         }
         var archived = newVersionPath(containerPath, key);
-        Files.createDirectories(archived.getParent());
+        Files.createDirectories(requireNonNull(archived.getParent()));
         Path linked = null;
         if (replacing) {
             try {
@@ -3565,7 +3565,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (newest.deleteMarker()) {
             return;
         }
-        Files.createDirectories(path.getParent());
+        Files.createDirectories(requireNonNull(path.getParent()));
         Files.move(newest.path(), path, StandardCopyOption.ATOMIC_MOVE);
     }
 

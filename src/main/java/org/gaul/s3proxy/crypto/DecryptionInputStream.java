@@ -30,6 +30,8 @@ import javax.crypto.ShortBufferException;
 import org.jspecify.annotations.Nullable;
 
 public class DecryptionInputStream extends FilterInputStream {
+    // FilterInputStream declares in as nullable
+    private final InputStream delegate;
 
     // the cipher engine to use to process stream data
     private final Cipher cipher;
@@ -80,7 +82,7 @@ public class DecryptionInputStream extends FilterInputStream {
             SortedMap<Integer, PartPadding> parts, int skipParts,
             long skipPartBytes) throws IOException {
         super(is);
-        in = is;
+        this.delegate = is;
         this.parts = parts;
         this.key = key;
 
@@ -151,7 +153,7 @@ public class DecryptionInputStream extends FilterInputStream {
         if (partBytesRemain == 0) {
             readin = -1;
         } else {
-            readin = in.read(ibuffer, 0, readLimit);
+            readin = delegate.read(ibuffer, 0, readLimit);
         }
 
         if (readin == -1) {
@@ -179,7 +181,7 @@ public class DecryptionInputStream extends FilterInputStream {
                 partBytesRemain = parts.get(nextPart).getSize();
 
                 // Cannot call ByteStreams.skipFully since in may be shorter
-                in.readNBytes(Constants.PADDING_BLOCK_SIZE);
+                delegate.readNBytes(Constants.PADDING_BLOCK_SIZE);
 
                 return ofinish;
             } else {
@@ -352,7 +354,7 @@ public class DecryptionInputStream extends FilterInputStream {
             return;
         }
         closed = true;
-        in.close();
+        delegate.close();
 
         // Throw away the unprocessed data and throw no crypto exceptions.
         // AEAD ciphers are fully read before closing.  Any authentication

@@ -40,6 +40,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.middleware.GlobBlobStoreLocator;
 import org.gaul.s3proxy.middleware.Middlewares;
+import org.jspecify.annotations.Nullable;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -77,8 +78,9 @@ public final class Main {
         }
 
         if (options.version) {
-            System.err.println(
-                    Main.class.getPackage().getImplementationVersion());
+            Package pkg = Main.class.getPackage();
+            System.err.println(pkg == null ? null :
+                    pkg.getImplementationVersion());
             System.exit(0);
         } else if (options.properties.isEmpty()) {
             usage(parser);
@@ -112,6 +114,13 @@ public final class Main {
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
 
+            if (s3ProxyAuthorizationString == null) {
+                System.err.println("Properties file must contain: " +
+                        S3ProxyConstants.PROPERTY_AUTHORIZATION);
+                System.exit(1);
+                throw new IllegalStateException();
+            }
+
             String localIdentity = null;
             if (AuthenticationType.fromString(s3ProxyAuthorizationString) !=
                     AuthenticationType.NONE) {
@@ -119,6 +128,14 @@ public final class Main {
                         S3ProxyConstants.PROPERTY_IDENTITY);
                 String localCredential = properties.getProperty(
                         S3ProxyConstants.PROPERTY_CREDENTIAL);
+                if (localIdentity == null || localCredential == null) {
+                    System.err.println("Must specify both " +
+                            S3ProxyConstants.PROPERTY_IDENTITY + " and " +
+                            S3ProxyConstants.PROPERTY_CREDENTIAL +
+                            " when using authentication");
+                    System.exit(1);
+                    throw new IllegalStateException();
+                }
                 if (parsedIdentities.add(localIdentity)) {
                     locators.put(localIdentity,
                             new AccessGrant(localCredential, blobStore));
@@ -126,7 +143,8 @@ public final class Main {
             }
             for (String key : properties.stringPropertyNames()) {
                 if (key.startsWith(S3ProxyConstants.PROPERTY_BUCKET_LOCATOR)) {
-                    String bucketLocator = properties.getProperty(key);
+                    String bucketLocator = requireNonNull(
+                            properties.getProperty(key));
                     if (locatorGlobs.add(bucketLocator)) {
                         globLocators.put(
                                 FileSystems.getDefault().getPathMatcher(
@@ -199,7 +217,7 @@ public final class Main {
             @Override
             @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
                     "SLF4J_SIGN_ONLY_FORMAT")
-            public void print(final String string) {
+            public void print(final @Nullable String string) {
                 logger.error("{}", string);
             }
 
@@ -232,6 +250,7 @@ public final class Main {
                     "Properties file must contain: " +
                     Constants.PROPERTY_PROVIDER);
             System.exit(1);
+            throw new IllegalStateException();
         }
 
         // Resolve here as well as in BlobStores.create so that the branches

@@ -231,7 +231,7 @@ final class EventualBlobStore extends ForwardingBlobStore {
     private final class DequeCallable implements Callable<@Nullable Void> {
         @Override
         public @Nullable Void call() throws Exception {
-            deque.poll().call();
+            requireNonNull(deque.poll()).call();
             return null;
         }
     }

@@ -73,14 +73,15 @@ public final class S3Proxy {
                         builder.secureEndpoint != null,
                 "Must provide endpoint or secure-endpoint");
         if (builder.endpoint != null) {
-            checkArgument(builder.endpoint.getPath().isEmpty(),
-                    "endpoint path must be empty, was: %s",
-                    builder.endpoint.getPath());
+            // an opaque URI, such as host:port lacking a scheme, has none
+            String path = builder.endpoint.getPath();
+            checkArgument(path != null && path.isEmpty(),
+                    "endpoint path must be empty, was: %s", path);
         }
         if (builder.secureEndpoint != null) {
-            checkArgument(builder.secureEndpoint.getPath().isEmpty(),
-                    "secure-endpoint path must be empty, was: %s",
-                    builder.secureEndpoint.getPath());
+            String path = builder.secureEndpoint.getPath();
+            checkArgument(path != null && path.isEmpty(),
+                    "secure-endpoint path must be empty, was: %s", path);
             if (builder.sslContext == null) {
                 requireNonNull(builder.keyStorePath,
                         "Must provide keyStorePath with HTTPS endpoint");
@@ -259,10 +260,10 @@ public final class S3Proxy {
                         S3ProxyConstants.PROPERTY_ENDPOINT + " or " +
                         S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
             }
-            if (hasEndpoint) {
+            if (!Strings.isNullOrEmpty(endpoint)) {
                 builder.endpoint(new URI(endpoint));
             }
-            if (hasSecureEndpoint) {
+            if (!Strings.isNullOrEmpty(secureEndpoint)) {
                 builder.secureEndpoint(new URI(secureEndpoint));
             }
 
@@ -358,16 +359,21 @@ public final class S3Proxy {
                          corsAllowAll)) {
                 builder.corsRules(new CrossOriginResourceSharing());
             } else {
-                String corsAllowOrigins = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS, "");
-                String corsAllowMethods = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS, "");
-                String corsAllowHeaders = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS, "");
-                String corsExposedHeaders = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_EXPOSED_HEADERS, "");
-                String allowCredentials = properties.getProperty(
-                        S3ProxyConstants.PROPERTY_CORS_ALLOW_CREDENTIAL, "");
+                String corsAllowOrigins = Strings.nullToEmpty(
+                        properties.getProperty(
+                                S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS));
+                String corsAllowMethods = Strings.nullToEmpty(
+                        properties.getProperty(
+                                S3ProxyConstants.PROPERTY_CORS_ALLOW_METHODS));
+                String corsAllowHeaders = Strings.nullToEmpty(
+                        properties.getProperty(
+                                S3ProxyConstants.PROPERTY_CORS_ALLOW_HEADERS));
+                String corsExposedHeaders = Strings.nullToEmpty(
+                        properties.getProperty(
+                                S3ProxyConstants.PROPERTY_CORS_EXPOSED_HEADERS));
+                String allowCredentials = Strings.nullToEmpty(
+                        properties.getProperty(
+                                S3ProxyConstants.PROPERTY_CORS_ALLOW_CREDENTIAL));
 
                 Splitter splitter = Splitter.on(" ").trimResults()
                         .omitEmptyStrings();

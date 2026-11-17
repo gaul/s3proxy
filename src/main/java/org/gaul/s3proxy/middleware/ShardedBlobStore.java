@@ -176,8 +176,9 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             if (!matcher.matches()) {
                 continue;
             }
-            String bucket = matcher.group("bucket");
-            int shards = Integer.parseInt(properties.getProperty(key));
+            String bucket = requireNonNull(matcher.group("bucket"));
+            int shards = Integer.parseInt(
+                    requireNonNull(properties.getProperty(key)));
             checkArgument(shards > 0 && shards < MAX_SHARDS,
                     "number of shards must be between 1 and 1000 for %s",
                         bucket);
@@ -193,8 +194,8 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             if (!matcher.matches()) {
                 continue;
             }
-            prefixesMap.put(matcher.group("bucket"),
-                    properties.getProperty(key));
+            prefixesMap.put(requireNonNull(matcher.group("bucket")),
+                    requireNonNull(properties.getProperty(key)));
         }
         return prefixesMap.build();
     }
@@ -337,7 +338,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
                 results.add(bucket);
                 continue;
             }
-            String prefix = matcher.group("prefix");
+            String prefix = requireNonNull(matcher.group("prefix"));
             String virtualBucketName = this.prefixMap.get(prefix);
             if (virtualBucketName == null) {
                 results.add(bucket);

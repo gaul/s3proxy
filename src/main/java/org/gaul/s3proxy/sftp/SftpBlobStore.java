@@ -144,8 +144,12 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         return match != null && Boolean.TRUE.equals(match.getKey());
     }
 
-    private static URI createFileSystemUri(String host, int port,
+    private static URI createFileSystemUri(@Nullable String host, int port,
             Credentials creds) {
+        if (host == null) {
+            throw new IllegalArgumentException(
+                    "Missing required SFTP host");
+        }
         if (creds.identity().isBlank()) {
             throw new IllegalArgumentException(
                     "Missing required SFTP identity");

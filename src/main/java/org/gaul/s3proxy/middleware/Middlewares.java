@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.middleware;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -71,12 +73,13 @@ public final class Middlewares {
                 S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY);
         if ("true".equalsIgnoreCase(eventualConsistency)) {
             BlobStore altBlobStore = backendFactory.create(altProperties);
-            int delay = Integer.parseInt(properties.getProperty(
+            int delay = Integer.parseInt(requireNonNull(properties.getProperty(
                     S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_DELAY,
-                    "5"));
-            double probability = Double.parseDouble(properties.getProperty(
-                    S3ProxyConstants.PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY,
-                    "1.0"));
+                    "5")));
+            double probability = Double.parseDouble(requireNonNull(
+                    properties.getProperty(S3ProxyConstants
+                            .PROPERTY_EVENTUAL_CONSISTENCY_PROBABILITY,
+                            "1.0")));
             System.err.println("Emulating eventual consistency with delay " +
                     delay + " seconds and probability " + (probability * 100) +
                     "%");
@@ -163,7 +166,11 @@ public final class Middlewares {
                     .PROPERTY_USER_METADATA_REPLACER_TO_CHARS);
             blobStore = UserMetadataReplacerBlobStore
                     .newUserMetadataReplacerBlobStore(
-                            blobStore, fromChars, toChars);
+                            blobStore,
+                            requireNonNull(fromChars, S3ProxyConstants
+                                    .PROPERTY_USER_METADATA_REPLACER_FROM_CHARS),
+                            requireNonNull(toChars, S3ProxyConstants
+                                    .PROPERTY_USER_METADATA_REPLACER_TO_CHARS));
         }
 
         Map<String, Long> latencies = LatencyBlobStore.parseLatencies(properties);

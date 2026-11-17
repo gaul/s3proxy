@@ -95,7 +95,8 @@ public final class RegexBlobStore extends ForwardingBlobStore {
             if (key.startsWith(S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE)) {
                 String propKey = key.substring(
                         S3ProxyConstants.PROPERTY_REGEX_BLOBSTORE.length() + 1);
-                String value = properties.getProperty(key);
+                String value = requireNonNull(
+                        properties.getProperty(key));
 
                 configRegex.add(new SimpleEntry<>(propKey, value));
             }

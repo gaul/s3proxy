@@ -116,8 +116,10 @@ public class S3ProxyJunitCore {
         }
 
         if (!AuthenticationType.NONE.equals(builder.authType)) {
-            properties.setProperty(Constants.PROPERTY_IDENTITY, accessKey);
-            properties.setProperty(Constants.PROPERTY_CREDENTIAL, secretKey);
+            properties.setProperty(Constants.PROPERTY_IDENTITY,
+                    requireNonNull(accessKey));
+            properties.setProperty(Constants.PROPERTY_CREDENTIAL,
+                    requireNonNull(secretKey));
         } else {
             properties.setProperty(Constants.PROPERTY_IDENTITY, "");
             properties.setProperty(Constants.PROPERTY_CREDENTIAL, "");

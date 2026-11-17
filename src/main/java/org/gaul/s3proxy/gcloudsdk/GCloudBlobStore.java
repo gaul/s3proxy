@@ -1792,10 +1792,12 @@ public final class GCloudBlobStore implements BlobStore {
         // Restore user metadata
         var userMetadata = new HashMap<String, String>();
         for (var entry : stubMetadata.entrySet()) {
-            if (entry.getKey().startsWith("s3proxy_user_")) {
+            String value = entry.getValue();
+            if (entry.getKey().startsWith("s3proxy_user_") &&
+                    value != null) {
                 userMetadata.put(
                         entry.getKey().substring("s3proxy_user_".length()),
-                        entry.getValue());
+                        value);
             }
         }
         if (!userMetadata.isEmpty()) {

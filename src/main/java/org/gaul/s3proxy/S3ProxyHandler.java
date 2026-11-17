@@ -1006,7 +1006,7 @@ public class S3ProxyHandler {
                         // maybe we should check this when signing,
                         // a lot of dup code with aws sign code.
                         MessageDigest md = MessageDigest.getInstance(
-                            authHeader.getHashAlgorithm());
+                            requireNonNull(authHeader.getHashAlgorithm()));
                         byte[] hash = md.digest(payload);
                         if (!HexFormat.of().formatHex(hash)
                                 .equals(contentSha256)) {
@@ -3549,7 +3549,7 @@ public class S3ProxyHandler {
             return 1;
         }
         try {
-            return Integer.parseInt(matcher.group(1));
+            return Integer.parseInt(requireNonNull(matcher.group(1)));
         } catch (NumberFormatException nfe) {
             return 1;
         }
@@ -4724,9 +4724,9 @@ public class S3ProxyHandler {
             properties.load(stream);
             String hash = properties.getProperty("git.commit.id.abbrev");
             if (hash == null) {
-                hash = properties.getProperty("git.commit.id", "unknown");
+                hash = properties.getProperty("git.commit.id");
             }
-            return hash;
+            return hash != null ? hash : "unknown";
         } catch (IOException ioe) {
             logger.debug("Unable to load git.properties", ioe);
             return "unknown";
@@ -4781,7 +4781,7 @@ public class S3ProxyHandler {
         // A fallback should the bounds below ever diverge; no part reaches it
         // while they agree.
         parser.setFilesDirectory(java.nio.file.Path.of(
-                System.getProperty("java.io.tmpdir")));
+                requireNonNull(System.getProperty("java.io.tmpdir"))));
         // Jetty bounds the number of parts and nothing else, so say how large
         // a body may be.  Nothing has authorized this one -- a form POST
         // carries no Authorization header, and the policy that speaks for it

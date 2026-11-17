@@ -107,8 +107,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
             if (!matcher.matches()) {
                 continue;
             }
-            String op = matcher.group("op");
-            long latency = Long.parseLong(properties.getProperty(key));
+            String op = requireNonNull(matcher.group("op"));
+            long latency = Long.parseLong(
+                    requireNonNull(properties.getProperty(key)));
             checkArgument(latency >= 0, "Latency must be non negative for %s", op);
             latencies.put(op, latency);
         }
@@ -122,8 +123,9 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
             if (!matcher.matches()) {
                 continue;
             }
-            String op = matcher.group("op");
-            long speed = Long.parseLong(properties.getProperty(key));
+            String op = requireNonNull(matcher.group("op"));
+            long speed = Long.parseLong(
+                    requireNonNull(properties.getProperty(key)));
             checkArgument(speed > 0, "Speed must be positive for %s", op);
             speeds.put(op, speed);
         }

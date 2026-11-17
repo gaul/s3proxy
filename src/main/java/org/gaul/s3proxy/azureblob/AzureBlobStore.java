@@ -2328,7 +2328,7 @@ public final class AzureBlobStore implements BlobStore {
         for (List<ObjectIdentifier> chunk :
                 Lists.partition(objects, MAX_BATCH_DELETES)) {
             var batch = blobBatchClient.getBlobBatch();
-            var responses = new ArrayList<Response<@Nullable Void>>(chunk.size());
+            var responses = new ArrayList<Response<?>>(chunk.size());
             for (ObjectIdentifier object : chunk) {
                 // Name the blob by its full URL rather than by container and
                 // name: that overload builds the subrequest path as though
@@ -2343,7 +2343,7 @@ public final class AzureBlobStore implements BlobStore {
                 blobBatchClient.submitBatchWithResponse(batch,
                         /*throwOnAnyFailure=*/ false, /*timeout=*/ null,
                         Context.NONE);
-                for (Response<@Nullable Void> response : responses) {
+                for (Response<?> response : responses) {
                     int status = response.getStatusCode();
                     // An object already gone satisfies an idempotent delete.
                     if (status / 100 != 2 && status != STATUS_NOT_FOUND) {

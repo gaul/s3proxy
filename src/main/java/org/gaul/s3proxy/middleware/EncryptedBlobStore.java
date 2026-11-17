@@ -185,7 +185,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         Matcher matcher =
             Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(object.eTag());
         if (matcher.find()) {
-            int parts = Integer.parseInt(matcher.group(1));
+            int parts = Integer.parseInt(requireNonNull(matcher.group(1)));
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
         var blob = requireNonNull(delegate().getBlob(
@@ -232,7 +232,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         Matcher matcher = Constants.MPU_ETAG_SUFFIX_PATTERN.matcher(
                 requireNonNull(head.eTag()));
         if (matcher.find()) {
-            int parts = Integer.parseInt(matcher.group(1));
+            int parts = Integer.parseInt(requireNonNull(matcher.group(1)));
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
         var blob = requireNonNull(delegate().getBlob(

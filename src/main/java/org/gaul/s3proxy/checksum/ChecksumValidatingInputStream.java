@@ -41,6 +41,8 @@ import software.amazon.awssdk.checksums.SdkChecksum;
  * exactly the declared number of bytes and never read the trailing -1.
  */
 public final class ChecksumValidatingInputStream extends FilterInputStream {
+    // FilterInputStream declares in as nullable
+    private final InputStream delegate;
     private final SdkChecksum checksum;
     private final byte[] expected;
     private final long contentLength;
@@ -56,6 +58,7 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
     public ChecksumValidatingInputStream(InputStream is, SdkChecksum checksum,
             byte[] expected, long contentLength, S3ErrorCode errorCode) {
         super(is);
+        this.delegate = is;
         this.checksum = checksum;
         this.expected = expected.clone();
         this.contentLength = contentLength;
@@ -64,7 +67,7 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
 
     @Override
     public int read() throws IOException {
-        int b = in.read();
+        int b = delegate.read();
         if (b == -1) {
             validate();
         } else {
@@ -79,7 +82,7 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        int count = in.read(b, off, len);
+        int count = delegate.read(b, off, len);
         if (count == -1) {
             validate();
         } else {
