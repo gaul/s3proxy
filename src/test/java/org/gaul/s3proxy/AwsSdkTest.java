@@ -1198,6 +1198,40 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * A condition on the completion says nothing about who may read the
+     * object.  google-cloud-storage assembles more than one part with a
+     * compose and sets the access after it, and took the presence of a
+     * condition for a request to make the object public.
+     */
+    @Test
+    public void testConditionalCompleteKeepsObjectPrivate() throws Exception {
+        // Azure and Swift grant read at the container and report every blob
+        // private; sftp keeps no access at all.
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String key = "conditional-complete-private";
+        var content = new byte[(int) MINIMUM_MULTIPART_SIZE];
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        var completed = new ArrayList<CompletedPart>();
+        for (int i = 1; i <= 2; ++i) {
+            int partNumber = i;
+            UploadPartResponse part = client.uploadPart(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .partNumber(partNumber), RequestBody.fromBytes(content));
+            completed.add(CompletedPart.builder().partNumber(partNumber)
+                    .eTag(part.eTag()).build());
+        }
+        client.completeMultipartUpload(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadId).ifNoneMatch("*")
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(completed).build()));
+
+        assertThat(blobStore.getBlobAccess(containerName, key))
+                .isEqualTo(ObjectCannedACL.PRIVATE);
+    }
+
     private String currentETag(String key) {
         return client.headObject(
                 b -> b.bucket(containerName).key(key)).eTag();

@@ -1823,9 +1823,10 @@ public final class GCloudBlobStore implements BlobStore {
         // A single part is copied onto the target and can name the access on
         // that request, so no later one can fail and leave a private blob
         // where the caller asked for a public one.  Compose cannot; see below.
+        boolean publicRead = ObjectCannedACL.PUBLIC_READ.name().equals(
+                stubMetadata.get(BLOB_ACCESS_KEY));
         var targetOptions = new java.util.ArrayList<BlobTargetOption>();
-        if (ObjectCannedACL.PUBLIC_READ.name().equals(
-                stubMetadata.get(BLOB_ACCESS_KEY))) {
+        if (publicRead) {
             targetOptions.add(BlobTargetOption.predefinedAcl(
                     Storage.PredefinedAcl.PUBLIC_READ));
         }
@@ -1875,7 +1876,10 @@ public final class GCloudBlobStore implements BlobStore {
         // above does, after
         // https://github.com/googleapis/google-cloud-java/pull/13975 is
         // released and google-cloud-storage is bumped past it
-        if (!targetOptions.isEmpty()) {
+        // Asked of the upload's own access and not of targetOptions, which
+        // hold the publish conditions too: a conditional completion of a
+        // private upload would otherwise be made public here.
+        if (publicRead) {
             storage.createAcl(composed.getBlobId(),
                     Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
         }
