@@ -296,6 +296,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                     throw ioe;
                 }
+                if (!attr.isDirectory()) {
+                    // A bucket is a directory.  A file left in the root --
+                    // a lost+found entry, an editor's backup -- listed as a
+                    // bucket that every other request then answered
+                    // NoSuchBucket for.
+                    continue;
+                }
                 var creationTime =
                         Instant.ofEpochMilli(attr.creationTime().toMillis());
                 set.add(SdkResponses.bucket(
@@ -1235,11 +1242,22 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                     intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
                             StandardCopyOption.ATOMIC_MOVE));
-                    published = true;
-                    return new PutResult(storedETag, versionId);
                 }
-                // Nothing was displaced: the condition held only because the
-                // key had no current version to displace.
+                // Nothing current was displaced: the condition held only
+                // because the key had none.  It may still have a null
+                // version set aside -- the marker a delete leaves while
+                // versioning is suspended -- and a write minting the null
+                // id replaces that one, as every other write here does.
+                if (NULL_VERSION_ID.equals(versionId)) {
+                    synchronized (versionLock) {
+                        for (var version : archivedVersions(containerPath,
+                                blob.getMetadata().name())) {
+                            if (NULL_VERSION_ID.equals(version.versionId())) {
+                                Files.deleteIfExists(version.path());
+                            }
+                        }
+                    }
+                }
                 published = true;
                 return new PutResult(storedETag, versionId);
             }

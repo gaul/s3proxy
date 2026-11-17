@@ -108,6 +108,54 @@ public final class Nio2VersioningSupportTest {
         }
     }
 
+    /**
+     * A key has one null version.  A conditional create while versioning
+     * is suspended mints it, replacing the null marker a delete left.
+     */
+    @Test
+    public void testConditionalCreateReplacesTheNullVersion() {
+        transientStore.putBucketVersioning(CONTAINER,
+                BucketVersioningStatus.ENABLED);
+        transientStore.putBucketVersioning(CONTAINER,
+                BucketVersioningStatus.SUSPENDED);
+        var put = PutObjectRequest.builder()
+                .bucket(CONTAINER).key("key").contentLength(0L);
+        transientStore.putBlob(put.build(),
+                new ByteArrayInputStream(new byte[0]));
+        transientStore.removeBlob(CONTAINER, "key");
+        assertThat(transientStore.listVersions(ListObjectVersionsRequest
+                .builder().bucket(CONTAINER).build()).deleteMarkers())
+                .hasSize(1);
+
+        transientStore.putBlob(put.ifNoneMatch("*").build(),
+                new ByteArrayInputStream(new byte[0]));
+
+        var listing = transientStore.listVersions(ListObjectVersionsRequest
+                .builder().bucket(CONTAINER).build());
+        assertThat(listing.deleteMarkers()).isEmpty();
+        assertThat(listing.versions()).singleElement().satisfies(version -> {
+            assertThat(version.versionId()).isEqualTo("null");
+            assertThat(version.isLatest()).isTrue();
+        });
+    }
+
+    /** A file in the root is not a bucket. */
+    @Test
+    public void testStrayFileInTheRootIsNotABucket() throws Exception {
+        Files.writeString(root.resolve("stray-file"), "not a bucket");
+        assertThat(filesystemStore.list().buckets())
+                .extracting(bucket -> bucket.name())
+                .containsExactly(CONTAINER);
+        // and a delete in a bucket that is not there says so
+        assertThatThrownBy(() -> filesystemStore.removeBlob("stray-file",
+                "key")).isInstanceOf(
+                software.amazon.awssdk.services.s3.model
+                        .NoSuchBucketException.class);
+        assertThatThrownBy(() -> filesystemStore.removeBlob("absent", "key"))
+                .isInstanceOf(software.amazon.awssdk.services.s3.model
+                        .NoSuchBucketException.class);
+    }
+
     @Test
     public void testFilesystemRefusesVersioning() {
         assertThat(filesystemStore.supportsVersioning()).isFalse();
