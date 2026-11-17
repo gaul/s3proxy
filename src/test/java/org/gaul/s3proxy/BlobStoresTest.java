@@ -76,4 +76,15 @@ public final class BlobStoresTest {
                     org.gaul.s3proxy.nio2blob.TransientNio2BlobStore.class);
         }
     }
+    @Test
+    public void testRejectsAnUnknownPerBucketVersioning() {
+        var properties = new Properties();
+        properties.setProperty("s3proxy.azureblob.versioning", "true");
+        properties.setProperty("s3proxy.azureblob.versioning.per-bucket",
+                "yes");
+        assertThatThrownBy(() -> BlobStores.create("azureblob", properties))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("true, false");
+    }
+
 }

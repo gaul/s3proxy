@@ -102,8 +102,21 @@ public final class BlobStores {
             // versioning rather than answering NotImplemented.
             boolean versioning = Boolean.parseBoolean(property(properties,
                     "s3proxy.azureblob.versioning", "false"));
+            // A container nobody has configured reports Enabled and keeps
+            // every version, unless the operator opts in to versioning per
+            // bucket, as S3 does, which deletes the versions Azure keeps of
+            // a container nobody has enabled.
+            String perBucketValue = property(properties,
+                    "s3proxy.azureblob.versioning.per-bucket", "false");
+            boolean perBucket = switch (perBucketValue) {
+            case "false" -> false;
+            case "true" -> true;
+            default -> throw new IllegalArgumentException(
+                    "Invalid s3proxy.azureblob.versioning.per-bucket: " +
+                    perBucketValue + ".  Supported values: true, false");
+            };
             yield new AzureBlobStore(creds, endpoint, eTagMode, auth,
-                    versioning);
+                    versioning, perBucket);
         }
         case "google-cloud-storage" ->
             new GCloudBlobStore(creds, endpoint);

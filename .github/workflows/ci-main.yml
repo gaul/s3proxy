@@ -203,6 +203,10 @@ jobs:
           # asserts that it is on.
           - conf: s3proxy-azurite-versioning
             account: '{"isBlobVersioningEnabled":true}'
+          # The same with versioning chosen per bucket, as on S3, which an
+          # operator may opt in to.
+          - conf: s3proxy-azurite-versioning-per-bucket
+            account: '{"isBlobVersioningEnabled":true}'
     steps:
       - uses: actions/checkout@v7
         with:
