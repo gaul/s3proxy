@@ -1566,6 +1566,46 @@ public final class AwsSdkTest {
                         assertThat(e.statusCode()).isEqualTo(404));
     }
 
+    /**
+     * Two uploads to one key, completed one after the other.  S3 keeps
+     * them apart and the second replaces the first.  Azure stages both on
+     * the one blob and discards the second's parts when the first commits;
+     * what this asks of it is that the second then fails as an upload or
+     * a part that is not there, which a client can act on.
+     */
+    @Test
+    public void testTwoUploadsToOneKey() throws Exception {
+        String key = "testTwoUploadsToOneKey";
+        var uploadIds = new ArrayList<String>();
+        var parts = new ArrayList<CompletedPart>();
+        for (String content : List.of("first", "second")) {
+            String uploadId = client.createMultipartUpload(b -> b
+                    .bucket(containerName).key(key)).uploadId();
+            uploadIds.add(uploadId);
+            parts.add(CompletedPart.builder().partNumber(1)
+                    .eTag(client.uploadPart(b -> b.bucket(containerName)
+                            .key(key).uploadId(uploadId).partNumber(1),
+                            RequestBody.fromString(content)).eTag())
+                    .build());
+        }
+
+        client.completeMultipartUpload(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadIds.get(0))
+                .multipartUpload(m -> m.parts(parts.get(0))));
+        try {
+            client.completeMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadIds.get(1))
+                    .multipartUpload(m -> m.parts(parts.get(1))));
+        } catch (S3Exception e) {
+            assertThat(blobStoreType).isEqualTo("azureblob");
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isIn("NoSuchUpload", "InvalidPart");
+            return;
+        }
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(key)).asUtf8String()).isEqualTo("second");
+    }
+
     /** A delimiter of several characters groups keys where it occurs. */
     @Test
     public void testListMultiCharacterDelimiter() throws Exception {

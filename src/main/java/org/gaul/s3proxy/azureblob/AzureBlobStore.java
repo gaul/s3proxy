@@ -2994,8 +2994,19 @@ public final class AzureBlobStore implements BlobStore {
             blockIds.add(blockId);
 
             if (!blockMap.containsKey(blockId)) {
-                throw new IllegalArgumentException(
-                        "Part " + partNumber + " not found in staged blocks");
+                // Either a part never uploaded, or one Azure has since
+                // discarded: the uploads to one key stage their blocks on
+                // the same blob, and committing any of them -- another
+                // upload completing, or a plain PUT of the key -- removes
+                // every block left uncommitted.  S3 has a name for a part
+                // that is not there; an IllegalArgumentException reached
+                // the client as a bare 400, or as InternalError.
+                throw S3Exceptions.withCode(400, "InvalidPart",
+                        "One or more of the specified parts could not be" +
+                        " found.  Part " + partNumber + " is not among" +
+                        " the upload's staged blocks; completing another" +
+                        " upload to the same key, or overwriting the key," +
+                        " discards them.", /*cause=*/ null);
             }
         }
 
