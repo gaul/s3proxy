@@ -2320,6 +2320,15 @@ public final class AzureBlobStore implements BlobStore {
         if (versioning) {
             return BlobStore.super.removeBlobs(request);
         }
+        // Nor can an unversioned store's batch honour an entry that names
+        // a version: sent as a URL it deleted the current object, which is
+        // not the version asked for.  The per-object path refuses it.
+        for (ObjectIdentifier object : objects) {
+            if (object.versionId() != null &&
+                    !object.versionId().equals(NULL_VERSION_ID)) {
+                return BlobStore.super.removeBlobs(request);
+            }
+        }
         var containerClient =
                 blobServiceClient.getBlobContainerClient(request.bucket());
         var deleted = new ImmutableList.Builder<DeletedObject>();

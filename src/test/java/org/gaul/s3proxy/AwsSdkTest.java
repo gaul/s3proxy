@@ -1517,6 +1517,30 @@ public final class AwsSdkTest {
                 .uploadId(uploadId));
     }
 
+    /**
+     * A batch delete naming a version the key does not have removes
+     * nothing: the current object is not that version.
+     */
+    @Test
+    public void testDeleteObjectsWithAVersionTheKeyLacks() throws Exception {
+        String key = "testDeleteObjectsWithAVersionTheKeyLacks";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("content"));
+
+        try {
+            var object = ObjectIdentifier.builder().key(key)
+                    .versionId("3HL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY").build();
+            client.deleteObjects(b -> b.bucket(containerName)
+                    .delete(d -> d.objects(List.of(object))));
+        } catch (S3Exception e) {
+            // refusing the request whole is as good as refusing the entry
+            assertThat(e.statusCode()).isBetween(400, 501);
+        }
+
+        assertThat(client.headObject(b -> b.bucket(containerName).key(key))
+                .contentLength()).isEqualTo(7);
+    }
+
     /** A delimiter of several characters groups keys where it occurs. */
     @Test
     public void testListMultiCharacterDelimiter() throws Exception {
