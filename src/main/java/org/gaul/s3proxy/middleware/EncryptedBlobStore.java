@@ -288,9 +288,19 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
     }
 
+    /**
+     * The name the object of this key is stored under, allowing for one
+     * written before encryption was turned on, which rests under the key
+     * itself.  That allowance stops at a key ending in the suffix: the
+     * unsuffixed name of "X.s3enc" is where the object of key "X" is stored,
+     * so falling back to it would hand that object to a request for a key
+     * that does not exist -- its ciphertext to a GET, and the object itself
+     * to a DELETE.  Such a key names its suffixed form or nothing.
+     */
     private String blobNameWithSuffix(String container, String name) {
         String nameWithSuffix = blobNameWithSuffix(name);
-        if (delegate().blobExists(container, nameWithSuffix)) {
+        if (isEncrypted(name) ||
+                delegate().blobExists(container, nameWithSuffix)) {
             name = nameWithSuffix;
         }
         return name;
@@ -413,7 +423,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 return SdkResponses.getResponse(responseBuilder.build(), is);
             } else {
                 // we suppose to return a unencrypted blob
-                // since no metadata was found
+                // since no metadata was found -- but never the stored form
+                // of another key; see blobNameWithSuffix(String, String)
+                if (isEncrypted(request.key())) {
+                    request = request.toBuilder().key(blobName).build();
+                }
                 return delegate().getBlob(request);
             }
 
@@ -448,8 +462,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         // if we copy an encrypted blob
         // make sure to add suffix to the destination blob name
+        // A source ending in the suffix is never read unsuffixed, which
+        // would copy another key's ciphertext; absent, it stays absent.
         String blobName = blobNameWithSuffix(request.sourceKey());
-        if (delegate().blobExists(request.sourceBucket(), blobName)) {
+        if (isEncrypted(request.sourceKey()) ||
+                delegate().blobExists(request.sourceBucket(), blobName)) {
             request = request.toBuilder()
                     .sourceKey(blobName)
                     .destinationKey(blobNameWithSuffix(

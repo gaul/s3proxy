@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -28,8 +29,10 @@ import org.gaul.s3proxy.middleware.EncryptedBlobStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 /**
@@ -160,6 +163,31 @@ public final class EncryptedBlobStoreSuffixTest {
         assertThat(blobStore.listMultipartUploads(CONTAINER).stream()
                 .map(upload -> upload.key()))
                 .containsExactly(SUFFIXED_KEY);
+    }
+
+    /**
+     * With only the plain key written, the suffixed key names nothing.  It
+     * used to fall back to the unsuffixed name a legacy plaintext object
+     * would have, which for this key is where the plain key is stored.
+     */
+    @Test
+    public void testAbsentSuffixedKeyIsNotThePlainKey() throws Exception {
+        put(PLAIN_KEY, PLAIN_CONTENT);
+
+        assertThat(blobStore.blobExists(CONTAINER, SUFFIXED_KEY)).isFalse();
+        assertThatThrownBy(() -> read(SUFFIXED_KEY))
+                .isInstanceOf(NoSuchKeyException.class);
+        assertThatThrownBy(() -> blobStore.blobMetadata(CONTAINER,
+                SUFFIXED_KEY)).isInstanceOf(NoSuchKeyException.class);
+        assertThatThrownBy(() -> blobStore.copyBlob(CopyObjectRequest
+                .builder().sourceBucket(CONTAINER).sourceKey(SUFFIXED_KEY)
+                .destinationBucket(CONTAINER).destinationKey("copy")
+                .build())).isInstanceOf(NoSuchKeyException.class);
+
+        blobStore.removeBlob(CONTAINER, SUFFIXED_KEY);
+
+        assertThat(read(PLAIN_KEY)).isEqualTo(PLAIN_CONTENT);
+        assertThat(keys()).containsExactly(PLAIN_KEY);
     }
 
     private void put(String key, String content) {

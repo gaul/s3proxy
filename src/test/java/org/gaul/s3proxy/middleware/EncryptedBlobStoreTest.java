@@ -799,8 +799,9 @@ public final class EncryptedBlobStoreTest {
                 assertThat(content).isNotEqualTo(encrypted);
             }
 
+            // the stored object, read from the store it is stored in
             var metadata =
-                encryptedBlobStore.blobMetadata(containerName,
+                blobStore.blobMetadata(containerName,
                     blobName + Constants.S3_ENC_SUFFIX);
             assertThat(contentType).isEqualTo(
                 metadata.contentType());
