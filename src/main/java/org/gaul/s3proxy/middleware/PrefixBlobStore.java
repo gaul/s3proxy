@@ -31,9 +31,11 @@ import com.google.common.collect.ImmutableList;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -288,6 +290,35 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             return;
         }
         super.clearContainer(applyPrefix(container, request));
+    }
+
+    /**
+     * Removes what this store shows of the bucket: the objects under its
+     * prefix.  The backend bucket is deleted only if that leaves it empty.
+     * Forwarded as it was, this emptied the whole backend bucket, taking
+     * every object outside the prefix with it.
+     */
+    @Override
+    public void deleteContainer(String container) {
+        if (!hasPrefix(container)) {
+            super.deleteContainer(container);
+            return;
+        }
+        if (!containerExists(container)) {
+            // already gone, which deleting succeeds on
+            return;
+        }
+        clearContainer(ListObjectsV2Request.builder()
+                .bucket(container)
+                .build());
+        try {
+            super.deleteBucket(container);
+        } catch (AwsServiceException e) {
+            if (!"BucketNotEmpty".equals(S3Exceptions.errorCode(e))) {
+                throw e;
+            }
+            // what remains is outside the prefix, and not this store's
+        }
     }
 
     @Override

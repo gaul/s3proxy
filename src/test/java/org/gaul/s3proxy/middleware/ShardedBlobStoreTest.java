@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
@@ -135,6 +136,21 @@ public final class ShardedBlobStoreTest {
         this.createContainer(containerName);
         assertThat(blobStore.containerExists(containerName)).isFalse();
         assertThat(this.countShards()).isEqualTo(this.shards);
+    }
+
+    @Test
+    public void testUnshardedContainerClearAndDelete() throws Exception {
+        String unsharded = TestUtils.createRandomContainerName();
+        createContainer(unsharded);
+        TestUtils.putBlob(shardedBlobStore, unsharded, "key",
+                TestUtils.randomByteSource().slice(0, 16));
+
+        shardedBlobStore.clearContainer(ListObjectsV2Request.builder()
+                .bucket(unsharded).build());
+        assertThat(blobStore.blobExists(unsharded, "key")).isFalse();
+
+        shardedBlobStore.deleteContainer(unsharded);
+        assertThat(blobStore.containerExists(unsharded)).isFalse();
     }
 
     @Test

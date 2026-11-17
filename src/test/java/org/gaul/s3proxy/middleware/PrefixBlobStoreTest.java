@@ -62,7 +62,7 @@ public final class PrefixBlobStoreTest {
 
     @AfterEach
     public void tearDown() {
-        if (blobStore != null) {
+        if (blobStore != null && blobStore.containerExists(containerName)) {
             blobStore.clearContainer(ListObjectsV2Request.builder()
                     .bucket(containerName)
                     .build());
@@ -176,6 +176,30 @@ public final class PrefixBlobStoreTest {
 
         prefixBlobStore.removeBlob(containerName, other);
         assertThat(prefixBlobStore.blobExists(containerName, "x")).isTrue();
+    }
+
+    @Test
+    public void testDeleteContainerKeepsOtherObjects() throws Exception {
+        TestUtils.putBlob(blobStore, containerName, "outside",
+                TestUtils.randomByteSource().slice(0, 16));
+        TestUtils.putBlob(prefixBlobStore, containerName, "inside",
+                TestUtils.randomByteSource().slice(0, 16));
+
+        prefixBlobStore.deleteContainer(containerName);
+
+        assertThat(blobStore.blobExists(containerName, "outside")).isTrue();
+        assertThat(blobStore.blobExists(containerName, prefix + "inside"))
+                .isFalse();
+    }
+
+    @Test
+    public void testDeleteContainerRemovesAnEmptiedBucket() throws Exception {
+        TestUtils.putBlob(prefixBlobStore, containerName, "inside",
+                TestUtils.randomByteSource().slice(0, 16));
+
+        prefixBlobStore.deleteContainer(containerName);
+
+        assertThat(blobStore.containerExists(containerName)).isFalse();
     }
 
     @Test

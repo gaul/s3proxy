@@ -427,11 +427,19 @@ final class ShardedBlobStore extends ForwardingBlobStore {
 
     @Override
     public void clearContainer(ListObjectsV2Request request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            this.delegate().clearContainer(request);
+            return;
+        }
         throw new UnsupportedOperationException("sharded bucket");
     }
 
     @Override
     public void deleteContainer(String container) {
+        if (!this.buckets.containsKey(container)) {
+            this.delegate().deleteContainer(container);
+            return;
+        }
         throw new UnsupportedOperationException("sharded bucket");
     }
 
