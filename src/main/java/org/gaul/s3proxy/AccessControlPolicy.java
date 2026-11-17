@@ -18,6 +18,8 @@ package org.gaul.s3proxy;
 
 import java.util.Collection;
 
+import org.jspecify.annotations.Nullable;
+
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
@@ -25,7 +27,7 @@ import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 record AccessControlPolicy(
         @JacksonXmlProperty(localName = "Owner") Owner owner,
         @JacksonXmlProperty(localName = "AccessControlList")
-        AccessControlList aclList) {
+        @Nullable AccessControlList aclList) {
 
     record Owner(
             @JacksonXmlProperty(localName = "ID") String id,
@@ -35,7 +37,7 @@ record AccessControlPolicy(
     record AccessControlList(
             @JacksonXmlProperty(localName = "Grant")
             @JacksonXmlElementWrapper(useWrapping = false)
-            Collection<Grant> grants) {
+            @Nullable Collection<Grant> grants) {
 
         record Grant(
                 @JacksonXmlProperty(localName = "Grantee") Grantee grantee,

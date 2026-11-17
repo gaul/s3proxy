@@ -27,6 +27,8 @@ import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 
+import org.jspecify.annotations.Nullable;
+
 public class DecryptionInputStream extends FilterInputStream {
 
     // the cipher engine to use to process stream data
@@ -265,7 +267,7 @@ public class DecryptionInputStream extends FilterInputStream {
      * @see java.io.InputStream#read()
      */
     @Override
-    public final int read(byte[] b, int off, int len) throws IOException {
+    public final int read(byte @Nullable [] b, int off, int len) throws IOException {
         if (ostart >= ofinish) {
             // we loop for new data as the spec says we are blocking
             int i = 0;

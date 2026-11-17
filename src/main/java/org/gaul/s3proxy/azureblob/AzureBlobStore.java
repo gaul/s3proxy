@@ -2328,7 +2328,7 @@ public final class AzureBlobStore implements BlobStore {
         for (List<ObjectIdentifier> chunk :
                 Lists.partition(objects, MAX_BATCH_DELETES)) {
             var batch = blobBatchClient.getBlobBatch();
-            var responses = new ArrayList<Response<Void>>(chunk.size());
+            var responses = new ArrayList<Response<@Nullable Void>>(chunk.size());
             for (ObjectIdentifier object : chunk) {
                 // Name the blob by its full URL rather than by container and
                 // name: that overload builds the subrequest path as though
@@ -2343,7 +2343,7 @@ public final class AzureBlobStore implements BlobStore {
                 blobBatchClient.submitBatchWithResponse(batch,
                         /*throwOnAnyFailure=*/ false, /*timeout=*/ null,
                         Context.NONE);
-                for (Response<Void> response : responses) {
+                for (Response<@Nullable Void> response : responses) {
                     int status = response.getStatusCode();
                     // An object already gone satisfies an idempotent delete.
                     if (status / 100 != 2 && status != STATUS_NOT_FOUND) {
@@ -2642,7 +2642,7 @@ public final class AzureBlobStore implements BlobStore {
      * Validates metadata key according to Azure naming rules.
      * Keys must be valid C# identifiers (alphanumeric and underscores).
      */
-    private static boolean isValidMetadataKey(String key) {
+    private static boolean isValidMetadataKey(@Nullable String key) {
         if (key == null || key.isEmpty()) {
             return false;
         }
@@ -2946,7 +2946,7 @@ public final class AzureBlobStore implements BlobStore {
         var options = new BlockBlobCommitBlockListOptions(
                 blockIds.build());
         options.setHeaders(blobHttpHeaders);
-        if (userMetadata != null && !userMetadata.isEmpty()) {
+        if (!userMetadata.isEmpty()) {
             options.setMetadata(userMetadata);
         }
         if (tier != null) {
@@ -3374,7 +3374,7 @@ public final class AzureBlobStore implements BlobStore {
         };
     }
 
-    private static StorageClass fromAccessTier(AccessTier tier) {
+    private static StorageClass fromAccessTier(@Nullable AccessTier tier) {
         if (tier == null) {
             return StorageClass.STANDARD;
         } else if (tier.equals(AccessTier.ARCHIVE)) {

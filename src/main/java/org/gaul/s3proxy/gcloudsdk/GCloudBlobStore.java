@@ -196,7 +196,7 @@ public final class GCloudBlobStore implements BlobStore {
         // first request, which retries the whole operation instead.  Mirrors
         // the no-retry AwsS3SdkBlobStore and AzureBlobStore clients.
         storageBuilder.setRetrySettings(ServiceOptions.getNoRetrySettings());
-        if (cred.identity() != null && !cred.identity().isEmpty()) {
+        if (!cred.identity().isEmpty()) {
             storageBuilder.setProjectId(cred.identity());
         }
         var endpoint = endpointUrl;
@@ -215,8 +215,7 @@ public final class GCloudBlobStore implements BlobStore {
         String sessionToken = cred.sessionToken();
         if (!Strings.isNullOrEmpty(sessionToken)) {
             storageBuilder.setCredentials(new SuppliedTokenCredentials(creds));
-        } else if (cred.credential() != null &&
-                !cred.credential().isEmpty()) {
+        } else if (!cred.credential().isEmpty()) {
             try {
                 // A service account key mints its own access tokens and
                 // renews them itself, so the supplier is read no further

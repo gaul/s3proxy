@@ -298,7 +298,7 @@ public final class PostPolicy {
         return value;
     }
 
-    private static String stringValue(JsonNode node) {
+    private static String stringValue(@Nullable JsonNode node) {
         if (node == null || !node.isString()) {
             throw invalid("Invalid policy: expected a string", null);
         }

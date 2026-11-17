@@ -98,7 +98,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         }
     }
 
-    private static SshClient createClient(String expectedHostKey,
+    private static SshClient createClient(@Nullable String expectedHostKey,
             Credentials creds) {
         var fingerprint = expectedHostKey == null ? "" :
                 expectedHostKey.trim();
@@ -123,9 +123,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
             // Register the password on the client rather than embedding it in
             // the filesystem URI, so the secret never rides in a URI that a
             // MINA exception or the filesystem cache could surface.
-            if (creds.credential() != null) {
-                client.addPasswordIdentity(creds.credential());
-            }
+            client.addPasswordIdentity(creds.credential());
             client.start();
         } catch (RuntimeException re) {
             closeQuietly(client, re);
@@ -138,7 +136,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
     // the handshake is rejected cleanly rather than letting a null server key
     // raise an exception from inside the verifier.
     private static boolean verifyHostKey(String fingerprint,
-            PublicKey serverKey) {
+            @Nullable PublicKey serverKey) {
         if (serverKey == null) {
             return false;
         }
@@ -148,7 +146,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
 
     private static URI createFileSystemUri(String host, int port,
             Credentials creds) {
-        if (creds.identity() == null || creds.identity().isBlank()) {
+        if (creds.identity().isBlank()) {
             throw new IllegalArgumentException(
                     "Missing required SFTP identity");
         }

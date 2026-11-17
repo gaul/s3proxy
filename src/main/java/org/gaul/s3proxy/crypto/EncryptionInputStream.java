@@ -90,7 +90,7 @@ public class EncryptionInputStream extends InputStream {
     }
 
     @Override
-    public final int read(byte[] b, int off, int len) throws IOException {
+    public final int read(byte @Nullable [] b, int off, int len) throws IOException {
         if (in == null) {
             return -1;
         } else if (b == null) {

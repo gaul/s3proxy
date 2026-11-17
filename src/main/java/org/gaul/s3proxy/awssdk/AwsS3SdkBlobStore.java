@@ -118,14 +118,14 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     private static final String VERSION_ID_HEADER = "x-amz-version-id";
 
     private final S3Client s3Client;
-    private final String endpoint;
+    private final @Nullable String endpoint;
     private final boolean useNativeConditionalWrites;
     private final boolean stripETagQuotes;
     private final Region awsRegion;
 
     public AwsS3SdkBlobStore(
             Supplier<Credentials> creds,
-            String endpointUrl,
+            @Nullable String endpointUrl,
             String region,
             String conditionalWrites,
             String chunkedEncodingEnabled,
@@ -641,7 +641,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
      * the request asked for -- and keeps saying it; only a 404 that named
      * nothing gets one worked out from the request.
      */
-    private RuntimeException translateAclNotFound(String container, String key,
+    private RuntimeException translateAclNotFound(String container,
+            @Nullable String key,
             S3Exception e) {
         if (S3Exceptions.errorCode(e) != null) {
             return e;
@@ -818,7 +819,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     }
 
     private static List<CompletedPart> sortAndValidateParts(
-            List<CompletedPart> parts) {
+            @Nullable List<CompletedPart> parts) {
         if (parts == null || parts.isEmpty()) {
             throw new IllegalArgumentException(
                     "At least one multipart part is required");
@@ -900,7 +901,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
      * TODO: Can be removed after 2027-01-01 - by then every provider should
      * have migrated to a newer Ceph version (including Hetzner).
      */
-    private String maybeStripETagQuotes(String eTag) {
+    private @Nullable String maybeStripETagQuotes(@Nullable String eTag) {
         if (!stripETagQuotes || eTag == null) {
             return eTag;
         }

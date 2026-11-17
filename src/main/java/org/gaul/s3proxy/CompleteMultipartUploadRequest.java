@@ -18,13 +18,15 @@ package org.gaul.s3proxy;
 
 import java.util.Collection;
 
+import org.jspecify.annotations.Nullable;
+
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 public record CompleteMultipartUploadRequest(
         @JacksonXmlProperty(localName = "Part")
         @JacksonXmlElementWrapper(useWrapping = false)
-        Collection<Part> parts) {
+        @Nullable Collection<Part> parts) {
 
     public record Part(
             @JacksonXmlProperty(localName = "PartNumber") int partNumber,

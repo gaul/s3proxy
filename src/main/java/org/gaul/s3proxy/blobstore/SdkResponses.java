@@ -91,8 +91,7 @@ public final class SdkResponses {
                 .expires(contentMetadata.expires())
                 .eTag(metadata.eTag())
                 .lastModified(metadata.lastModified())
-                .storageClass(metadata.storageClass() == null ? null :
-                        metadata.storageClass().toString())
+                .storageClass(metadata.storageClass().toString())
                 .versionId(metadata.versionId())
                 .contentRange(contentRange)
                 .build();

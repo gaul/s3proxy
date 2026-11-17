@@ -330,7 +330,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // the project is what a Keystone-configured store already calls it.
         String user = cred.identity().indexOf(':') >= 0 ? cred.identity() :
                 projectName + ":" + cred.identity();
-        HttpResponse<Void> response;
+        HttpResponse<?> response;
         try {
             var request = HttpRequest.newBuilder(URI.create(endpoint))
                     .header("X-Auth-User", user)
@@ -1032,7 +1032,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     contentMD5.toString());
         }
         var userMetadata = metadata.userMetadata();
-        if (userMetadata != null && !userMetadata.isEmpty()) {
+        if (!userMetadata.isEmpty()) {
             swiftOptions.metadata(encodeMetadata(userMetadata));
         }
         String etag;
@@ -1056,7 +1056,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 throw S3Exceptions.noSuchBucket(container, "");
             }
             if (ifNoneMatchStar &&
-                    blobMetadata(container, metadata.name()) != null) {
+                    blobMetadataIfPresent(container, metadata.name()) !=
+                    null) {
                 throw S3Exceptions.fromStatusCode(STATUS_PRECONDITION_FAILED);
             }
             if (contentMD5 != null) {
@@ -1081,7 +1082,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 ifModifiedSince == null && ifUnmodifiedSince == null) {
             return;
         }
-        HeadObjectResponse metadata = blobMetadata(container, name);
+        HeadObjectResponse metadata = blobMetadataIfPresent(container, name);
         if (metadata == null) {
             throw S3Exceptions.noSuchKey(container, name, "while copying");
         }

@@ -16,6 +16,8 @@
 
 package org.gaul.s3proxy.checksum;
 
+import static java.util.Objects.requireNonNull;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
@@ -147,7 +149,8 @@ public final class MpuChecksums {
             CompleteMultipartUploadRequest cmu) throws IOException {
         var digests = new HashMap<Integer, PartChecksum>();
         var partNumbers = new TreeSet<Integer>();
-        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+        for (CompleteMultipartUploadRequest.Part part :
+                requireNonNull(cmu.parts())) {
             partNumbers.add(part.partNumber());
         }
         for (int partNumber : partNumbers) {
@@ -227,7 +230,8 @@ public final class MpuChecksums {
         // parts are folded together in canonical order.
         SortedMap<Integer, CompleteMultipartUploadRequest.Part> sorted =
                 new TreeMap<>();
-        for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+        for (CompleteMultipartUploadRequest.Part part :
+                requireNonNull(cmu.parts())) {
             sorted.put(part.partNumber(), part);
         }
 

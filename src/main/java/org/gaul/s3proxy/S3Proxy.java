@@ -587,7 +587,7 @@ public final class S3Proxy {
         }
 
         @Override
-        public boolean equals(Object object) {
+        public boolean equals(@Nullable Object object) {
             if (this == object) {
                 return true;
             } else if (!(object instanceof S3Proxy.Builder)) {

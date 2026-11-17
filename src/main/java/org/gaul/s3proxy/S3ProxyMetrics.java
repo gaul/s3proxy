@@ -101,8 +101,6 @@ public final class S3ProxyMetrics {
     }
 
     public void close() {
-        if (meterProvider != null) {
-            meterProvider.close();
-        }
+        meterProvider.close();
     }
 }

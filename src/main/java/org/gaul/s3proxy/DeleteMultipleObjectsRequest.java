@@ -31,19 +31,20 @@ record DeleteMultipleObjectsRequest(
         @JacksonXmlProperty(localName = "Quiet") boolean quiet,
         @JacksonXmlProperty(localName = "Object")
         @JacksonXmlElementWrapper(useWrapping = false)
-        Collection<S3Object> objects) {
+        @Nullable Collection<S3Object> objects) {
 
     record S3Object(
             @JacksonXmlProperty(localName = "Key") String key,
             // The element is VersionId, not VersionID: the mapper matches
             // case sensitively, so the latter never bound and every version
             // named here was silently ignored.
-            @JacksonXmlProperty(localName = "VersionId") String versionId,
+            @JacksonXmlProperty(localName = "VersionId")
+            @Nullable String versionId,
             // Delete conditions, evaluated per object.
-            @JacksonXmlProperty(localName = "ETag") String eTag,
+            @JacksonXmlProperty(localName = "ETag") @Nullable String eTag,
             @JacksonXmlProperty(localName = "LastModifiedTime")
-            String lastModifiedTime,
-            @JacksonXmlProperty(localName = "Size") String size) {
+            @Nullable String lastModifiedTime,
+            @JacksonXmlProperty(localName = "Size") @Nullable String size) {
 
         boolean hasCondition() {
             return eTag != null || lastModifiedTime != null || size != null;

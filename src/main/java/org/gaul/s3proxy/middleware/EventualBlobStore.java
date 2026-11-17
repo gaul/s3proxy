@@ -165,9 +165,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
         // judges the condition; the far copy follows unconditionally, as it
         // does for the plain removal above.
         DeleteObjectResponse result = writeStore.removeBlob(request);
-        schedule(new Callable<Void>() {
+        schedule(new Callable<@Nullable Void>() {
                 @Override
-                public Void call() {
+                public @Nullable Void call() {
                     delegate().removeBlob(request.bucket(), request.key());
                     return null;
                 }
@@ -228,9 +228,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
         }
     }
 
-    private final class DequeCallable implements Callable<Void> {
+    private final class DequeCallable implements Callable<@Nullable Void> {
         @Override
-        public Void call() throws Exception {
+        public @Nullable Void call() throws Exception {
             deque.poll().call();
             return null;
         }

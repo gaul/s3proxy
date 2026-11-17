@@ -18,18 +18,20 @@ package org.gaul.s3proxy;
 
 import java.util.Collection;
 
+import org.jspecify.annotations.Nullable;
+
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 record ServerSideEncryptionConfigurationRequest(
         @JacksonXmlProperty(localName = "Rule")
         @JacksonXmlElementWrapper(useWrapping = false)
-        Collection<Rule> rules) {
+        @Nullable Collection<Rule> rules) {
 
     record Rule(
             @JacksonXmlProperty(
                     localName = "ApplyServerSideEncryptionByDefault")
-            ByDefault byDefault,
+            @Nullable ByDefault byDefault,
             @JacksonXmlProperty(localName = "BucketKeyEnabled")
             Boolean bucketKeyEnabled) {
 

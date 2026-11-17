@@ -101,7 +101,8 @@ public record BlobMetadata(
             return this;
         }
 
-        public Builder userMetadata(Map<String, String> userMetadata) {
+        public Builder userMetadata(
+                @Nullable Map<String, String> userMetadata) {
             this.userMetadata = userMetadata != null ?
                     new LinkedHashMap<>(userMetadata) :
                     new LinkedHashMap<>();

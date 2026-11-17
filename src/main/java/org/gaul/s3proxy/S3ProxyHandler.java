@@ -598,7 +598,8 @@ public class S3ProxyHandler {
         }
     }
 
-    private static boolean isValidContainer(String containerName) {
+    private static boolean isValidContainer(
+            @Nullable String containerName) {
         if (containerName == null ||
                 containerName.length() < 3 || containerName.length() > 255 ||
                 containerName.startsWith(".") || containerName.endsWith(".") ||
@@ -694,8 +695,7 @@ public class S3ProxyHandler {
                 request.getHeader(HttpHeaders.AUTHORIZATION) == null &&
                 // v2 or /v4
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
-                request.getParameter("AWSAccessKeyId") == null &&  // v2 query
-                defaultBlobStore != null) {
+                request.getParameter("AWSAccessKeyId") == null) {  // v2 query
             doHandleAnonymous(request, response, is, uri, path,
                     defaultBlobStore, ctx);
             return;
@@ -2791,9 +2791,6 @@ public class S3ProxyHandler {
                 HeadBucketRequest.builder()
                         .bucket(containerName)
                         .build());
-        if (result == null) {
-            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
-        }
         if (result.bucketRegion() != null) {
             response.addHeader(AwsHttpHeaders.BUCKET_REGION,
                     result.bucketRegion());
@@ -7143,7 +7140,8 @@ public class S3ProxyHandler {
                 StandardCharsets.UTF_8);
     }
 
-    private static String encodeBlob(String encodingType, String blobName) {
+    private static String encodeBlob(@Nullable String encodingType,
+            String blobName) {
         if (encodingType != null && encodingType.equals("url")) {
             return urlEscaper.escape(blobName);
         } else {
@@ -7252,16 +7250,12 @@ public class S3ProxyHandler {
         // not once buildCanonicalHeaders has folded the whitespace.
         var elements = new LinkedHashMap<String, String>();
         String identity = authHeader.getIdentity();
-        if (identity != null) {
-            elements.put("AWSAccessKeyId", identity);
-        }
+        elements.put("AWSAccessKeyId", identity);
         if (detail != null) {
             elements.put("StringToSign", xmlSafe(detail.stringToSign()));
         }
         String provided = authHeader.getSignature();
-        if (provided != null) {
-            elements.put("SignatureProvided", provided);
-        }
+        elements.put("SignatureProvided", provided);
         if (detail != null) {
             String canonicalRequest = detail.canonicalRequest();
             if (canonicalRequest != null) {

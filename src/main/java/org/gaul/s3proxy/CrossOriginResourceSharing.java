@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,10 +64,11 @@ public final class CrossOriginResourceSharing {
             List.of(EXPOSE_ALL_HEADERS), "");
     }
 
-    public CrossOriginResourceSharing(List<String> allowedOrigins,
-            List<String> allowedMethods,
-            List<String> allowedHeaders,
-            List<String> exposedHeaders,
+    public CrossOriginResourceSharing(
+            @Nullable List<String> allowedOrigins,
+            @Nullable List<String> allowedMethods,
+            @Nullable List<String> allowedHeaders,
+            @Nullable List<String> exposedHeaders,
             String allowCredentials) {
         Set<Pattern> allowedPattern = new HashSet<Pattern>();
         boolean anyOriginAllowed = false;
@@ -232,7 +234,7 @@ public final class CrossOriginResourceSharing {
     }
 
     @Override
-    public boolean equals(Object object) {
+    public boolean equals(@Nullable Object object) {
         if (this == object) {
             return true;
         }

@@ -16,11 +16,14 @@
 
 package org.gaul.s3proxy;
 
+import org.jspecify.annotations.Nullable;
+
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 record VersioningConfigurationRequest(
-        @JacksonXmlProperty(localName = "Status") String status,
+        @JacksonXmlProperty(localName = "Status") @Nullable String status,
         // Parsed so handleSetBucketVersioning can refuse MFA delete rather
         // than quietly not configuring it; the value itself is never used.
-        @JacksonXmlProperty(localName = "MfaDelete") String mfaDelete) {
+        @JacksonXmlProperty(localName = "MfaDelete")
+        @Nullable String mfaDelete) {
 }

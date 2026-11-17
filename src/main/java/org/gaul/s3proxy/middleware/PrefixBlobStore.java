@@ -128,7 +128,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     private MultipartUpload toDelegateMultipartUpload(MultipartUpload upload) {
-        if (upload == null || !hasPrefix(upload.containerName())) {
+        if (!hasPrefix(upload.containerName())) {
             return upload;
         }
         return new MultipartUpload(upload.id(),
@@ -139,7 +139,7 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     private MultipartUpload toClientMultipartUpload(MultipartUpload upload) {
-        if (upload == null || !hasPrefix(upload.containerName())) {
+        if (!hasPrefix(upload.containerName())) {
             return upload;
         }
         return new MultipartUpload(upload.id(),
