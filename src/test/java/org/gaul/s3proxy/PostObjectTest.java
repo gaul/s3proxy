@@ -197,6 +197,20 @@ public final class PostObjectTest {
                 .metadata()).containsEntry("foo", "barclamp");
     }
 
+    /**
+     * Metadata under the name this proxy keeps a validated checksum by is
+     * not the form's to set: it would be reported back as the checksum.
+     */
+    @Test
+    public void testReservedChecksumMetadataIsDropped() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo.txt", "x-amz-meta-foo", "barclamp",
+                "x-amz-meta-s3proxy_checksum_crc32", "AAAAAA==");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobMetadata(containerName, "foo.txt")
+                .metadata()).containsOnlyKeys("foo");
+    }
+
     /** A signed policy the form satisfies. */
     @Test
     public void testAuthenticatedPost() throws Exception {

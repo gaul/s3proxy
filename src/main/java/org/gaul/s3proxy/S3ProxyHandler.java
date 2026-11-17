@@ -4306,9 +4306,15 @@ public class S3ProxyHandler {
                     copyRequest.contentType(headerValue);
                 } else if (startsWithIgnoreCase(headerName,
                         USER_METADATA_PREFIX)) {
-                    userMetadata.put(
-                            headerName.substring(USER_METADATA_PREFIX.length()),
-                            headerValue);
+                    String key = headerName.substring(
+                            USER_METADATA_PREFIX.length());
+                    // Reserved for a checksum this proxy validated, as in
+                    // parseContentMetadata: taken from the caller it would
+                    // be reported back as the object's checksum.
+                    if (!startsWithIgnoreCase(key,
+                            FlexChecksum.METADATA_PREFIX)) {
+                        userMetadata.put(key, headerValue);
+                    }
                 }
                 // TODO: Expires
             }
@@ -5054,8 +5060,13 @@ public class S3ProxyHandler {
         var userMetadata = new TreeMap<String, String>();
         for (var entry : fields.entrySet()) {
             if (entry.getKey().startsWith(USER_METADATA_PREFIX)) {
-                userMetadata.put(entry.getKey().substring(
-                        USER_METADATA_PREFIX.length()), entry.getValue());
+                String key = entry.getKey().substring(
+                        USER_METADATA_PREFIX.length());
+                // reserved for the validated checksum persisted below
+                if (!startsWithIgnoreCase(key,
+                        FlexChecksum.METADATA_PREFIX)) {
+                    userMetadata.put(key, entry.getValue());
+                }
             }
         }
         if (checksum != null && checksumValue != null) {

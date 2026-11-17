@@ -3081,6 +3081,28 @@ public final class AwsSdkTest {
         assertThat(copy.copyObjectResult().eTag()).isEqualTo(head.eTag());
     }
 
+    /**
+     * A copy that replaces the metadata may not set the entry this proxy
+     * keeps a validated checksum under, which a checksum-mode read reports
+     * back as the object's checksum.
+     */
+    @Test
+    public void testCopyObjectReplaceCannotForgeAChecksum() throws Exception {
+        client.putObject(b -> b.bucket(containerName).key("forge-source"),
+                RequestBody.fromString("content"));
+
+        client.copyObject(b -> b.sourceBucket(containerName)
+                .sourceKey("forge-source").destinationBucket(containerName)
+                .destinationKey("forge-copy")
+                .metadataDirective("REPLACE")
+                .metadata(Map.of("s3proxy_checksum_crc32", "AAAAAA==")));
+
+        var head = client.headObject(b -> b.bucket(containerName)
+                .key("forge-copy").checksumMode(ChecksumMode.ENABLED));
+        assertThat(head.checksumCRC32()).isNotEqualTo("AAAAAA==");
+        assertThat(head.metadata()).isEmpty();
+    }
+
     @Test
     public void testCopyObjectPublicRead() throws Exception {
         // Azure and Swift grant read at the container, so a per-blob ACL has
