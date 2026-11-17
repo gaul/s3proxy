@@ -2094,6 +2094,36 @@ public final class AwsSdkTest {
         }
     }
 
+    // Measured against S3: CompleteMultipartUpload answers 400 MalformedXML
+    // for a Part without a PartNumber element.
+    @Test
+    public void testCompleteMultipartUploadMissingPartNumber()
+            throws Exception {
+        var key = "testCompleteMultipartUploadMissingPartNumber";
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        try {
+            UploadPartResponse part = client.uploadPart(b -> b
+                            .bucket(containerName).key(key)
+                            .uploadId(uploadId).partNumber(1),
+                    RequestBody.fromBytes(new byte[1]));
+            client.completeMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(CompletedPart.builder().eTag(part.eTag())
+                                    .build())
+                            .build()));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("MalformedXML");
+        } finally {
+            client.abortMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadId));
+        }
+    }
+
     @Test
     public void testSetBlobAclMissingObjectSurfacesError() throws Exception {
         // A real ACL failure must surface rather than being swallowed as a

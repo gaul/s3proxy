@@ -18,6 +18,8 @@ package org.gaul.s3proxy;
 
 import java.util.Collection;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import org.jspecify.annotations.Nullable;
 
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
@@ -29,6 +31,9 @@ public record CompleteMultipartUploadRequest(
         @Nullable Collection<Part> parts) {
 
     public record Part(
+            // Required, so that a Part without one is refused as
+            // MalformedXML, as S3 does, rather than bound to zero.
+            @JsonProperty(required = true)
             @JacksonXmlProperty(localName = "PartNumber") int partNumber,
             @JacksonXmlProperty(localName = "ETag") @Nullable String eTag,
             // Per-part flexible checksums, enforced in
