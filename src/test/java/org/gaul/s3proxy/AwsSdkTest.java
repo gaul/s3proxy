@@ -1541,6 +1541,31 @@ public final class AwsSdkTest {
                 .contentLength()).isEqualTo(7);
     }
 
+    /**
+     * An unfinished upload does not hold its bucket: S3 deletes a bucket
+     * whose only contents are uploads in progress.
+     */
+    @Test
+    public void testDeleteBucketWithAnUploadInProgress() throws Exception {
+        // Swift and the nio2 stores keep the upload's parts where the
+        // bucket's objects are, and refuse the delete.
+        assumeTrue(!blobStoreType.equals("openstack-swift") &&
+                !Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        String bucket = createRandomContainerName();
+        client.createBucket(b -> b.bucket(bucket));
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(bucket).key("key")).uploadId();
+        client.uploadPart(b -> b.bucket(bucket).key("key")
+                .uploadId(uploadId).partNumber(1),
+                RequestBody.fromString("part"));
+
+        client.deleteBucket(b -> b.bucket(bucket));
+
+        assertThatThrownBy(() -> client.headBucket(b -> b.bucket(bucket)))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(404));
+    }
+
     /** A delimiter of several characters groups keys where it occurs. */
     @Test
     public void testListMultiCharacterDelimiter() throws Exception {

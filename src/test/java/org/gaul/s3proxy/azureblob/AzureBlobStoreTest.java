@@ -435,12 +435,12 @@ public final class AzureBlobStoreTest {
     }
 
     /**
-     * A multipart stub Azure kept as a non-current version after it was
-     * deleted is no object, and is not promoted into view as one; a stub
-     * still current, an upload in progress, lists as before.
+     * A multipart stub is no object, and is not listed as one: neither the
+     * one Azure kept as a non-current version after it was deleted, nor the
+     * one still current, an upload in progress.
      */
     @Test
-    public void testLatestPageHidesDeletedStubVersions() {
+    public void testLatestPageHidesStubs() {
         var rows = List.of(
                 versionBlob(".s3proxy/stubs/done",
                         "2026-01-01T00:00:01.0000000Z", false, 0L),
@@ -452,7 +452,7 @@ public final class AzureBlobStoreTest {
                 rows.iterator(), /*after=*/ null, /*maxKeys=*/ 1000);
 
         assertThat(response.contents()).extracting(S3Object::key)
-                .containsExactly(".s3proxy/stubs/live", "k");
+                .containsExactly("k");
     }
 
     /**

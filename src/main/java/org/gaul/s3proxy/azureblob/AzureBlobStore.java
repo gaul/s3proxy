@@ -577,6 +577,9 @@ public final class AzureBlobStore implements BlobStore {
             throw translate(bse, container, /*key=*/ null);
         }
         for (var blob : page.values()) {
+            if (isMultipartInternal(blob.getName())) {
+                continue;
+            }
             var properties = blob.getProperties();
             if (blob.isPrefix()) {
                 prefixes.add(SdkResponses.commonPrefix(blob.getName()));
@@ -660,6 +663,9 @@ public final class AzureBlobStore implements BlobStore {
             if (after != null && name.compareTo(after) <= 0) {
                 continue;
             }
+            if (isMultipartInternal(name)) {
+                continue;
+            }
             if (!prefix) {
                 versions = withoutDeletedStubVersions(name, versions);
                 if (versions.isEmpty()) {
@@ -691,6 +697,18 @@ public final class AzureBlobStore implements BlobStore {
         return SdkResponses.objectsPage(contents.build(), prefixes.build(),
                 truncated && maxKeys > 0 ?
                         encodeListToken(requireNonNull(last)) : null);
+    }
+
+    /**
+     * Whether a listed name is this store's record of a multipart upload:
+     * a stub, or the common prefix a delimiter folds the stubs into.  It
+     * is a blob to Azure and no object of the bucket's, and a listing
+     * showed it: an upload in progress appeared as a key under
+     * ".s3proxy/", which a client emptying the bucket would delete.
+     */
+    private static boolean isMultipartInternal(String name) {
+        return name.startsWith(STUB_BLOB_PREFIX) ||
+                (!name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
     }
 
     /** The continuation token naming where a listing resumes: after name. */
@@ -853,16 +871,17 @@ public final class AzureBlobStore implements BlobStore {
     public void deleteBucket(String container) {
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
-            // An empty page can carry a continuation token onto blobs that do
-            // exist, and deleting the container on the strength of it would
-            // take them with it.
-            var pages = client.listBlobsByHierarchy(
-                    /*delimiter=*/ null, /*options=*/ null, /*timeout=*/ null);
-            var page = firstPageWithEntries(
-                    m -> pages.iterableByPage(m).iterator().next(),
-                    /*marker=*/ null);
-            if (!page.values().isEmpty()) {
-                throw S3Exceptions.bucketNotEmpty(container);
+            // Every page is followed: an empty one can carry a continuation
+            // token onto blobs that do exist, and deleting the container on
+            // the strength of it would take them with it.  What an upload
+            // in progress keeps here is no object -- a listing does not
+            // show it -- and does not hold the bucket: S3 deletes a bucket
+            // whose only contents are unfinished uploads, and deleting the
+            // container takes them with it.
+            for (BlobItem blob : client.listBlobs()) {
+                if (!isMultipartInternal(blob.getName())) {
+                    throw S3Exceptions.bucketNotEmpty(container);
+                }
             }
             blobServiceClient.deleteBlobContainer(container);
         } catch (BlobStorageException bse) {
@@ -1213,6 +1232,9 @@ public final class AzureBlobStore implements BlobStore {
             BlobItem first = it.next();
             String name = first.getName();
             if (Boolean.TRUE.equals(first.isPrefix())) {
+                if (isMultipartInternal(name)) {
+                    continue;
+                }
                 if (keyMarker != null && name.compareTo(keyMarker) <= 0) {
                     continue;
                 }
@@ -1233,6 +1255,9 @@ public final class AzureBlobStore implements BlobStore {
                 versions.add(it.next());
             }
             if (keyMarker != null && name.compareTo(keyMarker) < 0) {
+                continue;
+            }
+            if (isMultipartInternal(name)) {
                 continue;
             }
             versions = withoutDeletedStubVersions(name, versions);

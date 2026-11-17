@@ -138,6 +138,8 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class GCloudBlobStore implements BlobStore {
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
+    /** The first name that sorts after everything under the prefix. */
+    private static final String STUB_BLOB_PREFIX_END = ".s3proxy/stubs0";
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";
     private static final String BLOB_ACCESS_KEY = "s3proxy_blob_access";
@@ -507,11 +509,23 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public void deleteBucket(String container) {
         try {
-            var page = storage.list(container,
-                    BlobListOption.pageSize(1));
-            if (page.getValues().iterator().hasNext()) {
+            // What an upload in progress keeps here is no object -- a
+            // listing does not show it -- and does not hold the bucket: S3
+            // deletes a bucket whose only contents are unfinished uploads.
+            // So look either side of that bookkeeping for a live object,
+            // and if there is none take the bookkeeping away first, since
+            // GCS deletes only a bucket that is empty.
+            var before = storage.list(container, BlobListOption.pageSize(1),
+                    BlobListOption.endOffset(STUB_BLOB_PREFIX));
+            var after = storage.list(container, BlobListOption.pageSize(1),
+                    BlobListOption.startOffset(STUB_BLOB_PREFIX_END));
+            if (before.getValues().iterator().hasNext() ||
+                    after.getValues().iterator().hasNext()) {
                 throw S3Exceptions.bucketNotEmpty(container);
             }
+            deleteGenerations(storage.list(container,
+                    BlobListOption.prefix(STUB_BLOB_PREFIX),
+                    BlobListOption.versions(true)));
             storage.delete(container);
         } catch (StorageException se) {
             if (se.getCode() == 409) {
