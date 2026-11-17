@@ -3199,6 +3199,44 @@ public final class AwsSdkTest {
                 .key(blobName)).contentLength()).isEqualTo(7);
     }
 
+    /**
+     * A part refused for its Content-MD5 must leave the part it would have
+     * replaced as it was: azureblob compared the digest only after staging
+     * the block, so completing with the earlier part assembled the refused
+     * bytes.
+     */
+    @Test
+    public void testUploadPartBadDigestKeepsEarlierPart() throws Exception {
+        String blobName = "upload-part-bad-digest";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        var good = client.uploadPart(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId).partNumber(1),
+                RequestBody.fromString("good"));
+
+        try {
+            // the MD5 of no bytes at all
+            client.uploadPart(b -> b.bucket(containerName).key(blobName)
+                    .uploadId(uploadId).partNumber(1)
+                    .contentMD5("1B2M2Y8AsgTpgAmY7PhCfg=="),
+                    RequestBody.fromString("evil"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "BadDigest");
+        }
+
+        client.completeMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(good.eTag()).build())
+                        .build()));
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName)).asUtf8String()).isEqualTo("good");
+    }
+
     @Test
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";

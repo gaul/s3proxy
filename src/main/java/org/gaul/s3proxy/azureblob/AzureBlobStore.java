@@ -2964,13 +2964,21 @@ public final class AzureBlobStore implements BlobStore {
         try (var dis = new DigestInputStream(is, digest)) {
             Flux<ByteBuffer> body = chunkedByteBufferFlux(dis, contentLength);
 
-            asyncClient.stageBlock(blockId, body, contentLength).block();
+            // Azure judges the Content-MD5 itself and stages nothing when
+            // it does not match.  Comparing only after the block was staged
+            // refused the part too late: a block ID is the part number, so
+            // the bad block had already replaced the good part it retried.
+            asyncClient.stageBlockWithResponse(blockId, body, contentLength,
+                    contentMD5 == null ? null : contentMD5.asBytes(),
+                    /*leaseId=*/ null).block();
 
             md5Hash = digest.digest();
 
             if (contentMD5 != null) {
                 if (!MessageDigest.isEqual(md5Hash, contentMD5.asBytes())) {
-                    throw new IllegalArgumentException("Content-MD5 mismatch");
+                    // Not reached unless the service skipped the check; a
+                    // bare 400 is what the frontend reports as BadDigest.
+                    throw S3Exceptions.fromStatusCode(400);
                 }
             }
 
