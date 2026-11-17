@@ -21,6 +21,7 @@ package org.gaul.s3proxy;
 // implements SigV2, but only its header parsing is covered, by
 // S3AuthorizationHeaderTest; nothing signs a SigV2 request end to end.
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.InputStream;
@@ -58,6 +59,7 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
 
 import org.assertj.core.api.Fail;
+import org.assertj.core.api.ThrowableAssert;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.jspecify.annotations.Nullable;
@@ -1439,6 +1441,47 @@ public final class AwsSdkTest {
             assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
                     "NoSuchUpload");
         }
+    }
+
+    @Test
+    public void testPartOperationsWithoutCreate() throws Exception {
+        // Only the backends that keep a stub lacked this: their parts are
+        // plain objects, so a part was accepted under an id never issued.
+        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
+        String key = "testPartOperationsWithoutCreate";
+        String source = "testPartOperationsWithoutCreate-source";
+        client.putObject(b -> b.bucket(containerName).key(source),
+                RequestBody.fromString("source"));
+        List<ThrowableAssert.ThrowingCallable> calls = List.of(
+                () -> client.uploadPart(b -> b.bucket(containerName).key(key)
+                        .uploadId("does-not-exist").partNumber(1),
+                        RequestBody.fromString("part")),
+                () -> client.uploadPartCopy(b -> b
+                        .sourceBucket(containerName).sourceKey(source)
+                        .destinationBucket(containerName).destinationKey(key)
+                        .uploadId("does-not-exist").partNumber(1)),
+                () -> client.listParts(b -> b.bucket(containerName).key(key)
+                        .uploadId("does-not-exist")));
+        for (var call : calls) {
+            assertThatThrownBy(call)
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(404);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("NoSuchUpload");
+                    });
+        }
+
+        // and an aborted upload takes no more parts
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(key)).uploadId();
+        client.abortMultipartUpload(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadId));
+        assertThatThrownBy(() -> client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1), RequestBody.fromString("part")))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("NoSuchUpload"));
     }
 
     @Test

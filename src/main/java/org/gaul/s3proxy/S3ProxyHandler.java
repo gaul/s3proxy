@@ -3539,6 +3539,41 @@ public class S3ProxyHandler {
                         .build());
     }
 
+    /**
+     * Refuse an upload id that names no upload.  A backend whose multipart
+     * needs a stub has no other record of one: its parts are plain objects,
+     * so without this a part is written under an id that was never issued,
+     * or under one already aborted, and nothing ever removes it.
+     */
+    private static void requireMultipartUpload(BlobStore blobStore,
+            String containerName, String uploadId) {
+        if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                blobStore)) && !blobStore.blobExists(containerName,
+                multipartStubName(uploadId))) {
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
+        }
+    }
+
+    /**
+     * The same check once a part is written.  An abort that ran while the
+     * part was arriving removed the stub and the parts it could see, and
+     * left this one behind; remove it and say the upload is gone.
+     */
+    private static void requireMultipartUploadAfterPart(BlobStore blobStore,
+            String containerName, MultipartUpload mpu) {
+        if (!Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
+                blobStore)) || blobStore.blobExists(containerName,
+                multipartStubName(mpu.id()))) {
+            return;
+        }
+        try {
+            blobStore.abortMultipartUpload(mpu);
+        } catch (NoSuchKeyException | NoSuchUploadException e) {
+            // nothing was left to remove
+        }
+        throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
+    }
+
     /** The part count a composite ETag encodes, or 1 when it is not one. */
     private static int eTagPartCount(@Nullable String eTag) {
         if (eTag == null) {
@@ -5947,6 +5982,7 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
 
+        requireMultipartUpload(blobStore, containerName, uploadId);
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
@@ -6123,6 +6159,7 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
+        requireMultipartUpload(blobStore, containerName, uploadId);
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
@@ -6195,6 +6232,8 @@ public class S3ProxyHandler {
             UploadPartCopyResponse part;
             try {
                 part = blobStore.copyMultipartPart(mpu, partCopyRequest);
+                requireMultipartUploadAfterPart(blobStore, containerName,
+                        mpu);
             } catch (UnsupportedOperationException uoe) {
                 // The backend copies server-side but not this request, e.g.
                 // GCS cannot copy a byte range; use the streamed emulation
@@ -6307,6 +6346,7 @@ public class S3ProxyHandler {
                     is);
             eTag = part.eTag();
         }
+        requireMultipartUploadAfterPart(blobStore, containerName, mpu);
 
         // The part was written by the same call a plain part upload uses, so
         // it rests under the upload's encryption and reports it the same way;
@@ -6449,6 +6489,7 @@ public class S3ProxyHandler {
                             "ArgumentValue", partNumberString));
         }
 
+        requireMultipartUpload(blobStore, containerName, uploadId);
         MultipartUpload mpu = reconstructedMpu(containerName, blobName,
                 uploadId);
 
@@ -6471,6 +6512,7 @@ public class S3ProxyHandler {
 
         UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
                 partRequest.build(), is);
+        requireMultipartUploadAfterPart(blobStore, containerName, mpu);
 
         if (part.eTag() != null) {
             response.addHeader(HttpHeaders.ETAG,
