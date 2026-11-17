@@ -4466,9 +4466,6 @@ public final class AwsSdkTest {
      */
     @Test
     public void testSuffixRangeOfNoBytes() throws Exception {
-        // Swift serves the whole object for either range.
-        assumeTrue(!blobStoreType.equals("openstack-swift"));
-
         client.putObject(b -> b.bucket(containerName).key("range-empty"),
                 RequestBody.empty());
         client.putObject(b -> b.bucket(containerName).key("range-full"),

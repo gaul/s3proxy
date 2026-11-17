@@ -52,6 +52,7 @@ import java.util.function.Function;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -866,6 +867,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // survives instead of being stripped (and the body gunzipped).
         downloadOptions.header(HttpHeaders.ACCEPT_ENCODING, "identity");
         boolean ranged = options.range() != null;
+        // A suffix range selecting no bytes -- the last zero of an object,
+        // or any of an empty one -- cannot be satisfied, and S3 says so.
+        // Swift ignores such a range and serves the whole object.
+        boolean suffixRange = ranged &&
+                requireNonNull(options.range()).startsWith("bytes=-");
+        if (suffixRange && CharMatcher.is('0').matchesAllOf(
+                requireNonNull(options.range()).substring(
+                        "bytes=-".length()))) {
+            throw S3Exceptions.fromStatusCode(STATUS_RANGE_NOT_SATISFIABLE);
+        }
         if (ranged) {
             downloadOptions.header(HttpHeaders.RANGE, options.range());
         }
@@ -963,6 +974,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         long contentLength = resolveContentLength(swift, container, key,
                 response.header(HttpHeaders.CONTENT_LENGTH),
                 ranged ? response.header(HttpHeaders.CONTENT_RANGE) : null);
+        if (suffixRange && contentLength == 0 &&
+                response.header(HttpHeaders.CONTENT_RANGE) == null) {
+            // the empty object, whole: no suffix of it holds a byte
+            try {
+                response.close();
+            } catch (IOException ioe) {
+                // The connection is being abandoned; ignore close failures.
+            }
+            throw S3Exceptions.fromStatusCode(STATUS_RANGE_NOT_SATISFIABLE);
+        }
         var builder = Blob.builder(key)
                 .payload(payload.getInputStream())
                 .contentLength(contentLength)
