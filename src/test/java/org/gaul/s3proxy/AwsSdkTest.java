@@ -3009,7 +3009,11 @@ public final class AwsSdkTest {
 
         var head = client.headObject(b -> b.bucket(containerName)
                 .key("replace-copy"));
-        assertThat(head.metadata()).containsExactly(Map.entry("to", "copy"));
+        // sftp keeps none of an object's metadata
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(head.metadata()).containsExactly(
+                    Map.entry("to", "copy"));
+        }
         assertThat(copy.copyObjectResult().eTag()).isEqualTo(head.eTag());
     }
 
