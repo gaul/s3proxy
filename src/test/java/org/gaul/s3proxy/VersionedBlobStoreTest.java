@@ -491,6 +491,35 @@ public final class VersionedBlobStoreTest {
         assertThat(get("blob", single)).isEqualTo(FIRST);
     }
 
+    /**
+     * A listing resumes after its marker whether or not the version the
+     * marker names is still there: listing a page, deleting it and going
+     * on from the markers is how a versioned bucket is emptied.
+     */
+    @Test
+    public void testListVersionsResumesAfterADeletedVersion() {
+        // NIO2-SKIP: the transient store looks for the marker's own row too
+        assumeTrue(!blobStoreType.equals("transient"));
+        enableVersioning();
+        put("blob", FIRST);
+        String second = put("blob", SECOND);
+        String third = put("blob", FIRST);
+        put("other", FIRST);
+
+        var firstPage = client.listObjectVersions(b -> b
+                .bucket(containerName).maxKeys(1));
+        assertThat(firstPage.versions().get(0).versionId()).isEqualTo(third);
+        client.deleteObject(b -> b.bucket(containerName).key("blob")
+                .versionId(third));
+
+        var rest = client.listObjectVersions(b -> b.bucket(containerName)
+                .keyMarker(firstPage.nextKeyMarker())
+                .versionIdMarker(firstPage.nextVersionIdMarker()));
+        assertThat(rest.versions().stream().map(v -> v.key()))
+                .containsExactly("blob", "blob", "other");
+        assertThat(rest.versions().get(0).versionId()).isEqualTo(second);
+    }
+
     @Test
     public void testListVersionsPagesAndRollsUpPrefixes() {
         enableVersioning();

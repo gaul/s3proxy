@@ -787,22 +787,31 @@ public final class GCloudBlobStore implements BlobStore {
                 .thenComparing(Comparator
                         .comparingLong(VersionRow::generation).reversed()));
 
+        // Resume at the first row past the marker in the order above, not
+        // at the row after the marker's own: a caller that lists a page and
+        // deletes what it listed, as emptying a versioned bucket does, comes
+        // back with a marker naming a row no longer there, and looking for
+        // that row found nothing and ended the listing with versions left.
         int start = 0;
         if (keyMarker != null) {
-            String versionIdMarker = request.versionIdMarker();
+            start = rows.size();
+            Long markerGeneration = null;
+            if (request.versionIdMarker() != null) {
+                try {
+                    markerGeneration = Long.parseLong(
+                            request.versionIdMarker());
+                } catch (NumberFormatException nfe) {
+                    // no generation of the key: resume at the next key
+                }
+            }
             for (int i = 0; i < rows.size(); i++) {
                 var candidate = rows.get(i);
-                if (versionIdMarker == null) {
-                    if (candidate.key().compareTo(keyMarker) > 0) {
-                        start = i;
-                        break;
-                    }
-                } else if (candidate.key().equals(keyMarker) &&
-                        candidate.versionId().equals(versionIdMarker)) {
-                    start = i + 1;
+                int order = candidate.key().compareTo(keyMarker);
+                if (order > 0 || (order == 0 && markerGeneration != null &&
+                        candidate.generation() < markerGeneration)) {
+                    start = i;
                     break;
                 }
-                start = i + 1;
             }
         }
         int end = Math.min(rows.size(), start + maxKeys);
