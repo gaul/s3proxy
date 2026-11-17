@@ -25,10 +25,10 @@ import java.net.URI;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -1963,23 +1963,29 @@ public final class GCloudBlobStore implements BlobStore {
         var digest = MD5.newDigest();
         try (var dis = new DigestInputStream(is, digest)) {
             var partInfo = BlobInfo.newBuilder(
-                    BlobId.of(mpu.containerName(), partBlobName)).build();
-            storage.createFrom(partInfo, dis,
-                    uploadChunkSize(contentLength));
+                    BlobId.of(mpu.containerName(), partBlobName));
+            // GCS judges the Content-MD5 itself and writes nothing when it
+            // does not match, as in putBlob.  Comparing only after the part
+            // was written refused it too late: the part's name is its
+            // number, so the bad bytes had already replaced the part they
+            // were a retry of, and deleting them took that part too.
+            if (contentMD5 != null) {
+                partInfo.setMd5(Base64.getEncoder().encodeToString(
+                        contentMD5.asBytes()));
+                storage.createFrom(partInfo.build(), dis,
+                        uploadChunkSize(contentLength), MD5_MATCH);
+            } else {
+                storage.createFrom(partInfo.build(), dis,
+                        uploadChunkSize(contentLength));
+            }
 
             md5Hash = digest.digest();
-
-            if (contentMD5 != null) {
-                if (!MessageDigest.isEqual(md5Hash,
-                        contentMD5.asBytes())) {
-                    // Clean up the uploaded part
-                    storage.delete(BlobId.of(mpu.containerName(),
-                            partBlobName));
-                    throw new IllegalArgumentException(
-                            "Content-MD5 mismatch");
-                }
-            }
         } catch (StorageException se) {
+            // As in putBlob: GCS reports the validation md5Match asked for
+            // as a generic 400, which the frontend answers as BadDigest.
+            if (se.getCode() == 400 && contentMD5 != null) {
+                throw S3Exceptions.fromStatusCode(400, se);
+            }
             throw translate(se, mpu.containerName(), mpu.blobName());
         } catch (IOException ioe) {
             throw new RuntimeException((
