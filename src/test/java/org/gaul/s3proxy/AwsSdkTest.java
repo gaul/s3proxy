@@ -3931,6 +3931,34 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * A suffix range that selects no bytes -- the last zero of an object,
+     * or any of an empty one -- cannot be satisfied.  azureblob resolves a
+     * suffix against the blob's size itself and answered 500.
+     */
+    @Test
+    public void testSuffixRangeOfNoBytes() throws Exception {
+        // Swift serves the whole object for either range.
+        assumeTrue(!blobStoreType.equals("openstack-swift"));
+
+        client.putObject(b -> b.bucket(containerName).key("range-empty"),
+                RequestBody.empty());
+        client.putObject(b -> b.bucket(containerName).key("range-full"),
+                RequestBody.fromString("content"));
+
+        for (var request : List.of(
+                Map.entry("range-empty", "bytes=-5"),
+                Map.entry("range-full", "bytes=-0"))) {
+            try {
+                client.getObjectAsBytes(b -> b.bucket(containerName)
+                        .key(request.getKey()).range(request.getValue()));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(416);
+            }
+        }
+    }
+
     @Test
     public void testConditionalGetModifiedSince() throws Exception {
         // HTTP conditional dates have one-second granularity while backend
