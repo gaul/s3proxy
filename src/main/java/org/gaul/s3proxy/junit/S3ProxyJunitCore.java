@@ -50,6 +50,8 @@ public class S3ProxyJunitCore {
 
     private final BlobStore blobStore;
     @Nullable private URI endpointUri;
+    private final boolean secure;
+    @Nullable private URI secureEndpointUri;
     private final File blobStoreLocation;
 
     public static final class Builder {
@@ -139,6 +141,13 @@ public class S3ProxyJunitCore {
                 builder.secretStorePassword != null) {
             s3ProxyBuilder.keyStore(requireNonNull(builder.secretStorePath),
                     requireNonNull(builder.secretStorePassword));
+            // A key store is for serving HTTPS.  Without a secure endpoint
+            // it was read and never used, and the test had only HTTP.
+            s3ProxyBuilder.secureEndpoint(URI.create(
+                    "https://%s:%d".formatted(LOCALHOST, 0)));
+            secure = true;
+        } else {
+            secure = false;
         }
 
         int port = Math.max(builder.port, 0);
@@ -157,6 +166,10 @@ public class S3ProxyJunitCore {
         }
         endpointUri = URI.create(endpointFormat.formatted(LOCALHOST,
                 s3Proxy.getPort()));
+        if (secure) {
+            secureEndpointUri = URI.create("https://%s:%d".formatted(
+                    LOCALHOST, s3Proxy.getSecurePort()));
+        }
         logger.debug("S3 proxy is running");
     }
 
@@ -181,6 +194,11 @@ public class S3ProxyJunitCore {
 
     @Nullable public final URI getUri() {
         return endpointUri;
+    }
+
+    /** The HTTPS endpoint, present when a secret store was configured. */
+    @Nullable public final URI getSecureUri() {
+        return secureEndpointUri;
     }
 
     @Nullable public final String getAccessKey() {

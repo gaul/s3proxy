@@ -258,7 +258,7 @@ public final class Main {
 
             @Override
             public void write(byte[] buf, int off, int len) {
-                for (int i = off; i < len; ++i) {
+                for (int i = off; i < off + len; ++i) {
                     char ch = (char) buf[i];
                     if (ch == '\n') {
                         if (builder.length() != 0) {

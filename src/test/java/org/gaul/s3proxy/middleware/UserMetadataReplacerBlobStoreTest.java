@@ -94,6 +94,23 @@ public final class UserMetadataReplacerBlobStoreTest {
         assertThat(entry.getValue()).isEqualTo("my-value-");
     }
 
+    /** Two keys that become one after replacement are stored as one. */
+    @Test
+    public void testKeysThatCollideAfterReplacement() throws Exception {
+        var blobName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        userMetadataReplacerBlobStore.putBlob(
+                TestUtils.putRequest(containerName, blobName, content)
+                        .toBuilder()
+                        .metadata(Map.of("my-key", "value", "my_key",
+                                "value"))
+                        .build(),
+                content.openStream());
+
+        assertThat(blobStore.blobMetadata(containerName, blobName)
+                .metadata()).containsOnlyKeys("my_key");
+    }
+
     @Test
     public void testCopyBlobReplaceMetadata() throws Exception {
         var fromName = TestUtils.createRandomBlobName();

@@ -26,6 +26,7 @@ import java.util.Map;
 
 import com.google.common.io.ByteSource;
 
+import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
@@ -151,6 +152,19 @@ public final class ShardedBlobStoreTest {
 
         shardedBlobStore.deleteContainer(unsharded);
         assertThat(blobStore.containerExists(unsharded)).isFalse();
+    }
+
+    @Test
+    public void testShardCountBounds() {
+        var properties = new java.util.Properties();
+        properties.setProperty(S3ProxyConstants.PROPERTY_SHARDED_BLOBSTORE +
+                ".bucket.shards", "1000");
+        assertThat(ShardedBlobStore.parseBucketShards(properties))
+                .containsEntry("bucket", 1000);
+        properties.setProperty(S3ProxyConstants.PROPERTY_SHARDED_BLOBSTORE +
+                ".bucket.shards", "1001");
+        assertThatThrownBy(() -> ShardedBlobStore.parseBucketShards(
+                properties)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

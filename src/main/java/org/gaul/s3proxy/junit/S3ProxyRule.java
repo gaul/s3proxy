@@ -99,6 +99,11 @@ public final class S3ProxyRule extends ExternalResource {
         return core.getUri();
     }
 
+    /** The HTTPS endpoint, present when a secret store was configured. */
+    @Nullable public URI getSecureUri() {
+        return core.getSecureUri();
+    }
+
     @Nullable public String getAccessKey() {
         return core.getAccessKey();
     }

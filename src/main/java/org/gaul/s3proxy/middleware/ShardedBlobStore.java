@@ -179,7 +179,7 @@ final class ShardedBlobStore extends ForwardingBlobStore {
             String bucket = requireNonNull(matcher.group("bucket"));
             int shards = Integer.parseInt(
                     requireNonNull(properties.getProperty(key)));
-            checkArgument(shards > 0 && shards < MAX_SHARDS,
+            checkArgument(shards > 0 && shards <= MAX_SHARDS,
                     "number of shards must be between 1 and 1000 for %s",
                         bucket);
             shardsMap.put(bucket, shards);
