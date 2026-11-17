@@ -802,8 +802,12 @@ public final class AzureBlobStore implements BlobStore {
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
         var client = blobServiceClient.getBlobContainerClient(
                 request.bucket());
-        if (!client.exists()) {
-            throw S3Exceptions.noSuchBucket(request.bucket(), "");
+        try {
+            if (!client.exists()) {
+                throw S3Exceptions.noSuchBucket(request.bucket(), "");
+            }
+        } catch (BlobStorageException bse) {
+            throw translate(bse, request.bucket(), /*key=*/ null);
         }
         return HeadBucketResponse.builder().build();
     }
@@ -837,8 +841,10 @@ public final class AzureBlobStore implements BlobStore {
         try {
             blobServiceClient.deleteBlobContainer(container);
         } catch (BlobStorageException bse) {
-            if (!bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
-                throw bse;
+            // the code is null for an error Azure does not name
+            if (!BlobErrorCode.CONTAINER_NOT_FOUND.equals(
+                    bse.getErrorCode())) {
+                throw translate(bse, container, /*key=*/ null);
             }
         }
     }
@@ -860,8 +866,10 @@ public final class AzureBlobStore implements BlobStore {
             }
             blobServiceClient.deleteBlobContainer(container);
         } catch (BlobStorageException bse) {
-            if (!bse.getErrorCode().equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
-                throw bse;
+            // the code is null for an error Azure does not name
+            if (!BlobErrorCode.CONTAINER_NOT_FOUND.equals(
+                    bse.getErrorCode())) {
+                throw translate(bse, container, /*key=*/ null);
             }
         }
     }
@@ -1743,6 +1751,15 @@ public final class AzureBlobStore implements BlobStore {
                     .copySourceVersionId(copiedVersionId(source))
                     .build();
         } catch (BlobStorageException bse) {
+            // The copy is a request to the destination, so a container it
+            // reports missing is that one; translated like the rest, the
+            // error named the source bucket, which was there.
+            if (BlobErrorCode.CONTAINER_NOT_FOUND.equals(
+                    bse.getErrorCode()) &&
+                    !containerExists(request.destinationBucket())) {
+                throw S3Exceptions.noSuchBucket(
+                        request.destinationBucket(), "", bse);
+            }
             if (bse.getStatusCode() != 501) {
                 throw translate(bse, fromContainer, fromName,
                         request.sourceVersionId());
@@ -3236,9 +3253,11 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
         String uploadKey = mpu.id();
+        // An upload that is not there is NoSuchUpload, here as on every
+        // other multipart request; NoSuchKey says the object is missing,
+        // which a ListParts never asked about.
         if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                    "Multipart upload not found: " + uploadKey);
+            throw S3Exceptions.noSuchUpload(uploadKey);
         }
 
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -3251,15 +3270,13 @@ public final class AzureBlobStore implements BlobStore {
             targetBlobName = decodeTargetBlobName(
                     stubBlobClient.getProperties().getMetadata());
         } catch (BlobStorageException bse) {
-            if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                        "Multipart upload not found: " + uploadKey);
+            if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                throw S3Exceptions.noSuchUpload(uploadKey);
             }
-            throw bse;
+            throw translate(bse, mpu.containerName(), /*key=*/ null);
         }
         if (targetBlobName == null) {
-            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                    "Multipart upload not found: " + uploadKey);
+            throw S3Exceptions.noSuchUpload(uploadKey);
         }
 
         var client = containerClient
@@ -3273,7 +3290,7 @@ public final class AzureBlobStore implements BlobStore {
             if (bse.getStatusCode() == 404) {
                 return List.of();
             }
-            throw bse;
+            throw translate(bse, mpu.containerName(), targetBlobName);
         }
 
         // by part number, since a part may be listed under both forms of
@@ -3524,7 +3541,7 @@ public final class AzureBlobStore implements BlobStore {
             // mistake and S3 answers 400; passing the Azure exception on
             // would report the caller's own bad digest as a server error.
             return S3Exceptions.fromStatusCode(400, bse);
-        } else if (bse.getErrorCode().equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
+        } else if (code.equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             return new IllegalArgumentException(
                     "Invalid container name", bse);
         } else if (code.equals(

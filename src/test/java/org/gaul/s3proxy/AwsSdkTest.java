@@ -1546,8 +1546,10 @@ public final class AwsSdkTest {
     public void testListMultiCharacterDelimiter() throws Exception {
         // the nio2 stores refuse every delimiter but "/"
         assumeTrue(!Quirks.NIO2_BACKENDS.contains(blobStoreType));
-        // fake-gcs-server groups at the delimiter's first character
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
+        // fake-gcs-server and Azurite group at the delimiter's first
+        // character
+        assumeTrue(!blobStoreType.equals("google-cloud-storage") &&
+                !blobStoreType.equals("azureblob"));
         for (String key : List.of("a--b", "a--c", "a-d", "e", "f--g")) {
             client.putObject(b -> b.bucket(containerName).key(key),
                     RequestBody.empty());
@@ -1575,23 +1577,26 @@ public final class AwsSdkTest {
 
     @Test
     public void testPartOperationsWithoutCreate() throws Exception {
-        // Only the backends that keep a stub lacked this: their parts are
-        // plain objects, so a part was accepted under an id never issued.
-        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
         String key = "testPartOperationsWithoutCreate";
         String source = "testPartOperationsWithoutCreate-source";
         client.putObject(b -> b.bucket(containerName).key(source),
                 RequestBody.fromString("source"));
-        List<ThrowableAssert.ThrowingCallable> calls = List.of(
-                () -> client.uploadPart(b -> b.bucket(containerName).key(key)
-                        .uploadId("does-not-exist").partNumber(1),
-                        RequestBody.fromString("part")),
-                () -> client.uploadPartCopy(b -> b
-                        .sourceBucket(containerName).sourceKey(source)
-                        .destinationBucket(containerName).destinationKey(key)
-                        .uploadId("does-not-exist").partNumber(1)),
-                () -> client.listParts(b -> b.bucket(containerName).key(key)
-                        .uploadId("does-not-exist")));
+        var calls = new ArrayList<ThrowableAssert.ThrowingCallable>();
+        calls.add(() -> client.uploadPart(b -> b.bucket(containerName)
+                .key(key).uploadId("does-not-exist").partNumber(1),
+                RequestBody.fromString("part")));
+        calls.add(() -> client.uploadPartCopy(b -> b
+                .sourceBucket(containerName).sourceKey(source)
+                .destinationBucket(containerName).destinationKey(key)
+                .uploadId("does-not-exist").partNumber(1)));
+        // Swift and aws-s3 list no parts for an upload that is not open:
+        // that is how the frontend tells a completion retried from a
+        // first one.
+        if (!blobStoreType.equals("openstack-swift") &&
+                !blobStoreType.equals("aws-s3")) {
+            calls.add(() -> client.listParts(b -> b.bucket(containerName)
+                    .key(key).uploadId("does-not-exist")));
+        }
         for (var call : calls) {
             assertThatThrownBy(call)
                     .isInstanceOfSatisfying(S3Exception.class, e -> {
