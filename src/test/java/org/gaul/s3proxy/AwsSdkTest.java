@@ -1561,6 +1561,43 @@ public final class AwsSdkTest {
                 .isFalse();
     }
 
+    /**
+     * A part copied from a range takes the bytes the range names, and a
+     * range that runs past the end of the source names bytes that are not
+     * there.  The stores that copy a part natively were asked only whether
+     * the source was as long as the range, so one that began far enough in
+     * went through.
+     */
+    @Test
+    public void testMultipartUploadCopyRangePastTheEnd() throws Exception {
+        String sourceBlobName = "copy-range-past-the-end-source";
+        String targetBlobName = "copy-range-past-the-end-target";
+        client.putObject(b -> b.bucket(containerName).key(sourceBlobName),
+                RequestBody.fromString("fifteen bytes!!"));
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(targetBlobName)).uploadId();
+
+        for (String range : List.of("bytes=10-19", "bytes=15-15",
+                "bytes=0-9223372036854775807")) {
+            try {
+                client.uploadPartCopy(b -> b
+                        .sourceBucket(containerName)
+                        .sourceKey(sourceBlobName)
+                        .destinationBucket(containerName)
+                        .destinationKey(targetBlobName)
+                        .uploadId(uploadId)
+                        .copySourceRange(range)
+                        .partNumber(1));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                // the last is refused for its length before its end
+                assertThat(e.statusCode()).as(range).isIn(400, 416);
+            }
+        }
+        assertThat(client.listParts(b -> b.bucket(containerName)
+                .key(targetBlobName).uploadId(uploadId)).parts()).isEmpty();
+    }
+
     @Test
     public void testMultipartUploadConditionalCopy() throws Exception {
         assumeTrue(!blobStoreType.equals("openstack-swift"));

@@ -6042,6 +6042,7 @@ public class S3ProxyHandler {
         String range = request.getHeader(AwsHttpHeaders.COPY_SOURCE_RANGE);
         String rawCopySourceRange = range;
         long expectedSize = -1;
+        long rangeEnd = -1;
         if (range != null) {
             if (!range.startsWith("bytes=") || range.indexOf(',') != -1 ||
                 range.indexOf('-') == -1) {
@@ -6059,13 +6060,17 @@ public class S3ProxyHandler {
                     if (end < start) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                     }
-                    expectedSize = end - start + 1;
-                    if (expectedSize > MAX_MULTIPART_COPY_SIZE) {
+                    // Compared before the one is added: the length of
+                    // bytes=0-9223372036854775807 does not fit a long, and
+                    // wrapped to a negative number that passed for small.
+                    if (end - start >= MAX_MULTIPART_COPY_SIZE) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                                 "The specified copy source is larger than" +
                                 " the maximum allowable size for a copy" +
                                 " source: " + MAX_MULTIPART_COPY_SIZE);
                     }
+                    expectedSize = end - start + 1;
+                    rangeEnd = end;
                 } else {
                     // parse for validation only
                     Long.parseLong(ranges[0].isEmpty() ?
@@ -6127,7 +6132,11 @@ public class S3ProxyHandler {
                                         .COPY_SOURCE_SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
                                 .build());
                 Long sourceSize = sourceMetadata.contentLength();
-                if (sourceSize != null && sourceSize < expectedSize) {
+                // The last byte asked for must be one the source has.  Its
+                // size was compared with the length of the range, which
+                // let through any range that began far enough in to run
+                // off the end.
+                if (sourceSize != null && rangeEnd >= sourceSize) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                 }
             }
