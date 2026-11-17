@@ -67,7 +67,10 @@ import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -300,6 +303,57 @@ public final class EncryptedBlobStoreTest {
         assertThat(parts).hasSize(1);
         assertThat(parts.get(0).checksumCRC32()).isNull();
         encrypted.abortMultipartUpload(mpu);
+    }
+
+    /**
+     * On a backend whose multipart ETag does not count the parts, the size
+     * of an object uploaded as parts 1 and 5 is still the size of two parts.
+     */
+    @Test
+    public void testMultipartSizeWithGapsInPartNumbers() throws Exception {
+        BlobStore opaque = new ForwardingBlobStore(blobStore) {
+            @Override
+            public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+                return super.blobMetadata(request).toBuilder()
+                        .eTag("\"opaque\"").build();
+            }
+
+            @Override
+            public ListObjectsV2Response list(ListObjectsV2Request request) {
+                var page = super.list(request);
+                return page.toBuilder().contents(page.contents().stream()
+                        .map(object -> object.toBuilder()
+                                .eTag("\"opaque\"").build())
+                        .toList()).build();
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            opaque, encryptionProperties);
+
+        String blobName = TestUtils.createRandomBlobName();
+        MultipartUpload mpu = encrypted.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
+        byte[] first = filler(0, partSize);
+        byte[] last = filler(partSize, LAST_PART_SIZE);
+        TestUtils.uploadPart(encrypted, mpu, 1,
+            new ByteArrayInputStream(first), first.length);
+        TestUtils.uploadPart(encrypted, mpu, 5,
+            new ByteArrayInputStream(last), last.length);
+        encrypted.completeMultipartUpload(mpu, TestUtils.completeRequest(mpu,
+            encrypted.listMultipartUpload(mpu)));
+
+        long expected = (long) first.length + last.length;
+        try (var is = encrypted.getBlob(GetObjectRequest.builder()
+                .bucket(containerName).key(blobName).build())) {
+            assertThat(is.readAllBytes()).hasSize((int) expected);
+        }
+        assertThat(encrypted.blobMetadata(containerName, blobName)
+                .contentLength()).isEqualTo(expected);
+        assertThat(encrypted.list(ListObjectsV2Request.builder()
+                .bucket(containerName).prefix(blobName).build()).contents())
+                .singleElement()
+                .satisfies(object -> assertThat(object.size())
+                        .isEqualTo(expected));
     }
 
     /**

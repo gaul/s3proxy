@@ -199,11 +199,32 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         try {
             PartPadding lastPartPadding =
                 PartPadding.readPartPadding(blob);
-            int parts = lastPartPadding.getPart();
-            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
+            if (lastPartPadding.getPart() <= 1) {
+                return blobSize - Constants.PADDING_BLOCK_SIZE;
+            }
+            return walkedPlaintextSize(container, object.key(),
+                    HeadObjectResponse.builder()
+                            .contentLength(blobSize)
+                            .eTag(object.eTag())
+                            .lastModified(object.lastModified())
+                            .build());
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+    }
+
+    /**
+     * The plaintext size of a multipart object, found by walking its
+     * paddings.  The last padding names its part's number, and that is not
+     * how many parts there are: an upload of parts 1 and 5 has two.  Taking
+     * the number for the count subtracted a padding block for each part
+     * that was never uploaded, so HEAD and listings reported fewer bytes
+     * than a GET went on to serve.
+     */
+    private long walkedPlaintextSize(String container, String storedName,
+            HeadObjectResponse head) throws IOException {
+        return partPaddingsOf(container, storedName, head)
+                .getUnencryptedSize();
     }
 
     private boolean isEncrypted(String blobName) {
@@ -244,8 +265,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                                 blobSize - 1))
                         .build()));
         try {
-            int parts = PartPadding.readPartPadding(blob).getPart();
-            return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
+            if (PartPadding.readPartPadding(blob).getPart() <= 1) {
+                return blobSize - Constants.PADDING_BLOCK_SIZE;
+            }
+            return walkedPlaintextSize(container, storedName, head);
         } catch (IOException e) {
             throw new UncheckedIOException(
                 "Failed to read part-padding from encrypted blob", e);
