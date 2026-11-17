@@ -1491,6 +1491,32 @@ public final class AwsSdkTest {
                         assertThat(e.statusCode()).isEqualTo(412));
     }
 
+    /**
+     * An upload in progress is no object: neither its parts nor whatever
+     * the store keeps to track it appear in a listing of the bucket.
+     */
+    @Test
+    public void testListingHidesAnUploadInProgress() throws Exception {
+        String key = "testListingHidesAnUploadInProgress";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(key)).uploadId();
+        client.uploadPart(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadId).partNumber(1),
+                RequestBody.fromString("part"));
+
+        for (String delimiter : new String[] {null, "/"}) {
+            var listing = client.listObjectsV2(b -> b.bucket(containerName)
+                    .delimiter(delimiter));
+            assertThat(listing.contents()).as("delimiter %s", delimiter)
+                    .isEmpty();
+            assertThat(listing.commonPrefixes()).as("delimiter %s", delimiter)
+                    .isEmpty();
+        }
+
+        client.abortMultipartUpload(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadId));
+    }
+
     /** A delimiter of several characters groups keys where it occurs. */
     @Test
     public void testListMultiCharacterDelimiter() throws Exception {

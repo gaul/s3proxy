@@ -377,6 +377,9 @@ public final class GCloudBlobStore implements BlobStore {
             if (marker != null && blob.getName().compareTo(marker) <= 0) {
                 continue;
             }
+            if (isMultipartInternal(blob.getName())) {
+                continue;
+            }
             // A key whose current version is a delete marker holds nothing
             // an unversioned listing shows.
             if (!blob.isDirectory() && isDeleteMarker(blob)) {
@@ -405,11 +408,27 @@ public final class GCloudBlobStore implements BlobStore {
                 nextMarker);
     }
 
+    /**
+     * Whether a listed name is this store's record of a multipart upload:
+     * a stub, a part, or the common prefix a delimiter folds them into.
+     * They are objects to GCS and no objects of the bucket's, and a listing
+     * showed them: an upload in progress appeared as keys under
+     * ".s3proxy/", which a client emptying the bucket would delete.
+     */
+    private static boolean isMultipartInternal(String name) {
+        return name.startsWith(STUB_BLOB_PREFIX) ||
+                (!name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
+    }
+
     @Override
     public HeadBucketResponse headBucket(HeadBucketRequest request) {
-        if (storage.get(request.bucket(),
-                BucketGetOption.fields(BucketField.NAME)) == null) {
-            throw S3Exceptions.noSuchBucket(request.bucket(), "");
+        try {
+            if (storage.get(request.bucket(),
+                    BucketGetOption.fields(BucketField.NAME)) == null) {
+                throw S3Exceptions.noSuchBucket(request.bucket(), "");
+            }
+        } catch (StorageException se) {
+            throw translate(se, request.bucket(), /*key=*/ null);
         }
         return HeadBucketResponse.builder().build();
     }
@@ -487,12 +506,12 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public void deleteBucket(String container) {
-        var page = storage.list(container,
-                BlobListOption.pageSize(1));
-        if (page.getValues().iterator().hasNext()) {
-            throw S3Exceptions.bucketNotEmpty(container);
-        }
         try {
+            var page = storage.list(container,
+                    BlobListOption.pageSize(1));
+            if (page.getValues().iterator().hasNext()) {
+                throw S3Exceptions.bucketNotEmpty(container);
+            }
             storage.delete(container);
         } catch (StorageException se) {
             if (se.getCode() == 409) {
@@ -501,7 +520,7 @@ public final class GCloudBlobStore implements BlobStore {
                 throw S3Exceptions.bucketNotEmpty(container);
             }
             if (se.getCode() != 404) {
-                throw se;
+                throw translate(se, container, /*key=*/ null);
             }
         }
     }
@@ -772,6 +791,9 @@ public final class GCloudBlobStore implements BlobStore {
         var rows = new ArrayList<VersionRow>();
         var commonPrefixes = new TreeSet<String>();
         for (Blob blob : page.iterateAll()) {
+            if (isMultipartInternal(blob.getName())) {
+                continue;
+            }
             if (blob.isDirectory()) {
                 commonPrefixes.add(blob.getName());
                 continue;
@@ -2318,6 +2340,28 @@ public final class GCloudBlobStore implements BlobStore {
             // Surface a permission failure as 403 AccessDenied rather than a
             // generic 500.
             return S3Exceptions.fromStatusCode(403, se);
+        }
+        // The rest reached the frontend as the raw exception, which it
+        // answers 500 InternalError whatever GCS had said -- including for
+        // a request GCS refused as invalid, and for the rate limit a
+        // client is meant to back off from.
+        case 400 -> {
+            return S3Exceptions.invalidRequest(
+                    Strings.nullToEmpty(se.getMessage()));
+        }
+        case 409 -> {
+            return S3Exceptions.withCode(409, "OperationAborted",
+                    "A conflicting conditional operation is currently in" +
+                    " progress against this resource. Please try again.",
+                    se);
+        }
+        case 429 -> {
+            return S3Exceptions.withCode(503, "SlowDown",
+                    "Please reduce your request rate.", se);
+        }
+        case 502, 503, 504 -> {
+            return S3Exceptions.withCode(503, "ServiceUnavailable",
+                    "Service is unable to handle request.", se);
         }
         default -> { }
         }

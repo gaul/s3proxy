@@ -42,7 +42,9 @@ import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 
 /**
@@ -129,6 +131,30 @@ public final class GCloudCopyRequestTest {
         assertThat(rewrites).isEmpty();
     }
 
+    /**
+     * A refusal from GCS reaches the client as the S3 error that says the
+     * same, not as the raw exception the frontend can only answer 500 for.
+     */
+    @Test
+    public void testErrorStatusesAreTranslated() {
+        try (BlobStore blobStore = store()) {
+            assertThatThrownBy(() -> blobStore.headBucket(
+                    HeadBucketRequest.builder().bucket("invalid").build()))
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(400);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("InvalidRequest");
+                    });
+            assertThatThrownBy(() -> blobStore.headBucket(
+                    HeadBucketRequest.builder().bucket("conflict").build()))
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(409);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("OperationAborted");
+                    });
+        }
+    }
+
     private BlobStore store() {
         return new GCloudBlobStore(Suppliers.ofInstance(
                 new Credentials("project", /*credential=*/ "")),
@@ -145,7 +171,14 @@ public final class GCloudCopyRequestTest {
             request = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         String response;
-        if (path.contains("/rewriteTo/")) {
+        int status = 200;
+        if (path.endsWith("/b/invalid") || path.endsWith("/b/conflict")) {
+            status = path.endsWith("/b/invalid") ? 400 : 409;
+            response = "{\"error\":{\"code\":" + status +
+                    ",\"message\":\"refused\",\"errors\":[{" +
+                    "\"message\":\"refused\",\"domain\":\"global\"," +
+                    "\"reason\":\"invalid\"}]}}";
+        } else if (path.contains("/rewriteTo/")) {
             rewrites.add(request);
             response = "{\"kind\":\"storage#rewriteResponse\"," +
                     "\"done\":true,\"totalBytesRewritten\":\"1\"," +
@@ -164,7 +197,7 @@ public final class GCloudCopyRequestTest {
         byte[] body = response.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type",
                 "application/json; charset=UTF-8");
-        exchange.sendResponseHeaders(200, body.length);
+        exchange.sendResponseHeaders(status, body.length);
         try (var out = exchange.getResponseBody()) {
             out.write(body);
         }

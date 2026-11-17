@@ -199,6 +199,22 @@ public final class S3Exceptions {
     }
 
     /**
+     * An error of any S3 code, for a backend failure that has an S3
+     * equivalent no other method here names: a rate limit, an outage, a
+     * conflict.  The cause rides along for the log.
+     */
+    public static S3Exception withCode(int statusCode, String errorCode,
+            String message, @Nullable Throwable cause) {
+        return (S3Exception) S3Exception.builder()
+                .message(message)
+                .statusCode(statusCode)
+                .awsErrorDetails(details(statusCode, errorCode, message,
+                        Map.of()))
+                .cause(cause)
+                .build();
+    }
+
+    /**
      * A 501 NotImplemented naming what the backend cannot do, for a request
      * S3 itself would honor.  The code is S3's own, where a bare 501 from
      * {@link #fromStatusCode(int)} reaches a client as an unknown error.
