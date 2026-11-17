@@ -1266,6 +1266,13 @@ public class S3ProxyHandler {
                 handleMultiBlobRemove(request, response, is, blobStore,
                         path[1]);
                 return;
+            } else if ((path.length <= 2 || path[2].isEmpty()) &&
+                    (request.getParameter("uploads") != null ||
+                    uploadId != null)) {
+                // Creating and completing an upload are an object's
+                // operations, and a POST that names only the bucket has no
+                // key to give them.
+                throw new S3ProxyException(S3ErrorCode.METHOD_NOT_ALLOWED);
             } else if (request.getParameter("uploads") != null) {
                 setOperation(ctx, S3Operation.CREATE_MULTIPART_UPLOAD);
                 handleInitiateMultipartUpload(request, response, blobStore,

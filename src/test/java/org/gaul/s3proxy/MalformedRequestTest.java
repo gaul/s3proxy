@@ -118,6 +118,21 @@ public final class MalformedRequestTest {
         assertThat(put(bucket + "?acl", policy).statusCode()).isEqualTo(200);
     }
 
+    /** Creating or completing a multipart upload takes a key. */
+    @Test
+    public void testMultipartUploadWithoutAKey() throws Exception {
+        for (String target : List.of(bucket + "?uploads",
+                bucket + "/?uploads", bucket + "?uploadId=upload")) {
+            var response = httpClient.send(
+                    HttpRequest.newBuilder(URI.create(baseUri + target))
+                            .POST(HttpRequest.BodyPublishers.noBody())
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).as(target).isEqualTo(405);
+            assertThat(response.body()).contains("MethodNotAllowed");
+        }
+    }
+
     private HttpResponse<String> put(String pathAndQuery, String body)
             throws Exception {
         return httpClient.send(
