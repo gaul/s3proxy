@@ -256,10 +256,13 @@ public class S3ProxyHandler {
             "accelerate",
             "analytics",
             "cors",
+            "intelligent-tiering",
             "inventory",
             "legal-hold",
             "lifecycle",
             "logging",
+            "metadataConfiguration",
+            "metadataTable",
             "metrics",
             "notification",
             "object-lock",
@@ -1160,10 +1163,17 @@ public class S3ProxyHandler {
                 }
                 // Bucket subresources that cannot be deleted must not fall
                 // through to DeleteBucket, which ignores the parameter and
-                // would remove the bucket itself.
-                if (request.getParameter("versioning") != null ||
-                        request.getParameter("versions") != null) {
-                    throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+                // would remove the bucket itself.  S3 keeps adding them, so
+                // rather than name each one, DeleteBucket is what a request
+                // is only when nothing but its signature is in the query.
+                for (String parameter : Collections.list(
+                        request.getParameterNames())) {
+                    if (!isSigningParameter(parameter)) {
+                        logger.error("Unknown parameter {} deleting bucket {}",
+                                parameter, path[1]);
+                        throw new S3ProxyException(
+                                S3ErrorCode.NOT_IMPLEMENTED);
+                    }
                 }
                 setOperation(ctx, S3Operation.DELETE_BUCKET);
                 handleContainerDelete(request, response, blobStore, path[1]);
@@ -1442,6 +1452,18 @@ public class S3ProxyHandler {
         if (access != BucketCannedACL.PUBLIC_READ_WRITE) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
+    }
+
+    /**
+     * Whether a query parameter belongs to the request's signature and not
+     * to what it asks for: the presigned forms of both signature versions,
+     * and the operation name the AWS SDKs add beside them.
+     */
+    private static boolean isSigningParameter(String parameter) {
+        String lower = parameter.toLowerCase(Locale.ROOT);
+        return lower.startsWith("x-amz-") || lower.equals("awsaccesskeyid") ||
+                lower.equals("expires") || lower.equals("signature") ||
+                lower.equals("x-id");
     }
 
     private void doHandleAnonymous(HttpServletRequest request,

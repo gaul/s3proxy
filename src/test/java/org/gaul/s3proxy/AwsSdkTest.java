@@ -1232,6 +1232,29 @@ public final class AwsSdkTest {
                 .isEqualTo(ObjectCannedACL.PRIVATE);
     }
 
+    /**
+     * DELETE on a bucket with a subresource S3Proxy does not implement must
+     * not be taken for DeleteBucket: deleting an intelligent-tiering
+     * configuration deleted the bucket.
+     */
+    @Test
+    public void testDeleteBucketSubresourceKeepsBucket() throws Exception {
+        String bucket = containerName + "-tiering";
+        client.createBucket(b -> b.bucket(bucket));
+        try {
+            try {
+                client.deleteBucketIntelligentTieringConfiguration(b -> b
+                        .bucket(bucket).id("archive"));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(501);
+            }
+            client.headBucket(b -> b.bucket(bucket));
+        } finally {
+            client.deleteBucket(b -> b.bucket(bucket));
+        }
+    }
+
     private String currentETag(String key) {
         return client.headObject(
                 b -> b.bucket(containerName).key(key)).eTag();
