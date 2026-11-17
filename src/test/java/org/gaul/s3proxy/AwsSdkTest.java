@@ -3434,6 +3434,36 @@ public final class AwsSdkTest {
                 .key(blobName)).asUtf8String()).isEqualTo("good");
     }
 
+    /**
+     * A part for an upload that was never created, or is over, is refused:
+     * there is nothing for it to become part of.
+     */
+    @Test
+    public void testUploadPartUnknownUpload() throws Exception {
+        // The other stores accept the part and keep it where no completion
+        // will find it.
+        assumeTrue(blobStoreType.equals("azureblob"));
+
+        String blobName = "upload-part-unknown-upload";
+        String aborted = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        client.abortMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(aborted));
+
+        for (String uploadId : List.of("bogus", aborted)) {
+            try {
+                client.uploadPart(b -> b.bucket(containerName).key(blobName)
+                        .uploadId(uploadId).partNumber(1),
+                        RequestBody.fromString("content"));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(404);
+                assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                        "NoSuchUpload");
+            }
+        }
+    }
+
     @Test
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";

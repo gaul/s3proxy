@@ -157,6 +157,19 @@ public final class S3Exceptions {
                 .build();
     }
 
+    /** S3's answer to an upload ID that names no upload in progress. */
+    public static S3Exception noSuchUpload(String uploadId) {
+        String message = "The specified upload does not exist. The upload" +
+                " ID may be invalid, or the upload may have been aborted or" +
+                " completed.";
+        return (S3Exception) S3Exception.builder()
+                .message(message + " (" + uploadId + ")")
+                .statusCode(404)
+                .awsErrorDetails(details(404, "NoSuchUpload", message,
+                        Map.of()))
+                .build();
+    }
+
     /**
      * A 400 saying what about the request was wrong.  A status code alone
      * would not: the frontend answers a bare 400 with BadDigest, which tells

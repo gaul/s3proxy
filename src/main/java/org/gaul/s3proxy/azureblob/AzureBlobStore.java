@@ -2771,6 +2771,34 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
+     * The nonce an upload's blocks are named with, once the upload is known
+     * to be open.  The upload ID arrives from the client and may be any
+     * string: one too short to hold a nonce failed the request as a 500,
+     * and one that named no stub staged a block no completion would ever
+     * commit, where S3 answers NoSuchUpload to both.
+     */
+    private String openUploadNonce(MultipartUpload mpu) {
+        String uploadKey = mpu.id();
+        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
+            throw S3Exceptions.noSuchUpload(uploadKey);
+        }
+        try {
+            if (decodeTargetBlobName(blobServiceClient
+                    .getBlobContainerClient(mpu.containerName())
+                    .getBlobClient(uploadKey).getProperties()
+                    .getMetadata()) == null) {
+                throw S3Exceptions.noSuchUpload(uploadKey);
+            }
+        } catch (BlobStorageException bse) {
+            if (isAbsent(bse)) {
+                throw S3Exceptions.noSuchUpload(uploadKey);
+            }
+            throw translate(bse, mpu.containerName(), mpu.blobName());
+        }
+        return uploadKey.substring(STUB_BLOB_PREFIX.length());
+    }
+
+    /**
      * An upload ID is the name of the stub blob created with the upload, and
      * it arrives from the client, who may send any string at all: the name
      * of an object, say.  Only a blob under the stub prefix that carries an
@@ -2812,6 +2840,9 @@ public final class AzureBlobStore implements BlobStore {
         List<CompletedPart> parts = request.multipartUpload() == null ?
                 List.of() : request.multipartUpload().parts();
         String uploadKey = mpu.id();
+        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
+            throw S3Exceptions.noSuchUpload(uploadKey);
+        }
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 
         var containerClient = blobServiceClient.getBlobContainerClient(mpu.containerName());
@@ -2967,8 +2998,7 @@ public final class AzureBlobStore implements BlobStore {
                     MAXIMUM_MULTIPART_PART_SIZE + " bytes: " + contentLength);
         }
 
-        String uploadKey = mpu.id();
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String nonce = openUploadNonce(mpu);
         String blockId = makeBlockId(nonce, partNumber);
         var asyncClient = createNonRetryingBlockBlobAsyncClient(
                 mpu.containerName(), mpu.blobName());
@@ -3040,8 +3070,7 @@ public final class AzureBlobStore implements BlobStore {
         Instant ifModifiedSince = request.copySourceIfModifiedSince();
         Instant ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
 
-        String uploadKey = mpu.id();
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String nonce = openUploadNonce(mpu);
         String blockId = makeBlockId(nonce, partNumber);
 
         // The service fetches the source itself, authorized by a read SAS
