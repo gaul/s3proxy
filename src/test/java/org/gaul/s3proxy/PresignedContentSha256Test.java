@@ -213,11 +213,40 @@ public final class PresignedContentSha256Test {
     }
 
     /**
+     * A parameter sent more than once is signed with every value, sorted.
+     * Only the first was canonicalized, so the request did not verify, and
+     * a value after the first could be changed without the signature
+     * noticing.
+     */
+    @Test
+    public void testRepeatedQueryParameterIsSigned() throws Exception {
+        HttpResponse<String> response = put(presign(null, UNSIGNED,
+                "&zz=1&zz=2", "&zz=2&zz=1"), null);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+
+        response = put(presign(null, UNSIGNED, "&zz=1&zz=2", "&zz=1&zz=3"),
+                null);
+        assertThat(response.statusCode()).isEqualTo(403);
+    }
+
+    /**
      * Build a presigned PUT by hand so the test controls both the signed
      * header list and the payload line of the canonical request.
      */
     private URI presign(String headerValue, String payloadLine)
             throws Exception {
+        return presign(headerValue, payloadLine, "", "");
+    }
+
+    /**
+     * Presigns a PUT, optionally with further query parameters.
+     *
+     * @param signedExtra further parameters as the canonical request has
+     *     them, sorted, each led by an ampersand
+     * @param sentExtra the same parameters as the URL carries them
+     */
+    private URI presign(String headerValue, String payloadLine,
+            String signedExtra, String sentExtra) throws Exception {
         String timestamp = ISO8601.format(Instant.now());
         String date = timestamp.substring(0, 8);
         String scope = date + "/us-east-1/s3/aws4_request";
@@ -235,8 +264,8 @@ public final class PresignedContentSha256Test {
         }
         String path = "/" + containerName + "/" + BLOB_NAME;
         String canonicalRequest = String.join("\n",
-                "PUT", path, query, canonicalHeaders, signedHeaders,
-                payloadLine);
+                "PUT", path, query + signedExtra, canonicalHeaders,
+                signedHeaders, payloadLine);
         String stringToSign = String.join("\n",
                 "AWS4-HMAC-SHA256", timestamp, scope,
                 sha256(canonicalRequest));
@@ -247,7 +276,7 @@ public final class PresignedContentSha256Test {
         key = hmac(key, "aws4_request");
         String signature = hex(hmac(key, stringToSign));
         return URI.create("http://" + host + path + "?" + query +
-                "&X-Amz-Signature=" + signature);
+                sentExtra + "&X-Amz-Signature=" + signature);
     }
 
     private static String urlEncode(String s) {

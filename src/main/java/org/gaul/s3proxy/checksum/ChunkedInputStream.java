@@ -46,6 +46,7 @@ import software.amazon.awssdk.checksums.SdkChecksum;
  */
 public final class ChunkedInputStream extends FilterInputStream {
     private static final int MAX_LINE_LENGTH = 4096;
+    private static final String TRAILER_SIGNATURE = "x-amz-trailer-signature";
     private static final String EMPTY_SHA256 =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     /** Grow-only scratch holding the current chunk's first currentLength
@@ -235,12 +236,36 @@ public final class ChunkedInputStream extends FilterInputStream {
                 // either way by now, so a stream that stops among them is
                 // one missing its terminator rather than one cut short.
                 if (checksum != null) {
+                    var signedTrailers = new StringBuilder();
+                    String trailerSignature = null;
                     while (true) {
                         String trailerLine = readLine(delegate);
                         if (trailerLine == null || trailerLine.isEmpty()) {
                             break;
                         }
+                        String[] trailer = trailerLine.split(":", 2);
+                        if (trailer.length == 2 && trailer[0].trim()
+                                .equalsIgnoreCase(TRAILER_SIGNATURE)) {
+                            trailerSignature = trailer[1].trim();
+                            continue;
+                        }
                         validateTrailerHash(trailerLine);
+                        if (trailer.length == 2) {
+                            signedTrailers.append(trailer[0].trim()
+                                    .toLowerCase()).append(':')
+                                    .append(trailer[1].trim()).append('\n');
+                        }
+                    }
+                    // The request promised a checksum and the body ended
+                    // without one.  Accepting that stores the object as
+                    // though it had been verified.
+                    if (trailerValue == null) {
+                        throw malformed("the trailer the request declared" +
+                                " was not sent");
+                    }
+                    if (signingKey != null) {
+                        verifyTrailerSignature(signedTrailers.toString(),
+                                trailerSignature);
                     }
                 }
                 finished = true;
@@ -316,6 +341,46 @@ public final class ChunkedInputStream extends FilterInputStream {
                     S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
         }
         previousSignature = signature;
+    }
+
+    /**
+     * Verifies x-amz-trailer-signature, which closes the chain the chunk
+     * signatures form: it signs the trailing headers against the signature
+     * of the final chunk.  Unverified, the trailer of a signed upload was
+     * the one part of it anyone on the path could rewrite.
+     */
+    private void verifyTrailerSignature(String trailers,
+            @Nullable String signature) throws IOException {
+        if (signature == null) {
+            throw new IOException(new S3ProxyException(
+                    S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
+        }
+        String expected;
+        try {
+            if (sha256 == null) {
+                sha256 = MessageDigest.getInstance("SHA-256");
+            }
+            String trailersHash = HexFormat.of().formatHex(sha256.digest(
+                    trailers.getBytes(StandardCharsets.UTF_8)));
+            String stringToSign = "AWS4-HMAC-SHA256-TRAILER\n" +
+                    timestamp + "\n" +
+                    scope + "\n" +
+                    previousSignature + "\n" +
+                    trailersHash;
+            if (mac == null) {
+                Mac newMac = Mac.getInstance(hmacAlgorithm);
+                newMac.init(new SecretKeySpec(signingKey, hmacAlgorithm));
+                mac = newMac;
+            }
+            expected = HexFormat.of().formatHex(
+                    mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8)));
+        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        if (!constantTimeEquals(expected, signature)) {
+            throw new IOException(new S3ProxyException(
+                    S3ErrorCode.SIGNATURE_DOES_NOT_MATCH));
+        }
     }
 
     /**

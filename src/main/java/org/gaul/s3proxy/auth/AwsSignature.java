@@ -379,9 +379,10 @@ public final class AwsSignature {
         if (index < 0) {
             return null;
         }
+        // the fields come in any order, so this may be the last
         int endSigned = authorization.indexOf(',', index);
         if (endSigned < 0) {
-            return null;
+            endSigned = authorization.length();
         }
         int startHeaders = authorization.indexOf('=', index);
         return Splitter.on(';').splitToList(authorization.substring(
@@ -438,10 +439,21 @@ public final class AwsSignature {
             if (key.equals("X-Amz-Signature")) {
                 continue;
             }
-            // re-encode keys and values in AWS normalized form
-            String value = Strings.nullToEmpty(request.getParameter(key));
-            queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
-                    "=" + AWS_URL_PARAMETER_ESCAPER.escape(value));
+            // Every value of a parameter sent more than once, sorted, as
+            // the client signs them.  Only the first was taken, so such a
+            // request never verified -- and its later values went unsigned.
+            String[] values = request.getParameterValues(key);
+            List<String> escaped = new ArrayList<>();
+            for (String value : values == null ? new String[] {""} : values) {
+                // re-encode keys and values in AWS normalized form
+                escaped.add(AWS_URL_PARAMETER_ESCAPER.escape(
+                        Strings.nullToEmpty(value)));
+            }
+            escaped.sort(Comparator.naturalOrder());
+            for (String value : escaped) {
+                queryParameters.add(AWS_URL_PARAMETER_ESCAPER.escape(key) +
+                        "=" + value);
+            }
         }
         return String.join("&", queryParameters);
     }

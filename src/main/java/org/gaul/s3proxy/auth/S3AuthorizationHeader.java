@@ -24,10 +24,11 @@ import com.google.common.base.Splitter;
 import org.jspecify.annotations.Nullable;
 
 public final class S3AuthorizationHeader {
+    // Signature Version 4 is defined over SHA-256 alone.  SHA1 and MD5
+    // were accepted here too, which let a client choose a weaker MAC than
+    // any S3 would take.
     private static final Map<String, String> DIGEST_MAP = Map.of(
-            "SHA256", "SHA-256",
-            "SHA1", "SHA-1",
-            "MD5", "MD5");
+            "SHA256", "SHA-256");
     private static final String SIGNATURE_FIELD = "Signature=";
     private static final String CREDENTIAL_FIELD = "Credential=";
     private static final String V2_SCHEME = "AWS ";
@@ -86,9 +87,10 @@ public final class S3AuthorizationHeader {
             if (credentialIndex < 0) {
                 throw new IllegalArgumentException("Invalid header");
             }
+            // the fields come in any order, so any may be the last
             int credentialEnd = header.indexOf(',', credentialIndex);
             if (credentialEnd < 0) {
-                throw new IllegalArgumentException("Invalid header");
+                credentialEnd = header.length();
             }
             String credential = header.substring(credentialIndex +
                     CREDENTIAL_FIELD.length(), credentialEnd);

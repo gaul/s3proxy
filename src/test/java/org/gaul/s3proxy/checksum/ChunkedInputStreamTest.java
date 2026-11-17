@@ -343,6 +343,74 @@ public final class ChunkedInputStreamTest {
         }
     }
 
+    /** A trailer the request declared and the body never sent. */
+    @Test
+    public void declaredTrailerThatNeverArrives() throws Exception {
+        byte[] payload = "content".getBytes(StandardCharsets.UTF_8);
+        var out = new ByteArrayOutputStream();
+        appendUnsignedChunk(out, payload);
+        out.write("0\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+
+        try (var in = new ChunkedInputStream(new ByteArrayInputStream(
+                out.toByteArray()), MAX_CHUNK_SIZE, "x-amz-checksum-crc32")) {
+            assertThatThrownBy(in::readAllBytes)
+                    .isInstanceOf(IOException.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
+                    .cause()
+                    .extracting(c -> ((S3ProxyException) c).getError())
+                    .isEqualTo(S3ErrorCode.INVALID_REQUEST);
+        }
+    }
+
+    /**
+     * The trailer of a signed upload is signed too, against the signature
+     * of the final chunk; one with no signature, or the wrong one, is
+     * refused.  The SDK's own upload, which is what says the string signed
+     * here is the right one, is in SignedTrailerTest.
+     */
+    @Test
+    public void signedTrailerIsVerified() throws Exception {
+        byte[] signingKey = deriveSigningKey("test-secret");
+        byte[] payload = "content".getBytes(StandardCharsets.UTF_8);
+        String trailer = "x-amz-checksum-crc32:" + crc32Base64(payload);
+        String sig = chunkSignature(SEED_SIGNATURE, signingKey, payload);
+        String zeroSig = chunkSignature(sig, signingKey, new byte[0]);
+        String trailerSignature = HexFormat.of().formatHex(hmac(signingKey,
+                "AWS4-HMAC-SHA256-TRAILER\n" + TIMESTAMP + "\n" + SCOPE +
+                "\n" + zeroSig + "\n" + sha256Hex((trailer + "\n").getBytes(
+                        StandardCharsets.UTF_8))));
+
+        for (String signatureLine : List.of(
+                "x-amz-trailer-signature:" + trailerSignature + "\r\n",
+                "",
+                "x-amz-trailer-signature:" + zeroSig + "\r\n")) {
+            var out = new ByteArrayOutputStream();
+            out.write((Integer.toHexString(payload.length) +
+                    ";chunk-signature=" + sig + "\r\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.write(payload);
+            out.write(("\r\n0;chunk-signature=" + zeroSig + "\r\n" +
+                    trailer + "\r\n" + signatureLine + "\r\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            try (var in = new ChunkedInputStream(new ByteArrayInputStream(
+                    out.toByteArray()), MAX_CHUNK_SIZE, SEED_SIGNATURE,
+                    signingKey, HMAC, TIMESTAMP, SCOPE,
+                    "x-amz-checksum-crc32")) {
+                if (signatureLine.contains(trailerSignature)) {
+                    assertThat(in.readAllBytes()).isEqualTo(payload);
+                } else {
+                    assertThatThrownBy(in::readAllBytes)
+                            .isInstanceOf(IOException.class)
+                            .hasCauseInstanceOf(S3ProxyException.class)
+                            .cause()
+                            .extracting(c ->
+                                    ((S3ProxyException) c).getError())
+                            .isEqualTo(S3ErrorCode.SIGNATURE_DOES_NOT_MATCH);
+                }
+            }
+        }
+    }
+
     // --- helpers ---
 
     private static byte[] unsignedChunked(byte[][] chunks) {

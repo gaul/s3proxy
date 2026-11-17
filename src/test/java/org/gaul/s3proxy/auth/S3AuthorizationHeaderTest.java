@@ -19,6 +19,8 @@ package org.gaul.s3proxy.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 public final class S3AuthorizationHeaderTest {
@@ -56,14 +58,26 @@ public final class S3AuthorizationHeaderTest {
     }
 
     @Test
-    public void parsesAwsV4Sha1Header() {
-        var raw = "AWS4-HMAC-SHA1 " +
-                "Credential=key/20260101/us-west-2/s3/aws4_request, " +
-                "SignedHeaders=host, Signature=deadbeef";
+    public void refusesAnAlgorithmOtherThanSha256() {
+        for (String algorithm : List.of("SHA1", "MD5")) {
+            var raw = "AWS4-HMAC-" + algorithm + " " +
+                    "Credential=key/20260101/us-west-2/s3/aws4_request, " +
+                    "SignedHeaders=host, Signature=deadbeef";
+            assertThatThrownBy(() -> new S3AuthorizationHeader(raw))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining(algorithm);
+        }
+    }
+
+    @Test
+    public void credentialCanBeTheLastField() {
+        var raw = "AWS4-HMAC-SHA256 " +
+                "SignedHeaders=host, Signature=zzz, " +
+                "Credential=k/20260101/us-east-1/s3/aws4_request";
         var header = new S3AuthorizationHeader(raw);
-        assertThat(header.getHmacAlgorithm()).isEqualTo("HmacSHA1");
-        assertThat(header.getHashAlgorithm()).isEqualTo("SHA-1");
-        assertThat(header.getRegion()).isEqualTo("us-west-2");
+        assertThat(header.getIdentity()).isEqualTo("k");
+        assertThat(header.getRegion()).isEqualTo("us-east-1");
+        assertThat(header.getSignature()).isEqualTo("zzz");
     }
 
     @Test
