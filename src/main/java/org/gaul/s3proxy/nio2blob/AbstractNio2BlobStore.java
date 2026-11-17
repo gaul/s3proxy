@@ -1413,6 +1413,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         String key = request.key();
         String versionId = request.versionId();
         checkNotReserved(key);
+        // Before anything else: a store that does not version returns just
+        // below, and deleting a key that is absent succeeds, so without
+        // this a delete in a bucket that does not exist would too.
+        var containerPath = requireContainerPath(container);
         if (!supportsVersioning()) {
             // The literal "null" names the null version, which on an
             // unversioned namespace is the object itself.
@@ -1423,7 +1427,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             removeBlobInternal(container, key);
             return DeleteObjectResponse.builder().build();
         }
-        var containerPath = requireContainerPath(container);
         var status = readContainerStatus(containerPath);
         var path = resolveBlobPath(containerPath, key);
 
