@@ -1255,6 +1255,68 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * A completion either leaves the object or says it did not.  Swift
+     * refuses a manifest naming more segments than it is configured to
+     * allow, 1000 by default, and the client library reports that refusal
+     * as no ETag and no error: the store answered success for an object
+     * that was never written.
+     */
+    @Test
+    public void testCompleteMultipartUploadManyParts() throws Exception {
+        // Only Swift limits the parts of an upload below S3's own 10,000,
+        // and a thousand requests is a long test to run where it shows
+        // nothing.
+        assumeTrue(blobStoreType.equals("openstack-swift"));
+
+        // Asked of the store itself: the frontend holds every part but the
+        // last to S3's 5 MB minimum, and a thousand of those is 5 GB.
+        String key = "complete-many-parts";
+        int partCount = 1001;
+        var mpu = blobStore.initiateMultipartUpload(
+                software.amazon.awssdk.services.s3.model
+                        .CreateMultipartUploadRequest.builder()
+                        .bucket(containerName).key(key).build());
+        var completed = new ArrayList<CompletedPart>();
+        for (int i = 1; i <= partCount; ++i) {
+            var part = blobStore.uploadMultipartPart(mpu,
+                    software.amazon.awssdk.services.s3.model
+                            .UploadPartRequest.builder()
+                            .bucket(containerName).key(key)
+                            .uploadId(mpu.id()).partNumber(i)
+                            .contentLength(1L).build(),
+                    new java.io.ByteArrayInputStream(new byte[] {'x'}));
+            completed.add(CompletedPart.builder().partNumber(i)
+                    .eTag(part.eTag()).build());
+        }
+
+        boolean succeeded;
+        try {
+            blobStore.completeMultipartUpload(mpu,
+                    software.amazon.awssdk.services.s3.model
+                            .CompleteMultipartUploadRequest.builder()
+                            .bucket(containerName).key(key)
+                            .uploadId(mpu.id())
+                            .multipartUpload(CompletedMultipartUpload
+                                    .builder().parts(completed).build())
+                            .build());
+            succeeded = true;
+        } catch (RuntimeException re) {
+            succeeded = false;
+        }
+
+        if (succeeded) {
+            assertThat(client.headObject(b -> b.bucket(containerName)
+                    .key(key)).contentLength()).isEqualTo(partCount);
+        } else {
+            // the upload is still there to retry or abort
+            assertThat(client.listParts(b -> b.bucket(containerName)
+                    .key(key).uploadId(mpu.id())).parts()).isNotEmpty();
+            client.abortMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(mpu.id()));
+        }
+    }
+
     private String currentETag(String key) {
         return client.headObject(
                 b -> b.bucket(containerName).key(key)).eTag();

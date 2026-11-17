@@ -1455,6 +1455,17 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         } catch (ResponseException re) {
             throw translate(re, container, mpu.blobName());
         }
+        if (sloETag == null) {
+            // As in putBlobInternal: openstack4j's put() ignores the response
+            // status, so a manifest Swift refused -- one naming more
+            // segments than its max_manifest_segments, 1000 unless raised,
+            // say -- comes back as a null ETag and no exception.  Nothing
+            // was written, so say so and leave the marker: answering success
+            // here told the caller an object existed that did not, and
+            // removed the record that the upload was still open.
+            throw new RuntimeException("Swift refused the manifest of " +
+                    resolved.size() + " segments for " + mpu.blobName());
+        }
 
         // The manifest now references the segments, which must persist; only
         // the metadata marker is no longer needed.
