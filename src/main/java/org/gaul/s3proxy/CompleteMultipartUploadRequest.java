@@ -30,16 +30,18 @@ public record CompleteMultipartUploadRequest(
 
     public record Part(
             @JacksonXmlProperty(localName = "PartNumber") int partNumber,
-            @JacksonXmlProperty(localName = "ETag") String eTag,
+            @JacksonXmlProperty(localName = "ETag") @Nullable String eTag,
             // Per-part flexible checksums, enforced in
             // handleCompleteMultipartUpload to form the composite checksum.
-            @JacksonXmlProperty(localName = "ChecksumCRC32") String checksumCRC32,
+            @JacksonXmlProperty(localName = "ChecksumCRC32")
+            @Nullable String checksumCRC32,
             @JacksonXmlProperty(localName = "ChecksumCRC32C")
-            String checksumCRC32C,
+            @Nullable String checksumCRC32C,
             @JacksonXmlProperty(localName = "ChecksumCRC64NVME")
-            String checksumCRC64NVME,
-            @JacksonXmlProperty(localName = "ChecksumSHA1") String checksumSHA1,
+            @Nullable String checksumCRC64NVME,
+            @JacksonXmlProperty(localName = "ChecksumSHA1")
+            @Nullable String checksumSHA1,
             @JacksonXmlProperty(localName = "ChecksumSHA256")
-            String checksumSHA256) {
+            @Nullable String checksumSHA256) {
     }
 }

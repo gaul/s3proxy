@@ -16,9 +16,11 @@
 
 package org.gaul.s3proxy;
 
+import org.jspecify.annotations.Nullable;
+
 import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 record CreateBucketRequest(
         @JacksonXmlProperty(localName = "LocationConstraint")
-        String locationConstraint) {
+        @Nullable String locationConstraint) {
 }

@@ -25,13 +25,14 @@ import tools.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 
 /** Represent an Amazon AccessControlPolicy for a container or object. */
 record AccessControlPolicy(
-        @JacksonXmlProperty(localName = "Owner") Owner owner,
+        @JacksonXmlProperty(localName = "Owner") @Nullable Owner owner,
         @JacksonXmlProperty(localName = "AccessControlList")
         @Nullable AccessControlList aclList) {
 
     record Owner(
-            @JacksonXmlProperty(localName = "ID") String id,
-            @JacksonXmlProperty(localName = "DisplayName") String displayName) {
+            @JacksonXmlProperty(localName = "ID") @Nullable String id,
+            @JacksonXmlProperty(localName = "DisplayName")
+            @Nullable String displayName) {
     }
 
     record AccessControlList(
@@ -40,19 +41,23 @@ record AccessControlPolicy(
             @Nullable Collection<Grant> grants) {
 
         record Grant(
-                @JacksonXmlProperty(localName = "Grantee") Grantee grantee,
-                @JacksonXmlProperty(localName = "Permission") String permission) {
+                @JacksonXmlProperty(localName = "Grantee")
+                @Nullable Grantee grantee,
+                @JacksonXmlProperty(localName = "Permission")
+                @Nullable String permission) {
 
             record Grantee(
                     @JacksonXmlProperty(
                             namespace = "http://www.w3.org/2001/XMLSchema-instance",
-                            localName = "type", isAttribute = true) String type,
-                    @JacksonXmlProperty(localName = "ID") String id,
+                            localName = "type", isAttribute = true)
+                    @Nullable String type,
+                    @JacksonXmlProperty(localName = "ID") @Nullable String id,
                     @JacksonXmlProperty(localName = "DisplayName")
-                    String displayName,
+                    @Nullable String displayName,
                     @JacksonXmlProperty(localName = "EmailAddress")
-                    String emailAddress,
-                    @JacksonXmlProperty(localName = "URI") String uri) {
+                    @Nullable String emailAddress,
+                    @JacksonXmlProperty(localName = "URI")
+                    @Nullable String uri) {
             }
         }
     }

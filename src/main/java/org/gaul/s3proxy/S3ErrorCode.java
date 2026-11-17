@@ -79,6 +79,9 @@ public enum S3ErrorCode {
             "The storage class you specified is not valid."),
     INVALID_U_R_I(HttpServletResponse.SC_BAD_REQUEST,
             "Couldn't parse the specified URI."),
+    MALFORMED_A_C_L_ERROR(HttpServletResponse.SC_BAD_REQUEST,
+            "The XML you provided was not well-formed or did not validate" +
+            " against our published schema."),
     MALFORMED_X_M_L(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
             " against our published schema."),

@@ -81,6 +81,7 @@ import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.AccessControlPolicy;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
@@ -1990,6 +1991,69 @@ public final class AwsSdkTest {
         } catch (S3Exception e) {
             assertThat(e.awsErrorDetails().errorCode())
                     .isEqualTo("NotImplemented");
+        }
+    }
+
+    // Measured against S3: PutObjectAcl answers 400 MalformedACLError for
+    // a policy without an Owner and for a Grant without a Grantee or a
+    // Permission.
+    @Test
+    public void testUpdateBlobXmlAclsMalformed() throws Exception {
+        assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
+
+        String blobName = "testUpdateBlobXmlAclsMalformed-blob";
+        putBlob(containerName, blobName, BYTE_SOURCE);
+
+        GetObjectAclResponse acl = client.getObjectAcl(
+                b -> b.bucket(containerName).key(blobName));
+        var grantee = acl.grants().get(0).grantee();
+        var policies = List.of(
+                AccessControlPolicy.builder().grants(acl.grants()).build(),
+                AccessControlPolicy.builder().owner(acl.owner())
+                        .grants(Grant.builder()
+                                .permission(Permission.FULL_CONTROL).build())
+                        .build(),
+                AccessControlPolicy.builder().owner(acl.owner())
+                        .grants(Grant.builder().grantee(grantee).build())
+                        .build());
+        for (AccessControlPolicy policy : policies) {
+            try {
+                client.putObjectAcl(b -> b.bucket(containerName)
+                        .key(blobName).accessControlPolicy(policy));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(400);
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("MalformedACLError");
+            }
+        }
+    }
+
+    // Measured against S3: CompleteMultipartUpload answers 400 MalformedXML
+    // for a Part without an ETag element.
+    @Test
+    public void testCompleteMultipartUploadMissingETag() throws Exception {
+        var key = "testCompleteMultipartUploadMissingETag";
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        try {
+            client.uploadPart(b -> b.bucket(containerName).key(key)
+                            .uploadId(uploadId).partNumber(1),
+                    RequestBody.fromBytes(new byte[1]));
+            client.completeMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(CompletedPart.builder().partNumber(1)
+                                    .build())
+                            .build()));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("MalformedXML");
+        } finally {
+            client.abortMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadId));
         }
     }
 

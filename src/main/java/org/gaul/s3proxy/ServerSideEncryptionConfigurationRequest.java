@@ -33,13 +33,13 @@ record ServerSideEncryptionConfigurationRequest(
                     localName = "ApplyServerSideEncryptionByDefault")
             @Nullable ByDefault byDefault,
             @JacksonXmlProperty(localName = "BucketKeyEnabled")
-            Boolean bucketKeyEnabled) {
+            @Nullable Boolean bucketKeyEnabled) {
 
         record ByDefault(
                 @JacksonXmlProperty(localName = "SSEAlgorithm")
-                String sseAlgorithm,
+                @Nullable String sseAlgorithm,
                 @JacksonXmlProperty(localName = "KMSMasterKeyID")
-                String kmsMasterKeyID) {
+                @Nullable String kmsMasterKeyID) {
         }
     }
 }

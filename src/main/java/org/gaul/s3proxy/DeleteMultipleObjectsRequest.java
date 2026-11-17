@@ -34,7 +34,7 @@ record DeleteMultipleObjectsRequest(
         @Nullable Collection<S3Object> objects) {
 
     record S3Object(
-            @JacksonXmlProperty(localName = "Key") String key,
+            @JacksonXmlProperty(localName = "Key") @Nullable String key,
             // The element is VersionId, not VersionID: the mapper matches
             // case sensitively, so the latter never bound and every version
             // named here was silently ignored.

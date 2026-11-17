@@ -1948,7 +1948,14 @@ public class S3ProxyHandler {
      */
     private static String mapXmlAclsToCannedPolicy(
             AccessControlPolicy policy) {
-        String ownerId = policy.owner().id();
+        // S3 answers MalformedACLError for a policy without an owner ID,
+        // and for a grant without a grantee, its type, the ID or URI that
+        // type names, or a permission.
+        var owner = policy.owner();
+        if (owner == null || owner.id() == null) {
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_A_C_L_ERROR);
+        }
+        String ownerId = owner.id();
 
         boolean ownerFullControl = false;
         boolean allUsersRead = false;
@@ -1960,19 +1967,31 @@ public class S3ProxyHandler {
         if (policy.aclList() != null && policy.aclList().grants() != null) {
             for (AccessControlPolicy.AccessControlList.Grant grant :
                     policy.aclList().grants()) {
-                if (grant.grantee().type().equals("CanonicalUser") &&
-                        grant.grantee().id().equals(ownerId) &&
-                        grant.permission().equals("FULL_CONTROL")) {
+                var grantee = grant.grantee();
+                String permission = grant.permission();
+                if (grantee == null || permission == null) {
+                    throw new S3ProxyException(
+                            S3ErrorCode.MALFORMED_A_C_L_ERROR);
+                }
+                String type = grantee.type();
+                if (type == null ||
+                        (type.equals("CanonicalUser") &&
+                                grantee.id() == null) ||
+                        (type.equals("Group") && grantee.uri() == null)) {
+                    throw new S3ProxyException(
+                            S3ErrorCode.MALFORMED_A_C_L_ERROR);
+                }
+                if (type.equals("CanonicalUser") &&
+                        ownerId.equals(grantee.id()) &&
+                        permission.equals("FULL_CONTROL")) {
                     ownerFullControl = true;
-                } else if (grant.grantee().type().equals("Group") &&
-                        grant.grantee().uri().equals(
-                                Constants.ALL_USERS_URI) &&
-                        grant.permission().equals("READ")) {
+                } else if (type.equals("Group") &&
+                        Constants.ALL_USERS_URI.equals(grantee.uri()) &&
+                        permission.equals("READ")) {
                     allUsersRead = true;
-                } else if (grant.grantee().type().equals("Group") &&
-                        grant.grantee().uri().equals(
-                                Constants.ALL_USERS_URI) &&
-                        grant.permission().equals("WRITE")) {
+                } else if (type.equals("Group") &&
+                        Constants.ALL_USERS_URI.equals(grantee.uri()) &&
+                        permission.equals("WRITE")) {
                     allUsersWrite = true;
                 } else {
                     throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
@@ -3297,7 +3316,8 @@ public class S3ProxyHandler {
             var errors = new ImmutableList.Builder<S3Error>();
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
-                String key = s3Object.key();
+                // the loop above refused a missing key
+                String key = requireNonNull(s3Object.key());
                 String versionId = s3Object.versionId();
                 try {
                     DeleteObjectResponse result = null;
@@ -5304,6 +5324,15 @@ public class S3ProxyHandler {
 
         CompleteMultipartUploadRequest cmu = readXmlBody(
                 is, CompleteMultipartUploadRequest.class);
+        if (cmu.parts() != null) {
+            for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
+                // S3 answers MalformedXML for a part without an ETag
+                // element; an empty one names a part that is not there.
+                if (part.eTag() == null) {
+                    throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
+                }
+            }
+        }
 
         CreateMultipartUploadRequest carrierRequest;
         if (Quirks.MULTIPART_REQUIRES_STUB.contains(getBlobStoreType(
@@ -5387,7 +5416,8 @@ public class S3ProxyHandler {
                     String uploadedETag = uploadedPart.eTag();
                     if (uploadedETag != null && !uploadedETag.isEmpty() &&
                             !equalsIgnoringSurroundingQuotes(
-                                    uploadedETag, part.eTag())) {
+                                    uploadedETag,
+                                    requireNonNull(part.eTag()))) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                     }
                     listedPartSizes.put(uploadedPart.partNumber(),
@@ -5439,7 +5469,7 @@ public class S3ProxyHandler {
                 }
                 if (part.eTag() != null &&
                         !equalsIgnoringSurroundingQuotes(part.eTag(),
-                                entry.getValue().eTag())) {
+                                requireNonNull(entry.getValue().eTag()))) {
                     throw new S3ProxyException(S3ErrorCode.INVALID_PART);
                 }
                 listedPartSizes.put(entry.getKey(), partSize);
