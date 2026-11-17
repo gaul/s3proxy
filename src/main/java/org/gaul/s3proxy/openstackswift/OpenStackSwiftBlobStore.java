@@ -828,12 +828,39 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (ranged) {
             downloadOptions.header(HttpHeaders.RANGE, options.range());
         }
-        if (options.ifMatch() != null) {
-            downloadOptions.header(HttpHeaders.IF_MATCH, options.ifMatch());
-        }
-        if (options.ifNoneMatch() != null) {
-            downloadOptions.header(HttpHeaders.IF_NONE_MATCH,
-                    options.ifNoneMatch());
+        // Swift judges an ETag condition against its own ETag, which for
+        // an object assembled from parts is the hash of its manifest and
+        // not the composite one this store reports for it.  A client
+        // sending back the ETag it was given would be refused by If-Match
+        // and served anew by If-None-Match, so for such an object the
+        // conditions are judged here, against the ETag it knows.
+        boolean eTagConditions = options.ifMatch() != null ||
+                options.ifNoneMatch() != null;
+        String multipartETag = eTagConditions ?
+                reportedMultipartETag(swift, container, key) : null;
+        if (multipartETag != null) {
+            String eTag = maybeQuoteETag(multipartETag);
+            String ifMatch = options.ifMatch();
+            if (ifMatch != null && !ifMatch.equals("*") &&
+                    !maybeQuoteETag(ifMatch).equals(eTag)) {
+                throw S3Exceptions.fromStatusCode(
+                        STATUS_PRECONDITION_FAILED);
+            }
+            String ifNoneMatch = options.ifNoneMatch();
+            if (ifNoneMatch != null && (ifNoneMatch.equals("*") ||
+                    maybeQuoteETag(ifNoneMatch).equals(eTag))) {
+                throw S3Exceptions.fromStatusCode(304, eTag, Map.of(),
+                        /*cause=*/ null);
+            }
+        } else {
+            if (options.ifMatch() != null) {
+                downloadOptions.header(HttpHeaders.IF_MATCH,
+                        options.ifMatch());
+            }
+            if (options.ifNoneMatch() != null) {
+                downloadOptions.header(HttpHeaders.IF_NONE_MATCH,
+                        options.ifNoneMatch());
+            }
         }
         if (options.ifModifiedSince() != null) {
             downloadOptions.header(HttpHeaders.IF_MODIFIED_SINCE,
@@ -912,6 +939,27 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
         }
         return builder.build();
+    }
+
+    /**
+     * The composite ETag recorded for an object assembled from parts, or
+     * null for any other object and for one that is not there.
+     */
+    private @Nullable String reportedMultipartETag(ObjectStorageService swift,
+            String container, String key) {
+        SwiftObject object;
+        try {
+            object = swift.objects().get(container, encodeName(key));
+        } catch (ResponseException re) {
+            if (re.getStatus() == STATUS_NOT_FOUND) {
+                return null;
+            }
+            throw translate(re, container, key);
+        }
+        if (object == null || object.getMetadata() == null) {
+            return null;
+        }
+        return ObjectMetadata.from(object.getMetadata()).mpuETag();
     }
 
     @Override

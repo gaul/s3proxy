@@ -4134,6 +4134,48 @@ public final class AwsSdkTest {
         assertThat(head.contentEncoding()).isEqualTo("identity");
     }
 
+    /**
+     * The ETag an object reports is the one its conditions are judged by,
+     * whatever its backend's own: openstack-swift reports a composite ETag
+     * for an object assembled from parts and left If-Match and
+     * If-None-Match to Swift, which compared them with another.
+     */
+    @Test
+    public void testConditionalGetMultipartObject() throws Exception {
+        String blobName = "conditional-get-multipart";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName).uploadId(uploadId)
+                .partNumber(1), RequestBody.fromString("content"));
+        client.completeMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(part.eTag()).build())
+                        .build()));
+        String eTag = client.headObject(b -> b.bucket(containerName)
+                .key(blobName)).eTag();
+
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName).ifMatch(eTag)).asUtf8String())
+                .isEqualTo("content");
+        try {
+            client.getObjectAsBytes(b -> b.bucket(containerName)
+                    .key(blobName).ifNoneMatch(eTag));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(304);
+        }
+        try {
+            client.getObjectAsBytes(b -> b.bucket(containerName)
+                    .key(blobName).ifMatch("\"0123456789abcdef\""));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(412);
+        }
+    }
+
     @Test
     public void testConditionalGetModifiedSince() throws Exception {
         // HTTP conditional dates have one-second granularity while backend
