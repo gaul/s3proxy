@@ -907,7 +907,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             downloadOptions.header(HttpHeaders.IF_MODIFIED_SINCE,
                     toHttpDate(options.ifModifiedSince()));
         }
-        if (options.ifUnmodifiedSince() != null) {
+        // Only when If-Match is absent.  S3 answers a request carrying
+        // both with 200 when the If-Match holds and the If-Unmodified-Since
+        // does not; Swift, sent both, requires both.
+        if (options.ifUnmodifiedSince() != null &&
+                options.ifMatch() == null) {
             downloadOptions.header(HttpHeaders.IF_UNMODIFIED_SINCE,
                     toHttpDate(options.ifUnmodifiedSince()));
         }
@@ -1152,7 +1156,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     lastModified.compareTo(ifModifiedSince) <= 0) {
                 throw preconditionFailed();
             }
-            if (ifUnmodifiedSince != null &&
+            // only when the if-match is absent, as on a read
+            if (ifUnmodifiedSince != null && ifMatch == null &&
                     lastModified.compareTo(ifUnmodifiedSince) > 0) {
                 throw preconditionFailed();
             }

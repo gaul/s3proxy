@@ -1003,8 +1003,13 @@ public final class GCloudBlobStore implements BlobStore {
                     modified.compareTo(ifModifiedSince) <= 0) {
                 throw preconditionFailed(eTag);
             }
+            // Only when If-Match is absent.  S3 answers a request carrying
+            // both with 200 when the If-Match holds and the
+            // If-Unmodified-Since does not, the stronger condition settling
+            // it.  Asked of the request rather than the local, which the
+            // wildcard above has already cleared.
             Instant ifUnmodifiedSince = request.ifUnmodifiedSince();
-            if (ifUnmodifiedSince != null &&
+            if (ifUnmodifiedSince != null && request.ifMatch() == null &&
                     modified.compareTo(ifUnmodifiedSince) > 0) {
                 throw preconditionFailed(eTag);
             }
@@ -1269,7 +1274,8 @@ public final class GCloudBlobStore implements BlobStore {
                     modified.compareTo(ifModifiedSince) <= 0) {
                 throw preconditionFailed(sourceETag);
             }
-            if (ifUnmodifiedSince != null &&
+            // only when the if-match is absent, as on a read
+            if (ifUnmodifiedSince != null && ifMatch == null &&
                     modified.compareTo(ifUnmodifiedSince) > 0) {
                 throw preconditionFailed(sourceETag);
             }

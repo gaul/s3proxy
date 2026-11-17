@@ -1459,6 +1459,38 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * If-Match settles a request that also carries If-Unmodified-Since: S3
+     * serves, or copies, when the ETag matches although the date does not.
+     */
+    @Test
+    public void testIfMatchSettlesIfUnmodifiedSince() throws Exception {
+        // Azure is sent both conditions and requires both, and so does
+        // LocalStack, whose answer the aws-s3 store relays.
+        assumeTrue(!blobStoreType.equals("azureblob"));
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+        String key = "testIfMatchSettlesIfUnmodifiedSince";
+        String eTag = client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("content")).eTag();
+        Instant longAgo = Instant.parse("2000-01-01T00:00:00Z");
+
+        try (var object = client.getObject(b -> b.bucket(containerName)
+                .key(key).ifMatch(eTag).ifUnmodifiedSince(longAgo))) {
+            assertThat(object.readAllBytes()).isEqualTo(
+                    "content".getBytes(StandardCharsets.UTF_8));
+        }
+        client.copyObject(b -> b.sourceBucket(containerName).sourceKey(key)
+                .destinationBucket(containerName)
+                .destinationKey(key + "-copy")
+                .copySourceIfMatch(eTag)
+                .copySourceIfUnmodifiedSince(longAgo));
+        // and without the If-Match the date is judged
+        assertThatThrownBy(() -> client.getObject(b -> b
+                .bucket(containerName).key(key).ifUnmodifiedSince(longAgo)))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(412));
+    }
+
     /** A delimiter of several characters groups keys where it occurs. */
     @Test
     public void testListMultiCharacterDelimiter() throws Exception {
