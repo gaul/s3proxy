@@ -46,6 +46,8 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
     private S3Proxy s3Proxy;
     private S3Client client;
     private String containerName;
+    private RuntimeException failure =
+            new RuntimeException("simulated late backend failure");
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -61,7 +63,7 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
                     MultipartUpload mpu,
                     software.amazon.awssdk.services.s3.model
                             .CompleteMultipartUploadRequest completeRequest) {
-                throw new RuntimeException("simulated late backend failure");
+                throw failure;
             }
         };
 
@@ -122,6 +124,36 @@ public final class S3ProxyCompleteMultipartUploadErrorTest {
         } catch (S3Exception e) {
             assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
                     "InternalError");
+        }
+    }
+
+    /**
+     * The store's own error survives the late report: InternalError is
+     * retried by every SDK, and a NoSuchUpload never succeeds on retry.
+     */
+    @Test
+    public void testLateCompletionFailureKeepsTheStoreErrorCode()
+            throws Exception {
+        failure = new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
+        String key = "mpu-key";
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        UploadPartResponse part = client.uploadPart(
+                b -> b.bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1),
+                RequestBody.fromBytes(new byte[1]));
+
+        try {
+            client.completeMultipartUpload(b -> b.bucket(containerName).key(key)
+                    .uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(CompletedPart.builder().partNumber(1)
+                                    .eTag(part.eTag()).build())
+                            .build()));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchUpload");
         }
     }
 }

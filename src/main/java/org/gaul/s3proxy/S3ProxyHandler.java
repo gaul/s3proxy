@@ -71,6 +71,7 @@ import javax.xml.stream.XMLStreamWriter;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.escape.Escaper;
@@ -5738,6 +5739,14 @@ public class S3ProxyHandler {
                     try {
                         result.set(blobStore.completeMultipartUpload(
                                 completeMpu, sdkComplete));
+                        // In here, so that a failure to remove the stub is
+                        // reported like any other: thrown after the prolog
+                        // is out it would truncate the response instead.
+                        if (Quirks.MULTIPART_REQUIRES_STUB.contains(
+                                blobStoreType)) {
+                            removeMultipartStub(blobStore, containerName,
+                                    uploadId);
+                        }
                     } catch (RuntimeException re) {
                         exception.set(re);
                     }
@@ -5772,13 +5781,33 @@ public class S3ProxyHandler {
                 // failure cannot be signaled through the status code.  Write
                 // an <Error> body -- as S3 does for a late completion failure
                 // -- rather than truncating the response by rethrowing.
-                logger.error("completeMultipartUpload failed after the " +
-                        "response was committed", exception.get());
+                // The store's own answer when it gave one: NoSuchUpload or
+                // InvalidPart is the caller's to act on, where InternalError
+                // is retried by every SDK.
+                String lateCode = S3ErrorCode.INTERNAL_ERROR.getErrorCode();
+                String lateMessage = S3ErrorCode.INTERNAL_ERROR.getMessage();
+                AwsServiceException storeError = Throwables.getCausalChain(
+                        exception.get()).stream()
+                        .filter(AwsServiceException.class::isInstance)
+                        .map(AwsServiceException.class::cast)
+                        .findFirst()
+                        .orElse(null);
+                String storeCode = storeError == null ? null :
+                        S3Exceptions.errorCode(storeError);
+                if (storeError != null && storeCode != null) {
+                    logger.debug("completeMultipartUpload failed after the " +
+                            "response was committed", exception.get());
+                    lateCode = storeCode;
+                    String storeMessage =
+                            storeError.awsErrorDetails().errorMessage();
+                    lateMessage = storeMessage == null ? "" : storeMessage;
+                } else {
+                    logger.error("completeMultipartUpload failed after the " +
+                            "response was committed", exception.get());
+                }
                 xml.writeStartElement("Error");
-                writeSimpleElement(xml, "Code",
-                        S3ErrorCode.INTERNAL_ERROR.getErrorCode());
-                writeSimpleElement(xml, "Message",
-                        S3ErrorCode.INTERNAL_ERROR.getMessage());
+                writeSimpleElement(xml, "Code", lateCode);
+                writeSimpleElement(xml, "Message", lateMessage);
                 String requestId = response.getHeader(
                         AwsHttpHeaders.REQUEST_ID);
                 if (requestId == null) {
@@ -5788,12 +5817,6 @@ public class S3ProxyHandler {
                 xml.writeEndElement();
                 xml.flush();
                 return;
-            }
-
-            if (completedResult == null &&
-                    Quirks.MULTIPART_REQUIRES_STUB.contains(
-                            getBlobStoreType(blobStore))) {
-                removeMultipartStub(blobStore, containerName, uploadId);
             }
 
             xml.writeStartElement("CompleteMultipartUploadResult");
