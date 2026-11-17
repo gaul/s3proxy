@@ -412,10 +412,11 @@ public final class AwsSignature {
                 } else {
                     headersWithValues.append(',');
                 }
-                value = value.trim();
-                if (!value.startsWith("\"")) {
-                    value = REPEATING_WHITESPACE.matcher(value).replaceAll(" ");
-                }
+                // Quoted or not: the SDKs collapse every run of spaces
+                // when they sign, so sparing a value that opens with a
+                // quote signed a different string than the client had.
+                value = REPEATING_WHITESPACE.matcher(value.trim())
+                        .replaceAll(" ");
                 headersWithValues.append(value);
             }
         }

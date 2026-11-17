@@ -1443,6 +1443,22 @@ public final class AwsSdkTest {
         }
     }
 
+    /** A signed header whose value is quoted and holds a run of spaces. */
+    @Test
+    public void testSignedHeaderWithQuotedSpaces() throws Exception {
+        String key = "testSignedHeaderWithQuotedSpaces";
+        client.putObject(b -> b.bucket(containerName).key(key)
+                .contentDisposition("\"a  b   c\""),
+                RequestBody.fromString("content"));
+        // the write passing the signature check is the test; the value is
+        // read back only where the store keeps it
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(client.headObject(b -> b.bucket(containerName)
+                    .key(key)).contentDisposition())
+                    .isEqualTo("\"a  b   c\"");
+        }
+    }
+
     @Test
     public void testPartOperationsWithoutCreate() throws Exception {
         // Only the backends that keep a stub lacked this: their parts are
