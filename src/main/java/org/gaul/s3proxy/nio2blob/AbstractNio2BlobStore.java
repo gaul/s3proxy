@@ -157,6 +157,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Set<String> NO_ATTRIBUTES = Set.of();
     /** How many times a publish makes its parent directory again. */
     private static final int PUBLISH_ATTEMPTS = 100;
+    /** The version id of a version listing's row for a common prefix. */
+    private static final String COMMON_PREFIX_ROW = "";
     /** How many times a read starts over when a write replaces its file. */
     private static final int ATTRIBUTE_READ_ATTEMPTS = 100;
     // Reserved prefix for the store's own multipart bookkeeping: the stub
@@ -2028,6 +2030,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     version.deleteMarker(), eTag, version.lastModified(),
                     size));
         }
+        // A common prefix is a row like any other: it takes its place in
+        // key order, counts once against max-keys, and can be where a page
+        // ends.  Kept apart from the rows, every prefix was sent again on
+        // each page and none was counted.
+        for (String commonPrefix : commonPrefixes) {
+            rows.add(new VersionRow(commonPrefix, COMMON_PREFIX_ROW,
+                    /*latest=*/ false, /*deleteMarker=*/ false,
+                    /*eTag=*/ null, Instant.EPOCH, /*size=*/ null));
+        }
         rows.sort(Comparator.comparing(VersionRow::key)
                 .thenComparing(Comparator.comparing(
                         VersionRow::lastModified).reversed()));
@@ -2073,13 +2084,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (end < rows.size() && !page.isEmpty()) {
             var last = page.get(page.size() - 1);
             nextKeyMarker = last.key();
-            nextVersionIdMarker = last.versionId();
+            // A page ending on a common prefix resumes after it by key
+            // alone: every key under it sorts after it and is folded back
+            // into the prefix, which sorts at the marker and is passed.
+            nextVersionIdMarker = last.versionId().equals(
+                    COMMON_PREFIX_ROW) ? null : last.versionId();
         }
 
         var versions = new ArrayList<ObjectVersion>();
         var markers = new ArrayList<DeleteMarkerEntry>();
+        var pagePrefixes = new ArrayList<String>();
         for (var row : page) {
-            if (row.deleteMarker()) {
+            if (row.versionId().equals(COMMON_PREFIX_ROW)) {
+                pagePrefixes.add(row.key());
+            } else if (row.deleteMarker()) {
                 markers.add(DeleteMarkerEntry.builder()
                         .key(row.key())
                         .versionId(row.versionId())
@@ -2101,7 +2119,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return ListObjectVersionsResponse.builder()
                 .versions(versions)
                 .deleteMarkers(markers)
-                .commonPrefixes(commonPrefixes.stream()
+                .commonPrefixes(pagePrefixes.stream()
                         .map(value -> CommonPrefix.builder().prefix(value)
                                 .build())
                         .toList())

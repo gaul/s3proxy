@@ -64,6 +64,50 @@ public final class Nio2VersioningSupportTest {
                 .isEqualTo(BucketVersioningStatus.ENABLED);
     }
 
+    /**
+     * A common prefix in a version listing is listed once, in key order,
+     * and counts against max-keys like a version does.
+     */
+    @Test
+    public void testVersionListingPagesCommonPrefixes() {
+        transientStore.putBucketVersioning(CONTAINER,
+                BucketVersioningStatus.ENABLED);
+        for (String key : java.util.List.of("a/1", "a/2", "b", "c/1", "d",
+                "e/1", "e/2")) {
+            transientStore.putBlob(PutObjectRequest.builder()
+                    .bucket(CONTAINER).key(key).contentLength(0L).build(),
+                    new ByteArrayInputStream(new byte[0]));
+        }
+        // a second version of one key, so a page can end between the two
+        transientStore.putBlob(PutObjectRequest.builder()
+                .bucket(CONTAINER).key("b").contentLength(0L).build(),
+                new ByteArrayInputStream(new byte[0]));
+
+        for (int maxKeys = 1; maxKeys <= 7; ++maxKeys) {
+            var seen = new java.util.ArrayList<String>();
+            String keyMarker = null;
+            String versionIdMarker = null;
+            do {
+                var page = transientStore.listVersions(
+                        ListObjectVersionsRequest.builder()
+                                .bucket(CONTAINER).delimiter("/")
+                                .maxKeys(maxKeys).keyMarker(keyMarker)
+                                .versionIdMarker(versionIdMarker).build());
+                assertThat(page.versions().size() +
+                        page.commonPrefixes().size())
+                        .isLessThanOrEqualTo(maxKeys);
+                page.versions().forEach(version -> seen.add(version.key()));
+                page.commonPrefixes().forEach(
+                        prefix -> seen.add(prefix.prefix()));
+                keyMarker = page.nextKeyMarker();
+                versionIdMarker = page.nextVersionIdMarker();
+            } while (keyMarker != null);
+            assertThat(seen).as("max-keys %s", maxKeys)
+                    .containsExactlyInAnyOrder("a/", "b", "b", "c/", "d",
+                            "e/");
+        }
+    }
+
     @Test
     public void testFilesystemRefusesVersioning() {
         assertThat(filesystemStore.supportsVersioning()).isFalse();
