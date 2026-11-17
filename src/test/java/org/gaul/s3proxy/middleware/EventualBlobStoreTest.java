@@ -34,6 +34,8 @@ import com.google.common.net.MediaType;
 
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -161,6 +163,44 @@ public final class EventualBlobStoreTest {
         assertBlobAbsent(blobName);
         delay();
         validateBlob(eventualBlobStore.getBlob(containerName, blobName));
+    }
+
+    /**
+     * The frontend's record of a multipart upload is read back at once, from
+     * the store the upload lives in, so it is not delayed like an object.
+     */
+    @Test
+    public void testMultipartStubIsNotDelayed() throws Exception {
+        String stubName = Constants.MULTIPART_STUB_PREFIX + "upload-id";
+        TestUtils.putBlob(eventualBlobStore, containerName, stubName,
+                BYTE_SOURCE);
+        assertThat(eventualBlobStore.blobExists(containerName, stubName))
+                .isTrue();
+        eventualBlobStore.removeBlob(containerName, stubName);
+        assertThat(eventualBlobStore.blobExists(containerName, stubName))
+                .isFalse();
+    }
+
+    @Test
+    public void testCloseReleasesBothStoresAndTheExecutor() throws Exception {
+        var executor = Executors.newScheduledThreadPool(1);
+        var closed = new java.util.ArrayList<String>();
+        BlobStore near = new ForwardingBlobStore(nearBlobStore) {
+            @Override
+            public void close() {
+                closed.add("near");
+            }
+        };
+        BlobStore far = new ForwardingBlobStore(farBlobStore) {
+            @Override
+            public void close() {
+                closed.add("far");
+            }
+        };
+        EventualBlobStore.newEventualBlobStore(near, far, executor, DELAY,
+                DELAY_UNIT, 1.0).close();
+        assertThat(closed).containsExactlyInAnyOrder("near", "far");
+        assertThat(executor.isShutdown()).isTrue();
     }
 
     @Test

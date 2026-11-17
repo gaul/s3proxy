@@ -45,6 +45,16 @@ public final class Constants {
     public static final String ALL_USERS_URI =
             "http://acs.amazonaws.com/groups/global/AllUsers";
 
+    /**
+     * Reserved prefix for the stub blob that carries object metadata between
+     * initiate and complete multipart upload for the backends that need one.
+     * These stubs are hidden from list() to match S3 semantics where
+     * multipart internals are not exposed.  Using a dedicated prefix rather
+     * than matching the UUID-shaped upload id avoids hiding legitimate user
+     * objects whose keys happen to look like a UUID.
+     */
+    public static final String MULTIPART_STUB_PREFIX = ".s3proxy-mpu-stub-";
+
     private Constants() {
     }
 }

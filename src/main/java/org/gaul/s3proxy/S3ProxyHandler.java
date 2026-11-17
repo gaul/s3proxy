@@ -369,13 +369,8 @@ public class S3ProxyHandler {
     private static final String UTF_8 = "UTF-8";
     /** The largest offset a range forwards, with room to add one to it. */
     private static final String MAX_RANGE_OFFSET = "999999999999999999";
-    // Reserved prefix for the stub blob that carries object metadata between
-    // initiate and complete multipart upload for MULTIPART_REQUIRES_STUB
-    // backends.  These stubs are hidden from list() to match S3 semantics
-    // where multipart internals are not exposed.  Using a dedicated prefix
-    // rather than matching the UUID-shaped upload id avoids hiding legitimate
-    // user objects whose keys happen to look like a UUID.
-    private static final String MULTIPART_STUB_PREFIX = ".s3proxy-mpu-stub-";
+    private static final String MULTIPART_STUB_PREFIX =
+            Constants.MULTIPART_STUB_PREFIX;
     /** URLEncoder escapes / which we do not want. */
     private static final Escaper urlEscaper = new PercentEscaper(
             "*-./_", /*plusForSpace=*/ false);

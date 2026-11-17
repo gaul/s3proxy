@@ -28,6 +28,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -141,6 +142,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
             InputStream payload) {
         final String containerName = request.bucket();
         final String nearName = request.key();
+        if (isMultipartStub(nearName)) {
+            return delegate().putBlob(request, payload);
+        }
         PutObjectResponse nearResult = writeStore.putBlob(request, payload);
         schedule(new Callable<@Nullable PutObjectResponse>() {
                 @Override
@@ -171,6 +175,9 @@ final class EventualBlobStore extends ForwardingBlobStore {
         // The near store holds the freshest state, so it is the one that
         // judges the condition; the far copy follows unconditionally, as it
         // does for the plain removal above.
+        if (isMultipartStub(request.key())) {
+            return delegate().removeBlob(request);
+        }
         DeleteObjectResponse result = writeStore.removeBlob(request);
         schedule(new Callable<@Nullable Void>() {
                 @Override
@@ -180,6 +187,30 @@ final class EventualBlobStore extends ForwardingBlobStore {
                 }
             });
         return result;
+    }
+
+    @Override
+    public void close() {
+        // nothing more will be replicated: what is still queued is dropped
+        // with the stores it would have run against
+        executorService.shutdownNow();
+        try {
+            writeStore.close();
+        } finally {
+            delegate().close();
+        }
+    }
+
+    /**
+     * Whether the name is the frontend's record of a multipart upload.  The
+     * upload itself -- its parts, its completion -- lives in the read store,
+     * and the frontend looks for the stub there the moment it has written
+     * it.  Written to the write store like an object, the stub arrived only
+     * after the delay, and until then every part and the completion
+     * answered NoSuchUpload.
+     */
+    private static boolean isMultipartStub(String name) {
+        return name.startsWith(Constants.MULTIPART_STUB_PREFIX);
     }
 
     @Override
