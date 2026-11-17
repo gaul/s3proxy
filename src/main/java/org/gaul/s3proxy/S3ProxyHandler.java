@@ -4679,6 +4679,7 @@ public class S3ProxyHandler {
             checksum.setOn(putRequest, checksumValue);
         }
 
+        readEmptyBody(is, contentLength);
         PutObjectResponse result = blobStore.putBlob(putRequest.build(), is);
 
         addCorsResponseHeader(request, response);
@@ -6559,6 +6560,7 @@ public class S3ProxyHandler {
             checksum.setOn(partRequest, checksumValue);
         }
 
+        readEmptyBody(is, contentLength);
         UploadPartResponse part = blobStore.uploadMultipartPart(mpu,
                 partRequest.build(), is);
         requireMultipartUploadAfterPart(blobStore, containerName, mpu);
@@ -7275,6 +7277,20 @@ public class S3ProxyHandler {
     private static int compareRangeOffsets(String a, String b) {
         return new java.math.BigInteger(a).compareTo(
                 new java.math.BigInteger(b));
+    }
+
+    /**
+     * Reads the end of a body declared empty.  What vouches for a body --
+     * a pinned payload hash, a checksum, the trailer of an aws-chunked
+     * upload -- is checked as the body is read, and a store handed nothing
+     * to store need not read at all.  Reading here checks the empty body
+     * whichever store it is going to.
+     */
+    private static void readEmptyBody(InputStream is, long contentLength)
+            throws IOException {
+        if (contentLength == 0) {
+            var unused = is.read();
+        }
     }
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
