@@ -29,6 +29,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -61,6 +62,7 @@ import com.google.common.net.HttpHeaders;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -1075,7 +1077,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             swiftOptions.metadata(encodeMetadata(userMetadata));
         }
         String etag;
-        try (var is = blob.getPayload()) {
+        // The digest of what was sent, kept to tell a rejected Content-MD5
+        // apart from every other way the write can fail.
+        var sent = MD5.newDigest();
+        try (var is = new DigestInputStream(
+                requireNonNull(blob.getPayload()), sent)) {
             etag = swift.objects().put(container,
                     encodeName(metadata.name()), Payloads.create(is),
                     swiftOptions);
@@ -1099,7 +1105,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     null) {
                 throw S3Exceptions.fromStatusCode(STATUS_PRECONDITION_FAILED);
             }
-            if (contentMD5 != null) {
+            // Only when the bytes sent do not hash to it.  Every failure of
+            // a write that carried a Content-MD5 was called BadDigest, which
+            // a client does not retry, whatever had gone wrong.
+            if (contentMD5 != null && !contentMD5.equals(
+                    HashCode.fromBytes(sent.digest()))) {
                 throw S3Exceptions.fromStatusCode(STATUS_BAD_REQUEST);
             }
             throw new RuntimeException(
