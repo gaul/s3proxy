@@ -479,8 +479,21 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         var swift = objectStorage();
         String prefix = request.prefix();
         var delimiter = request.delimiter();
-        Character delimiterChar = delimiter != null && !delimiter.isEmpty() ?
-                delimiter.charAt(0) : null;
+        // The listing call takes a delimiter of one character.  A longer
+        // one was cut to its first, which grouped keys at the wrong place
+        // and still answered 200; it is applied here instead, to a flat
+        // listing.
+        boolean groupHere = delimiter != null && delimiter.length() > 1;
+        Character delimiterChar = delimiter != null &&
+                delimiter.length() == 1 ? delimiter.charAt(0) : null;
+        String groupPrefix = Strings.nullToEmpty(prefix);
+        // The group the previous page ended on: its keys all sort after the
+        // token that named it, and were reported there.
+        String skipGroup = groupHere && request.continuationToken() != null &&
+                marker0 != null && marker0.equals(commonPrefixOf(marker0,
+                        groupPrefix, requireNonNull(delimiter))) ?
+                marker0 : null;
+        String lastGroup = null;
         Integer maxResults = request.maxKeys();
 
         // Collect visible objects, hiding multipart-upload internals.  A whole
@@ -556,10 +569,25 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     continue;
                 }
 
+                String group = groupHere ? commonPrefixOf(name, groupPrefix,
+                        requireNonNull(delimiter)) : null;
+                if (group != null && (group.equals(skipGroup) ||
+                        group.equals(lastGroup))) {
+                    continue;
+                }
+
                 if (maxResults != null && visibleCount == maxResults) {
                     // At least one more visible object exists beyond the page.
                     more = true;
                     break;
+                }
+
+                if (group != null) {
+                    prefixes.add(SdkResponses.commonPrefix(group));
+                    lastGroup = group;
+                    visibleCount++;
+                    lastVisible = group;
+                    continue;
                 }
 
                 if (isDirectory) {
@@ -588,6 +616,17 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
         String nextMarker = more ? lastVisible : null;
         return SdkResponses.objectsPage(contents, prefixes, nextMarker);
+    }
+
+    /** The common prefix a key falls under, or null when it is listed. */
+    private static @Nullable String commonPrefixOf(String key, String prefix,
+            String delimiter) {
+        if (!key.startsWith(prefix)) {
+            return null;
+        }
+        int index = key.indexOf(delimiter, prefix.length());
+        return index < 0 ? null :
+                key.substring(0, index + delimiter.length());
     }
 
     @Override

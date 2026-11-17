@@ -1459,6 +1459,38 @@ public final class AwsSdkTest {
         }
     }
 
+    /** A delimiter of several characters groups keys where it occurs. */
+    @Test
+    public void testListMultiCharacterDelimiter() throws Exception {
+        // the nio2 stores refuse every delimiter but "/"
+        assumeTrue(!Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        // fake-gcs-server groups at the delimiter's first character
+        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
+        for (String key : List.of("a--b", "a--c", "a-d", "e", "f--g")) {
+            client.putObject(b -> b.bucket(containerName).key(key),
+                    RequestBody.empty());
+        }
+        for (int maxKeys : new int[] {1000, 2, 1}) {
+            var keys = new ArrayList<String>();
+            var prefixes = new ArrayList<String>();
+            String token = null;
+            do {
+                String pageToken = token;
+                var page = client.listObjectsV2(b -> b.bucket(containerName)
+                        .delimiter("--").maxKeys(maxKeys)
+                        .continuationToken(pageToken));
+                page.contents().forEach(object -> keys.add(object.key()));
+                page.commonPrefixes().forEach(
+                        prefix -> prefixes.add(prefix.prefix()));
+                token = page.nextContinuationToken();
+            } while (token != null);
+            assertThat(keys).as("max-keys %s", maxKeys)
+                    .containsExactly("a-d", "e");
+            assertThat(prefixes).as("max-keys %s", maxKeys)
+                    .containsExactly("a--", "f--");
+        }
+    }
+
     @Test
     public void testPartOperationsWithoutCreate() throws Exception {
         // Only the backends that keep a stub lacked this: their parts are
