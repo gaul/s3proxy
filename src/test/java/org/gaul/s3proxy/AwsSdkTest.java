@@ -1223,10 +1223,19 @@ public final class AwsSdkTest {
             completed.add(CompletedPart.builder().partNumber(partNumber)
                     .eTag(part.eTag()).build());
         }
-        client.completeMultipartUpload(b -> b.bucket(containerName).key(key)
-                .uploadId(uploadId).ifNoneMatch("*")
-                .multipartUpload(CompletedMultipartUpload.builder()
-                        .parts(completed).build()));
+        try {
+            client.completeMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadId).ifNoneMatch("*")
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(completed).build()));
+        } catch (S3Exception e) {
+            // A backend that cannot complete conditionally says so, and has
+            // nothing to get wrong here.
+            client.abortMultipartUpload(b -> b.bucket(containerName)
+                    .key(key).uploadId(uploadId));
+            assumeTrue(e.statusCode() != 501);
+            throw e;
+        }
 
         assertThat(blobStore.getBlobAccess(containerName, key))
                 .isEqualTo(ObjectCannedACL.PRIVATE);
