@@ -46,6 +46,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -627,12 +628,57 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return CreateBucketResponse.builder().build();
     }
 
-    private void purgeMultipartObjects(String container) {
+    /**
+     * Every object of a container whose name begins with {@code prefix}.
+     * Swift answers a listing a page at a time -- 10,000 names unless the
+     * operator set another limit -- so a single request sees only the first
+     * page: an upload of 10,000 parts lost its last behind its marker, and
+     * a bucket holding more segments than that listed no upload past them.
+     */
+    private List<SwiftObject> listAll(String container, String prefix) {
         var swift = objectStorage();
+        return allPages(marker -> {
+            var options = ObjectListOptions.create().startsWith(prefix);
+            if (marker != null) {
+                options.marker(marker);
+            }
+            return swift.objects().list(container, options);
+        }, SwiftObject::getName);
+    }
+
+    /**
+     * Follows a listing by marker to its end.  A page's size says nothing
+     * about whether another follows, the limit being the server's to set,
+     * so the listing ends at an empty page.  Names come back strictly after
+     * the marker; a backend that ignores markers answers the same page
+     * again, which adds nothing and moves no marker, and ends it too.
+     */
+    static <T> List<T> allPages(
+            Function<@Nullable String, List<? extends T>> fetch,
+            Function<T, @Nullable String> nameOf) {
+        var all = new ArrayList<T>();
+        String marker = null;
+        while (true) {
+            String before = marker;
+            for (T entry : fetch.apply(marker)) {
+                String name = nameOf.apply(entry);
+                if (name == null ||
+                        (before != null && name.compareTo(before) <= 0)) {
+                    continue;
+                }
+                all.add(entry);
+                marker = name;
+            }
+            if (Objects.equals(marker, before)) {
+                return all;
+            }
+        }
+    }
+
+    private void purgeMultipartObjects(String container) {
         List<? extends SwiftObject> objects;
         try {
-            objects = swift.objects().list(container,
-                    ObjectListOptions.create().startsWith(MPU_PREFIX));
+            objects = listAll(container, MPU_PREFIX);
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
         }
@@ -1347,13 +1393,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     private List<Part> listSegments(MultipartUpload mpu,
             boolean requireMarker) {
-        var swift = objectStorage();
         String prefix = mpuSegmentPrefix(mpu.id());
         String metaKey = mpuMetaKey(mpu.id());
         List<? extends SwiftObject> objects;
         try {
-            objects = swift.objects().list(mpu.containerName(),
-                    ObjectListOptions.create().startsWith(prefix));
+            objects = listAll(mpu.containerName(), prefix);
         } catch (ResponseException re) {
             throw translate(re, mpu.containerName(), /*key=*/ null);
         }
@@ -1507,7 +1551,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
-        var swift = objectStorage();
         String container = mpu.containerName();
 
         // The .meta marker exists only while the upload is in progress:
@@ -1525,8 +1568,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // segments together with the marker.
         List<? extends SwiftObject> objects;
         try {
-            objects = swift.objects().list(container, ObjectListOptions.create()
-                    .startsWith(mpuSegmentPrefix(mpu.id())));
+            objects = listAll(container, mpuSegmentPrefix(mpu.id()));
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
         }
@@ -1538,11 +1580,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
-        var swift = objectStorage();
         List<? extends SwiftObject> objects;
         try {
-            objects = swift.objects().list(container,
-                    ObjectListOptions.create().startsWith(MPU_PREFIX));
+            objects = listAll(container, MPU_PREFIX);
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
         }
