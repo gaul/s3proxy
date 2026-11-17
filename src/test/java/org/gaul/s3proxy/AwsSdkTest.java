@@ -4496,9 +4496,6 @@ public final class AwsSdkTest {
      */
     @Test
     public void testDeleteObjectInMissingBucket() throws Exception {
-        // These two still answer the delete as done.
-        assumeTrue(!blobStoreType.equals("google-cloud-storage") &&
-                !blobStoreType.equals("openstack-swift"));
 
         try {
             client.deleteObject(b -> b.bucket(containerName + "-missing")

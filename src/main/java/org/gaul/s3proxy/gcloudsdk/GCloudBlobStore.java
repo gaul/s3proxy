@@ -1287,6 +1287,27 @@ public final class GCloudBlobStore implements BlobStore {
         return sourceOptions;
     }
 
+    /**
+     * Deletes the live object of an unversioned bucket.  Deleting one that
+     * is not there succeeds, as on S3 -- but not when the bucket is not
+     * there either, which GCS reports the same way and S3 answers
+     * NoSuchBucket for.
+     */
+    private void deleteLiveObject(String container, String key) {
+        boolean deleted;
+        try {
+            deleted = storage.delete(BlobId.of(container, key));
+        } catch (StorageException se) {
+            if (se.getCode() != 404) {
+                throw translate(se, container, key);
+            }
+            deleted = false;
+        }
+        if (!deleted && !containerExists(container)) {
+            throw S3Exceptions.noSuchBucket(container, "");
+        }
+    }
+
     @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         if (request.ifMatch() != null || request.ifMatchSize() != null ||
@@ -1299,13 +1320,7 @@ public final class GCloudBlobStore implements BlobStore {
         String versionId = request.versionId();
         if (versionId == null) {
             if (!isVersioned(container)) {
-                try {
-                    storage.delete(BlobId.of(container, key));
-                } catch (StorageException se) {
-                    if (se.getCode() != 404) {
-                        throw translate(se, container, key);
-                    }
-                }
+                deleteLiveObject(container, key);
                 return DeleteObjectResponse.builder().build();
             }
             // Versioned: the generations stay and a marker goes on top of
@@ -1329,13 +1344,7 @@ public final class GCloudBlobStore implements BlobStore {
             if (!isVersioned(container)) {
                 // The null version names the live object on a container
                 // that was never versioned.
-                try {
-                    storage.delete(BlobId.of(container, key));
-                } catch (StorageException se) {
-                    if (se.getCode() != 404) {
-                        throw translate(se, container, key);
-                    }
-                }
+                deleteLiveObject(container, key);
                 return DeleteObjectResponse.builder().build();
             }
             throw S3Exceptions.noSuchVersion(container, key, versionId,

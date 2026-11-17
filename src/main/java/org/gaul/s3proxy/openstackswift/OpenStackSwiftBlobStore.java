@@ -1278,6 +1278,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 response.getCode() != STATUS_NOT_FOUND) {
             throw translate(response, container, key);
         }
+        // Deleting an object that is not there succeeds, as on S3 -- but
+        // not when the container is not there either, which Swift answers
+        // with the same 404 and S3 answers NoSuchBucket for.
+        if (response.getCode() == STATUS_NOT_FOUND &&
+                !containerExists(container)) {
+            throw S3Exceptions.noSuchBucket(container, "");
+        }
         return DeleteObjectResponse.builder().build();
     }
 
