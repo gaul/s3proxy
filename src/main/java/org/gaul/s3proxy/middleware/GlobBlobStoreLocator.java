@@ -58,6 +58,14 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
                 if (entry.getKey().matches(FileSystems.getDefault()
                         .getPath(container))) {
                     globTarget = entry.getValue();
+                    // Globs may overlap.  The requester's own match is the
+                    // one that serves them; taking whichever matched last
+                    // denied them their bucket whenever another backend's
+                    // glob also covered its name.
+                    if (identity != null && globTarget.identity().equals(
+                            Optional.of(identity))) {
+                        break;
+                    }
                 }
             }
         }

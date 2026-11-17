@@ -106,6 +106,34 @@ public final class GlobBlobStoreLocatorTest {
     }
 
     @Test
+    public void testOverlappingGlobsServeTheirOwner() {
+        var credsMap = ImmutableSortedMap.of(
+                "id1", new AccessGrant("one", blobStoreOne),
+                "id2", new AccessGrant("two", blobStoreTwo));
+        // in either order: each bucket name below matches both globs
+        for (boolean reversed : new boolean[] {false, true}) {
+            var first = FileSystems.getDefault().getPathMatcher(
+                    "glob:data-*");
+            var second = FileSystems.getDefault().getPathMatcher(
+                    "glob:*-archive");
+            var targetOne = new GlobTarget(Optional.of("id1"), blobStoreOne);
+            var targetTwo = new GlobTarget(Optional.of("id2"), blobStoreTwo);
+            var globMap = reversed ?
+                    ImmutableMap.of(second, targetTwo, first, targetOne) :
+                    ImmutableMap.of(first, targetOne, second, targetTwo);
+            var locator = new GlobBlobStoreLocator(credsMap, globMap);
+
+            assertThat(locator.locateBlobStore("id1", "data-archive", null)
+                    .blobStore()).isSameAs(blobStoreOne);
+            assertThat(locator.locateBlobStore("id2", "data-archive", null)
+                    .blobStore()).isSameAs(blobStoreTwo);
+            // a bucket only another identity's glob covers stays refused
+            assertThat(locator.locateBlobStore("id2", "data-live", null))
+                    .isNull();
+        }
+    }
+
+    @Test
     public void testGlobLocatorAnonymous() {
         // Anonymous access stores an absent identity in the glob map
         var globMap = ImmutableMap.of(
