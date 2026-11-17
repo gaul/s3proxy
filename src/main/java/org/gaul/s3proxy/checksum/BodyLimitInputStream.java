@@ -35,7 +35,8 @@ import org.gaul.s3proxy.S3ProxyException;
  * that gap -- the underlying stream parses its terminator and any trailer on
  * the way to reporting the end -- and a stream that answers with a byte
  * instead sent more body than it declared, which is refused here rather than
- * stored as though the declaration had been true.
+ * stored as though the declaration had been true.  A stream that ends before
+ * the count runs out sent less, and is refused likewise.
  */
 public final class BodyLimitInputStream extends FilterInputStream {
     private long remaining;
@@ -51,9 +52,10 @@ public final class BodyLimitInputStream extends FilterInputStream {
             return finish();
         }
         int result = in.read();
-        if (result != -1) {
-            --remaining;
+        if (result == -1) {
+            throw shorterThanDeclared();
         }
+        --remaining;
         return result;
     }
 
@@ -63,10 +65,22 @@ public final class BodyLimitInputStream extends FilterInputStream {
             return finish();
         }
         int result = in.read(b, off, (int) Math.min(len, remaining));
-        if (result != -1) {
-            remaining -= result;
+        if (result == -1) {
+            throw shorterThanDeclared();
         }
+        remaining -= result;
         return result;
+    }
+
+    /**
+     * The stream ended with declared bytes still owed.  Passing the end
+     * along would hand the store fewer bytes than the length it was told,
+     * and it is left to each store whether that is an error or an object.
+     */
+    private IOException shorterThanDeclared() {
+        return new IOException(new S3ProxyException(
+                S3ErrorCode.INCOMPLETE_BODY,
+                "The request body is shorter than the length it declared."));
     }
 
     @Override

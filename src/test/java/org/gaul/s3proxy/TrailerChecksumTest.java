@@ -133,9 +133,35 @@ public final class TrailerChecksumTest {
         assertThat(put("object", checksum + "\n").statusCode()).isEqualTo(200);
     }
 
-    /** Writes the body in one aws-chunked frame with the trailer given. */
+    /**
+     * The decoded length a chunked body declares is the length it has.  One
+     * whose chunks add up to less was passed on as it came, for the store
+     * to make an object of or not.
+     */
+    @Test
+    public void testBodyShorterThanDeclaredRejected() throws Exception {
+        var response = put("object", checksum, CONTENT.length + 5);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("IncompleteBody");
+        assertThat(blobStore.blobExists(container, "object")).isFalse();
+    }
+
+    /** And one whose chunks add up to more is refused as it always was. */
+    @Test
+    public void testBodyLongerThanDeclaredRejected() throws Exception {
+        var response = put("object", checksum, CONTENT.length - 1);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(blobStore.blobExists(container, "object")).isFalse();
+    }
+
     private HttpResponse<String> put(String key, String trailerValue)
             throws Exception {
+        return put(key, trailerValue, CONTENT.length);
+    }
+
+    /** Writes the body in one aws-chunked frame with the trailer given. */
+    private HttpResponse<String> put(String key, String trailerValue,
+            int declaredLength) throws Exception {
         String body = Integer.toHexString(CONTENT.length) + "\r\n" +
                 new String(CONTENT, StandardCharsets.UTF_8) + "\r\n0\r\n" +
                 "x-amz-checksum-crc32c:" + trailerValue + "\r\n\r\n";
@@ -145,7 +171,7 @@ public final class TrailerChecksumTest {
                 .header("x-amz-content-sha256",
                         "STREAMING-UNSIGNED-PAYLOAD-TRAILER")
                 .header("x-amz-decoded-content-length",
-                        String.valueOf(CONTENT.length))
+                        String.valueOf(declaredLength))
                 .header("x-amz-trailer", "x-amz-checksum-crc32c")
                 .PUT(HttpRequest.BodyPublishers.ofString(body)));
     }
