@@ -925,6 +925,35 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * S3 deletes nothing for a version id the key does not have and answers
+     * as though it had, echoing the id.  A null version named by its Azure
+     * id is such an id, so its delete is answered that way and the version
+     * stays; any other version named by id is deleted.
+     */
+    @Test
+    public void testDeleteOfANullVersionByItsAzureIdDeletesNothing()
+            throws IOException {
+        remainingNullTagged = true;
+        var store = promotionStore();
+
+        var response = store.removeBlob(DeleteObjectRequest.builder()
+                .bucket("container").key("key").versionId(REMAINING).build());
+
+        assertThat(response.versionId()).isEqualTo(REMAINING);
+        assertThat(azureRequests).contains(
+                "HEAD /account/container/key?versionid=" + REMAINING);
+        assertThat(azureRequests).noneMatch(r -> r.startsWith("DELETE "));
+
+        remainingNullTagged = false;
+        azureRequests.clear();
+        assertThat(store.removeBlob(DeleteObjectRequest.builder()
+                .bucket("container").key("key").versionId(REMAINING).build())
+                .versionId()).isEqualTo(REMAINING);
+        assertThat(azureRequests).contains(
+                "DELETE /account/container/key?versionid=" + REMAINING);
+    }
+
+    /**
      * A delete marker written while Suspended is a null version too: named
      * by its Azure id it answers NoSuchVersion, to a GET and a HEAD alike,
      * rather than the 405 that would confirm a marker stands at that id.
@@ -1084,6 +1113,10 @@ public final class AzureBlobStoreTest {
                         "<Error><Code>BlobNotFound</Code>" +
                         "<Message>gone</Message></Error>";
             }
+        } else if (path.equals("/account/container/key") &&
+                method.equals("DELETE")) {
+            // The remaining version, deleted by id.
+            status = 202;
         } else if (path.equals("/account/container/key")) {
             // The remaining version, read by id.
             headers.set("ETag", "\"0x1\"");

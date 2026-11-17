@@ -2162,8 +2162,17 @@ public final class AzureBlobStore implements BlobStore {
             if (namesVersion && versionId.equals(NULL_VERSION_ID)) {
                 deleteNullVersion(client);
             } else if (namesVersion) {
-                // A versioned delete removes the one version named.
-                deleteVersion(client, versionId);
+                // A versioned delete removes the one version named -- unless
+                // that is a null version named by its Azure id, which S3
+                // knows only as "null" (see namesNullVersionById).  S3
+                // deletes nothing for a version id the key does not have
+                // and answers as though it had, so the same answer is given
+                // here and the version stays.
+                if (!namesNullVersionById(versionId, client
+                        .getVersionClient(versionId).getProperties()
+                        .getMetadata())) {
+                    deleteVersion(client, versionId);
+                }
             } else if (versioning && status == null) {
                 // A container never configured is unversioned to S3: the
                 // delete removes the object for good, with no marker.
