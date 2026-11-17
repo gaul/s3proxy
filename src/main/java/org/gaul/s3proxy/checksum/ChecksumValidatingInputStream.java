@@ -32,7 +32,8 @@ import software.amazon.awssdk.checksums.SdkChecksum;
  * trailer, which {@link ChunkedInputStream} handles).  The checksum is
  * computed incrementally as the body is consumed and compared once the
  * declared content length is reached or end of stream is encountered,
- * whichever comes first; a mismatch throws {@link S3ProxyException} with
+ * whichever comes first -- a negative length is none, and leaves only the
+ * end of stream; a mismatch throws {@link S3ProxyException} with
  * {@link S3ErrorCode#BAD_DIGEST}, or whichever code the caller names -- a
  * presigned URL pinning x-amz-content-sha256 reports its own.  Comparing at
  * the content-length boundary
@@ -69,7 +70,7 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
         } else {
             checksum.update(b);
             ++bytesRead;
-            if (bytesRead >= contentLength) {
+            if (lengthReached()) {
                 validate();
             }
         }
@@ -84,7 +85,7 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
         } else {
             checksum.update(b, off, count);
             bytesRead += count;
-            if (bytesRead >= contentLength) {
+            if (lengthReached()) {
                 validate();
             }
         }
@@ -96,6 +97,17 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
     @Override
     public boolean markSupported() {
         return false;
+    }
+
+    /**
+     * Whether the declared length has been read.  A body sent with chunked
+     * transfer encoding declares none and is given as negative, which every
+     * count has reached: the checksum was compared after the first read,
+     * and a body that took more than one was refused for a mismatch it did
+     * not have.  Such a body ends only at end of stream.
+     */
+    private boolean lengthReached() {
+        return contentLength >= 0 && bytesRead >= contentLength;
     }
 
     private void validate() throws IOException {
