@@ -134,6 +134,40 @@ public final class PresignedExpiryAnonymousTest {
         assertThat(response.body()).isEqualTo(CONTENT);
     }
 
+    /** A v4 URL that names no lifetime has no window to be inside. */
+    @Test
+    public void testV4WithoutExpires() throws Exception {
+        HttpResponse<String> response = get(v4Query(Instant.now(), 900)
+                .replaceFirst("&?X-Amz-Expires=\\d+", ""));
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("X-Amz-Expires");
+    }
+
+    /** Nor one that does not say when it was signed. */
+    @Test
+    public void testV4WithoutDate() throws Exception {
+        HttpResponse<String> response = get(v4Query(Instant.now(), 900)
+                .replaceFirst("&?X-Amz-Date=\\w+", ""));
+        assertThat(response.statusCode()).isEqualTo(403);
+    }
+
+    /** A window that opens tomorrow has not opened. */
+    @Test
+    public void testV4DatedAhead() throws Exception {
+        HttpResponse<String> response = get(v4Query(
+                Instant.now().plusSeconds(TimeUnit.DAYS.toSeconds(1)), 900));
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("Request is not yet valid");
+    }
+
+    /** A clock a few minutes ahead of this one is still believed. */
+    @Test
+    public void testV4DatedSlightlyAhead() throws Exception {
+        HttpResponse<String> response = get(v4Query(
+                Instant.now().plusSeconds(60), 900));
+        assertThat(response.statusCode()).isEqualTo(200);
+    }
+
     /** A window longer than S3 will sign is refused, as when authorized. */
     @Test
     public void testWindowTooLong() throws Exception {

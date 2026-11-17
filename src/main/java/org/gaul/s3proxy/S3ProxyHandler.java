@@ -7271,7 +7271,7 @@ public class S3ProxyHandler {
      * without authorization -- so this bounds how long a URL works rather than
      * establishing who may use it.
      */
-    private static void checkPresignedExpiry(HttpServletRequest request) {
+    private void checkPresignedExpiry(HttpServletRequest request) {
         String expiresString = request.getParameter("Expires");
         if (expiresString != null) { // v2 query
             long expires;
@@ -7293,6 +7293,16 @@ public class S3ProxyHandler {
         String dateString = request.getParameter("X-Amz-Date");
         //from para v4 query
         expiresString = request.getParameter("X-Amz-Expires");
+        // A v4 query signature states its window in two parameters, and S3
+        // refuses one that leaves either out.  Checking the window only
+        // when both were there let a URL signed without X-Amz-Expires work
+        // for as long as its credential did.
+        if (request.getParameter("X-Amz-Signature") != null &&
+                (dateString == null || expiresString == null)) {
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                    "Query-string authentication version 4 requires the" +
+                    " X-Amz-Date and X-Amz-Expires parameters.");
+        }
         if (dateString != null && expiresString != null) { //v4 query
             long date;
             long expires;
@@ -7307,8 +7317,15 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
                         "Request has expired");
             }
-            if (expires > TimeUnit.DAYS.toSeconds(7)) {
+            if (expires < 0 || expires > TimeUnit.DAYS.toSeconds(7)) {
                 throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+            }
+            // Nor has a window opened that begins in the future, beyond
+            // what clocks are allowed to disagree by: dating a URL ahead
+            // would otherwise stretch the seven days to any length.
+            if (date > nowSeconds + maximumTimeSkew) {
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                        "Request is not yet valid");
             }
         }
     }
