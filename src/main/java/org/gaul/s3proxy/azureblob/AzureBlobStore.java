@@ -1661,9 +1661,23 @@ public final class AzureBlobStore implements BlobStore {
         // versions, so following the copy with one would leave the copy an
         // extra version carrying the wrong metadata and report the id of
         // that one rather than the copy's.
+        //
+        // A REPLACE copy on an unversioned store does the same, for the
+        // ETag's sake: setting metadata changes it, so the ETag the copy
+        // reported was no longer the object's by the time the caller had
+        // it, and a reader in between saw the copy under the source's
+        // metadata.
         var context = Context.NONE;
-        if (versioning) {
-            var sourceProperties = requireNonNull(source.properties());
+        if (versioning || replace) {
+            var sourceProperties = source.properties();
+            if (sourceProperties == null) {
+                try {
+                    sourceProperties = fromClient.getProperties();
+                } catch (BlobStorageException bse) {
+                    throw translate(bse, fromContainer, fromName,
+                            request.sourceVersionId());
+                }
+            }
             headers = copiedHeaders(sourceProperties, headers);
             azureOptions.setCopySourceBlobProperties(false);
             context = new Context(
@@ -1710,12 +1724,6 @@ public final class AzureBlobStore implements BlobStore {
         try {
             var response = client.uploadFromUrlWithResponse(
                     azureOptions, /*timeout=*/ null, context);
-
-            // TODO: cannot do this as part of uploadFromUrlWithResponse?
-            if (replace && !versioning) {
-                client.setMetadata(
-                        withoutReservedMetadata(request.metadata()));
-            }
 
             var copied = response.getValue();
             return SdkResponses.copyResponse(reportETag(copied.getETag()),

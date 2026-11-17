@@ -2936,6 +2936,29 @@ public final class AwsSdkTest {
         assertThat(blobStore.containerExists(containerName)).isTrue();
     }
 
+    /**
+     * The ETag a copy reports is the ETag of the object it left.  azureblob
+     * set a REPLACE copy's metadata in a second request, which changes the
+     * ETag, so the one in the response had already gone stale.
+     */
+    @Test
+    public void testCopyObjectReplaceReportsItsETag() throws Exception {
+        client.putObject(b -> b.bucket(containerName).key("replace-source")
+                .metadata(Map.of("from", "source")),
+                RequestBody.fromString("content"));
+
+        var copy = client.copyObject(b -> b.sourceBucket(containerName)
+                .sourceKey("replace-source").destinationBucket(containerName)
+                .destinationKey("replace-copy")
+                .metadataDirective("REPLACE")
+                .metadata(Map.of("to", "copy")));
+
+        var head = client.headObject(b -> b.bucket(containerName)
+                .key("replace-copy"));
+        assertThat(head.metadata()).containsExactly(Map.entry("to", "copy"));
+        assertThat(copy.copyObjectResult().eTag()).isEqualTo(head.eTag());
+    }
+
     @Test
     public void testCopyObjectPublicRead() throws Exception {
         // Azure and Swift grant read at the container, so a per-blob ACL has
