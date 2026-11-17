@@ -2093,6 +2093,16 @@ public final class GCloudBlobStore implements BlobStore {
                     "GCS does not support ranged server-side copies");
         }
 
+        // A part's ETag is its MD5, and GCS keeps none for a composite
+        // object -- which every object completed from a multipart upload
+        // here is.  Copied server-side, such a part would have no ETag to
+        // report or to complete the upload with, so it is streamed instead:
+        // the caller's emulation uploads it as a part, and that has one.
+        if (sourceBlob.getMd5() == null) {
+            throw new UnsupportedOperationException(
+                    "GCS keeps no MD5 for a composite source");
+        }
+
         var sourceOptions = checkCopySourceConditions(sourceBlob,
                 request.copySourceIfMatch(), request.copySourceIfNoneMatch(),
                 request.copySourceIfModifiedSince(),

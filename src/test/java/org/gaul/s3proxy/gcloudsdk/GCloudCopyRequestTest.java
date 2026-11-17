@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.gcloudsdk;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -34,12 +35,15 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 
 /**
  * GCS copies an object's metadata from the source only when the rewrite
@@ -104,6 +108,27 @@ public final class GCloudCopyRequestTest {
         assertThat(rewrites.get(0)).contains("image/png").contains("blue");
     }
 
+    /**
+     * A composite object has no MD5 to give a part copied from it an ETag,
+     * so the store declines the server-side copy and the caller streams it.
+     */
+    @Test
+    public void testPartCopyFromACompositeSourceIsNotServerSide() {
+        var mpu = new MultipartUpload("upload",
+                CreateMultipartUploadRequest.builder()
+                        .bucket("bucket").key("to").build());
+        try (BlobStore blobStore = store()) {
+            assertThatThrownBy(() -> blobStore.copyMultipartPart(mpu,
+                    UploadPartCopyRequest.builder()
+                            .sourceBucket("bucket").sourceKey("composite")
+                            .destinationBucket("bucket").destinationKey("to")
+                            .uploadId("upload").partNumber(1).build()))
+                    .isInstanceOf(UnsupportedOperationException.class);
+        }
+
+        assertThat(rewrites).isEmpty();
+    }
+
     private BlobStore store() {
         return new GCloudBlobStore(Suppliers.ofInstance(
                 new Credentials("project", /*credential=*/ "")),
@@ -126,6 +151,11 @@ public final class GCloudCopyRequestTest {
                     "\"done\":true,\"totalBytesRewritten\":\"1\"," +
                     "\"objectSize\":\"1\",\"resource\":" +
                     OBJECT.formatted("to") + "}";
+        } else if (path.contains("/o/composite")) {
+            // as GCS reports one: a component count and no md5Hash
+            response = OBJECT.formatted("composite").replace(
+                    "\"md5Hash\":\"xvmCfRHTDFg+uRtCA6yhcQ==\",",
+                    "\"componentCount\":2,");
         } else if (path.contains("/o/")) {
             response = OBJECT.formatted("from");
         } else {
