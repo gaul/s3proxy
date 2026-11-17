@@ -32,6 +32,8 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
@@ -39,8 +41,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-import com.google.common.collect.SortedSetMultimap;
-import com.google.common.collect.TreeMultimap;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
@@ -124,8 +124,12 @@ public final class AwsSignature {
             HttpServletRequest request, String uri, String credential,
             boolean queryAuth, boolean bothDateHeader) {
         // sort Amazon headers
-        SortedSetMultimap<String, String> canonicalizedHeaders =
-                TreeMultimap.create();
+        // Sorted by name; a header sent more than once keeps its values in
+        // the order they arrived, joined by commas onto one line, as the
+        // specification has it.  They were sorted and each given a line of
+        // its own, which no client signs.
+        SortedMap<String, List<String>> canonicalizedHeaders =
+                new TreeMap<>();
         for (String headerName : Collections.list(request.getHeaderNames())) {
             Collection<String> headerValues = Collections.list(
                     request.getHeaders(headerName));
@@ -134,12 +138,10 @@ public final class AwsSignature {
                   headerName.equalsIgnoreCase(AwsHttpHeaders.DATE))) {
                 continue;
             }
-            if (headerValues.isEmpty()) {
-                canonicalizedHeaders.put(headerName, "");
-            }
+            List<String> values = canonicalizedHeaders.computeIfAbsent(
+                    headerName, unused -> new ArrayList<>());
             for (String headerValue : headerValues) {
-                canonicalizedHeaders.put(headerName,
-                        Strings.nullToEmpty(headerValue));
+                values.add(Strings.nullToEmpty(headerValue));
             }
         }
 
@@ -177,9 +179,10 @@ public final class AwsSignature {
         }
 
         builder.append('\n');
-        for (var entry : canonicalizedHeaders.entries()) {
+        for (var entry : canonicalizedHeaders.entrySet()) {
             builder.append(entry.getKey()).append(':')
-                    .append(entry.getValue()).append('\n');
+                    .append(String.join(",", entry.getValue()))
+                    .append('\n');
         }
         builder.append(uri);
 

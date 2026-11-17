@@ -924,25 +924,44 @@ public class S3ProxyHandler {
                 // service path
                 String uriForSigning = presignedUrl ? uri : this.servicePath +
                         uri;
-                signatureDetail = AwsSignature.createAuthorizationSignature(
-                        request, uriForSigning, credential, presignedUrl,
-                        haveBothDateHeader);
-                expectedSignature = signatureDetail.signature();
                 // The canonicalized resource of a bucket-level request is
                 // "/bucket/": the request URI relative to the bucket is "/",
                 // which a virtual-host-style request line carries literally
                 // while a path-style one carries only "/bucket".  Clients sign
                 // the former in both cases, so accept it alongside the URI as
                 // sent.
-                if (!constantTimeEquals(expectedSignature,
-                        authHeader.getSignature()) &&
-                        isBucketRootUri(uri)) {
-                    signatureDetail =
-                            AwsSignature.createAuthorizationSignature(
-                                    request, uriForSigning + "/", credential,
-                                    presignedUrl, haveBothDateHeader);
-                    expectedSignature = signatureDetail.signature();
+                List<String> urisForSigning = isBucketRootUri(uri) ?
+                        List.of(uriForSigning, uriForSigning + "/") :
+                        List.of(uriForSigning);
+                // A request with both Date and x-amz-date signs an empty
+                // date and x-amz-date among the headers, by the
+                // specification.  Its DELETE example instead signs the
+                // x-amz-date value as the date, which is all this accepted;
+                // that form is kept for the clients written to the example.
+                List<Boolean> dateForms = haveBothDateHeader ?
+                        List.of(false, true) : List.of(false);
+                // the first form is the one a mismatch is reported against
+                AwsSignature.SignatureDetail matched = null;
+                for (boolean exampleDateForm : dateForms) {
+                    for (String candidate : urisForSigning) {
+                        var detail = AwsSignature.createAuthorizationSignature(
+                                request, candidate, credential, presignedUrl,
+                                exampleDateForm);
+                        if (signatureDetail == null) {
+                            signatureDetail = detail;
+                        }
+                        if (matched == null && constantTimeEquals(
+                                detail.signature(),
+                                authHeader.getSignature())) {
+                            matched = detail;
+                        }
+                    }
                 }
+                if (matched != null) {
+                    signatureDetail = matched;
+                }
+                expectedSignature = requireNonNull(signatureDetail)
+                        .signature();
             } else {
                 String contentSha256 = request.getHeader(
                         AwsHttpHeaders.CONTENT_SHA256);
