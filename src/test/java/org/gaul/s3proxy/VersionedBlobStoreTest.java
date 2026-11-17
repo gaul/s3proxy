@@ -20,11 +20,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
@@ -47,6 +50,7 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.utils.AttributeMap;
 
@@ -516,6 +520,49 @@ public final class VersionedBlobStoreTest {
         assertThat(rest.versions().stream().map(v -> v.key()))
                 .containsExactly("blob", "blob", "other");
         assertThat(rest.versions().get(0).versionId()).isEqualTo(second);
+    }
+
+    /**
+     * Overwriting a key replaces what a read of it returns; at no point
+     * does the key hold nothing.  The transient store moved the current
+     * version aside before putting the new one in its place, and a read
+     * between the two answered 404.
+     */
+    @Test
+    public void testOverwriteNeverLeavesTheKeyAbsent() throws Exception {
+        assumeTrue(blobStoreType.equals("transient"));
+        enableVersioning();
+        put("blob", FIRST);
+
+        var done = new AtomicBoolean();
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var reads = executor.submit(() -> {
+                int count = 0;
+                while (!done.get()) {
+                    get("blob");
+                    ++count;
+                }
+                return count;
+            });
+            try {
+                // Written through the store: a write through the frontend
+                // attaches its checksum afterwards, and a read that falls
+                // between the two fails for a reason of its own.
+                for (int i = 0; i < 500; ++i) {
+                    blobStore.putBlob(PutObjectRequest.builder()
+                            .bucket(containerName).key("blob")
+                            .contentLength((long) SECOND.length).build(),
+                            new ByteArrayInputStream(SECOND));
+                }
+            } finally {
+                done.set(true);
+            }
+            // a read that found nothing fails here
+            assertThat(reads.get()).isPositive();
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

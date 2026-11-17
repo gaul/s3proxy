@@ -1160,10 +1160,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             if (versionId != null) {
                 synchronized (versionLock) {
-                    archiveCurrentVersion(containerPath, path,
-                            blob.getMetadata().name(), versionId);
-                    Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE,
-                            StandardCopyOption.REPLACE_EXISTING);
+                    Path linked = archiveCurrentVersion(containerPath, path,
+                            blob.getMetadata().name(), versionId,
+                            /*replacing=*/ true);
+                    try {
+                        Files.move(tmpPath, path,
+                                StandardCopyOption.ATOMIC_MOVE,
+                                StandardCopyOption.REPLACE_EXISTING);
+                    } catch (IOException | RuntimeException e) {
+                        // The version is still current, so its second name
+                        // would list it twice.
+                        if (linked != null) {
+                            Files.deleteIfExists(linked);
+                        }
+                        throw e;
+                    }
                 }
                 published = true;
                 return new PutResult(storedETag, versionId);
@@ -1433,7 +1444,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var markerId = mintVersionId(status);
         try {
             synchronized (versionLock) {
-                archiveCurrentVersion(containerPath, path, key, markerId);
+                archiveCurrentVersion(containerPath, path, key, markerId,
+                        /*replacing=*/ false);
                 Files.deleteIfExists(path);
                 removeEmptyParentDirectories(containerPath, path.getParent());
                 var marker = newVersionPath(containerPath, key);
@@ -3396,9 +3408,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Makes room for a new version of {@code key}: the current version, if
      * any, becomes non-current.  A write minting the "null" id instead
      * replaces whatever null version the key has, since S3 keeps only one.
+     *
+     * <p>A caller that is {@code replacing} the current version goes on to
+     * rename the new one over {@code path}.  For it the current version is
+     * given its archived name as a second link and left where it is, so
+     * that the key always has something to read: readers take no lock, and
+     * moving the file aside first answered them 404 until the new one
+     * arrived.  The link is returned for the caller to remove should that
+     * rename fail; null says nothing was linked, either because there was
+     * nothing to archive or because it was moved.
      */
-    private void archiveCurrentVersion(Path containerPath, Path path,
-            String key, String newVersionId) throws IOException {
+    @Nullable
+    private Path archiveCurrentVersion(Path containerPath, Path path,
+            String key, String newVersionId, boolean replacing)
+            throws IOException {
         boolean mintingNull = NULL_VERSION_ID.equals(newVersionId);
         if (mintingNull) {
             for (var version : archivedVersions(containerPath, key)) {
@@ -3408,29 +3431,41 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
         }
         if (!Files.exists(path)) {
-            return;
+            return null;
         }
         if (Files.isDirectory(path)) {
             // A directory-marker key's "file" is the directory the keys
             // below it live in, and moving it aside would take them with it.
             // Such a key is not versioned at all, which is also why putBlob
             // gives one no version id.
-            return;
+            return null;
         }
         // Read before the move, which is what makes the file unreadable
         // under its old name.
         var currentId = currentVersionId(path);
         if (mintingNull && NULL_VERSION_ID.equals(currentId)) {
             // The write that follows replaces it where it lies.
-            return;
+            return null;
         }
         var archived = newVersionPath(containerPath, key);
         Files.createDirectories(archived.getParent());
-        Files.move(path, archived, StandardCopyOption.ATOMIC_MOVE);
+        Path linked = null;
+        if (replacing) {
+            try {
+                Files.createLink(archived, path);
+                linked = archived;
+            } catch (UnsupportedOperationException uoe) {
+                // a filesystem without hard links can only move it
+            }
+        }
+        if (linked == null) {
+            Files.move(path, archived, StandardCopyOption.ATOMIC_MOVE);
+        }
         // A version written before its container was enabled carries no id
         // or key of its own, and could not be found again without them.
         writeVersionAttributes(archived, key, currentId,
                 /*deleteMarker=*/ false);
+        return linked;
     }
 
     /**
