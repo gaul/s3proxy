@@ -26,8 +26,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -92,6 +94,7 @@ public final class Main {
                 .<PathMatcher, GlobBlobStoreLocator.GlobTarget>builder();
         Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
+        Map<String, String> parsedCredentials = new HashMap<>();
         for (var path : options.properties) {
             var properties = new Properties();
             try (var is = Files.newInputStream(path)) {
@@ -134,6 +137,14 @@ public final class Main {
                             " when using authentication");
                     System.exit(1);
                     throw new IllegalStateException();
+                }
+                try {
+                    checkSameCredential(parsedCredentials, localIdentity,
+                            localCredential);
+                } catch (IllegalArgumentException e) {
+                    System.err.println(e.getMessage());
+                    System.exit(1);
+                    throw e;
                 }
                 if (parsedIdentities.add(localIdentity)) {
                     locators.put(localIdentity,
@@ -215,6 +226,24 @@ public final class Main {
         }, "s3proxy-shutdown"));
     }
 
+
+    /**
+     * Refuse an identity that a second properties file gives a different
+     * credential.  One identity has one secret: requests are verified
+     * against the first file's, so the second file's buckets would answer
+     * SignatureDoesNotMatch to the credential written beside them, and
+     * nothing at startup said why.
+     */
+    static void checkSameCredential(Map<String, String> credentials,
+            String identity, String credential) {
+        String previous = credentials.putIfAbsent(identity, credential);
+        if (previous != null && !previous.equals(credential)) {
+            throw new IllegalArgumentException("Multiple properties files" +
+                    " give the identity " + identity +
+                    " different values of " +
+                    S3ProxyConstants.PROPERTY_CREDENTIAL);
+        }
+    }
 
     private static PrintStream createLoggerErrorPrintStream() {
         return new PrintStream(System.err) {

@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.URI;
+import java.util.HashMap;
 import java.util.Properties;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -40,6 +41,19 @@ public final class StartupConfigurationTest {
                 .build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("keyStorePath");
+    }
+
+    @Test
+    public void testOneIdentityWithTwoCredentials() {
+        var credentials = new HashMap<String, String>();
+        Main.checkSameCredential(credentials, "identity", "credential");
+        // the same pair again is two backends behind one account
+        Main.checkSameCredential(credentials, "identity", "credential");
+        Main.checkSameCredential(credentials, "other", "another");
+        assertThatThrownBy(() -> Main.checkSameCredential(credentials,
+                "identity", "another"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("identity");
     }
 
     @Test
