@@ -6311,16 +6311,18 @@ public class S3ProxyHandler {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }
-        } catch (S3ProxyException se) {
-            // A precondition failure here would otherwise leak the source
-            // payload's open backend stream; the happy-path try-with-resources
-            // below closes it only once reached.
+        } catch (RuntimeException e) {
+            // A failure here would otherwise leak the source payload's open
+            // backend stream; the happy-path try-with-resources below closes
+            // it only once reached.  Any failure, not only a precondition's:
+            // a date header that does not parse throws
+            // IllegalArgumentException from the servlet container.
             try {
                 blob.close();
             } catch (IOException ioe) {
                 // The stream is being abandoned; ignore close failures.
             }
-            throw se;
+            throw e;
         }
 
         long contentLength = requireNonNull(blobMetadata.contentLength());
