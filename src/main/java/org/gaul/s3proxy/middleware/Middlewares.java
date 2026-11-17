@@ -164,13 +164,16 @@ public final class Middlewares {
                     .PROPERTY_USER_METADATA_REPLACER_FROM_CHARS);
             String toChars = properties.getProperty(S3ProxyConstants
                     .PROPERTY_USER_METADATA_REPLACER_TO_CHARS);
+            if (fromChars == null || toChars == null) {
+                throw new IllegalArgumentException(
+                        "Properties file must contain: " + S3ProxyConstants
+                        .PROPERTY_USER_METADATA_REPLACER_FROM_CHARS +
+                        " and " + S3ProxyConstants
+                        .PROPERTY_USER_METADATA_REPLACER_TO_CHARS);
+            }
             blobStore = UserMetadataReplacerBlobStore
                     .newUserMetadataReplacerBlobStore(
-                            blobStore,
-                            requireNonNull(fromChars, S3ProxyConstants
-                                    .PROPERTY_USER_METADATA_REPLACER_FROM_CHARS),
-                            requireNonNull(toChars, S3ProxyConstants
-                                    .PROPERTY_USER_METADATA_REPLACER_TO_CHARS));
+                            blobStore, fromChars, toChars);
         }
 
         Map<String, Long> latencies = LatencyBlobStore.parseLatencies(properties);

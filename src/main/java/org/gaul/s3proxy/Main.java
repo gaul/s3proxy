@@ -102,14 +102,13 @@ public final class Main {
             BlobStore blobStore;
             try {
                 blobStore = createBlobStore(properties);
+                blobStore = Middlewares.wrap(blobStore, properties,
+                        Main::createBlobStore);
             } catch (IllegalArgumentException e) {
                 System.err.println(e.getMessage());
                 System.exit(1);
                 throw e;
             }
-
-            blobStore = Middlewares.wrap(blobStore, properties,
-                    Main::createBlobStore);
 
             String s3ProxyAuthorizationString = properties.getProperty(
                     S3ProxyConstants.PROPERTY_AUTHORIZATION);
@@ -160,9 +159,16 @@ public final class Main {
                 }
             }
 
-            S3Proxy.Builder s3ProxyBuilder2 = S3Proxy.Builder
-                    .fromProperties(properties)
-                    .blobStore(blobStore);
+            S3Proxy.Builder s3ProxyBuilder2;
+            try {
+                s3ProxyBuilder2 = S3Proxy.Builder
+                        .fromProperties(properties)
+                        .blobStore(blobStore);
+            } catch (IllegalArgumentException e) {
+                System.err.println(e.getMessage());
+                System.exit(1);
+                throw e;
+            }
 
             if (s3ProxyBuilder != null &&
                     !s3ProxyBuilder.equals(s3ProxyBuilder2)) {

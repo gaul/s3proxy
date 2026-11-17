@@ -83,9 +83,12 @@ public final class S3Proxy {
             checkArgument(path != null && path.isEmpty(),
                     "secure-endpoint path must be empty, was: %s", path);
             if (builder.sslContext == null) {
-                requireNonNull(builder.keyStorePath,
+                // an argument check, not a null check: a configuration
+                // error is reported as one, where a NullPointerException
+                // reads as a fault in S3Proxy
+                checkArgument(builder.keyStorePath != null,
                         "Must provide keyStorePath with HTTPS endpoint");
-                requireNonNull(builder.keyStorePassword,
+                checkArgument(builder.keyStorePassword != null,
                         "Must provide keyStorePassword with HTTPS endpoint");
             }
         }
