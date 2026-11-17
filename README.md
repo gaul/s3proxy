@@ -282,7 +282,11 @@ write reads the container's properties (RBAC
 account SAS with resource type `c`) and is refused AccessDenied without them;
 deletes by version and suspended overwrites need
 `Microsoft.Storage/storageAccounts/blobServices/containers/blobs/deleteBlobVersion/action`
-(SAS permission `x`), which Storage Blob Data Contributor lacks; and changing
+(SAS permission `x`), which Storage Blob Data Contributor lacks; a delete by
+version also reads the version's properties first, to tell a null version
+named by its Azure id, so it needs blob read
+(`Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read`, SAS
+permission `r`) as well; and changing
 the versioning status needs container write.  A container service SAS cannot
 read container properties at all, so it cannot be used with versioning on.
 
