@@ -4046,6 +4046,27 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * Deleting an object that is not there succeeds; deleting one from a
+     * bucket that is not there does not.
+     */
+    @Test
+    public void testDeleteObjectInMissingBucket() throws Exception {
+        // These two still answer the delete as done.
+        assumeTrue(!blobStoreType.equals("google-cloud-storage") &&
+                !blobStoreType.equals("openstack-swift"));
+
+        try {
+            client.deleteObject(b -> b.bucket(containerName + "-missing")
+                    .key("key"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchBucket");
+        }
+    }
+
     @Test
     public void testConditionalGetModifiedSince() throws Exception {
         // HTTP conditional dates have one-second granularity while backend

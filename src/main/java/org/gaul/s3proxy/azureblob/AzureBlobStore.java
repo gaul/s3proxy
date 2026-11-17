@@ -1880,7 +1880,11 @@ public final class AzureBlobStore implements BlobStore {
                         /*timeout=*/ null, Context.NONE);
             }
         } catch (BlobStorageException bse) {
-            if (isAbsent(bse)) {
+            // An object already gone satisfies a delete; a bucket that is
+            // not there does not, and S3 says so where answering success
+            // told the caller a delete had happened in a bucket it had
+            // perhaps only misspelled.
+            if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
                 return DeleteObjectResponse.builder().build();
             }
             if (BlobErrorCode.CONDITION_NOT_MET.equals(bse.getErrorCode())) {
