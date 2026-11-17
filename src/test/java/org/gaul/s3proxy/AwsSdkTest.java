@@ -3449,7 +3449,8 @@ public final class AwsSdkTest {
     public void testUploadPartUnknownUpload() throws Exception {
         // The other stores accept the part and keep it where no completion
         // will find it.
-        assumeTrue(blobStoreType.equals("azureblob"));
+        assumeTrue(blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("google-cloud-storage"));
 
         String blobName = "upload-part-unknown-upload";
         String aborted = client.createMultipartUpload(b -> b
@@ -3462,6 +3463,25 @@ public final class AwsSdkTest {
                 client.uploadPart(b -> b.bucket(containerName).key(blobName)
                         .uploadId(uploadId).partNumber(1),
                         RequestBody.fromString("content"));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(404);
+                assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                        "NoSuchUpload");
+            }
+        }
+
+        // nor is a part copied from another object
+        assumeTrue(blobStoreType.equals("google-cloud-storage"));
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromString("content"));
+        for (String uploadId : List.of("bogus", aborted)) {
+            try {
+                client.uploadPartCopy(b -> b
+                        .sourceBucket(containerName).sourceKey(blobName)
+                        .destinationBucket(containerName)
+                        .destinationKey(blobName)
+                        .uploadId(uploadId).partNumber(1));
                 Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
             } catch (S3Exception e) {
                 assertThat(e.statusCode()).isEqualTo(404);
@@ -3538,7 +3558,8 @@ public final class AwsSdkTest {
     public void testUploadPartAfterComplete() throws Exception {
         // The other stores accept the part, though to no effect.
         assumeTrue(blobStoreType.equals("openstack-swift") ||
-                blobStoreType.equals("azureblob"));
+                blobStoreType.equals("azureblob") ||
+                blobStoreType.equals("google-cloud-storage"));
 
         String blobName = "upload-part-after-complete";
         String uploadId = client.createMultipartUpload(b -> b

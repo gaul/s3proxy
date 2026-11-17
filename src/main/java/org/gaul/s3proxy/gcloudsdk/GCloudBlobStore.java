@@ -1964,9 +1964,8 @@ public final class GCloudBlobStore implements BlobStore {
                     partNumber);
         }
 
-        String uploadKey = mpu.id();
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
-        String partBlobName = makePartBlobName(nonce, partNumber);
+        String partBlobName = makePartBlobName(openUploadNonce(mpu),
+                partNumber);
 
         byte[] md5Hash;
         var digest = MD5.newDigest();
@@ -2006,6 +2005,29 @@ public final class GCloudBlobStore implements BlobStore {
 
         String eTag = HexFormat.of().formatHex(md5Hash);
         return SdkResponses.uploadedPart(eTag);
+    }
+
+    /**
+     * The nonce of an upload that is open, which is one whose stub exists.
+     * A part's name is built from the upload ID, so an ID that was never
+     * issued, or whose upload has since been completed or aborted, must not
+     * get as far as a write: the part would be kept where no completion
+     * and no abort will ever find it.
+     */
+    private String openUploadNonce(MultipartUpload mpu) {
+        String uploadKey = mpu.id();
+        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
+            throw S3Exceptions.noSuchUpload(uploadKey);
+        }
+        Blob stub = storage.get(BlobId.of(mpu.containerName(), uploadKey),
+                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
+        // A part or an intermediate compose lies under the same prefix but
+        // carries no target name, so its name is no upload ID either.
+        if (stub == null || stub.getMetadata() == null ||
+                !stub.getMetadata().containsKey(TARGET_BLOB_NAME_KEY)) {
+            throw S3Exceptions.noSuchUpload(uploadKey);
+        }
+        return uploadKey.substring(STUB_BLOB_PREFIX.length());
     }
 
     @Override
@@ -2049,9 +2071,8 @@ public final class GCloudBlobStore implements BlobStore {
                 request.copySourceIfModifiedSince(),
                 request.copySourceIfUnmodifiedSince());
 
-        String uploadKey = mpu.id();
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
-        String partBlobName = makePartBlobName(nonce, partNumber);
+        String partBlobName = makePartBlobName(openUploadNonce(mpu),
+                partNumber);
 
         try {
             var copyRequest = CopyRequest.newBuilder()
