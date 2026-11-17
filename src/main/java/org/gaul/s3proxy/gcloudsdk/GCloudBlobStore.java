@@ -1166,10 +1166,13 @@ public final class GCloudBlobStore implements BlobStore {
         // whatever is live by the time it runs, which also lets it read a
         // noncurrent version -- restoring one is a copy of it onto its key.
         var source = sourceBlob.getBlobId();
-        var targetBuilder = BlobInfo.newBuilder(BlobId.of(
-                request.destinationBucket(), request.destinationKey()));
+        var targetId = BlobId.of(
+                request.destinationBucket(), request.destinationKey());
+        var targetBuilder = BlobInfo.newBuilder(targetId);
 
-        if (request.metadataDirective() == MetadataDirective.REPLACE) {
+        boolean replace =
+                request.metadataDirective() == MetadataDirective.REPLACE;
+        if (replace) {
             if (request.cacheControl() != null) {
                 targetBuilder.setCacheControl(request.cacheControl());
             }
@@ -1207,12 +1210,20 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         try {
-            var copyRequest = CopyRequest.newBuilder()
+            var copyBuilder = CopyRequest.newBuilder()
                     .setSource(source)
-                    .setSourceOptions(sourceOptions)
-                    .setTarget(targetBuilder.build(), targetOptions)
-                    .build();
-            var result = storage.copy(copyRequest).getResult();
+                    .setSourceOptions(sourceOptions);
+            // A target given as a BlobInfo is sent as the new object's
+            // whole description, and GCS then takes nothing from the
+            // source -- a description of only a name leaves the copy with
+            // no content type and no metadata.  Only a target given by its
+            // ID has the source's carried over.
+            if (replace) {
+                copyBuilder.setTarget(targetBuilder.build(), targetOptions);
+            } else {
+                copyBuilder.setTarget(targetId, targetOptions);
+            }
+            var result = storage.copy(copyBuilder.build()).getResult();
             return SdkResponses.copyResponse(result.getEtag(),
                     toInstant(result.getUpdateTimeOffsetDateTime()),
                     isVersioned(request.destinationBucket()) ?
