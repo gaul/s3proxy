@@ -1313,6 +1313,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             UploadPartRequest request, InputStream is) {
+        // The marker is there for as long as the upload is open.  Without
+        // it this would write a segment for an upload never created, where
+        // no completion will find it, or over one a finished object's
+        // manifest names, whose recorded ETag and size it then no longer
+        // has -- and Swift refuses to serve an object in that state.
+        if (!blobExists(mpu.containerName(), mpuMetaKey(mpu.id()))) {
+            throw S3Exceptions.noSuchUpload(mpu.id());
+        }
         var segment = Blob.builder(
                 mpuSegmentKey(mpu.id(), request.partNumber()))
                 .payload(is)
@@ -1324,8 +1332,21 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return SdkResponses.uploadedPart(eTag);
     }
 
+    /**
+     * The parts of an upload still open.  A finished upload keeps its
+     * segments, which its object's manifest names, but they are parts no
+     * longer: listing them had the frontend take a retried completion for a
+     * first one and rewrite the manifest, by then without the metadata the
+     * marker had carried.  So an upload whose marker is gone lists none,
+     * which is how the frontend knows to look for the finished object.
+     */
     @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
+        return listSegments(mpu, /*requireMarker=*/ true);
+    }
+
+    private List<Part> listSegments(MultipartUpload mpu,
+            boolean requireMarker) {
         var swift = objectStorage();
         String prefix = mpuSegmentPrefix(mpu.id());
         String metaKey = mpuMetaKey(mpu.id());
@@ -1337,9 +1358,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw translate(re, mpu.containerName(), /*key=*/ null);
         }
         var parts = new ArrayList<Part>();
+        boolean sawMarker = false;
         for (var object : objects) {
             String name = object.getName();
             if (name == null || name.equals(metaKey)) {
+                sawMarker |= name != null;
                 continue;
             }
             int partNumber;
@@ -1351,6 +1374,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             parts.add(SdkResponses.part(partNumber,
                     object.getSizeInBytes(), object.getETag(),
                     toInstant(object.getLastModified())));
+        }
+        if (requireMarker && !sawMarker) {
+            return List.of();
         }
         parts.sort(Comparator.comparingInt(Part::partNumber));
         return parts;
@@ -1373,22 +1399,26 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                         .bucket(container)
                         .key(mpuMetaKey(uploadId))
                         .build());
-        if (marker != null) {
-            var contentMetadata = marker.getMetadata().contentMetadata();
-            if (contentMetadata.contentType() != null) {
-                swiftOptions.contentType(contentMetadata.contentType());
-            }
-            if (contentMetadata.contentDisposition() != null) {
-                swiftOptions.getOptions().put(HttpHeaders.CONTENT_DISPOSITION,
-                        contentMetadata.contentDisposition());
-            }
-            if (contentMetadata.contentEncoding() != null) {
-                swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
-                        contentMetadata.contentEncoding());
-            }
-            manifestMetadata.putAll(marker.getMetadata().userMetadata());
-            manifestMetadata.remove(MPU_KEY_METADATA);
+        if (marker == null) {
+            // Already completed, aborted, or never created.  Carrying on
+            // would write the manifest again without the metadata only the
+            // marker held.
+            throw S3Exceptions.noSuchUpload(uploadId);
         }
+        var contentMetadata = marker.getMetadata().contentMetadata();
+        if (contentMetadata.contentType() != null) {
+            swiftOptions.contentType(contentMetadata.contentType());
+        }
+        if (contentMetadata.contentDisposition() != null) {
+            swiftOptions.getOptions().put(HttpHeaders.CONTENT_DISPOSITION,
+                    contentMetadata.contentDisposition());
+        }
+        if (contentMetadata.contentEncoding() != null) {
+            swiftOptions.getOptions().put(HttpHeaders.CONTENT_ENCODING,
+                    contentMetadata.contentEncoding());
+        }
+        manifestMetadata.putAll(marker.getMetadata().userMetadata());
+        manifestMetadata.remove(MPU_KEY_METADATA);
 
         var sorted = new ArrayList<>(parts);
         sorted.sort(Comparator.comparingInt(CompletedPart::partNumber));
@@ -1401,7 +1431,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // reject parts that were never uploaded (or whose upload was
         // aborted) like S3's InvalidPart.
         var segmentsByPartNumber = new HashMap<Integer, Part>();
-        for (var segment : listMultipartUpload(mpu)) {
+        for (var segment : listSegments(mpu, /*requireMarker=*/ false)) {
             segmentsByPartNumber.put(segment.partNumber(), segment);
         }
         var resolved = new ArrayList<Part>(sorted.size());

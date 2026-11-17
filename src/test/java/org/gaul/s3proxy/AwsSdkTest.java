@@ -1376,7 +1376,9 @@ public final class AwsSdkTest {
         Arrays.fill(content, (byte) 'A');
 
         String uploadId = client.createMultipartUpload(
-                b -> b.bucket(containerName).key(key)).uploadId();
+                b -> b.bucket(containerName).key(key)
+                        .contentType("text/plain")
+                        .metadata(Map.of("kept", "yes"))).uploadId();
         UploadPartResponse part = client.uploadPart(b -> b
                         .bucket(containerName).key(key).uploadId(uploadId)
                         .partNumber(1),
@@ -1396,6 +1398,11 @@ public final class AwsSdkTest {
                 b -> b.bucket(containerName).key(key).uploadId(uploadId)
                         .multipartUpload(parts));
         assertThat(retry.eTag()).isEqualTo(first.eTag());
+        // and must leave the object as the first completion made it
+        HeadObjectResponse head = client.headObject(
+                b -> b.bucket(containerName).key(key));
+        assertThat(head.contentType()).isEqualTo("text/plain");
+        assertThat(head.metadata()).containsEntry("kept", "yes");
 
         // an upload that never existed is still rejected
         try {
@@ -3519,6 +3526,45 @@ public final class AwsSdkTest {
         assertThat(client.headObject(b -> b.bucket(containerName)
                 .key(blobName)).contentLength())
                 .isEqualTo(MINIMUM_MULTIPART_SIZE);
+    }
+
+    /**
+     * A part sent after its upload was completed has nothing to join, and
+     * must not reach the finished object: openstack-swift keeps a completed
+     * upload's parts as the object's segments, and wrote the late part over
+     * one of them.
+     */
+    @Test
+    public void testUploadPartAfterComplete() throws Exception {
+        // The other stores accept the part, though to no effect.
+        assumeTrue(blobStoreType.equals("openstack-swift") ||
+                blobStoreType.equals("azureblob"));
+
+        String blobName = "upload-part-after-complete";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName).uploadId(uploadId)
+                .partNumber(1), RequestBody.fromString("first"));
+        client.completeMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(part.eTag()).build())
+                        .build()));
+
+        try {
+            client.uploadPart(b -> b.bucket(containerName).key(blobName)
+                    .uploadId(uploadId).partNumber(1),
+                    RequestBody.fromString("later"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchUpload");
+        }
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(blobName)).asUtf8String()).isEqualTo("first");
     }
 
     @Test
