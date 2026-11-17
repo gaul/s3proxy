@@ -3330,11 +3330,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         if (count <= 0) {
                             // transferTo declines rather than fails on some
                             // filesystems; fall back for the remainder.
-                            try (var is = Channels.newInputStream(
-                                    src.position(transferred));
-                                 var os = Channels.newOutputStream(dst)) {
-                                is.transferTo(os);
-                            }
+                            copyRemainder(src, transferred, dst);
                             transferred = size;
                             break;
                         }
@@ -3347,6 +3343,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 throw new IOException("assembled " + dst.size() +
                         " bytes from parts totalling " + position);
             }
+        }
+    }
+
+    /**
+     * Copies the rest of a part through this process.  The stream over the
+     * destination is deliberately left open: closing it closes the channel
+     * beneath it, which the parts still to come are written to and whose
+     * size is checked at the end.  It was closed, so a multipart upload
+     * whose join fell back here mid-way failed to complete.
+     */
+    static void copyRemainder(FileChannel src, long from, FileChannel dst)
+            throws IOException {
+        var os = Channels.newOutputStream(dst);
+        try (var is = Channels.newInputStream(src.position(from))) {
+            is.transferTo(os);
         }
     }
 

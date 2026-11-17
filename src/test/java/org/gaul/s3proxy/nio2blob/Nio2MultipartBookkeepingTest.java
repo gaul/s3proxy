@@ -18,8 +18,10 @@ package org.gaul.s3proxy.nio2blob;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +46,32 @@ public final class Nio2MultipartBookkeepingTest {
     public void setUp() {
         blobStore = new FilesystemNio2BlobStore(root.toString());
         blobStore.createContainer(CONTAINER);
+    }
+
+    /**
+     * The fallback the join takes where the kernel declines to copy leaves
+     * the destination open for the parts still to come.
+     */
+    @Test
+    public void testCopyRemainderLeavesTheDestinationOpen() throws Exception {
+        Path first = Files.write(root.resolve("first"), new byte[] {1, 2, 3});
+        Path second = Files.write(root.resolve("second"), new byte[] {4, 5});
+        Path joined = root.resolve("joined");
+        try (var dst = FileChannel.open(joined, StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE)) {
+            for (Path part : new Path[] {first, second}) {
+                try (var src = FileChannel.open(part,
+                        StandardOpenOption.READ)) {
+                    // from the second byte, as after a partial transfer
+                    dst.write(java.nio.ByteBuffer.wrap(
+                            new byte[] {Files.readAllBytes(part)[0]}));
+                    AbstractNio2BlobStore.copyRemainder(src, 1, dst);
+                }
+                assertThat(dst.isOpen()).isTrue();
+            }
+            assertThat(dst.size()).isEqualTo(5);
+        }
+        assertThat(Files.readAllBytes(joined)).containsExactly(1, 2, 3, 4, 5);
     }
 
     @Test
