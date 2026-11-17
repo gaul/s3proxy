@@ -3462,6 +3462,11 @@ public final class AwsSdkTest {
      */
     @Test
     public void testUploadPartBadDigestKeepsEarlierPart() throws Exception {
+        // LocalStack refuses the part and still leaves an empty one in
+        // place of the earlier part, when the part arrives as the SDK
+        // streams it.
+        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
+
         String blobName = "upload-part-bad-digest";
         String uploadId = client.createMultipartUpload(b -> b
                 .bucket(containerName).key(blobName)).uploadId();
