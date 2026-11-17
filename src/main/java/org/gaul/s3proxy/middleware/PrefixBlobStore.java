@@ -354,7 +354,14 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         }
         var builder = ImmutableList.<software.amazon.awssdk.services.s3
                 .model.MultipartUpload>builder();
+        String prefix = requireNonNull(getPrefix(container));
         for (var upload : uploads) {
+            // An upload to a key outside the prefix is not in this bucket,
+            // as an object there is not: listing it showed a caller keys
+            // and upload IDs from the rest of the backend bucket.
+            if (!upload.key().startsWith(prefix)) {
+                continue;
+            }
             builder.add(upload.toBuilder()
                     .key(trimPrefix(container, upload.key()))
                     .build());

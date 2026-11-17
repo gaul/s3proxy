@@ -213,6 +213,24 @@ public final class PrefixBlobStoreTest {
                 prefix + "archive.bin")).isTrue();
     }
 
+    /** An upload outside the prefix is not one of this bucket's. */
+    @Test
+    public void testListMultipartUploadsOmitsOtherPrefixes() {
+        MultipartUpload inside = prefixBlobStore.initiateMultipartUpload(
+                TestUtils.createRequest(containerName, "pending.bin"));
+        MultipartUpload outside = blobStore.initiateMultipartUpload(
+                TestUtils.createRequest(containerName, "other/secret.bin"));
+
+        try {
+            assertThat(prefixBlobStore.listMultipartUploads(containerName))
+                    .extracting(upload -> upload.key())
+                    .containsExactly("pending.bin");
+        } finally {
+            prefixBlobStore.abortMultipartUpload(inside);
+            blobStore.abortMultipartUpload(outside);
+        }
+    }
+
     @Test
     public void testListMultipartUploadsTrimsPrefix() {
         MultipartUpload mpu = prefixBlobStore.initiateMultipartUpload(
