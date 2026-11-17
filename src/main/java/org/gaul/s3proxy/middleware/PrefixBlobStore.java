@@ -161,8 +161,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         var builder = request.toBuilder();
         String basePrefix = getPrefix(container);
         String requestedPrefix = request.prefix();
-        String requestedMarker = request.continuationToken() != null ?
-                request.continuationToken() : request.startAfter();
 
         if (Strings.isNullOrEmpty(requestedPrefix)) {
             builder.prefix(basePrefix);
@@ -170,10 +168,13 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
             builder.prefix(addPrefix(container, requestedPrefix));
         }
 
-        if (!Strings.isNullOrEmpty(requestedMarker)) {
-            builder.continuationToken(
-                    addPrefix(container, requestedMarker));
-            builder.startAfter(null);
+        // start-after is a key and takes the prefix like any other.  The
+        // continuation token is not: it is whatever the backend handed out
+        // and expects back unaltered -- an opaque marker on aws-s3,
+        // azureblob and google-cloud-storage, which a prefix in front of
+        // made into a token the backend had never issued.
+        if (!Strings.isNullOrEmpty(request.startAfter())) {
+            builder.startAfter(addPrefix(container, request.startAfter()));
         }
 
         return builder.build();
@@ -196,14 +197,9 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                     .prefix(trimPrefix(container, prefix.prefix()))
                     .build());
         }
-        String nextMarker = listing.nextContinuationToken();
-        if (nextMarker != null) {
-            nextMarker = trimPrefix(container, nextMarker);
-        }
         return listing.toBuilder()
                 .contents(contents.build())
                 .commonPrefixes(prefixes.build())
-                .nextContinuationToken(nextMarker)
                 .build();
     }
 

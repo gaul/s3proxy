@@ -30,6 +30,7 @@ import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 
@@ -102,6 +104,53 @@ public final class PrefixBlobStoreTest {
         assertThat(names).containsExactlyInAnyOrder(
                 "file-one.txt", "file-two.txt");
         assertThat(listing.nextContinuationToken()).isNull();
+    }
+
+    /**
+     * A continuation token belongs to the backend that issued it and goes
+     * back as it came.  Most backends issue one that is no key, and a prefix
+     * put in front of it made every page after the first unreadable.
+     */
+    @Test
+    public void testListPagesWithOpaqueTokens() throws IOException {
+        var opaque = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ListObjectsV2Response list(ListObjectsV2Request request) {
+                String token = request.continuationToken();
+                if (token != null) {
+                    Assertions.assertThat(token).startsWith("opaque:");
+                    request = request.toBuilder().continuationToken(
+                            token.substring("opaque:".length())).build();
+                }
+                var listing = super.list(request);
+                String next = listing.nextContinuationToken();
+                return next == null ? listing : listing.toBuilder()
+                        .nextContinuationToken("opaque:" + next).build();
+            }
+        };
+        var store = PrefixBlobStore.newPrefixBlobStore(opaque,
+                Map.of(containerName, prefix));
+        ByteSource content = TestUtils.randomByteSource().slice(0, 8);
+        for (String key : List.of("a", "b", "c")) {
+            TestUtils.putBlob(store, containerName, key, content);
+        }
+        TestUtils.putBlob(blobStore, containerName, "outside", content);
+
+        var keys = new java.util.ArrayList<String>();
+        String token = null;
+        do {
+            var page = store.list(ListObjectsV2Request.builder()
+                    .bucket(containerName).maxKeys(1)
+                    .continuationToken(token).build());
+            page.contents().forEach(object -> keys.add(object.key()));
+            token = page.nextContinuationToken();
+        } while (token != null);
+        assertThat(keys).containsExactly("a", "b", "c");
+
+        // start-after is a key, and is prefixed like one
+        assertThat(store.list(ListObjectsV2Request.builder()
+                .bucket(containerName).startAfter("a").build()).contents())
+                .extracting(S3Object::key).containsExactly("b", "c");
     }
 
     @Test
