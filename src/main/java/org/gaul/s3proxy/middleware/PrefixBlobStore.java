@@ -109,14 +109,11 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (!hasPrefix(container) || Strings.isNullOrEmpty(name)) {
             return name;
         }
-        String prefix = requireNonNull(getPrefix(container));
-        if (name.startsWith(prefix)) {
-            return name;
-        }
-        if (prefix.endsWith("/") && name.startsWith("/")) {
-            return prefix + name.substring(1);
-        }
-        return prefix + name;
+        // Always, whatever the name looks like.  Leaving a name that
+        // already began with the prefix as it was stored the keys "x" and
+        // "<prefix>x" as one object, each overwriting and deleting the
+        // other, and dropping a leading slash did the same to "x" and "/x".
+        return requireNonNull(getPrefix(container)) + name;
     }
 
     private String trimPrefix(String container, String name) {

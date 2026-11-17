@@ -153,6 +153,31 @@ public final class PrefixBlobStoreTest {
                 .extracting(S3Object::key).containsExactly("b", "c");
     }
 
+    /**
+     * A key that happens to begin with the bucket's prefix is a key like
+     * any other and is stored under the prefix too.  (A key beginning with
+     * a slash is as well, which this store cannot show: a filesystem reads
+     * the doubled slash that makes as one.)
+     */
+    @Test
+    public void testKeyBeginningWithPrefixIsItsOwnObject() throws IOException {
+        ByteSource one = TestUtils.randomByteSource().slice(0, 8);
+        ByteSource two = TestUtils.randomByteSource().slice(8, 16);
+        String other = prefix + "x";
+        TestUtils.putBlob(prefixBlobStore, containerName, "x", one);
+        TestUtils.putBlob(prefixBlobStore, containerName, other, two);
+
+        try (InputStream is = prefixBlobStore.getBlob(containerName, "x")) {
+            assertThat(is.readAllBytes()).isEqualTo(one.read());
+        }
+        assertThat(prefixBlobStore.list(containerName).contents())
+                .extracting(S3Object::key)
+                .containsExactlyInAnyOrder("x", other);
+
+        prefixBlobStore.removeBlob(containerName, other);
+        assertThat(prefixBlobStore.blobExists(containerName, "x")).isTrue();
+    }
+
     @Test
     public void testClearContainerKeepsOtherObjects() throws Exception {
         ByteSource content = TestUtils.randomByteSource().slice(0, 32);
