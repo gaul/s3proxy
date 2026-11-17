@@ -102,6 +102,12 @@ public final class RegexBlobStore extends ForwardingBlobStore {
             }
         }
 
+        // The first rule to match a name is the one applied, so the rules
+        // need an order, and a properties file has none: its names come
+        // back in hash order, which differs from one JVM to the next.  The
+        // rule names give one that the configuration controls.
+        configRegex.sort(Entry.comparingByKey());
+
         for (Entry<String, String> entry : configRegex) {
             String key = entry.getKey();
             if (key.startsWith(

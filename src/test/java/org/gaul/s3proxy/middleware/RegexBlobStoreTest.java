@@ -60,6 +60,22 @@ public final class RegexBlobStoreTest {
     }
 
     @Test
+    public void testRulesApplyInNameOrder() {
+        var properties = new java.util.Properties();
+        // every rule matches; the first by name must win
+        for (String name : List.of("m", "c", "x", "a", "q", "f", "k", "b",
+                "z", "d")) {
+            properties.setProperty("s3proxy.regex-blobstore.match." + name,
+                    ".*");
+            properties.setProperty("s3proxy.regex-blobstore.replace." + name,
+                    name);
+        }
+        var regexs = RegexBlobStore.parseRegexs(properties);
+        assertThat(regexs).extracting(Map.Entry::getValue).containsExactly(
+                "a", "b", "c", "d", "f", "k", "m", "q", "x", "z");
+    }
+
+    @Test
     public void testRemoveSomeCharsFromName() throws IOException {
         var regexes = List.<Map.Entry<Pattern, String>>of(
                 new SimpleEntry<Pattern, String>(
