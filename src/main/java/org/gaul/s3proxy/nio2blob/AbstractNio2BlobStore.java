@@ -20,6 +20,7 @@ import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
@@ -155,6 +156,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_USER_METADATA_PREFIX =
             "user.user-metadata.";
     private static final Set<String> NO_ATTRIBUTES = Set.of();
+    /** The attributes a write sets from the request, beside user metadata. */
+    private static final Set<String> METADATA_ATTRIBUTES = Set.of(
+            XATTR_CACHE_CONTROL, XATTR_CONTENT_DISPOSITION,
+            XATTR_CONTENT_ENCODING, XATTR_CONTENT_LANGUAGE,
+            XATTR_CONTENT_TYPE, XATTR_EXPIRES, XATTR_STORAGE_TIER);
     /** How many times a publish makes its parent directory again. */
     private static final int PUBLISH_ATTEMPTS = 100;
     /** The version id of a version listing's row for a common prefix. */
@@ -1003,6 +1009,28 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         logger.debug("Creating blob at: {}", path);
 
         if (blob.getMetadata().name().endsWith("/")) {
+            // The marker is the directory, which has nowhere to keep
+            // content.  It was accepted and dropped: a PUT with a body, or
+            // a multipart upload, answered 200 for an object that then read
+            // back empty.
+            try {
+                if (directoryMarkerHasContent(blob, parts)) {
+                    throw S3Exceptions.invalidArgument("The key names a" +
+                            " directory, which this filesystem cannot" +
+                            " store content in.");
+                }
+            } catch (IOException ioe) {
+                throw new RuntimeException(ioe);
+            }
+            // the conditions a write to any other key is held to
+            if (ifNoneMatch != null && Files.isDirectory(path) &&
+                    safeGetXattrs(path).attributes().contains(
+                            XATTR_CONTENT_MD5) &&
+                    (ifNoneMatch.equals("*") || maybeQuoteETag(ifNoneMatch)
+                            .equals(maybeQuoteETag(HexFormat.of().formatHex(
+                                    DIRECTORY_MD5))))) {
+                throw returnResponseException(412);
+            }
             try {
                 logger.debug("Creating directory blob: {}", path);
                 Files.createDirectories(path);
@@ -1024,6 +1052,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             var view = getXattrView(path);
             if (view != null) {
                 try {
+                    // A marker written again replaces its metadata; the
+                    // directory is the same one, so what the last write
+                    // left has to be taken off it first.
+                    for (String name : view.list()) {
+                        if (METADATA_ATTRIBUTES.contains(name) ||
+                                name.startsWith(XATTR_USER_METADATA_PREFIX)) {
+                            view.delete(name);
+                        }
+                    }
                     writeCommonMetadataAttr(view, blob);
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
                 } catch (IOException | UnsupportedOperationException e) {
@@ -1034,6 +1071,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                 }
             }
+
+            setBlobAccessHelper(path, access);
 
             // A directory marker is the directory itself, which the versions
             // of the keys below it live in; it is not versioned.
@@ -1274,6 +1313,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     logger.debug("unable to remove parents of {}", path, ioe);
                 }
             }
+        }
+    }
+
+    /**
+     * Whether a write to a directory marker carries any bytes.  The payload
+     * is read to its end to find out, which also runs whatever checks the
+     * frontend hung on it.
+     */
+    private static boolean directoryMarkerHasContent(Blob blob,
+            @Nullable List<Path> parts) throws IOException {
+        if (parts != null) {
+            for (Path part : parts) {
+                if (Files.size(part) > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        try (var is = requireNonNull(blob.getPayload())) {
+            return is.transferTo(OutputStream.nullOutputStream()) > 0;
         }
     }
 

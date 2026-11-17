@@ -240,6 +240,77 @@ public final class MalformedRequestTest {
                 .isEqualTo("content");
     }
 
+    /**
+     * A key ending in a slash is kept as a directory, which holds metadata
+     * and no content: content is refused rather than dropped, and the
+     * marker is otherwise written like any object.
+     */
+    @Test
+    public void testDirectoryMarker() throws Exception {
+        String marker = baseUri + bucket + "/dir/";
+        var withBody = put(bucket + "/dir/", "content");
+        assertThat(withBody.statusCode()).isEqualTo(400);
+        assertThat(withBody.body()).contains("InvalidArgument");
+
+        assertThat(httpClient.send(HttpRequest.newBuilder(URI.create(marker))
+                .header("x-amz-meta-first", "1")
+                .PUT(HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(200);
+        // written again, it carries the metadata of the second write only
+        assertThat(httpClient.send(HttpRequest.newBuilder(URI.create(marker))
+                .header("x-amz-meta-second", "2")
+                .PUT(HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(200);
+        var head = httpClient.send(HttpRequest.newBuilder(URI.create(marker))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.discarding());
+        assertThat(head.statusCode()).isEqualTo(200);
+        assertThat(head.headers().firstValue("x-amz-meta-second"))
+                .hasValue("2");
+        assertThat(head.headers().firstValue("x-amz-meta-first")).isEmpty();
+
+        // and it is there, which a conditional create is refused for
+        var conditional = httpClient.send(
+                HttpRequest.newBuilder(URI.create(marker))
+                        .header("If-None-Match", "*")
+                        .PUT(HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(conditional.statusCode()).isEqualTo(412);
+    }
+
+    /** A multipart upload to a directory marker is refused at completion. */
+    @Test
+    public void testMultipartUploadToADirectoryMarker() throws Exception {
+        String key = baseUri + bucket + "/dir/";
+        var create = httpClient.send(
+                HttpRequest.newBuilder(URI.create(key + "?uploads"))
+                        .POST(HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(create.statusCode()).isEqualTo(200);
+        String uploadId = create.body().replaceAll(
+                "(?s).*<UploadId>(.*)</UploadId>.*", "$1");
+        var part = httpClient.send(
+                HttpRequest.newBuilder(URI.create(key +
+                        "?partNumber=1&uploadId=" + uploadId))
+                        .PUT(HttpRequest.BodyPublishers.ofString("content"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(part.statusCode()).isEqualTo(200);
+        String eTag = part.headers().firstValue("ETag").orElseThrow();
+        var complete = httpClient.send(
+                HttpRequest.newBuilder(URI.create(key + "?uploadId=" +
+                        uploadId))
+                        .POST(HttpRequest.BodyPublishers.ofString(
+                                "<CompleteMultipartUpload><Part><PartNumber>" +
+                                "1</PartNumber><ETag>" + eTag + "</ETag>" +
+                                "</Part></CompleteMultipartUpload>"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(complete.body()).contains("InvalidArgument");
+    }
+
     private HttpResponse<String> get(String path, String range)
             throws Exception {
         return httpClient.send(
