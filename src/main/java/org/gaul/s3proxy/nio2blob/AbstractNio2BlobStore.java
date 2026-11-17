@@ -1039,12 +1039,27 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     /*versionId=*/ null);
         }
 
+        // A filesystem holds either the object "a" or objects under "a/",
+        // never both.  The write that would need both is the client's to
+        // correct, so it is refused by name: carried on, it failed in the
+        // move as a 500, or as a 412 for a condition that had in fact held.
+        if (Files.isDirectory(path)) {
+            throw S3Exceptions.invalidArgument("The key names an object" +
+                    " where other keys already lie beneath that name," +
+                    " which this filesystem cannot store.");
+        }
+
         // Create parent directories.
         try {
             createParentDirectories(requireNonNull(path.getParent()));
-        } catch (FileAlreadyExistsException faee) {
-            logger.debug("Parent directories already exist: {}", path.getParent());
         } catch (IOException ioe) {
+            // however the filesystem words it: already exists, not a
+            // directory, no such file
+            if (hasFileAncestor(requireNonNull(path.getParent()))) {
+                throw S3Exceptions.invalidArgument("The key lies beneath" +
+                        " the name of an object that already exists, which" +
+                        " this filesystem cannot store.");
+            }
             throw new RuntimeException(ioe);
         }
 
@@ -1302,25 +1317,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             try {
                 Files.createDirectories(parent);
                 return;
-            } catch (NoSuchFileException nsfe) {
-                if (attempt == PUBLISH_ATTEMPTS) {
-                    throw nsfe;
-                }
-            } catch (FileAlreadyExistsException faee) {
-                // Either a directory that was there when making it failed
-                // and gone again when that was looked into, or an object
-                // where a directory is wanted, which no retry will change.
-                if (attempt == PUBLISH_ATTEMPTS) {
-                    throw faee;
-                }
-                for (Path path = parent; path != null;
-                        path = path.getParent()) {
-                    if (Files.isRegularFile(path)) {
-                        throw faee;
-                    }
+            } catch (NoSuchFileException | FileAlreadyExistsException e) {
+                // Either a directory that the cleanup took away -- there
+                // when making it failed, gone again when that was looked
+                // into -- or an object where a directory is wanted, which
+                // no retry will change.
+                if (attempt == PUBLISH_ATTEMPTS || hasFileAncestor(parent)) {
+                    throw e;
                 }
             }
         }
+    }
+
+    /** Whether the path or anything above it is a file. */
+    private static boolean hasFileAncestor(Path parent) {
+        for (Path path = parent; path != null; path = path.getParent()) {
+            if (Files.isRegularFile(path)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

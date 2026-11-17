@@ -197,6 +197,49 @@ public final class MalformedRequestTest {
         }
     }
 
+    /**
+     * A filesystem cannot hold both the object "a" and an object under
+     * "a/".  Which of the two a write is, it is refused for what it is.
+     */
+    @Test
+    public void testKeyAndKeyBeneathIt() throws Exception {
+        assertThat(put(bucket + "/a", "content").statusCode()).isEqualTo(200);
+        assertThat(put(bucket + "/c/d", "content").statusCode())
+                .isEqualTo(200);
+        for (String key : List.of("a/b", "a/b/c", "c")) {
+            for (boolean conditional : new boolean[] {false, true}) {
+                var request = HttpRequest.newBuilder(URI.create(baseUri +
+                        bucket + "/" + key))
+                        .PUT(HttpRequest.BodyPublishers.ofString("content"));
+                if (conditional) {
+                    request.header("If-None-Match", "*");
+                }
+                var response = httpClient.send(request.build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertThat(response.statusCode()).as("%s %s", key,
+                        conditional).isEqualTo(400);
+                assertThat(response.body()).contains("InvalidArgument");
+            }
+        }
+        // a copy is a write like any other
+        for (String key : List.of("a/b", "c")) {
+            var copy = httpClient.send(
+                    HttpRequest.newBuilder(URI.create(baseUri + bucket +
+                            "/" + key))
+                            .header("x-amz-copy-source", bucket + "/a")
+                            .PUT(HttpRequest.BodyPublishers.noBody())
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(copy.statusCode()).as(key).isEqualTo(400);
+            assertThat(copy.body()).contains("InvalidArgument");
+        }
+        // and neither write disturbed what was there
+        assertThat(get(bucket + "/a", "bytes=0-").body())
+                .isEqualTo("content");
+        assertThat(get(bucket + "/c/d", "bytes=0-").body())
+                .isEqualTo("content");
+    }
+
     private HttpResponse<String> get(String path, String range)
             throws Exception {
         return httpClient.send(
