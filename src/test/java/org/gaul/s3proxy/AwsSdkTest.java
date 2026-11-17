@@ -2666,6 +2666,30 @@ public final class AwsSdkTest {
     }
 
     /**
+     * A PUT that is refused stores nothing, and that includes the prefixes
+     * of its key: the nio2 stores left the directories they had made for
+     * it, which listed as common prefixes and held DeleteBucket to 409.
+     */
+    @Test
+    public void testFailedPutLeavesNoPrefix() throws Exception {
+        try {
+            client.putObject(b -> b.bucket(containerName)
+                    .key("failed-put/dir/key")
+                    // the digest of no bytes
+                    .contentMD5("1B2M2Y8AsgTpgAmY7PhCfg=="),
+                    RequestBody.fromString("content"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+        }
+
+        var listing = client.listObjectsV2(b -> b.bucket(containerName)
+                .delimiter("/"));
+        assertThat(listing.commonPrefixes()).isEmpty();
+        assertThat(listing.contents()).isEmpty();
+    }
+
+    /**
      * "key" and "key/" are two keys.  A filesystem cannot hold both, and a
      * store on one may refuse the second, but whatever it does with "key/"
      * must leave the object "key" alone: the nio2 stores resolved both to

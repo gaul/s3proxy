@@ -1007,6 +1007,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
 
         var metadata = blob.getMetadata().contentMetadata();
+        boolean published = false;
         try {
             // Null when the parts were joined by the kernel: nothing reads the
             // MD5 of an assembled multipart object, whose ETag is the digest
@@ -1128,10 +1129,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         throw returnResponseException(412);
                     }
                     Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE);
+                    published = true;
                     return new PutResult(storedETag, versionId);
                 }
                 // Nothing was displaced: the condition held only because the
                 // key had no current version to displace.
+                published = true;
                 return new PutResult(storedETag, versionId);
             }
             if (ifNoneMatch != null) {
@@ -1154,10 +1157,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE,
                             StandardCopyOption.REPLACE_EXISTING);
                 }
+                published = true;
                 return new PutResult(storedETag, versionId);
             }
             Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
+            published = true;
             return new PutResult(storedETag, versionId);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1169,6 +1174,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 Files.deleteIfExists(tmpPath);
             } catch (IOException ioe) {
                 logger.debug("unable to delete temp file {}", tmpPath, ioe);
+            }
+            // Nor may a write that stored nothing leave behind the
+            // directories made to hold it: they would list as common
+            // prefixes over no keys and keep the bucket from being deleted.
+            if (!published) {
+                try {
+                    removeEmptyParentDirectories(containerPath,
+                            path.getParent());
+                } catch (IOException ioe) {
+                    logger.debug("unable to remove parents of {}", path, ioe);
+                }
             }
         }
     }
