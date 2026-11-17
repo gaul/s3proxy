@@ -2756,18 +2756,35 @@ public final class AzureBlobStore implements BlobStore {
         return current;
     }
 
+    /**
+     * An upload ID is the name of the stub blob created with the upload, and
+     * it arrives from the client, who may send any string at all: the name
+     * of an object, say.  Only a blob under the stub prefix that carries an
+     * upload's target is a stub; deleting anything else on the strength of
+     * an upload ID would remove an object the request never named -- and on
+     * a versioned store every version of it, since {@link #deleteStub}
+     * clears those too.
+     */
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
         // Delete the stub blob to remove the upload from listMultipartUploads
         // Note: Uncommitted blocks are automatically removed by Azure after 7 days
+        String uploadKey = mpu.id();
+        var stub = blobServiceClient
+                .getBlobContainerClient(mpu.containerName())
+                .getBlobClient(uploadKey);
         try {
-            deleteStub(blobServiceClient
-                    .getBlobContainerClient(mpu.containerName())
-                    .getBlobClient(mpu.id()));
+            if (!uploadKey.startsWith(STUB_BLOB_PREFIX) ||
+                    decodeTargetBlobName(
+                            stub.getProperties().getMetadata()) == null) {
+                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
+                        "Multipart upload not found: " + uploadKey);
+            }
+            deleteStub(stub);
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() == 404) {
-                throw S3Exceptions.noSuchKey(mpu.containerName(), mpu.id(),
-                        "Multipart upload not found: " + mpu.id());
+                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
+                        "Multipart upload not found: " + uploadKey);
             }
             throw bse;
         }

@@ -3174,6 +3174,31 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * An upload ID is whatever the client sends, and a store that keeps an
+     * upload under a name must not take the name of an object for one:
+     * azureblob deleted the object an "upload ID" spelled.
+     */
+    @Test
+    public void testAbortMultipartUploadNamingAnObject() throws Exception {
+        String blobName = "abort-names-an-object";
+        client.putObject(b -> b.bucket(containerName).key(blobName),
+                RequestBody.fromString("content"));
+
+        try {
+            client.abortMultipartUpload(b -> b.bucket(containerName)
+                    .key("another-key").uploadId(blobName));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(404);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "NoSuchUpload");
+        }
+
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(blobName)).contentLength()).isEqualTo(7);
+    }
+
     @Test
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";
