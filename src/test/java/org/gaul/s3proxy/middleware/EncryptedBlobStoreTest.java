@@ -541,6 +541,72 @@ public final class EncryptedBlobStoreTest {
         assertThat(blobs.contents()).isEmpty();
     }
 
+    /**
+     * A delimiter that can match in the stored suffix groups keys, not
+     * stored names: the object "report" is listed, where the backend would
+     * fold "report.s3enc" into a common prefix "report." and lose it.
+     */
+    @Test
+    public void testListDelimiterThatMeetsTheSuffix() {
+        for (String key : List.of("a.b/one", "a.b/two", "a.c", "plain",
+                "report", "z.z")) {
+            byte[] content = new byte[10];
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, key, content.length),
+                new ByteArrayInputStream(content));
+        }
+
+        for (int maxKeys : new int[] {1000, 2, 1}) {
+            var keys = new ArrayList<String>();
+            var prefixes = new ArrayList<String>();
+            String token = null;
+            do {
+                var page = encryptedBlobStore.list(
+                        ListObjectsV2Request.builder()
+                                .bucket(containerName)
+                                .delimiter(".")
+                                .maxKeys(maxKeys)
+                                .continuationToken(token)
+                                .build());
+                assertThat(page.contents().size() +
+                        page.commonPrefixes().size())
+                        .isLessThanOrEqualTo(maxKeys);
+                page.contents().forEach(object -> {
+                    keys.add(object.key());
+                    assertThat(object.size()).isEqualTo(10);
+                });
+                page.commonPrefixes().forEach(
+                        prefix -> prefixes.add(prefix.prefix()));
+                token = page.nextContinuationToken();
+            } while (token != null);
+            assertThat(keys).as("max-keys %s", maxKeys)
+                    .containsExactlyInAnyOrder("plain", "report");
+            assertThat(prefixes).as("max-keys %s", maxKeys)
+                    .containsExactlyInAnyOrder("a.", "z.");
+        }
+
+        // start-after names a key, or the common prefix a page ended on
+        assertThat(encryptedBlobStore.list(ListObjectsV2Request.builder()
+                .bucket(containerName).delimiter(".").startAfter("plain")
+                .build()).contents()).extracting(S3Object::key)
+                .containsExactly("report");
+        var afterGroup = encryptedBlobStore.list(
+                ListObjectsV2Request.builder().bucket(containerName)
+                        .delimiter(".").startAfter("a.").build());
+        assertThat(afterGroup.commonPrefixes()).extracting(
+                software.amazon.awssdk.services.s3.model.CommonPrefix::prefix)
+                .containsExactly("z.");
+
+        // and under a prefix, where the delimiter is sought after it
+        var page = encryptedBlobStore.list(ListObjectsV2Request.builder()
+                .bucket(containerName).prefix("a.").delimiter("/").build());
+        assertThat(page.contents()).extracting(S3Object::key)
+                .containsExactly("a.c");
+        assertThat(page.commonPrefixes()).extracting(
+                software.amazon.awssdk.services.s3.model.CommonPrefix::prefix)
+                .containsExactly("a.b/");
+    }
+
     @Test
     public void testListEncryptedPagination() {
         var expected = new java.util.TreeMap<String, Long>();

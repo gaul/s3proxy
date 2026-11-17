@@ -22,9 +22,12 @@ import static java.util.Objects.requireNonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
@@ -54,9 +57,11 @@ import org.gaul.s3proxy.crypto.Decryption;
 import org.gaul.s3proxy.crypto.Encryption;
 import org.gaul.s3proxy.crypto.PartPadding;
 import org.gaul.s3proxy.crypto.PartPaddings;
+import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -83,6 +88,9 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 @SuppressWarnings("UnstableApiUsage")
 public final class EncryptedBlobStore extends ForwardingBlobStore {
+    /** Marks a continuation token minted by {@link #listGroupingHere}. */
+    private static final String GROUPING_TOKEN_PREFIX = "s3enc-";
+
     /**
      * The part paddings of the objects most recently read.  Finding them
      * costs a backend read per part, and a client fetching a large object
@@ -157,20 +165,159 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             ListObjectsV2Response page) {
         var builder = ImmutableList.<S3Object>builder();
         for (S3Object object : page.contents()) {
-            // an encrypted blob drops the .s3enc suffix and reports the
-            // plaintext size rather than the padded stored size
-            if (isEncrypted(object.key())) {
-                builder.add(object.toBuilder()
-                        .key(removeEncryptedSuffix(object.key()))
-                        .size(plaintextSize(container, object))
-                        .build());
-            } else {
-                builder.add(object);
-            }
+            builder.add(clientObject(container, object));
         }
 
         return page.toBuilder()
                 .contents(builder.build())
+                .build();
+    }
+
+    /**
+     * A listed object as the client knows it: an encrypted blob drops the
+     * .s3enc suffix and reports the plaintext size rather than the padded
+     * stored size.
+     */
+    private S3Object clientObject(String container, S3Object object) {
+        if (!isEncrypted(object.key())) {
+            return object;
+        }
+        return object.toBuilder()
+                .key(removeEncryptedSuffix(object.key()))
+                .size(plaintextSize(container, object))
+                .build();
+    }
+
+    /** The key a stored name is listed under. */
+    private String clientKey(String storedName) {
+        return isEncrypted(storedName) ?
+                removeEncryptedSuffix(storedName) : storedName;
+    }
+
+    /**
+     * Whether a delimiter can match where a stored name's suffix is: inside
+     * ".s3enc", or across the join between the key and it.  The backend
+     * groups stored names, so with such a delimiter it folds the object
+     * "report" -- stored "report.s3enc" -- into a common prefix "report."
+     * and the object is gone from the listing.
+     */
+    private static boolean delimiterMeetsSuffix(String delimiter) {
+        String suffix = Constants.S3_ENC_SUFFIX;
+        if (delimiter.isEmpty()) {
+            return false;
+        }
+        if (suffix.contains(delimiter)) {
+            return true;
+        }
+        for (int i = 1; i < suffix.length(); ++i) {
+            if (delimiter.endsWith(suffix.substring(0, i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The common prefix a key falls under, or null when it is listed. */
+    private static @Nullable String commonPrefixOf(String key, String prefix,
+            String delimiter) {
+        if (!key.startsWith(prefix)) {
+            return null;
+        }
+        int index = key.indexOf(delimiter, prefix.length());
+        return index < 0 ? null :
+                key.substring(0, index + delimiter.length());
+    }
+
+    /**
+     * Lists with the delimiter applied here, to the keys, rather than by
+     * the backend to the stored names.  The backend is listed flat and
+     * resumed by start-after, so the continuation token this answers is its
+     * own: the last stored name it consumed.
+     */
+    private ListObjectsV2Response listGroupingHere(
+            ListObjectsV2Request request) {
+        String container = request.bucket();
+        String delimiter = requireNonNull(request.delimiter());
+        String prefix = Strings.nullToEmpty(request.prefix());
+        int maxKeys = request.maxKeys() == null ? 1000 : request.maxKeys();
+
+        String after = request.startAfter();
+        // the group the previous page ended in, already reported there
+        String skipPrefix = null;
+        if (after != null) {
+            // A start-after that is itself a common prefix is how a V1
+            // listing resumes after one: the whole group is behind it.
+            if (after.equals(commonPrefixOf(after, prefix, delimiter))) {
+                skipPrefix = after;
+            } else {
+                after = blobNameWithSuffix(after);
+            }
+        }
+        String token = request.continuationToken();
+        if (token != null) {
+            if (!token.startsWith(GROUPING_TOKEN_PREFIX)) {
+                throw new IllegalArgumentException(
+                        "The continuation token provided is incorrect");
+            }
+            after = new String(Base64.getUrlDecoder().decode(
+                    token.substring(GROUPING_TOKEN_PREFIX.length())),
+                    StandardCharsets.UTF_8);
+            skipPrefix = commonPrefixOf(clientKey(after), prefix, delimiter);
+        }
+
+        var contents = ImmutableList.<S3Object>builder();
+        var prefixes = new LinkedHashSet<String>();
+        int count = 0;
+        String lastConsumed = null;
+        boolean truncated = false;
+        while (maxKeys > 0 && !truncated) {
+            var page = delegate().list(ListObjectsV2Request.builder()
+                    .bucket(container)
+                    .prefix(request.prefix())
+                    .startAfter(after)
+                    .build());
+            for (S3Object object : page.contents()) {
+                String group = commonPrefixOf(clientKey(object.key()),
+                        prefix, delimiter);
+                boolean reported = group != null && (group.equals(
+                        skipPrefix) || prefixes.contains(group));
+                if (!reported) {
+                    if (count == maxKeys) {
+                        truncated = true;
+                        break;
+                    }
+                    ++count;
+                    if (group != null) {
+                        prefixes.add(group);
+                    } else {
+                        contents.add(clientObject(container, object));
+                    }
+                }
+                lastConsumed = object.key();
+            }
+            if (truncated || page.contents().isEmpty() ||
+                    !Boolean.TRUE.equals(page.isTruncated())) {
+                break;
+            }
+            after = page.contents().get(page.contents().size() - 1).key();
+        }
+
+        return ListObjectsV2Response.builder()
+                .name(container)
+                .prefix(request.prefix())
+                .delimiter(delimiter)
+                .maxKeys(maxKeys)
+                .keyCount(count)
+                .contents(contents.build())
+                .commonPrefixes(prefixes.stream()
+                        .map(group -> CommonPrefix.builder()
+                                .prefix(group).build())
+                        .toList())
+                .isTruncated(truncated)
+                .nextContinuationToken(!truncated || lastConsumed == null ?
+                        null : GROUPING_TOKEN_PREFIX +
+                        Base64.getUrlEncoder().encodeToString(
+                                lastConsumed.getBytes(StandardCharsets.UTF_8)))
                 .build();
     }
 
@@ -551,6 +698,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public ListObjectsV2Response list(ListObjectsV2Request request) {
+        String delimiter = request.delimiter();
+        if (delimiter != null && delimiterMeetsSuffix(delimiter)) {
+            return listGroupingHere(request);
+        }
         // start-after names a key, so it wants the suffix the stored object
         // carries.  A continuation token names nothing: it is the backend's
         // own bookmark, opaque to everything above it, and travels back down
