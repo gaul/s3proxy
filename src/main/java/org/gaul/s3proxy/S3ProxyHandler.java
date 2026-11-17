@@ -3808,9 +3808,9 @@ public class S3ProxyHandler {
             HttpServletResponse response, HeadObjectResponse metadata) {
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
-        long ifModifiedSince = request.getDateHeader(
+        long ifModifiedSince = dateHeaderIfValid(request,
                 HttpHeaders.IF_MODIFIED_SINCE);
-        long ifUnmodifiedSince = request.getDateHeader(
+        long ifUnmodifiedSince = dateHeaderIfValid(request,
                 HttpHeaders.IF_UNMODIFIED_SINCE);
 
         String eTag = metadata.eTag();
@@ -4084,13 +4084,13 @@ public class S3ProxyHandler {
                 .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
                         .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
 
-        long ifModifiedSince = request.getDateHeader(
+        long ifModifiedSince = dateHeaderIfValid(request,
                 HttpHeaders.IF_MODIFIED_SINCE);
         if (ifModifiedSince != -1) {
             getRequest.ifModifiedSince(Instant.ofEpochMilli(ifModifiedSince));
         }
 
-        long ifUnmodifiedSince = request.getDateHeader(
+        long ifUnmodifiedSince = dateHeaderIfValid(request,
                 HttpHeaders.IF_UNMODIFIED_SINCE);
         if (ifUnmodifiedSince != -1) {
             getRequest.ifUnmodifiedSince(
@@ -4292,13 +4292,13 @@ public class S3ProxyHandler {
                 request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_MATCH));
         copyRequest.copySourceIfNoneMatch(
                 request.getHeader(AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH));
-        long ifModifiedSince = request.getDateHeader(
+        long ifModifiedSince = copySourceDateHeader(request,
                 AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
         if (ifModifiedSince != -1) {
             copyRequest.copySourceIfModifiedSince(
                     Instant.ofEpochMilli(ifModifiedSince));
         }
-        long ifUnmodifiedSince = request.getDateHeader(
+        long ifUnmodifiedSince = copySourceDateHeader(request,
                 AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
         if (ifUnmodifiedSince != -1) {
             copyRequest.copySourceIfUnmodifiedSince(
@@ -4367,7 +4367,7 @@ public class S3ProxyHandler {
                     }
                 }
             }
-            long expires = request.getDateHeader(HttpHeaders.EXPIRES);
+            long expires = dateHeaderIfValid(request, HttpHeaders.EXPIRES);
             if (expires != -1) {
                 copyRequest.expires(Instant.ofEpochMilli(expires));
             }
@@ -6192,9 +6192,9 @@ public class S3ProxyHandler {
                     throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                 }
             }
-            long nativeIfModifiedSince = request.getDateHeader(
+            long nativeIfModifiedSince = copySourceDateHeader(request,
                     AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
-            long nativeIfUnmodifiedSince = request.getDateHeader(
+            long nativeIfUnmodifiedSince = copySourceDateHeader(request,
                     AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
             var partCopyRequest = UploadPartCopyRequest.builder()
                     .sourceBucket(sourceContainerName)
@@ -6281,9 +6281,9 @@ public class S3ProxyHandler {
                     AwsHttpHeaders.COPY_SOURCE_IF_MATCH);
             String ifNoneMatch = request.getHeader(
                     AwsHttpHeaders.COPY_SOURCE_IF_NONE_MATCH);
-            long ifModifiedSince = request.getDateHeader(
+            long ifModifiedSince = copySourceDateHeader(request,
                     AwsHttpHeaders.COPY_SOURCE_IF_MODIFIED_SINCE);
-            long ifUnmodifiedSince = request.getDateHeader(
+            long ifUnmodifiedSince = copySourceDateHeader(request,
                     AwsHttpHeaders.COPY_SOURCE_IF_UNMODIFIED_SINCE);
             if (eTag != null) {
                 eTag = maybeQuoteETag(eTag);
@@ -6915,7 +6915,7 @@ public class S3ProxyHandler {
                 contentEncoding = null;
             }
         }
-        long expires = request.getDateHeader(HttpHeaders.EXPIRES);
+        long expires = dateHeaderIfValid(request, HttpHeaders.EXPIRES);
         return new RequestContentMetadata(
                 userMetadata.build(),
                 request.getHeader(HttpHeaders.CACHE_CONTROL),
@@ -7185,6 +7185,38 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, iae);
         }
         return value == -1 ? null : Instant.ofEpochMilli(value);
+    }
+
+    /**
+     * A date header's value in milliseconds, or -1 when it is absent or is
+     * not a date.  RFC 9110 has a recipient ignore a conditional date it
+     * cannot parse, and S3 accepts an Expires that is not a date -- "0" is
+     * common -- so neither is a reason to refuse the request.  The servlet
+     * container throws instead, which answered a 400 with no error code.
+     */
+    private static long dateHeaderIfValid(HttpServletRequest request,
+            String headerName) {
+        try {
+            return request.getDateHeader(headerName);
+        } catch (IllegalArgumentException iae) {
+            return -1;
+        }
+    }
+
+    /**
+     * A copy-source date condition in milliseconds, or -1 when absent.  One
+     * that is not a date is refused by name: the caller asked for a
+     * condition, and copying without it would overwrite the destination
+     * unconditionally.
+     */
+    private static long copySourceDateHeader(HttpServletRequest request,
+            String headerName) {
+        try {
+            return request.getDateHeader(headerName);
+        } catch (IllegalArgumentException iae) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "The " + headerName + " header is not a valid date", iae);
+        }
     }
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {

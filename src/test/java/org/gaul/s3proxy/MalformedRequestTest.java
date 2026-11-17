@@ -133,6 +133,42 @@ public final class MalformedRequestTest {
         }
     }
 
+    /**
+     * A date header that is not a date is no reason to refuse a write or a
+     * read; a copy-source condition that is not one is refused by name.
+     */
+    @Test
+    public void testDateHeaderThatIsNotADate() throws Exception {
+        var put = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + bucket + "/key"))
+                        .header("Expires", "0")
+                        .PUT(HttpRequest.BodyPublishers.ofString("content"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(put.statusCode()).isEqualTo(200);
+
+        for (String header : List.of("If-Modified-Since",
+                "If-Unmodified-Since")) {
+            var get = httpClient.send(
+                    HttpRequest.newBuilder(URI.create(baseUri + bucket +
+                            "/key")).header(header, "yesterday").build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(get.statusCode()).as(header).isEqualTo(200);
+            assertThat(get.body()).isEqualTo("content");
+        }
+
+        var copy = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + bucket + "/copy"))
+                        .header("x-amz-copy-source", bucket + "/key")
+                        .header("x-amz-copy-source-if-unmodified-since",
+                                "yesterday")
+                        .PUT(HttpRequest.BodyPublishers.noBody())
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(copy.statusCode()).isEqualTo(400);
+        assertThat(copy.body()).contains("InvalidArgument");
+    }
+
     private HttpResponse<String> put(String pathAndQuery, String body)
             throws Exception {
         return httpClient.send(

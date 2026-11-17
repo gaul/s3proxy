@@ -194,11 +194,10 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             boolean notModified =
                     ("GET".equals(method) || "HEAD".equals(method)) &&
                     request.getHeader(HttpHeaders.IF_MATCH) == null &&
-                    request.getDateHeader(
-                            HttpHeaders.IF_UNMODIFIED_SINCE) == -1 &&
+                    !hasDateHeader(request,
+                            HttpHeaders.IF_UNMODIFIED_SINCE) &&
                     (request.getHeader(HttpHeaders.IF_NONE_MATCH) != null ||
-                     request.getDateHeader(
-                             HttpHeaders.IF_MODIFIED_SINCE) != -1);
+                     hasDateHeader(request, HttpHeaders.IF_MODIFIED_SINCE));
             if (notModified) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             } else {
@@ -222,6 +221,17 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             logger.debug("AwsServiceException:", ase);
             response.setStatus(status);
         }
+        }
+    }
+
+    /** Whether the request carries the header as a date that parses. */
+    private static boolean hasDateHeader(HttpServletRequest request,
+            String headerName) {
+        try {
+            return request.getDateHeader(headerName) != -1;
+        } catch (IllegalArgumentException iae) {
+            // ignored when the request was served, so ignored here
+            return false;
         }
     }
 
