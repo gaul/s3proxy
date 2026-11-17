@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.zip.CRC32;
 
 import javax.crypto.Mac;
@@ -123,6 +124,39 @@ public final class ChunkedInputStreamTest {
                     .cause()
                     .extracting(c -> ((S3ProxyException) c).getError())
                     .isEqualTo(S3ErrorCode.INCOMPLETE_BODY);
+        }
+    }
+
+    /**
+     * Framing that is not aws-chunked is the sender's mistake and is
+     * reported as one, where a bare IOException became a 500.
+     */
+    @Test
+    public void malformedFramingIsTheClientsError() throws IOException {
+        for (String body : List.of(
+                // a size that is not hexadecimal
+                "zz\r\nhello\r\n0\r\n\r\n",
+                // one no int holds
+                "fffffffff\r\nhello\r\n0\r\n\r\n",
+                // one past the limit
+                Integer.toHexString(MAX_CHUNK_SIZE + 1) + "\r\nhello",
+                // a carriage return that begins no line ending
+                "5\rhello\r\n0\r\n\r\n",
+                // a header line that never ends
+                "5;chunk-signature=" + "a".repeat(8192) + "\r\nhello",
+                // a trailer where none was announced
+                "5\r\nhello\r\nx-amz-checksum-crc32:AAAAAA==\r\n")) {
+            try (var in = new ChunkedInputStream(new ByteArrayInputStream(
+                    body.getBytes(StandardCharsets.UTF_8)),
+                    MAX_CHUNK_SIZE)) {
+                assertThatThrownBy(in::readAllBytes)
+                        .as(body.substring(0, Math.min(body.length(), 40)))
+                        .isInstanceOf(IOException.class)
+                        .hasCauseInstanceOf(S3ProxyException.class)
+                        .cause()
+                        .extracting(c -> ((S3ProxyException) c).getError())
+                        .isEqualTo(S3ErrorCode.INVALID_REQUEST);
+            }
         }
     }
 

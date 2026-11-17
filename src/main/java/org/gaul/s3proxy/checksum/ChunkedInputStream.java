@@ -158,7 +158,7 @@ public final class ChunkedInputStream extends FilterInputStream {
             String[] parts = line.split(";", 2);
             if (parts[0].startsWith("x-amz-checksum-")) {
                 if (checksum == null) {
-                    throw new IOException("unexpected trailer: " + parts[0]);
+                    throw malformed("unexpected trailer: " + parts[0]);
                 }
                 String[] checksumParts = parts[0].split(":", 2);
                 // A trailer carrying no value at all, which validateTrailerHash
@@ -174,7 +174,7 @@ public final class ChunkedInputStream extends FilterInputStream {
                 var expectedHash = checksumParts[1].trim();
                 if (FlexChecksum.fromHeaderName(
                         checksumParts[0]) == null) {
-                    throw new IllegalArgumentException("Unknown value: " + checksumParts[0]);
+                    throw malformed("unknown trailer: " + checksumParts[0]);
                 }
                 // getChecksumBytes answers in AWS wire order for every
                 // algorithm, so the digest needs no reordering here.
@@ -185,10 +185,18 @@ public final class ChunkedInputStream extends FilterInputStream {
                 trailerValue = expectedHash;
                 currentLength = 0;
             } else {
-                currentLength = Integer.parseInt(parts[0], 16);
+                try {
+                    currentLength = Integer.parseInt(parts[0], 16);
+                } catch (NumberFormatException nfe) {
+                    // also a size too large for an int to hold
+                    currentLength = 0;
+                    throw malformed("chunk size is not a hexadecimal" +
+                            " number within range");
+                }
                 if (currentLength < 0 || currentLength > maxChunkSize) {
-                    throw new IOException(
-                            "chunk size exceeds maximum: " + currentLength);
+                    int size = currentLength;
+                    currentLength = 0;
+                    throw malformed("chunk size exceeds maximum: " + size);
                 }
             }
             if (parts.length > 1) {
@@ -336,7 +344,7 @@ public final class ChunkedInputStream extends FilterInputStream {
         }
         String expectedHash = parts[1].trim();
         if (FlexChecksum.fromHeaderName(parts[0].trim()) == null) {
-            throw new IOException("unknown trailer: " + parts[0]);
+            throw malformed("unknown trailer: " + parts[0]);
         }
         var actualHash = requireNonNull(checksum).getChecksumBytes();
         if (!expectedHash.equals(
@@ -344,6 +352,18 @@ public final class ChunkedInputStream extends FilterInputStream {
             throw new IOException(new S3ProxyException(S3ErrorCode.BAD_DIGEST));
         }
         trailerValue = expectedHash;
+    }
+
+    /**
+     * Framing that is not aws-chunked.  It is the client's doing, so it is
+     * carried as the S3 error the handler unwraps and answers 400 for; a
+     * bare IOException reads as the server's own failure and answers 500,
+     * which a client retries.
+     */
+    private static IOException malformed(String detail) {
+        return new IOException(new S3ProxyException(
+                S3ErrorCode.INVALID_REQUEST,
+                "The aws-chunked body is malformed: " + detail));
     }
 
     private static boolean constantTimeEquals(String a, String b) {
@@ -377,13 +397,13 @@ public final class ChunkedInputStream extends FilterInputStream {
                 if (ch == '\n') {
                     break;
                 } else {
-                    throw new IOException("unexpected char after \\r: " + ch);
+                    throw malformed("unexpected char after \\r: " + ch);
                 }
             } else if (ch == -1) {
                 return null;
             }
             if (builder.length() >= MAX_LINE_LENGTH) {
-                throw new IOException("chunk header too long");
+                throw malformed("chunk header too long");
             }
             builder.append((char) ch);
         }
