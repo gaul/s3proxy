@@ -44,6 +44,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.ObjectAttributes;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
@@ -414,6 +415,26 @@ public final class ServerSideEncryptionTest {
                         .sseCustomerAlgorithm("AES256")
                         .sseCustomerKey(encodeKey(KEY_B))
                         .sseCustomerKeyMD5(keyMD5(KEY_B))));
+
+        // Its attributes are no more to be had without the key than its
+        // headers are.
+        assertStatus(400, () -> client.getObjectAttributes(
+                b -> b.bucket(containerName).key("blob")
+                        .objectAttributes(ObjectAttributes.E_TAG,
+                                ObjectAttributes.OBJECT_SIZE)));
+        assertStatus(400, () -> client.getObjectAttributes(
+                b -> b.bucket(containerName).key("blob")
+                        .objectAttributes(ObjectAttributes.E_TAG)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_B))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B))));
+        assertThat(client.getObjectAttributes(
+                b -> b.bucket(containerName).key("blob")
+                        .objectAttributes(ObjectAttributes.OBJECT_SIZE)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))).objectSize())
+                .isEqualTo(7);
 
         // An object resting under no key refuses any key offered.
         client.putObject(b -> b.bucket(containerName).key("plain"),

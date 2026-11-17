@@ -3830,8 +3830,23 @@ public class S3ProxyHandler {
         checkVersionId(request);
         Set<String> attributes = requestedObjectAttributes(request);
 
-        HeadObjectResponse metadata = blobStore.blobMetadata(containerName,
-                blobName);
+        // A read like HEAD, of much the same things, and it answers to the
+        // customer key in the same way: the store is handed the key the
+        // request presents, and the request is judged against the key the
+        // object rests under.
+        checkNoWriteEncryptionHeaders(request);
+        HeadObjectResponse metadata = blobStore.blobMetadata(
+                HeadObjectRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .sseCustomerAlgorithm(request.getHeader(AwsHttpHeaders
+                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
+                        .sseCustomerKey(request.getHeader(AwsHttpHeaders
+                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
+                        .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
+                                .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
+                        .build());
+        enforceCustomerKey(request, metadata.sseCustomerKeyMD5());
         if (checkConditionalHeaders(request, response, metadata)) {
             return;
         }
