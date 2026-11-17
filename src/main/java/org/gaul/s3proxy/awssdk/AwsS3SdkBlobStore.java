@@ -395,6 +395,19 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        // Every ETag condition is spelled the backend's way, not only the
+        // ones on a read and a write: the copy-source conditions, a
+        // conditional delete and a conditional completion compared a
+        // quoted ETag against the unquoted one such a backend holds, and
+        // failed when they should have held.
+        if (stripETagQuotes) {
+            request = request.toBuilder()
+                    .copySourceIfMatch(maybeStripETagQuotes(
+                            request.copySourceIfMatch()))
+                    .copySourceIfNoneMatch(maybeStripETagQuotes(
+                            request.copySourceIfNoneMatch()))
+                    .build();
+        }
         try {
             return s3Client.copyObject(request);
         } catch (S3Exception e) {
@@ -404,6 +417,11 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        if (stripETagQuotes && request.ifMatch() != null) {
+            request = request.toBuilder()
+                    .ifMatch(maybeStripETagQuotes(request.ifMatch()))
+                    .build();
+        }
         if (request.ifMatch() != null || request.ifMatchSize() != null ||
                 request.ifMatchLastModifiedTime() != null) {
             // The service judges the conditions, so its answer -- including
@@ -708,6 +726,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
         try {
             return s3Client.completeMultipartUpload(request.toBuilder()
+                    .ifMatch(maybeStripETagQuotes(request.ifMatch()))
+                    .ifNoneMatch(maybeStripETagQuotes(request.ifNoneMatch()))
                     .multipartUpload(CompletedMultipartUpload.builder()
                             .parts(completedParts)
                             .build())
@@ -743,6 +763,14 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     @Override
     public UploadPartCopyResponse copyMultipartPart(MultipartUpload mpu,
             UploadPartCopyRequest request) {
+        if (stripETagQuotes) {
+            request = request.toBuilder()
+                    .copySourceIfMatch(maybeStripETagQuotes(
+                            request.copySourceIfMatch()))
+                    .copySourceIfNoneMatch(maybeStripETagQuotes(
+                            request.copySourceIfNoneMatch()))
+                    .build();
+        }
         try {
             return s3Client.uploadPartCopy(request);
         } catch (S3Exception e) {
