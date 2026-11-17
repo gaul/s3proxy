@@ -939,7 +939,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
      */
     private void validateConditionalPut(String container, String blobName,
             @Nullable String ifMatch, @Nullable String ifNoneMatch) {
-        HeadObjectResponse metadata = blobMetadata(container, blobName);
+        // Absence is an answer here and not a failure: If-None-Match: * is
+        // satisfied by exactly the key that is not there.  blobMetadata
+        // throws for one, so every branch below that judges a missing key
+        // was unreachable and create-if-absent answered NoSuchKey.
+        HeadObjectResponse metadata = blobMetadataIfPresent(container,
+                blobName);
 
         if (ifMatch != null) {
             validateIfMatch(container, blobName, ifMatch, metadata);
