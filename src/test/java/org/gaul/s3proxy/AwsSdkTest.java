@@ -2690,6 +2690,29 @@ public final class AwsSdkTest {
     }
 
     /**
+     * The names a store keeps for itself are reserved at the top of a
+     * bucket.  Under a prefix they are keys like any other: the nio2 stores
+     * accepted such a PUT and then left the object out of every listing.
+     */
+    @Test
+    public void testReservedNameUnderPrefixIsListed() throws Exception {
+        var keys = List.of("dir/.mpus-key", "dir/.s3proxy-slash",
+                "dir/.s3proxy-versions");
+        for (String key : keys) {
+            client.putObject(b -> b.bucket(containerName).key(key),
+                    RequestBody.fromString("content"));
+        }
+
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName))
+                .contents()).extracting(S3Object::key)
+                .containsExactlyElementsOf(keys);
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName)
+                .prefix("dir/").delimiter("/"))
+                .contents()).extracting(S3Object::key)
+                .containsExactlyElementsOf(keys);
+    }
+
+    /**
      * "key" and "key/" are two keys.  A filesystem cannot hold both, and a
      * store on one may refuse the second, but whatever it does with "key/"
      * must leave the object "key" alone: the nio2 stores resolved both to

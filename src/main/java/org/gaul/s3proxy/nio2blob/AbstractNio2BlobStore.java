@@ -440,21 +440,29 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             try {
                 for (var path : stream) {
                     logger.debug("examining: {}", path);
-                    if (filterMultipart && path.getFileName().toString()
-                            .startsWith(MULTIPART_PREFIX)) {
-                        continue;
-                    }
-                    // The reserved backing store for the "/" key is not
-                    // itself a client-visible object; the key "/" is never
-                    // enumerated.
-                    if (path.getFileName().toString().equals(SLASH_BLOB_NAME)) {
-                        continue;
-                    }
-                    // Non-current versions are objects of ListObjectVersions
-                    // alone; ListObjects reports what is current.
-                    if (path.getFileName().toString().equals(VERSIONS_DIR) &&
-                            containerPath.equals(path.getParent())) {
-                        continue;
+                    // The store's own names are reserved, and so hidden,
+                    // only directly under the container.  Deeper down the
+                    // same name is a client's key like any other, which a
+                    // PUT accepts: hiding it there kept an object out of
+                    // every listing while it held the bucket undeletable.
+                    if (containerPath.equals(path.getParent())) {
+                        String name = path.getFileName().toString();
+                        if (filterMultipart &&
+                                name.startsWith(MULTIPART_PREFIX)) {
+                            continue;
+                        }
+                        // The reserved backing store for the "/" key is not
+                        // itself a client-visible object; the key "/" is
+                        // never enumerated.
+                        if (name.equals(SLASH_BLOB_NAME)) {
+                            continue;
+                        }
+                        // Non-current versions are objects of
+                        // ListObjectVersions alone; ListObjects reports what
+                        // is current.
+                        if (name.equals(VERSIONS_DIR)) {
+                            continue;
+                        }
                     }
                     if (!path.toAbsolutePath().toString().startsWith(
                             pathPrefixString)) {
