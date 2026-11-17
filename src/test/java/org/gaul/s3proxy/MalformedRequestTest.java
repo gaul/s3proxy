@@ -169,6 +169,42 @@ public final class MalformedRequestTest {
         assertThat(copy.body()).contains("InvalidArgument");
     }
 
+    /**
+     * A Range that is not a range is ignored and the object served whole;
+     * one that parses is served, or refused when it names no bytes.
+     */
+    @Test
+    public void testRangeThatIsNotARange() throws Exception {
+        put(bucket + "/key", "0123456789");
+        for (String range : List.of("bytes=-", "bytes=a-b", "bytes=2-b",
+                "bytes=--3", "bytes=2", "bytes=0-1,3-4", "lines=1-2")) {
+            var get = get(bucket + "/key", range);
+            assertThat(get.statusCode()).as(range).isEqualTo(200);
+            assertThat(get.body()).as(range).isEqualTo("0123456789");
+        }
+        var partial = get(bucket + "/key", "bytes=2-4");
+        assertThat(partial.statusCode()).isEqualTo(206);
+        assertThat(partial.body()).isEqualTo("234");
+        var toTheEnd = get(bucket + "/key",
+                "bytes=8-99999999999999999999999999");
+        assertThat(toTheEnd.statusCode()).isEqualTo(206);
+        assertThat(toTheEnd.body()).isEqualTo("89");
+        for (String range : List.of("bytes=5-2",
+                "bytes=99999999999999999999999999-")) {
+            var get = get(bucket + "/key", range);
+            assertThat(get.statusCode()).as(range).isEqualTo(416);
+            assertThat(get.body()).contains("InvalidRange");
+        }
+    }
+
+    private HttpResponse<String> get(String path, String range)
+            throws Exception {
+        return httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + path))
+                        .header("Range", range).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> put(String pathAndQuery, String body)
             throws Exception {
         return httpClient.send(

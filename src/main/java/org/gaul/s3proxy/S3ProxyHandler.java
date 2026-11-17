@@ -367,6 +367,8 @@ public class S3ProxyHandler {
     );
     private static final String XML_CONTENT_TYPE = "application/xml";
     private static final String UTF_8 = "UTF-8";
+    /** The largest offset a range forwards, with room to add one to it. */
+    private static final String MAX_RANGE_OFFSET = "999999999999999999";
     // Reserved prefix for the stub blob that carries object metadata between
     // initiate and complete multipart upload for MULTIPART_REQUIRES_STUB
     // backends.  These stubs are hidden from list() to match S3 semantics
@@ -4099,6 +4101,7 @@ public class S3ProxyHandler {
         }
 
         String range = request.getHeader(HttpHeaders.RANGE);
+        boolean ranged = false;
         if (range != null && range.startsWith("bytes=") &&
                 // ignore multiple ranges
                 range.indexOf(',') == -1 &&
@@ -4106,30 +4109,31 @@ public class S3ProxyHandler {
                 range.indexOf('-') != -1) {
             String[] ranges = range.substring("bytes=".length())
                     .split("-", 2);
-            try {
-                if (ranges[0].isEmpty()) {
-                    long tail = Long.parseLong(ranges[1]);
-                    if (tail < 0) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
-                    }
-                } else if (ranges[1].isEmpty()) {
-                    long startAt = Long.parseLong(ranges[0]);
-                    if (startAt < 0) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
-                    }
-                } else {
-                    long start = Long.parseLong(ranges[0]);
-                    long end = Long.parseLong(ranges[1]);
-                    if (start < 0 || end < start) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
-                    }
+            // A range that is not one -- "bytes=-", "bytes=a-b" -- is
+            // ignored and the whole object served, as RFC 9110 has it and
+            // as an unknown unit or a list of ranges already is.  One that
+            // parses and names no bytes is a different matter: 416.
+            boolean wellFormed = isRangeOffset(ranges[0]) &&
+                    isRangeOffset(ranges[1]) &&
+                    !(ranges[0].isEmpty() && ranges[1].isEmpty());
+            if (wellFormed) {
+                if (!ranges[0].isEmpty() && !ranges[1].isEmpty() &&
+                        compareRangeOffsets(ranges[1], ranges[0]) < 0) {
+                    throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
                 }
-            } catch (NumberFormatException nfe) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, nfe);
+                // An offset too long for a long is past the end of any
+                // object: no first byte is there, and a last byte or a
+                // suffix length that large means "to the end".
+                if (ranges[0].length() > MAX_RANGE_OFFSET.length()) {
+                    throw new S3ProxyException(S3ErrorCode.INVALID_RANGE);
+                }
+                if (ranges[1].length() > MAX_RANGE_OFFSET.length()) {
+                    range = "bytes=" + ranges[0] + "-" + MAX_RANGE_OFFSET;
+                }
+                // otherwise pass the validated single range through verbatim
+                getRequest.range(range);
+                ranged = true;
             }
-            // pass the validated single range through verbatim
-            getRequest.range(range);
-            status = HttpServletResponse.SC_PARTIAL_CONTENT;
         }
 
         ResponseInputStream<GetObjectResponse> blob = blobStore.getBlob(
@@ -4151,6 +4155,12 @@ public class S3ProxyHandler {
             throw e;
         }
 
+        // 206 only for what the store served as a range.  One it could not
+        // honour and answered with the whole object is a 200, not a 206
+        // that claims to be part of something.
+        if (ranged && blob.response().contentRange() != null) {
+            status = HttpServletResponse.SC_PARTIAL_CONTENT;
+        }
         response.setStatus(status);
 
         addCorsResponseHeader(request, response);
@@ -7240,6 +7250,17 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The " + headerName + " header is not a valid date", iae);
         }
+    }
+
+    /** Whether one side of a byte range is empty or all digits. */
+    private static boolean isRangeOffset(String offset) {
+        return CharMatcher.inRange('0', '9').matchesAllOf(offset);
+    }
+
+    /** Compares two offsets of any length, neither of which is empty. */
+    private static int compareRangeOffsets(String a, String b) {
+        return new java.math.BigInteger(a).compareTo(
+                new java.math.BigInteger(b));
     }
 
     private static boolean startsWithIgnoreCase(String string, String prefix) {
