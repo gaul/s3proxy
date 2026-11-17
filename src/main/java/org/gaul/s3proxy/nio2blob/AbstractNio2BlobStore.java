@@ -157,6 +157,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Set<String> NO_ATTRIBUTES = Set.of();
     /** How many times a publish makes its parent directory again. */
     private static final int PUBLISH_ATTEMPTS = 100;
+    /** How many times a read starts over when a write replaces its file. */
+    private static final int ATTRIBUTE_READ_ATTEMPTS = 100;
     // Reserved prefix for the store's own multipart bookkeeping: the stub
     // recording that an upload exists and the file behind each uploaded part.
     // These names are hidden from list(), which is why a client must not be
@@ -624,8 +626,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 requireNonNull(blob.getPayload()));
     }
 
+    /**
+     * Reads an object, again if a write replaced it while its attributes
+     * were being read.  That leaves a name listed on the old file and
+     * missing from the new, which failed the read: 500, or 400 on the
+     * in-memory store.  The object is whole before and after the write, so
+     * reading it again answers with one or the other.
+     */
     @Nullable
     private Blob getBlobInternal(String container, String key,
+            GetObjectRequest options, boolean openStream) {
+        for (int attempt = 0; ; ++attempt) {
+            try {
+                return readBlob(container, key, options, openStream);
+            } catch (RuntimeException re) {
+                if (attempt == ATTRIBUTE_READ_ATTEMPTS ||
+                        !(re.getCause() instanceof
+                                AttributesChangedException)) {
+                    throw re;
+                }
+            }
+        }
+    }
+
+    @Nullable
+    private Blob readBlob(String container, String key,
             GetObjectRequest options, boolean openStream) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, key);
@@ -721,12 +746,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 return null;
             } else if (view != null &&
                     attributes.contains(XATTR_CONTENT_MD5)) {
-                var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
-                view.read(XATTR_CONTENT_MD5, buf);
-                var etagBytes = buf.array();
+                var etagBytes = readAttribute(view, XATTR_CONTENT_MD5);
                 if (etagBytes.length == 16) {
                     // regular object
-                    hashCode = HashCode.fromBytes(buf.array());
+                    hashCode = HashCode.fromBytes(etagBytes);
                     eTag = "\"" + hashCode + "\"";
                 } else {
                     // multi-part object
@@ -736,12 +759,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 eTag = "\"" + fileETag(attr) + "\"";
             }
             if (view != null && attributes.contains(XATTR_EXPIRES)) {
-                int xattrSize = view.size(XATTR_EXPIRES);
+                byte[] expiresBytes = readAttribute(view, XATTR_EXPIRES);
+                int xattrSize = expiresBytes.length;
                 if (xattrSize == Longs.BYTES) {
-                    ByteBuffer buf = ByteBuffer.allocate(Longs.BYTES);
-                    view.read(XATTR_EXPIRES, buf);
-                    buf.flip();
-                    expires = Instant.ofEpochMilli(buf.asLongBuffer().get());
+                    expires = Instant.ofEpochMilli(
+                            Longs.fromByteArray(expiresBytes));
                 } else {
                     logger.warn("ignoring malformed {} xattr ({} bytes) on {}", XATTR_EXPIRES, xattrSize, path);
                 }
@@ -2717,9 +2739,39 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (!attr.contains(name)) {
             return null;
         }
-        ByteBuffer buf = ByteBuffer.allocate(view.size(name));
-        view.read(name, buf);
-        return new String(buf.array(), StandardCharsets.UTF_8);
+        return new String(readAttribute(view, name), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * An attribute that was listed and then could not be read.  The list
+     * and the read each resolve the path anew, and a write publishes by
+     * renaming a new file over the key, so a write landing between the two
+     * leaves the names of the old file being read from the new one.
+     */
+    private static final class AttributesChangedException
+            extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        AttributesChangedException(String name, Throwable cause) {
+            super("attribute " + name + " changed while it was read", cause);
+        }
+    }
+
+    /** Reads an attribute that the file was just seen to carry. */
+    private static byte[] readAttribute(UserDefinedFileAttributeView view,
+            String name) throws IOException {
+        try {
+            ByteBuffer buf = ByteBuffer.allocate(view.size(name));
+            view.read(name, buf);
+            return buf.array();
+        } catch (NoSuchFileException nsfe) {
+            // the file itself is gone, which callers answer for already
+            throw nsfe;
+        } catch (IOException | IllegalArgumentException e) {
+            // The in-memory filesystem reports a missing attribute as an
+            // IllegalArgumentException, which the frontend answered 400.
+            throw new AttributesChangedException(name, e);
+        }
     }
 
     /**
@@ -2734,9 +2786,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (view == null || !xattrs.attributes().contains(XATTR_CONTENT_MD5)) {
             return null;
         }
-        var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
-        view.read(XATTR_CONTENT_MD5, buf);
-        var etagBytes = buf.array();
+        var etagBytes = readAttribute(view, XATTR_CONTENT_MD5);
         if (etagBytes.length == 16) {
             // regular object
             return HashCode.fromBytes(etagBytes).toString();
