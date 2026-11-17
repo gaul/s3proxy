@@ -878,7 +878,19 @@ public final class AzureBlobStore implements BlobStore {
             // show it -- and does not hold the bucket: S3 deletes a bucket
             // whose only contents are unfinished uploads, and deleting the
             // container takes them with it.
-            for (BlobItem blob : client.listBlobs()) {
+            //
+            // On a versioned store every version is asked for.  The plain
+            // listing names only blobs with a current version, so a bucket
+            // holding nothing but non-current versions and delete markers
+            // read as empty and was deleted with its history, where S3
+            // answers BucketNotEmpty until the versions are removed.
+            var options = new ListBlobsOptions();
+            if (versioning) {
+                options.setDetails(new BlobListDetails()
+                        .setRetrieveVersions(true));
+            }
+            for (BlobItem blob : client.listBlobs(options,
+                    /*timeout=*/ null)) {
                 if (!isMultipartInternal(blob.getName())) {
                     throw S3Exceptions.bucketNotEmpty(container);
                 }
