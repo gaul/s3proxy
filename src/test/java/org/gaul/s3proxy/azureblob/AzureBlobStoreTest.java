@@ -73,6 +73,8 @@ public final class AzureBlobStoreTest {
     private static final String WRITTEN = "2026-01-02T00:00:00.0000000Z";
     /** The version a key left without a current one falls to. */
     private static final String REMAINING = "2026-01-01T00:00:00.0000000Z";
+    /** A version id the promotion fake's key does not have. */
+    private static final String MISSING = "2026-01-02T00:00:00.0000000Z";
 
     /** The markers each call asked for, in order. */
     private final List<String> requested = new ArrayList<>();
@@ -954,6 +956,20 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * A delete naming a version the key does not have deletes nothing and
+     * answers as S3 does, echoing the id it named.
+     */
+    @Test
+    public void testDeleteOfAnAbsentVersionEchoesItsId() throws IOException {
+        var store = promotionStore();
+
+        assertThat(store.removeBlob(DeleteObjectRequest.builder()
+                .bucket("container").key("key").versionId(MISSING).build())
+                .versionId()).isEqualTo(MISSING);
+        assertThat(azureRequests).noneMatch(r -> r.startsWith("DELETE "));
+    }
+
+    /**
      * A delete marker written while Suspended is a null version too: named
      * by its Azure id it answers NoSuchVersion, to a GET and a HEAD alike,
      * rather than the 405 that would confirm a marker stands at that id.
@@ -1113,6 +1129,11 @@ public final class AzureBlobStoreTest {
                         "<Error><Code>BlobNotFound</Code>" +
                         "<Message>gone</Message></Error>";
             }
+        } else if (path.equals("/account/container/key") &&
+                recorded.contains("versionid=" + MISSING)) {
+            // A version the key does not have.
+            status = 404;
+            headers.set("x-ms-error-code", "BlobNotFound");
         } else if (path.equals("/account/container/key") &&
                 method.equals("DELETE")) {
             // The remaining version, deleted by id.

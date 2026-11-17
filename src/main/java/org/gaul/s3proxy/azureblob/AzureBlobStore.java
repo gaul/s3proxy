@@ -2220,9 +2220,12 @@ public final class AzureBlobStore implements BlobStore {
             // An object already gone satisfies a delete; a bucket that is
             // not there does not, and S3 says so where answering success
             // told the caller a delete had happened in a bucket it had
-            // perhaps only misspelled.
+            // perhaps only misspelled.  A version already gone is answered
+            // as S3 answers one, echoing the id the delete named.
             if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
-                return DeleteObjectResponse.builder().build();
+                return DeleteObjectResponse.builder()
+                        .versionId(namesVersion ? versionId : null)
+                        .build();
             }
             if (BlobErrorCode.CONDITION_NOT_MET.equals(bse.getErrorCode())) {
                 if (!Boolean.TRUE.equals(client.exists())) {
