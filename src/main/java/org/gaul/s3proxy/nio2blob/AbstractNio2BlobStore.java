@@ -3050,6 +3050,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      *
      * <p>To keep that reserved namespace private, any other key that would
      * resolve to the slash blob or a descendant of it is rejected with 400.
+     *
+     * <p>A key holding a "." or ".." segment is refused before it is
+     * resolved; see {@link #checkNoDotSegment}.
      */
     private static Path resolveBlobPath(Path containerPath, String key) {
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
@@ -3058,6 +3061,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             checkNoNativeSeparator(containerPath, key, "key");
             path = slashBlob;
         } else {
+            checkNoDotSegment(key);
             path = resolveName(containerPath, key, "key").normalize();
             if (path.startsWith(slashBlob)) {
                 throw returnResponseException(400);
@@ -3364,6 +3368,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     /**
+     * Refuse a key holding a "." or ".." path segment.  A filesystem resolves
+     * those away, so the key would name some other path than the one it
+     * spells: {@code ./} is the container directory itself, which a DELETE
+     * would remove as though it were an object, taking the bucket with it;
+     * {@code ./.mpus-...} is a multipart part, reached without beginning
+     * with the prefix {@link #checkNotReserved} looks for; and {@code a/./b}
+     * is the object {@code a/b}, two S3 keys collapsed onto one.  S3 keeps
+     * such a key as written and this store cannot, so it says so.
+     */
+    private static void checkNoDotSegment(String key) {
+        for (String segment : key.split("/", -1)) {
+            if (segment.equals(".") || segment.equals("..")) {
+                throw S3Exceptions.invalidArgument("The key holds a \"" +
+                        segment + "\" path segment, which this filesystem" +
+                        " cannot store as a name.");
+            }
+        }
+    }
+
+    /**
      * Refuse a client key naming the store's private multipart bookkeeping.
      * Writing one lets a client replace a part of an upload it does not own,
      * or leave behind an object that list() hides from the bucket's owner.
@@ -3376,6 +3400,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * ListParts already does to the same caller.
      */
     private static void checkNotReserved(String key) {
+        checkNoDotSegment(key);
         if (key.startsWith(MULTIPART_PREFIX)) {
             throw S3Exceptions.invalidArgument("The key " + MULTIPART_PREFIX +
                     "... is reserved for multipart uploads.");

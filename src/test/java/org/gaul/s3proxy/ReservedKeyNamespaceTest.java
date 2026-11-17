@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -251,5 +252,44 @@ public final class ReservedKeyNamespaceTest {
         assertThat(client.listObjectsV2(b -> b.bucket(containerName))
                 .contents().stream().map(o -> o.key()))
                 .containsExactly("victim");
+    }
+
+    /**
+     * A filesystem resolves "./" to the directory it is in, which for a key
+     * is the bucket: deleting that key used to delete the bucket.
+     */
+    @Test
+    public void testDotSlashKeyDoesNotNameTheBucket() throws Exception {
+        String empty = containerName + "-empty";
+        blobStore.createContainer(empty);
+        try {
+            for (String key : List.of("./", ".", "a/../", "a/..")) {
+                assertRefused(() -> client.deleteObject(b -> b
+                        .bucket(empty).key(key)));
+                assertRefused(() -> client.putObject(b -> b
+                        .bucket(empty).key(key), RequestBody.empty()));
+            }
+            client.headBucket(b -> b.bucket(empty));
+        } finally {
+            blobStore.deleteContainer(empty);
+        }
+    }
+
+    /** A dot segment in front of a reserved name must not get it past. */
+    @Test
+    public void testDotSegmentDoesNotReachReservedNames() throws Exception {
+        client.uploadPart(b -> b.bucket(containerName).key("victim")
+                .uploadId(uploadId).partNumber(1),
+                RequestBody.fromBytes(CONTENT));
+        for (String key : List.of("./" + partKey(), "a/../" + partKey(),
+                "./" + stubKey())) {
+            assertRefused(() -> client.putObject(b -> b
+                    .bucket(containerName).key(key),
+                    RequestBody.fromString("planted")));
+            assertRefused(() -> client.deleteObject(b -> b
+                    .bucket(containerName).key(key)));
+        }
+        assertThat(client.listParts(b -> b.bucket(containerName)
+                .key("victim").uploadId(uploadId)).parts()).hasSize(1);
     }
 }
