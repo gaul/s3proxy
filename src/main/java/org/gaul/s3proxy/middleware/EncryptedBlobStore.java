@@ -457,6 +457,17 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 .build(), encrypted);
     }
 
+    /**
+     * Not recorded, as putBlob drops the checksums a request carries: the
+     * stored object is the ciphertext, and its ETag is not the one the
+     * frontend would vouch for the value with.
+     */
+    @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return false;
+    }
+
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
 

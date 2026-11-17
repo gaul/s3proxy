@@ -131,6 +131,12 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return false;
+    }
+
+    @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }

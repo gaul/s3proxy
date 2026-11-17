@@ -254,6 +254,13 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return super.recordChecksumMetadata(container,
+                addPrefix(container, name), eTag, metadataKey, value);
+    }
+
+    @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         return super.copyBlob(request.toBuilder()
                 .sourceKey(addPrefix(request.sourceBucket(),

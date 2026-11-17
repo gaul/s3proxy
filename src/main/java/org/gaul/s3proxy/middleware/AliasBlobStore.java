@@ -253,6 +253,13 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return delegate().recordChecksumMetadata(getContainer(container),
+                name, eTag, metadataKey, value);
+    }
+
+    @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         return delegate().getBlob(request.toBuilder()

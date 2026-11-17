@@ -583,6 +583,14 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return this.delegate().recordChecksumMetadata(
+                this.getShard(container, name), name, eTag, metadataKey,
+                value);
+    }
+
+    @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
         if (!this.buckets.containsKey(request.bucket())) {

@@ -76,6 +76,14 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return super.recordChecksumMetadata(container, name, eTag,
+                replaceChars(metadataKey, fromChars, toChars),
+                replaceChars(value, fromChars, toChars));
+    }
+
+    @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         var blobMetadata = super.blobMetadata(request);
         var metadata = ImmutableMap.<String, String>builder();

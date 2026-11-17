@@ -197,6 +197,13 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return super.recordChecksumMetadata(container,
+                replaceBlobName(name), eTag, metadataKey, value);
+    }
+
+    @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
         return super.initiateMultipartUpload(request.toBuilder()

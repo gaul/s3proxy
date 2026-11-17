@@ -130,6 +130,13 @@ final class EventualBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return writeStore.recordChecksumMetadata(container, name, eTag,
+                metadataKey, value);
+    }
+
+    @Override
     public PutObjectResponse putBlob(final PutObjectRequest request,
             InputStream payload) {
         final String containerName = request.bucket();

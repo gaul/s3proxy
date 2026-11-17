@@ -250,6 +250,13 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
+    public boolean recordChecksumMetadata(String container, String name,
+            String eTag, String metadataKey, String value) {
+        return delegate().recordChecksumMetadata(container, name, eTag,
+                metadataKey, value);
+    }
+
+    @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
         return delegate().initiateMultipartUpload(request);
