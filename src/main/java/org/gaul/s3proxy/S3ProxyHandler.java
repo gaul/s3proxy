@@ -1445,6 +1445,18 @@ public class S3ProxyHandler {
     }
 
     /**
+     * A modification time as a conditional date header can express it.  An
+     * HTTP date carries whole seconds, and Last-Modified is sent as one, so
+     * a store that keeps finer times -- the nio2 ones keep milliseconds --
+     * must be compared at that grain: otherwise an object is newer than its
+     * own Last-Modified, and a request echoing that date back in
+     * If-Unmodified-Since is refused.
+     */
+    private static long httpDateMillis(Instant lastModified) {
+        return lastModified.getEpochSecond() * 1000;
+    }
+
+    /**
      * Refuse a request naming a subresource S3Proxy does not implement.
      * Nothing dispatches on those names, so a request left to carry one is
      * handled as the plain operation on the bucket or object beside it:
@@ -3768,7 +3780,7 @@ public class S3ProxyHandler {
         Instant lastModified = metadata.lastModified();
         if (lastModified != null) {
             if (ifModifiedSince != -1 &&
-                    lastModified.toEpochMilli() <= ifModifiedSince) {
+                    httpDateMillis(lastModified) <= ifModifiedSince) {
                 response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
                 return true;
             }
@@ -3778,7 +3790,7 @@ public class S3ProxyHandler {
             // it, and the date is not consulted.  Reading the date anyway
             // refused a request S3 would have answered.
             if (ifUnmodifiedSince != -1 && ifMatch == null &&
-                    lastModified.toEpochMilli() > ifUnmodifiedSince) {
+                    httpDateMillis(lastModified) > ifUnmodifiedSince) {
                 throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
@@ -6166,14 +6178,14 @@ public class S3ProxyHandler {
 
             if (lastModified != null) {
                 if (ifModifiedSince != -1 &&
-                        lastModified.toEpochMilli() <= ifModifiedSince) {
+                        httpDateMillis(lastModified) <= ifModifiedSince) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
                 // Only when the if-match is absent, as on a read: S3 copies
                 // the data when the if-match holds and the
                 // if-unmodified-since does not.
                 if (ifUnmodifiedSince != -1 && ifMatch == null &&
-                        lastModified.toEpochMilli() > ifUnmodifiedSince) {
+                        httpDateMillis(lastModified) > ifUnmodifiedSince) {
                     throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
                 }
             }

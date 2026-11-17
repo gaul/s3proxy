@@ -3915,8 +3915,6 @@ public final class AwsSdkTest {
         // If-Modified-Since equals the object's own Last-Modified must be
         // treated as "not modified" (304), and If-Unmodified-Since with the
         // same value as "unmodified" (200).
-        assumeTrue(blobStoreType.equals("google-cloud-storage") ||
-                blobStoreType.equals("azureblob"));
 
         String blobName = "conditional-since";
         client.putObject(b -> b.bucket(containerName).key(blobName),
@@ -3942,6 +3940,23 @@ public final class AwsSdkTest {
             assertThat((InputStream) object).isNotNull();
             object.transferTo(OutputStream.nullOutputStream());
         }
+
+        // HEAD judges the same two conditions, in the frontend
+        try {
+            client.headObject(b -> b.bucket(containerName).key(blobName)
+                    .ifModifiedSince(lastModified));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(304);
+        }
+        client.headObject(b -> b.bucket(containerName).key(blobName)
+                .ifUnmodifiedSince(lastModified));
+
+        // and so does the source of a copy
+        client.copyObject(b -> b.sourceBucket(containerName)
+                .sourceKey(blobName).destinationBucket(containerName)
+                .destinationKey(blobName + "-copy")
+                .copySourceIfUnmodifiedSince(lastModified));
     }
 
     @Test

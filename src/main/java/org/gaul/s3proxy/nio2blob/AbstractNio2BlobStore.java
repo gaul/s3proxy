@@ -42,6 +42,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.security.DigestInputStream;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -766,9 +767,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                 }
             }
+            // A conditional date carries whole seconds, as the Last-Modified
+            // a caller echoes back in one does, so the file's finer time is
+            // compared at that grain: an object is not newer than its own
+            // Last-Modified.
+            var modifiedSecond = lastModifiedTime.truncatedTo(
+                    ChronoUnit.SECONDS);
             if (options.ifModifiedSince() != null) {
                 var modifiedSince = options.ifModifiedSince();
-                if (lastModifiedTime.compareTo(modifiedSince) <= 0) {
+                if (modifiedSecond.compareTo(modifiedSince) <= 0) {
                     throw conditionFailed(304, eTag);
                 }
 
@@ -781,7 +788,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (options.ifUnmodifiedSince() != null &&
                     options.ifMatch() == null) {
                 var unmodifiedSince = options.ifUnmodifiedSince();
-                if (lastModifiedTime.isAfter(unmodifiedSince)) {
+                if (modifiedSecond.isAfter(unmodifiedSince)) {
                     throw conditionFailed(412, eTag);
                 }
             }
@@ -1261,6 +1268,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             var lastModified = blob.getMetadata().lastModified();
             if (lastModified != null) {
+                // at the grain of an HTTP date, as in getBlobInternal
+                lastModified = lastModified.truncatedTo(ChronoUnit.SECONDS);
                 var ifModifiedSince = request.copySourceIfModifiedSince();
                 var ifUnmodifiedSince = request.copySourceIfUnmodifiedSince();
                 if (ifModifiedSince != null && lastModified.compareTo(ifModifiedSince) <= 0) {
