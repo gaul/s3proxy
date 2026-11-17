@@ -498,8 +498,6 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testListVersionsResumesAfterADeletedVersion() {
-        // NIO2-SKIP: the transient store looks for the marker's own row too
-        assumeTrue(!blobStoreType.equals("transient"));
         enableVersioning();
         put("blob", FIRST);
         String second = put("blob", SECOND);

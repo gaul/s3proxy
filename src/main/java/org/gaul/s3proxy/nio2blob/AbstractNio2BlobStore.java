@@ -1838,6 +1838,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         candidate.versionId().equals(versionIdMarker)) {
                     start = i + 1;
                     break;
+                } else if (isPastMarker(candidate, keyMarker,
+                        versionIdMarker)) {
+                    // The marker's own row is gone, deleted since the page
+                    // that named it -- how a versioned bucket is emptied --
+                    // and its place is before this one.  The null versions
+                    // just ahead of it cannot be placed either side of the
+                    // marker, so they are listed, perhaps a second time,
+                    // rather than risk never listing them.
+                    start = i;
+                    while (start > 0 && rows.get(start - 1).key().equals(
+                            keyMarker) && rows.get(start - 1).versionId()
+                            .equals(NULL_VERSION_ID)) {
+                        --start;
+                    }
+                    break;
                 }
                 start = i + 1;
             }
@@ -3127,6 +3142,24 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+    }
+
+    /**
+     * Whether a row of a version listing comes after the (key, version id)
+     * marker in listing order: a later key, or an older version of the
+     * same one.  Version ids are minted in sequence and compare as they
+     * were minted; the null version carries no place in that sequence and
+     * is never judged past a marker by its id.
+     */
+    private static boolean isPastMarker(VersionRow row, String keyMarker,
+            String versionIdMarker) {
+        int order = row.key().compareTo(keyMarker);
+        if (order != 0) {
+            return order > 0;
+        }
+        return !row.versionId().equals(NULL_VERSION_ID) &&
+                !versionIdMarker.equals(NULL_VERSION_ID) &&
+                row.versionId().compareTo(versionIdMarker) < 0;
     }
 
     /**
