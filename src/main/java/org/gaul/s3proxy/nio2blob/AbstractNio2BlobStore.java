@@ -691,6 +691,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     // a directory-marker key.
                     return null;
                 }
+            } else if (key.endsWith("/")) {
+                // The same conflation the other way about: "key/" resolves
+                // to the file that is the object "key", which is another
+                // object and not this one.
+                return null;
             } else if (view != null &&
                     attributes.contains(XATTR_CONTENT_MD5)) {
                 var buf = ByteBuffer.allocate(view.size(XATTR_CONTENT_MD5));
@@ -951,6 +956,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 logger.debug("Creating directory blob: {}", path);
                 Files.createDirectories(path);
             } catch (FileAlreadyExistsException faee) {
+                if (!Files.isDirectory(path)) {
+                    // "key/" resolves to the file that is the object "key",
+                    // or lies under one.  Carrying on would write this
+                    // marker's ETag and metadata onto that object.
+                    throw S3Exceptions.invalidArgument("The key names a" +
+                            " directory where an object already has that" +
+                            " name without the trailing slash, which this" +
+                            " filesystem cannot store.");
+                }
                 logger.debug("Parent directories already exist: {}", path.getParent());
             } catch (IOException ioe) {
                 throw new RuntimeException(ioe);
@@ -1377,7 +1391,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // prefix other keys live under -- is not versioned, so a delete of
         // one is the ordinary delete, which knows to keep the directory for
         // the objects inside it.
-        if (status == null || Files.isDirectory(path)) {
+        if (status == null || Files.isDirectory(path) || key.endsWith("/")) {
             removeBlobInternal(container, key);
             return DeleteObjectResponse.builder().build();
         }
@@ -1471,6 +1485,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (!key.endsWith("/") && Files.isDirectory(path)) {
             // POSIX path normalization conflates "key" with "key/";
             // a non-slash key must not match a directory marker.
+            return;
+        }
+        if (key.endsWith("/") && Files.isRegularFile(path)) {
+            // Nor a slash key the object of the same name without it, which
+            // deleting "key/" used to remove.
             return;
         }
         try {

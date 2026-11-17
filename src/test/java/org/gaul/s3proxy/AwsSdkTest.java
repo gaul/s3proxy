@@ -2530,6 +2530,52 @@ public final class AwsSdkTest {
         client.deleteObject(b -> b.bucket(containerName).key(blobName));
     }
 
+    /**
+     * "key" and "key/" are two keys.  A filesystem cannot hold both, and a
+     * store on one may refuse the second, but whatever it does with "key/"
+     * must leave the object "key" alone: the nio2 stores resolved both to
+     * one file, so a PUT of "key/" rewrote the object's ETag, a GET of it
+     * returned the object and a DELETE of it deleted the object.
+     */
+    @Test
+    public void testTrailingSlashKeyIsNotTheObject() throws Exception {
+        String key = "slash-is-not-the-object";
+        String slashKey = key + "/";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("content"));
+        String eTag = client.headObject(b -> b.bucket(containerName)
+                .key(key)).eTag();
+
+        boolean stored;
+        try {
+            client.putObject(b -> b.bucket(containerName).key(slashKey),
+                    RequestBody.empty());
+            stored = true;
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            stored = false;
+        }
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(key)).eTag()).isEqualTo(eTag);
+
+        if (stored) {
+            assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                    .key(slashKey)).asByteArray()).isEmpty();
+        } else {
+            try {
+                client.getObjectAsBytes(b -> b.bucket(containerName)
+                        .key(slashKey));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(404);
+            }
+        }
+
+        client.deleteObject(b -> b.bucket(containerName).key(slashKey));
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(key)).asUtf8String()).isEqualTo("content");
+    }
+
     @Test
     public void testDirectoryMarkerWithoutTrailingSlash() throws Exception {
         // Real S3 distinguishes "foo" from "foo/" as literal keys. The
