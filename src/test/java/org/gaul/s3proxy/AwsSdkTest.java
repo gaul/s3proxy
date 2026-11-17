@@ -3464,6 +3464,63 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * An upload may consist of a single part of no bytes, which is how some
+     * clients write an empty object.  azureblob cannot stage an empty block
+     * and answered 500.
+     */
+    @Test
+    public void testMultipartUploadEmptyPart() throws Exception {
+        String blobName = "multipart-upload-empty-part";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName).uploadId(uploadId)
+                .partNumber(1), RequestBody.empty());
+
+        assertThat(client.listParts(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)).parts())
+                .extracting(p -> p.size()).containsExactly(0L);
+
+        client.completeMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(part.eTag()).build())
+                        .build()));
+
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(blobName)).contentLength()).isZero();
+    }
+
+    /** Nor does an empty last part add to, or take from, the ones before. */
+    @Test
+    public void testMultipartUploadEmptyLastPart() throws Exception {
+        String blobName = "multipart-upload-empty-last-part";
+        var content = new byte[(int) MINIMUM_MULTIPART_SIZE];
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)).uploadId();
+        UploadPartResponse first = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName).uploadId(uploadId)
+                .partNumber(1), RequestBody.fromBytes(content));
+        UploadPartResponse last = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName).uploadId(uploadId)
+                .partNumber(2), RequestBody.empty());
+
+        client.completeMultipartUpload(b -> b.bucket(containerName)
+                .key(blobName).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(CompletedPart.builder().partNumber(1)
+                                        .eTag(first.eTag()).build(),
+                                CompletedPart.builder().partNumber(2)
+                                        .eTag(last.eTag()).build())
+                        .build()));
+
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(blobName)).contentLength())
+                .isEqualTo(MINIMUM_MULTIPART_SIZE);
+    }
+
     @Test
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";

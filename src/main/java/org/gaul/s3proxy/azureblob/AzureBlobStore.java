@@ -31,7 +31,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
@@ -194,6 +193,8 @@ public final class AzureBlobStore implements BlobStore {
      * suffix and arrives at a condition wearing it.
      */
     private static final String OPAQUE_ETAG_SUFFIX = "-1";
+    /** In a block ID, between the nonce and the number of an empty part. */
+    private static final String EMPTY_PART_SEPARATOR = ";";
     private static final int STATUS_NOT_FOUND = 404;
     /** S3's name for the version of an object written while unversioned. */
     private static final String NULL_VERSION_ID = "null";
@@ -2908,6 +2909,21 @@ public final class AzureBlobStore implements BlobStore {
             int partNumber = part.partNumber();
 
             String blockId = makeBlockId(nonce, partNumber);
+            boolean empty = blockMap.containsKey(
+                    makeEmptyPartBlockId(nonce, partNumber));
+            if (empty && blockMap.containsKey(blockId)) {
+                // A staged block cannot be withdrawn, so a part sent once
+                // with content and once without leaves both behind and
+                // nothing to say which came last.
+                throw S3Exceptions.invalidRequest("Part " + partNumber +
+                        " was uploaded both empty and with content, which" +
+                        " this store cannot tell apart; start the upload" +
+                        " again.");
+            }
+            if (empty) {
+                // contributes no bytes, and so no block
+                continue;
+            }
             blockIds.add(blockId);
 
             if (!blockMap.containsKey(blockId)) {
@@ -3003,6 +3019,11 @@ public final class AzureBlobStore implements BlobStore {
         var asyncClient = createNonRetryingBlockBlobAsyncClient(
                 mpu.containerName(), mpu.blobName());
 
+        if (contentLength == 0) {
+            return uploadEmptyPart(mpu, asyncClient, nonce, partNumber,
+                    contentMD5 == null ? null : contentMD5.asBytes());
+        }
+
         byte[] md5Hash;
         var digest = MD5.newDigest();
         try (var dis = new DigestInputStream(is, digest)) {
@@ -3036,6 +3057,31 @@ public final class AzureBlobStore implements BlobStore {
 
         String eTag = HexFormat.of().formatHex(md5Hash);
         return SdkResponses.uploadedPart(eTag);
+    }
+
+    /**
+     * Records a part of no bytes.  S3 takes one -- the only part of an
+     * empty object, or the last of any -- and Azure stages no block of
+     * length zero, so the part is kept as a one-byte placeholder under a
+     * block ID of its own form, which ListParts reports as the empty part
+     * it stands for and CompleteMultipartUpload leaves out of the blob.
+     */
+    private UploadPartResponse uploadEmptyPart(MultipartUpload mpu,
+            BlockBlobAsyncClient asyncClient, String nonce, int partNumber,
+            byte @Nullable [] contentMD5) {
+        byte[] md5Hash = MD5.newDigest().digest();
+        if (contentMD5 != null &&
+                !MessageDigest.isEqual(md5Hash, contentMD5)) {
+            // a bare 400 is what the frontend reports as BadDigest
+            throw S3Exceptions.fromStatusCode(400);
+        }
+        try {
+            asyncClient.stageBlock(makeEmptyPartBlockId(nonce, partNumber),
+                    Flux.just(ByteBuffer.wrap(new byte[1])), 1).block();
+        } catch (BlobStorageException bse) {
+            throw translate(bse, mpu.containerName(), mpu.blobName());
+        }
+        return SdkResponses.uploadedPart(HexFormat.of().formatHex(md5Hash));
     }
 
     @Override
@@ -3217,9 +3263,12 @@ public final class AzureBlobStore implements BlobStore {
             throw bse;
         }
 
-        var parts = ImmutableList.<Part>builder();
+        // by part number, since a part may be listed under both forms of
+        // block ID; see completeMultipartUpload
+        var parts = new java.util.TreeMap<Integer, Part>();
 
         String noncePrefix = nonce + ":";
+        String emptyPrefix = nonce + EMPTY_PART_SEPARATOR;
 
         for (var properties : blockList.getUncommittedBlocks()) {
             String encodedBlockId = properties.getName();
@@ -3231,7 +3280,8 @@ public final class AzureBlobStore implements BlobStore {
                 continue;
             }
 
-            if (!blockId.startsWith(noncePrefix)) {
+            boolean empty = blockId.startsWith(emptyPrefix);
+            if (!empty && !blockId.startsWith(noncePrefix)) {
                 continue;
             }
 
@@ -3245,15 +3295,19 @@ public final class AzureBlobStore implements BlobStore {
 
             String eTag = "";  // listBlocks does not return ETag
             Instant lastModified = null; // listBlocks does not return LastModified
-            parts.add(SdkResponses.part(partNumber,
-                    properties.getSizeLong(),
-                    eTag, lastModified));
+            if (empty) {
+                // the placeholder of a part of no bytes
+                parts.putIfAbsent(partNumber, SdkResponses.part(partNumber,
+                        0L, eTag, lastModified));
+            } else {
+                parts.put(partNumber, SdkResponses.part(partNumber,
+                        properties.getSizeLong(), eTag, lastModified));
+            }
         }
         // the block ids carry the part number zero-padded, but they are
         // listed under their base64 spelling, whose alphabet does not sort
         // in the order of the bytes it stands for
-        return ImmutableList.sortedCopyOf(
-                Comparator.comparingInt(Part::partNumber), parts.build());
+        return ImmutableList.copyOf(parts.values());
     }
 
     @Override
@@ -3342,6 +3396,18 @@ public final class AzureBlobStore implements BlobStore {
                 .contentType(properties.getContentType())
                 .expires(expires != null ? expires.toInstant() : null)
                 .build();
+    }
+
+    /**
+     * The block ID standing for a part of no bytes: the part's own with
+     * another separator, so that it is as long as every other block ID of
+     * the blob, which Azure requires, and names no part with content.
+     */
+    private static String makeEmptyPartBlockId(String nonce, int partNumber) {
+        String rawId = "%s%s%05d".formatted(nonce, EMPTY_PART_SEPARATOR,
+                partNumber);
+        return Base64.getEncoder().encodeToString(
+                rawId.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
