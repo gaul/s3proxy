@@ -4113,6 +4113,27 @@ public final class AwsSdkTest {
         }
     }
 
+    /** HEAD reports the content headers an object was stored with. */
+    @Test
+    public void testHeadObjectContentHeaders() throws Exception {
+        // sftp keeps none of an object's metadata
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String blobName = "head-content-headers";
+        client.putObject(b -> b.bucket(containerName).key(blobName)
+                .contentType("text/plain")
+                .contentDisposition("attachment; filename=\"a.txt\"")
+                .contentEncoding("identity"),
+                RequestBody.fromString("content"));
+
+        HeadObjectResponse head = client.headObject(
+                b -> b.bucket(containerName).key(blobName));
+        assertThat(head.contentType()).isEqualTo("text/plain");
+        assertThat(head.contentDisposition())
+                .isEqualTo("attachment; filename=\"a.txt\"");
+        assertThat(head.contentEncoding()).isEqualTo("identity");
+    }
+
     @Test
     public void testConditionalGetModifiedSince() throws Exception {
         // HTTP conditional dates have one-second granularity while backend

@@ -116,6 +116,7 @@ import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -1185,6 +1186,27 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return false;
     }
 
+    /**
+     * Whether the object is there, asked with a HEAD: existence needs none
+     * of the headers {@link #headBlob} goes to a GET for, and is asked once
+     * per part of an upload.
+     */
+    @Override
+    public boolean blobExists(String container, String key) {
+        if (hasPathTraversal(key)) {
+            return false;
+        }
+        try {
+            return objectStorage().objects().get(container,
+                    encodeName(key)) != null;
+        } catch (ResponseException re) {
+            if (re.getStatus() == STATUS_NOT_FOUND) {
+                return false;
+            }
+            throw translate(re, container, key);
+        }
+    }
+
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         if (request.versionId() != null) {
@@ -1193,32 +1215,81 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         String container = request.bucket();
         String key = request.key();
-        var swift = objectStorage();
-        SwiftObject object;
+        Blob blob;
         try {
-            object = swift.objects().get(container, encodeName(key));
-        } catch (ResponseException re) {
-            if (re.getStatus() == STATUS_NOT_FOUND) {
-                throw S3Exceptions.noSuchKey(container, key,
-                        "no such object", re);
-            }
-            throw translate(re, container, key);
+            blob = headBlob(container, key);
+        } catch (NoSuchBucketException nsbe) {
+            throw S3Exceptions.noSuchKey(container, key, "no such object",
+                    nsbe);
         }
-        if (object == null) {
+        if (blob == null) {
             throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
-        var headers = object.getMetadata();
-        var objectMetadata = ObjectMetadata.from(
-                headers == null ? Map.of() : headers);
-        return HeadObjectResponse.builder()
-                .metadata(objectMetadata.userMetadata())
-                .eTag(objectMetadata.eTagOr(object.getETag()))
-                .lastModified(object.getLastModified() == null ? null :
-                        object.getLastModified().toInstant())
+        var metadata = blob.getMetadata();
+        var content = metadata.contentMetadata();
+        @SuppressWarnings("deprecation")
+        HeadObjectResponse head = HeadObjectResponse.builder()
+                .metadata(metadata.userMetadata())
+                .eTag(metadata.eTag())
+                .lastModified(metadata.lastModified())
                 .storageClass(StorageClass.STANDARD.toString())
-                .contentLength(object.getSizeInBytes())
-                .contentType(object.getMimeType())
+                .contentLength(totalLength(blob))
+                .contentType(content.contentType())
+                .contentDisposition(content.contentDisposition())
+                .contentEncoding(content.contentEncoding())
+                .cacheControl(content.cacheControl())
+                .expires(content.expires())
                 .build();
+        return head;
+    }
+
+    /**
+     * An object's headers, read with a GET of its first byte.  The client
+     * library's own HEAD keeps only the headers whose names hold "x-", so
+     * it reports no Content-Disposition, Content-Encoding, Cache-Control or
+     * Expires, and offers no other way to send one; a GET returns them all,
+     * and the range keeps it from costing the object.  An empty object has
+     * no first byte, which Swift answers 416, and is read whole instead.
+     */
+    private @Nullable Blob headBlob(String container, String key) {
+        var request = GetObjectRequest.builder().bucket(container).key(key);
+        Blob blob;
+        try {
+            blob = getBlobCarrier(container, key,
+                    request.range("bytes=0-0").build());
+        } catch (S3Exception se) {
+            if (se.statusCode() != STATUS_RANGE_NOT_SATISFIABLE) {
+                throw se;
+            }
+            blob = getBlobCarrier(container, key,
+                    request.range(null).build());
+        }
+        if (blob != null && blob.getPayload() != null) {
+            try (var is = blob.getPayload()) {
+                // the byte asked for, so the connection can be kept; never
+                // more, should a server send the object regardless
+                is.read();
+            } catch (IOException ioe) {
+                // only the headers were wanted
+            }
+        }
+        return blob;
+    }
+
+    /** The size of the object a ranged read came from. */
+    private static long totalLength(Blob blob) {
+        String contentRange = blob.getContentRange();
+        if (contentRange != null) {
+            int slash = contentRange.lastIndexOf('/');
+            try {
+                return Long.parseLong(contentRange.substring(slash + 1)
+                        .trim());
+            } catch (NumberFormatException nfe) {
+                // "*", or nothing after the slash: fall through
+            }
+        }
+        Long length = blob.getMetadata().contentMetadata().contentLength();
+        return length == null ? 0L : length;
     }
 
     /**
