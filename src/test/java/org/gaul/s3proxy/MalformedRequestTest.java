@@ -311,6 +311,32 @@ public final class MalformedRequestTest {
         assertThat(complete.body()).contains("InvalidArgument");
     }
 
+    /**
+     * A doubled slash is an empty path segment, which a filesystem resolves
+     * away: "a//b" is the file "a/b".  The store cannot keep it as a key
+     * of its own, so it refuses it rather than write it over "a/b".
+     */
+    @Test
+    public void testDoubledSlashKeyIsNotItsSingleSlashKey() throws Exception {
+        assertThat(put(bucket + "/a/b", "single").statusCode())
+                .isEqualTo(200);
+        for (String key : List.of("a//b", "a///b", "a//")) {
+            var response = put(bucket + "/" + key, "double");
+            assertThat(response.statusCode()).as(key).isEqualTo(400);
+            assertThat(response.body()).contains("InvalidArgument");
+        }
+        assertThat(get(bucket + "/a/b", "bytes=0-").body())
+                .isEqualTo("single");
+        // nor does a delete of the one remove the other
+        var delete = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + bucket + "/a//b"))
+                        .DELETE().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(delete.statusCode()).isEqualTo(400);
+        assertThat(get(bucket + "/a/b", "bytes=0-").body())
+                .isEqualTo("single");
+    }
+
     private HttpResponse<String> get(String path, String range)
             throws Exception {
         return httpClient.send(

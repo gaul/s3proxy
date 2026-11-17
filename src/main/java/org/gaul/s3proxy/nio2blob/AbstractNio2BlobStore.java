@@ -3820,11 +3820,24 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * such a key as written and this store cannot, so it says so.
      */
     private static void checkNoDotSegment(String key) {
-        for (String segment : key.split("/", -1)) {
+        String[] segments = key.split("/", -1);
+        for (int i = 0; i < segments.length; ++i) {
+            String segment = segments[i];
             if (segment.equals(".") || segment.equals("..")) {
                 throw S3Exceptions.invalidArgument("The key holds a \"" +
                         segment + "\" path segment, which this filesystem" +
                         " cannot store as a name.");
+            }
+            // An empty segment resolves away the same way: "a//b" is the
+            // file "a/b", two keys on one object, each overwriting and
+            // deleting the other.  The last segment is exempt, being empty
+            // for every key that ends in a slash, and so is the first: a
+            // leading slash makes the path absolute, which is refused
+            // where it is resolved, and the key "/" has a name of its own.
+            if (segment.isEmpty() && i != 0 && i != segments.length - 1) {
+                throw S3Exceptions.invalidArgument("The key holds an empty" +
+                        " path segment, a doubled slash, which this" +
+                        " filesystem cannot store as a name.");
             }
         }
     }
