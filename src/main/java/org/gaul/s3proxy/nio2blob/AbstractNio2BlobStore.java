@@ -176,6 +176,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // know nothing about versioning. Hidden from list() and reserved from
     // client keys, like the multipart names above.
     private static final String VERSIONS_DIR = ".s3proxy-versions";
+    // Reserved container-level directory where a write assembles its file
+    // before renaming it onto its key.  Kept inside the container so that
+    // the rename stays on one filesystem, and out of the key's own
+    // directory, where the unfinished file listed and read as an object, a
+    // crash left it one for good, and its longer name took 37 characters
+    // off the longest key segment the filesystem could hold.  Hidden from
+    // list() and reserved from client keys, like the names above.
+    private static final String TEMPORARY_DIR = ".s3proxy-tmp";
     private static final String XATTR_VERSION_ID = "user.version-id";
     private static final String XATTR_VERSION_KEY = "user.version-key";
     private static final String XATTR_DELETE_MARKER = "user.delete-marker";
@@ -461,6 +469,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         // ListObjectVersions alone; ListObjects reports what
                         // is current.
                         if (name.equals(VERSIONS_DIR)) {
+                            continue;
+                        }
+                        // nor is a write still being assembled an object
+                        if (name.equals(TEMPORARY_DIR)) {
                             continue;
                         }
                     }
@@ -962,8 +974,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             @Nullable List<Path> parts) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
-        // TODO: should we use a known suffix to filter these out during list?
-        var tmpPath = containerPath.resolve(blob.getMetadata().name() + "-" + UUID.randomUUID());
         logger.debug("Creating blob at: {}", path);
 
         if (blob.getMetadata().name().endsWith("/")) {
@@ -1010,6 +1020,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             Files.createDirectories(path.getParent());
         } catch (FileAlreadyExistsException faee) {
             logger.debug("Parent directories already exist: {}", path.getParent());
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+
+        Path tmpPath;
+        try {
+            tmpPath = createTemporaryFile(containerPath);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -1194,6 +1211,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } catch (IOException ioe) {
                 logger.debug("unable to delete temp file {}", tmpPath, ioe);
             }
+            // The directory is kept only while a write needs it, so that a
+            // container at rest holds its objects and nothing else.  One
+            // another write is still using is not empty and stays.
+            try {
+                Files.deleteIfExists(tmpPath.getParent());
+            } catch (IOException ioe) {
+                logger.debug("leaving temp directory of {}", tmpPath, ioe);
+            }
             // Nor may a write that stored nothing leave behind the
             // directories made to hold it: they would list as common
             // prefixes over no keys and keep the bucket from being deleted.
@@ -1203,6 +1228,35 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             path.getParent());
                 } catch (IOException ioe) {
                     logger.debug("unable to remove parents of {}", path, ioe);
+                }
+            }
+        }
+    }
+
+    /**
+     * Creates the empty file a write is assembled in, along with the
+     * directory that holds it.  Each write removes that directory on its
+     * way out if it can, so one finishing between this making sure of the
+     * directory and creating a file in it takes the directory away again;
+     * the answer is to make it again.  Only the directory is ever made:
+     * the container must already exist, and a write does not bring a
+     * deleted one back.
+     */
+    private static Path createTemporaryFile(Path containerPath)
+            throws IOException {
+        var dir = containerPath.resolve(TEMPORARY_DIR);
+        while (true) {
+            try {
+                Files.createDirectory(dir);
+            } catch (FileAlreadyExistsException faee) {
+                // another write's, or one left by a write that died
+            }
+            try {
+                return Files.createFile(
+                        dir.resolve(UUID.randomUUID().toString()));
+            } catch (NoSuchFileException nsfe) {
+                if (!Files.isDirectory(containerPath)) {
+                    throw nsfe;
                 }
             }
         }
@@ -2032,6 +2086,22 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } catch (DirectoryNotEmptyException dnee) {
                 throw S3Exceptions.bucketNotEmpty(container);
             }
+            // What is left in the temporary directory is no object either:
+            // a write that never finished, which nothing can list or
+            // delete.  It goes with the bucket, but only once nothing else
+            // is keeping the bucket, so that a refused delete leaves a
+            // write in flight alone.
+            var temporaryDir = containerPath.resolve(TEMPORARY_DIR);
+            try (var stream = openDirectoryStreamIfPresent(containerPath)) {
+                if (stream != null) {
+                    for (var child : stream) {
+                        if (!child.equals(temporaryDir)) {
+                            throw S3Exceptions.bucketNotEmpty(container);
+                        }
+                    }
+                }
+            }
+            deleteRecursively(temporaryDir);
             Files.deleteIfExists(containerPath);
         } catch (DirectoryNotEmptyException dnee) {
             throw S3Exceptions.bucketNotEmpty(container);
@@ -3096,8 +3166,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private static void concatenate(List<Path> parts, Path tmpPath)
             throws IOException {
-        try (var dst = FileChannel.open(tmpPath, StandardOpenOption.CREATE_NEW,
-                StandardOpenOption.WRITE)) {
+        try (var dst = FileChannel.open(tmpPath, StandardOpenOption.WRITE)) {
             long position = 0;
             for (var part : parts) {
                 try (var src = FileChannel.open(part, StandardOpenOption.READ)) {
@@ -3541,6 +3610,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (key.equals(VERSIONS_DIR) || key.startsWith(VERSIONS_DIR + "/")) {
             throw S3Exceptions.invalidArgument("The key " + VERSIONS_DIR +
                     " is reserved for object versions.");
+        }
+        if (key.equals(TEMPORARY_DIR) ||
+                key.startsWith(TEMPORARY_DIR + "/")) {
+            throw S3Exceptions.invalidArgument("The key " + TEMPORARY_DIR +
+                    " is reserved for writes in progress.");
         }
     }
 
