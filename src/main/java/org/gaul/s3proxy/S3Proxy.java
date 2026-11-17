@@ -304,9 +304,7 @@ public final class S3Proxy {
 
             String servicePath = Strings.nullToEmpty(properties.getProperty(
                     S3ProxyConstants.PROPERTY_SERVICE_PATH));
-            if (servicePath != null) {
-                builder.servicePath(servicePath);
-            }
+            builder.servicePath(servicePath);
 
             String keyStorePath = properties.getProperty(
                     S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
