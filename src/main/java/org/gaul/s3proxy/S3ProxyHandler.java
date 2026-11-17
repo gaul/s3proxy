@@ -846,17 +846,7 @@ public class S3ProxyHandler {
             }
         }
 
-        boolean writeMethod = method.equals("PUT") || method.equals("DELETE");
-        for (String parameter : Collections.list(
-                request.getParameterNames())) {
-            if (UNSUPPORTED_PARAMETERS.contains(parameter) ||
-                    (writeMethod &&
-                            UNSUPPORTED_WRITE_PARAMETERS.contains(parameter))) {
-                logger.error("Unknown parameters {} with URI {}",
-                        parameter, request.getRequestURI());
-                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
-            }
-        }
+        checkSupportedParameters(request);
 
         // emit NotImplemented for unknown x-amz- headers
         for (String headerName : Collections.list(request.getHeaderNames())) {
@@ -1455,6 +1445,28 @@ public class S3ProxyHandler {
     }
 
     /**
+     * Refuse a request naming a subresource S3Proxy does not implement.
+     * Nothing dispatches on those names, so a request left to carry one is
+     * handled as the plain operation on the bucket or object beside it:
+     * DELETE of an object's tagging would delete the object.
+     */
+    private static void checkSupportedParameters(HttpServletRequest request)
+            throws S3ProxyException {
+        String method = request.getMethod();
+        boolean writeMethod = method.equals("PUT") || method.equals("DELETE");
+        for (String parameter : Collections.list(
+                request.getParameterNames())) {
+            if (UNSUPPORTED_PARAMETERS.contains(parameter) ||
+                    (writeMethod &&
+                            UNSUPPORTED_WRITE_PARAMETERS.contains(parameter))) {
+                logger.error("Unknown parameters {} with URI {}",
+                        parameter, request.getRequestURI());
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+            }
+        }
+    }
+
+    /**
      * Whether a query parameter belongs to the request's signature and not
      * to what it asks for: the presigned forms of both signature versions,
      * and the operation name the AWS SDKs add beside them.
@@ -1490,6 +1502,11 @@ public class S3ProxyHandler {
                 (path.length <= 1 || !isValidContainer(path[1]))) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
+
+        // As the authenticated path does, and for more reason: here the
+        // plain operation such a request falls back to is one anyone may
+        // ask for.
+        checkSupportedParameters(request);
 
         if (method.equals("GET") || method.equals("HEAD")) {
             checkNoResponseHeaderOverrides(request);
@@ -1664,8 +1681,12 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
         }
         case "DELETE" -> {
+            // Only the plain delete, as for PUT: bucket WRITE lets a caller
+            // delete an object, which on a versioned bucket lays a marker
+            // over it, and not remove a version for good.
             if (path.length > 2 && !path[2].isEmpty() &&
-                    request.getParameter("uploadId") == null) {
+                    request.getParameter("uploadId") == null &&
+                    request.getParameter("versionId") == null) {
                 String containerName = path[1];
                 String blobName = path[2];
                 setOperation(ctx, S3Operation.DELETE_OBJECT);

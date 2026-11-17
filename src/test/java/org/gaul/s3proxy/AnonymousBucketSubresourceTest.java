@@ -233,6 +233,70 @@ public final class AnonymousBucketSubresourceTest {
         }
     }
 
+    /**
+     * A subresource S3Proxy does not implement is refused, as it is for a
+     * signed request, and not read as the object or listing beside it.
+     */
+    @Test
+    public void testUnsupportedSubresourceIsNotTheObject() throws Exception {
+        for (String query : new String[] {"?tagging", "?retention"}) {
+            assertThat(get(publicBucket + "/" + KEY + query).statusCode())
+                    .isEqualTo(501);
+        }
+        for (String query : new String[] {"?lifecycle", "?cors"}) {
+            assertThat(get(publicBucket + query).statusCode())
+                    .isEqualTo(501);
+        }
+    }
+
+    /**
+     * Nor written or deleted as one: on a bucket anyone may write to, a
+     * DELETE of an object's tagging deleted the object and a PUT of it
+     * replaced the object with the tagging document.
+     */
+    @Test
+    public void testUnsupportedSubresourceWriteLeavesObject()
+            throws Exception {
+        blobStore.setContainerAccess(publicBucket,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        String object = publicBucket + "/" + KEY;
+
+        assertThat(send("DELETE", object + "?tagging", "").statusCode())
+                .isEqualTo(501);
+        assertThat(send("PUT", object + "?tagging",
+                "<Tagging><TagSet/></Tagging>").statusCode()).isEqualTo(501);
+        assertThat(get(object).body()).isEqualTo(CONTENT);
+    }
+
+    /**
+     * Bucket WRITE lets a caller delete an object, not remove one of its
+     * versions for good.
+     */
+    @Test
+    public void testVersionDeleteIsRefused() throws Exception {
+        blobStore.setContainerAccess(publicBucket,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        String object = publicBucket + "/" + KEY;
+
+        assertThat(send("DELETE", object + "?versionId=null", "")
+                .statusCode()).isEqualTo(403);
+        assertThat(get(object).body()).isEqualTo(CONTENT);
+
+        // the plain delete is still what WRITE grants
+        assertThat(send("DELETE", object, "").statusCode()).isEqualTo(204);
+        assertThat(get(object).statusCode()).isEqualTo(404);
+    }
+
+    private HttpResponse<String> send(String method, String pathAndQuery,
+            String body) throws Exception {
+        return httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + pathAndQuery))
+                        .method(method,
+                                HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> get(String pathAndQuery) throws Exception {
         return httpClient.send(
                 HttpRequest.newBuilder(URI.create(baseUri + pathAndQuery))
