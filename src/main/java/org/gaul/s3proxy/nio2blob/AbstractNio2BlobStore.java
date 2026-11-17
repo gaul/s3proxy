@@ -155,6 +155,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_USER_METADATA_PREFIX =
             "user.user-metadata.";
     private static final Set<String> NO_ATTRIBUTES = Set.of();
+    /** How many times a publish makes its parent directory again. */
+    private static final int PUBLISH_ATTEMPTS = 100;
     // Reserved prefix for the store's own multipart bookkeeping: the stub
     // recording that an upload exists and the file behind each uploaded part.
     // These names are hidden from list(), which is why a client must not be
@@ -1017,7 +1019,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
         // Create parent directories.
         try {
-            Files.createDirectories(requireNonNull(path.getParent()));
+            createParentDirectories(requireNonNull(path.getParent()));
         } catch (FileAlreadyExistsException faee) {
             logger.debug("Parent directories already exist: {}", path.getParent());
         } catch (IOException ioe) {
@@ -1144,7 +1146,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // link shares the inode, so the xattrs and permissions
                 // already written to tmpPath carry over.
                 try {
-                    Files.createLink(path, tmpPath);
+                    intoParent(tmpPath, path, () -> Files.createLink(path, tmpPath));
                 } catch (FileAlreadyExistsException faee) {
                     throw returnResponseException(412);
                 } catch (UnsupportedOperationException uoe) {
@@ -1153,7 +1155,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (Files.exists(path)) {
                         throw returnResponseException(412);
                     }
-                    Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE);
+                    intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
+                            StandardCopyOption.ATOMIC_MOVE));
                     published = true;
                     return new PutResult(storedETag, versionId);
                 }
@@ -1181,9 +1184,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             blob.getMetadata().name(), versionId,
                             /*replacing=*/ true);
                     try {
-                        Files.move(tmpPath, path,
+                        intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
                                 StandardCopyOption.ATOMIC_MOVE,
-                                StandardCopyOption.REPLACE_EXISTING);
+                                StandardCopyOption.REPLACE_EXISTING));
                     } catch (IOException | RuntimeException e) {
                         // The version is still current, so its second name
                         // would list it twice.
@@ -1196,7 +1199,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 published = true;
                 return new PutResult(storedETag, versionId);
             }
-            Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING));
 
             published = true;
             return new PutResult(storedETag, versionId);
@@ -1228,6 +1233,69 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             path.getParent());
                 } catch (IOException ioe) {
                     logger.debug("unable to remove parents of {}", path, ioe);
+                }
+            }
+        }
+    }
+
+    /** A filesystem step that may fail. */
+    private interface IoAction {
+        void run() throws IOException;
+    }
+
+    /**
+     * Publishes a file into its parent directory, making the directory
+     * again if it has gone.  A delete removes the directories it leaves
+     * empty, and one that empties this parent between the write making it
+     * and the write moving its file in takes it away: the move then fails
+     * for want of a directory, which was answered 500.
+     */
+    private static void intoParent(Path source, Path path, IoAction publish)
+            throws IOException {
+        var parent = requireNonNull(path.getParent());
+        for (int attempt = 0; ; ++attempt) {
+            try {
+                publish.run();
+                return;
+            } catch (NoSuchFileException nsfe) {
+                // Bounded: each turn loses to another delete, which a
+                // writer cannot do forever.  Without the source it is the
+                // file being published that is missing, not its directory.
+                if (attempt == PUBLISH_ATTEMPTS || Files.notExists(source)) {
+                    throw nsfe;
+                }
+                createParentDirectories(parent);
+            }
+        }
+    }
+
+    /**
+     * Makes a key's parent directories.  The same cleanup can take one of
+     * them away while the next is being made beneath it, which
+     * createDirectories reports rather than starting over.
+     */
+    private static void createParentDirectories(Path parent)
+            throws IOException {
+        for (int attempt = 0; ; ++attempt) {
+            try {
+                Files.createDirectories(parent);
+                return;
+            } catch (NoSuchFileException nsfe) {
+                if (attempt == PUBLISH_ATTEMPTS) {
+                    throw nsfe;
+                }
+            } catch (FileAlreadyExistsException faee) {
+                // Either a directory that was there when making it failed
+                // and gone again when that was looked into, or an object
+                // where a directory is wanted, which no retry will change.
+                if (attempt == PUBLISH_ATTEMPTS) {
+                    throw faee;
+                }
+                for (Path path = parent; path != null;
+                        path = path.getParent()) {
+                    if (Files.isRegularFile(path)) {
+                        throw faee;
+                    }
                 }
             }
         }
