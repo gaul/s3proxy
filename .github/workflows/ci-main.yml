@@ -520,6 +520,22 @@ jobs:
             fi
             sleep 1
           done
+          # Swift creates the account on its first write, not when it issues
+          # a token, and concurrent first writes race that creation: each
+          # autocreates the account and some then answer 404.  The tests run
+          # in parallel, so make the first write here, alone.
+          auth=$(curl --silent --fail --dump-header - --output /dev/null \
+              --header 'X-Auth-User: test:tester' \
+              --header 'X-Auth-Key: testing' \
+              http://127.0.0.1:8080/auth/v1.0 | tr -d '\r')
+          token=$(echo "$auth" |
+              awk 'tolower($1) == "x-auth-token:" { print $2 }')
+          url=$(echo "$auth" |
+              awk 'tolower($1) == "x-storage-url:" { print $2 }')
+          curl --silent --fail --request PUT \
+              --header "X-Auth-Token: $token" "$url/warmup"
+          curl --silent --fail --request DELETE \
+              --header "X-Auth-Token: $token" "$url/warmup"
       - name: Maven Test with Swift
         run: |
           mvn test -Ds3proxy.test.conf=s3proxy-swift.conf
