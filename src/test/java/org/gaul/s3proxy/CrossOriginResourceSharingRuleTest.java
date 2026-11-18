@@ -269,8 +269,57 @@ public final class CrossOriginResourceSharingRuleTest {
         otherOrigin.setProperty(
                 S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS,
                 "https://example\\.com");
-        assertThat(S3Proxy.Builder.fromProperties(otherOrigin))
+        S3Proxy.Builder otherCorsBuilder =
+                S3Proxy.Builder.fromProperties(otherOrigin);
+        assertThat(otherCorsBuilder)
                 .isNotEqualTo(first);
+        assertThat(first.differingProperties(otherCorsBuilder))
+                .contains("s3proxy.cors-*");
+    }
+
+    @Test
+    public void testBuildersFromSeparatePropertiesMustMatchGlobalSettings()
+            throws Exception {
+        S3Proxy.Builder first = S3Proxy.Builder.fromProperties(
+                backendProperties("first-identity", "first-credential"));
+        String[][] differingProperties = {
+            {S3ProxyConstants.PROPERTY_AUTHORIZATION, "aws-v4"},
+            {S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW, "60"},
+            {S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS, "201"},
+            {S3ProxyConstants.PROPERTY_METRICS_ENABLED, "true"},
+            {S3ProxyConstants.PROPERTY_METRICS_PORT, "8081"},
+            {S3ProxyConstants.PROPERTY_METRICS_HOST, "127.0.0.1"}
+        };
+
+        for (String[] differingProperty : differingProperties) {
+            Properties properties = backendProperties("second-identity",
+                    "second-credential");
+            properties.setProperty(differingProperty[0], differingProperty[1]);
+            S3Proxy.Builder second = S3Proxy.Builder.fromProperties(properties);
+            assertThat(second)
+                    .as("builders differing in %s",
+                            differingProperty[0])
+                    .isNotEqualTo(first);
+            assertThat(first.differingProperties(second))
+                    .contains(differingProperty[0]);
+            assertThat(second.differingProperties(first))
+                    .contains(differingProperty[0]);
+        }
+
+        Properties properties = backendProperties("second-identity",
+                "second-credential");
+        properties.setProperty(S3ProxyConstants.PROPERTY_AUTHORIZATION,
+                "aws-v4");
+        properties.setProperty(S3ProxyConstants.PROPERTY_METRICS_ENABLED,
+                "true");
+        List<String> differenceNames = first.differingProperties(
+                S3Proxy.Builder.fromProperties(properties));
+        assertThat(differenceNames)
+                .containsExactly(S3ProxyConstants.PROPERTY_AUTHORIZATION,
+                        S3ProxyConstants.PROPERTY_METRICS_ENABLED);
+        assertThat(Main.multipleConfigurationsError(differenceNames))
+                .contains(S3ProxyConstants.PROPERTY_AUTHORIZATION,
+                        S3ProxyConstants.PROPERTY_METRICS_ENABLED);
     }
 
     private static Properties backendProperties(String identity,
