@@ -29,6 +29,7 @@ import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -92,6 +93,40 @@ public final class UnreadBodyErrorTest {
                     new BufferedInputStream(socket.getInputStream()));
             assertThat(head).startsWith("HTTP/1.1 403 ");
             assertThat(head).containsIgnoringCase("Connection: close");
+        }
+    }
+
+    /**
+     * A body that arrives after the refusal is read and thrown away, so that
+     * the connection ends in order.  Left unread it met a closed socket,
+     * which answers with a reset, and a reset can take the response with it:
+     * Windows drops what the client had not yet read.
+     */
+    @Test
+    public void testRefusedBeforeLateBodyEndsInOrder() throws Exception {
+        try (var socket = connect()) {
+            OutputStream out = socket.getOutputStream();
+            InputStream in = new BufferedInputStream(socket.getInputStream());
+            out.write(("PUT /" + containerName + "/key HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1\r\n" +
+                    "Content-Length: 16\r\n" +
+                    "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+            out.flush();
+            assertThat(readHead(in)).startsWith("HTTP/1.1 403 ");
+
+            // The body, once the refusal is already here.
+            Thread.sleep(200);
+            long sent = System.nanoTime();
+            out.write(new byte[16]);
+            out.flush();
+
+            // The rest of the response and then its end, not a reset; and
+            // promptly, the body having been all the server waited for.
+            String body = new String(in.readAllBytes(),
+                    StandardCharsets.UTF_8);
+            assertThat(body).contains("AccessDenied");
+            assertThat(System.nanoTime() - sent).isLessThan(
+                    TimeUnit.MILLISECONDS.toNanos(700));
         }
     }
 
