@@ -49,11 +49,11 @@ First create the filesystem basedir:
 mkdir /tmp/s3proxy
 ```
 
-Next run S3Proxy.  Linux and Mac OS X users can run the executable jar:
+Next run S3Proxy.  Linux and macOS users can run the executable jar:
 
 ```
 chmod +x s3proxy
-s3proxy --properties s3proxy.conf
+./s3proxy --properties s3proxy.conf
 ```
 
 Windows users must explicitly invoke java:
@@ -68,7 +68,7 @@ Finally test by creating a bucket then listing all the buckets:
 $ curl --request PUT http://localhost:8080/testbucket
 
 $ curl http://localhost:8080/
-<?xml version="1.0" ?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID><DisplayName>CustomersName@amazon.com</DisplayName></Owner><Buckets><Bucket><Name>testbucket</Name><CreationDate>2015-08-05T22:16:24.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>
+<?xml version='1.0' encoding='UTF-8'?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID><DisplayName>CustomersName@amazon.com</DisplayName></Owner><Buckets><Bucket><Name>testbucket</Name><CreationDate>2015-08-05T22:16:24.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>
 ```
 
 ## Usage with Java
@@ -184,7 +184,7 @@ S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a 
 
 S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
-* ACLs other than private and public-read, including the `x-amz-grant-*` headers and any grant naming a specific grantee
+* ACLs other than private, public-read, and, on buckets only, public-read-write, including the `x-amz-grant-*` headers and any grant naming a specific grantee
 * BitTorrent hosting
 * bucket inventory, analytics, and metrics configuration
 * bucket lifecycle configuration
@@ -209,7 +209,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 
 S3Proxy emulates the following operations:
 
-* multi-part upload on the `filesystem` and `transient` backends, which store a stub object to carry the metadata
+* multi-part upload on the `filesystem`, `sftp`, and `transient` backends, which store a stub object to carry the metadata
 * object and bucket owners, which are always the same synthetic user
 
 Some limitations depend on the storage backend:
@@ -217,15 +217,16 @@ Some limitations depend on the storage backend:
 | limitation | backends |
 | --- | --- |
 | no per-object ACLs, including public-read | `azureblob`, `openstack-swift` |
+| no public-read-write buckets | `azureblob`, `openstack-swift` |
 | ETag is not the object MD5 | `azureblob`, `google-cloud-storage` |
 | on a filesystem without user extended attributes, such as NFSv3: Content-Type and user metadata are not kept, and the ETag is derived from the file rather than the MD5, see [#1210](https://github.com/gaul/s3proxy/issues/1210) | `filesystem` |
 | `Cache-Control` not preserved | `google-cloud-storage`, `openstack-swift` |
 | `Content-Encoding` not preserved | `google-cloud-storage` |
 | `Content-Language` not preserved | `openstack-swift` |
-| `Expires` not preserved | `azureblob` |
-| `max-keys=0` not honored | `azureblob` |
+| `Expires` not preserved | `azureblob`, `google-cloud-storage` |
+| no object metadata kept: Content-Type, the other content headers, user metadata, and storage class read back as defaults, and the ETag is derived from the file rather than the MD5 | `sftp` |
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
-| conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift` |
+| conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift`, `sftp` |
 | object versioning is opt-in and needs the account versioned out of band; delete markers are emulated as tagged blobs; no per-bucket suspend, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
@@ -268,7 +269,7 @@ batch delete becomes one request per key, so that each can leave its delete
 marker.  Plain writes and reads cost nothing extra.
 
 Server-side encryption divides `aws-s3` and `transient` from most of the
-rest, and divides the two nio2 stores on the same line.  `aws-s3` forwards the header families --
+rest, and divides the nio2 stores on the same line.  `aws-s3` forwards the header families --
 SSE-S3, SSE-KMS and SSE-C alike -- to a service that encrypts, while
 `transient` answers them itself: what it holds rests in a filesystem that
 dies with the process, so an object's encryption is the headers and nothing
@@ -332,7 +333,8 @@ that does not implement conditional writes itself.
 `x-amz-if-match-size`, and `x-amz-if-match-last-modified-time`, on
 DeleteObject and DeleteObjects alike -- and the backend decides what it
 honors: Amazon general purpose buckets accept only `If-Match`, directory
-buckets all three.  The `filesystem` and `transient` backends compare all
+buckets all three.  `azureblob` conditions a delete on `If-Match` alone and
+refuses the other two.  The `filesystem` and `transient` backends compare all
 three against their own metadata, and `sftp` all but a condition naming
 an ETag, with the same single-process bound as their emulated `If-Match`
 put.  A conditional delete of an absent object succeeds like an
