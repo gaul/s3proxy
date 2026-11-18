@@ -2229,6 +2229,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
+        // NTFS has no permission bits for the store to keep an ACL in
+        assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
 
         String blobName = "testUpdateBlobXmlAcls-blob";
@@ -2407,6 +2409,12 @@ public final class AwsSdkTest {
             // Avoid blob names that end with a dot (.), a forward slash (/), or
             // a sequence or combination of the two.
             prefix = prefix.replace("./", "/") + ".";
+        }
+        if (TestUtils.filesystemOnWindows()) {
+            // Windows cannot spell these in a file name, and drops a dot
+            // that ends one.
+            prefix = prefix.replaceAll("[\\\\:*?\"<>|]", "")
+                    .replace("./", "/");
         }
         String blobName = prefix + "foo";
         putBlob(containerName, blobName, BYTE_SOURCE);
@@ -3457,6 +3465,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectPublicRead() throws Exception {
+        // NTFS has no permission bits for the store to keep an ACL in
+        assumeTrue(!TestUtils.filesystemOnWindows());
         // Azure and Swift grant read at the container, so a per-blob ACL has
         // nowhere to live and the copy is refused instead.
         assumeTrue(!blobStoreType.equals("azureblob") &&
@@ -3481,6 +3491,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testCreateContainerPublicRead() throws Exception {
+        // NTFS has no permission bits for the store to keep an ACL in
+        assumeTrue(!TestUtils.filesystemOnWindows());
         // The access a container is created with must be the access it has.
         // Backends that carry it in a second call after the create can report
         // success having applied only the first half.
@@ -3499,6 +3511,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testCreateContainerPublicReadWrite() throws Exception {
+        // NTFS has no permission bits for the store to keep an ACL in
+        assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
         String publicContainer = createRandomContainerName();
         blobStore.createContainer(CreateBucketRequest.builder()
@@ -3515,6 +3529,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testPublicReadWriteBucketAnonymousWrite() throws Exception {
+        // NTFS has no permission bits for the store to keep an ACL in
+        assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
 
         client.putBucketAcl(b -> b.bucket(containerName)

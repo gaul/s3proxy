@@ -302,6 +302,11 @@ the key `back\slash.txt` would come back from a listing as
 two S3 keys on one object.  Keys are spelled with forward slashes on every
 host, whatever the filesystem underneath.
 
+The `filesystem` backend keeps a canned ACL in the POSIX permission bits of
+the file or directory.  A file system without them, NTFS for one, has
+nowhere to keep it: a request that sets `public-read` succeeds and the
+bucket or object stays private.
+
 `aws-s3`, `azureblob` and `google-cloud-storage` copy a part on the server,
 in one request and without the bytes passing through S3Proxy.  Only
 `google-cloud-storage` falls back to streaming it, for a range covering less

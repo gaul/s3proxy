@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -232,6 +233,19 @@ public final class TestUtils {
         URI getSecureEndpoint() {
             return secureEndpoint;
         }
+    }
+
+    /**
+     * Whether the tests run against the filesystem store on Windows.  A
+     * file system there differs from the ones the other lanes use in what a
+     * test can ask of it: it has no POSIX permissions, which is where the
+     * store keeps an ACL, so every bucket and object reads back private;
+     * and it cannot spell a name holding any of \ : * ? " &lt; &gt; |, so
+     * the store refuses such a key.
+     */
+    public static boolean filesystemOnWindows() throws IOException {
+        return File.separatorChar == '\\' &&
+                testBlobStoreProvider().equals("filesystem");
     }
 
     /** Returns the provider which the s3proxy.test.conf system property

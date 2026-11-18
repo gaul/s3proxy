@@ -867,7 +867,9 @@ public final class EncryptedBlobStoreTest {
             assertThat(encryptedBlobStore.blobExists(containerName,
                 blobName)).isTrue();
 
-            if (!Quirks.NO_BLOB_ACCESS_CONTROL.contains(provider)) {
+            // NTFS has no permission bits for the store to keep an ACL in
+            if (!Quirks.NO_BLOB_ACCESS_CONTROL.contains(provider) &&
+                    !TestUtils.filesystemOnWindows()) {
                 ObjectCannedACL access =
                     encryptedBlobStore.getBlobAccess(containerName, blobName);
                 assertThat(access).isEqualTo(ObjectCannedACL.PRIVATE);
