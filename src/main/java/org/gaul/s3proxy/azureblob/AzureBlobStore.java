@@ -2843,7 +2843,8 @@ public final class AzureBlobStore implements BlobStore {
      * to be open.  The upload ID arrives from the client and may be any
      * string: one too short to hold a nonce failed the request as a 500,
      * and one that named no stub staged a block no completion would ever
-     * commit, where S3 answers NoSuchUpload to both.
+     * commit, where S3 answers NoSuchUpload to both.  It answers the same
+     * to the ID of an upload begun for another key than the request's.
      */
     private String openUploadNonce(MultipartUpload mpu) {
         String uploadKey = mpu.id();
@@ -2851,10 +2852,10 @@ public final class AzureBlobStore implements BlobStore {
             throw S3Exceptions.noSuchUpload(uploadKey);
         }
         try {
-            if (decodeTargetBlobName(blobServiceClient
+            if (!mpu.blobName().equals(decodeTargetBlobName(blobServiceClient
                     .getBlobContainerClient(mpu.containerName())
                     .getBlobClient(uploadKey).getProperties()
-                    .getMetadata()) == null) {
+                    .getMetadata()))) {
                 throw S3Exceptions.noSuchUpload(uploadKey);
             }
         } catch (BlobStorageException bse) {
@@ -2873,7 +2874,8 @@ public final class AzureBlobStore implements BlobStore {
      * upload's target is a stub; deleting anything else on the strength of
      * an upload ID would remove an object the request never named -- and on
      * a versioned store every version of it, since {@link #deleteStub}
-     * clears those too.
+     * clears those too.  Nor is the stub of another key's upload the
+     * request's to delete.
      */
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
@@ -2885,8 +2887,8 @@ public final class AzureBlobStore implements BlobStore {
                 .getBlobClient(uploadKey);
         try {
             if (!uploadKey.startsWith(STUB_BLOB_PREFIX) ||
-                    decodeTargetBlobName(
-                            stub.getProperties().getMetadata()) == null) {
+                    !mpu.blobName().equals(decodeTargetBlobName(
+                            stub.getProperties().getMetadata()))) {
                 throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                         "Multipart upload not found: " + uploadKey);
             }
@@ -2932,6 +2934,10 @@ public final class AzureBlobStore implements BlobStore {
         if (targetBlobName == null) {
             throw new IllegalArgumentException(
                     "Stub blob missing target name: uploadId=" + uploadKey);
+        }
+        if (!targetBlobName.equals(mpu.blobName())) {
+            // an upload of another key, which this request does not name
+            throw S3Exceptions.noSuchUpload(uploadKey);
         }
 
         var userMetadata = withoutTargetBlobName(stubMetadata);
@@ -3323,7 +3329,8 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, mpu.containerName(), /*key=*/ null);
         }
-        if (targetBlobName == null) {
+        // no stub at all, or the stub of an upload begun for another key
+        if (!mpu.blobName().equals(targetBlobName)) {
             throw S3Exceptions.noSuchUpload(uploadKey);
         }
 

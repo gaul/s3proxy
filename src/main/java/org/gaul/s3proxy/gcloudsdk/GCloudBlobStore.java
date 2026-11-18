@@ -1751,8 +1751,12 @@ public final class GCloudBlobStore implements BlobStore {
 
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
 
-        if (storage.get(BlobId.of(mpu.containerName(), uploadKey),
-                BlobGetOption.fields(BlobField.NAME)) == null) {
+        // the stub of another key's upload is not this request's to remove
+        Blob stub = storage.get(BlobId.of(mpu.containerName(), uploadKey),
+                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
+        if (stub == null || stub.getMetadata() == null ||
+                !mpu.blobName().equals(
+                        stub.getMetadata().get(TARGET_BLOB_NAME_KEY))) {
             throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
                     "Multipart upload not found: " + uploadKey);
         }
@@ -1796,6 +1800,10 @@ public final class GCloudBlobStore implements BlobStore {
         if (targetBlobName == null) {
             throw new IllegalArgumentException(
                     "Stub blob missing target name: uploadId=" + uploadKey);
+        }
+        if (!targetBlobName.equals(mpu.blobName())) {
+            // an upload of another key, which this request does not name
+            throw S3Exceptions.noSuchUpload(uploadKey);
         }
 
         if (parts == null || parts.isEmpty()) {
@@ -2075,7 +2083,8 @@ public final class GCloudBlobStore implements BlobStore {
      * A part's name is built from the upload ID, so an ID that was never
      * issued, or whose upload has since been completed or aborted, must not
      * get as far as a write: the part would be kept where no completion
-     * and no abort will ever find it.
+     * and no abort will ever find it.  An upload begun for another key than
+     * the request names is no more open to it, as on S3.
      */
     private String openUploadNonce(MultipartUpload mpu) {
         String uploadKey = mpu.id();
@@ -2087,7 +2096,8 @@ public final class GCloudBlobStore implements BlobStore {
         // A part or an intermediate compose lies under the same prefix but
         // carries no target name, so its name is no upload ID either.
         if (stub == null || stub.getMetadata() == null ||
-                !stub.getMetadata().containsKey(TARGET_BLOB_NAME_KEY)) {
+                !mpu.blobName().equals(
+                        stub.getMetadata().get(TARGET_BLOB_NAME_KEY))) {
             throw S3Exceptions.noSuchUpload(uploadKey);
         }
         return uploadKey.substring(STUB_BLOB_PREFIX.length());
@@ -2192,6 +2202,19 @@ public final class GCloudBlobStore implements BlobStore {
 
         String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
         String prefix = STUB_BLOB_PREFIX + nonce + "/part_";
+
+        // The parts of an upload begun for another key are not this
+        // request's to see.  A stub that is gone is left to the listing,
+        // which then finds no parts: that is how the frontend knows to look
+        // for the finished object.
+        Blob stub = storage.get(BlobId.of(mpu.containerName(), uploadKey),
+                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
+        if (stub != null && stub.getMetadata() != null) {
+            String target = stub.getMetadata().get(TARGET_BLOB_NAME_KEY);
+            if (target != null && !target.equals(mpu.blobName())) {
+                throw S3Exceptions.noSuchUpload(uploadKey);
+            }
+        }
 
         var parts = ImmutableList.<Part>builder();
         var page = storage.list(mpu.containerName(),

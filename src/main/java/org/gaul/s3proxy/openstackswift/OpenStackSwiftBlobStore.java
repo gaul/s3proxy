@@ -1566,7 +1566,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // no completion will find it, or over one a finished object's
         // manifest names, whose recorded ETag and size it then no longer
         // has -- and Swift refuses to serve an object in that state.
-        if (!blobExists(mpu.containerName(), mpuMetaKey(mpu.id()))) {
+        // Nor is an upload begun for another key open to this request.
+        if (!isOpenUpload(mpu)) {
             throw S3Exceptions.noSuchUpload(mpu.id());
         }
         var segment = Blob.builder(
@@ -1624,8 +1625,31 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         if (requireMarker && !sawMarker) {
             return List.of();
         }
+        if (requireMarker && !isOpenUpload(mpu)) {
+            // the parts of an upload begun for another key
+            throw S3Exceptions.noSuchUpload(mpu.id());
+        }
         parts.sort(Comparator.comparingInt(Part::partNumber));
         return parts;
+    }
+
+    /**
+     * Whether the upload is open, which is while its marker exists, and was
+     * begun for the key the request names.  S3 answers NoSuchUpload to an
+     * upload ID paired with another key; taken on the ID alone, a request
+     * naming one key would add parts to, finish or abort the upload of
+     * another.  A marker without its key predates the key being recorded
+     * and answers to any.
+     */
+    private boolean isOpenUpload(MultipartUpload mpu) {
+        HeadObjectResponse marker = blobMetadataIfPresent(
+                mpu.containerName(), mpuMetaKey(mpu.id()));
+        if (marker == null) {
+            return false;
+        }
+        String encoded = marker.metadata().get(MPU_KEY_METADATA);
+        return encoded == null ||
+                decodeMetadataValue(encoded).equals(mpu.blobName());
     }
 
     @Override
@@ -1649,6 +1673,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // Already completed, aborted, or never created.  Carrying on
             // would write the manifest again without the metadata only the
             // marker held.
+            throw S3Exceptions.noSuchUpload(uploadId);
+        }
+        String markerKey = marker.getMetadata().userMetadata()
+                .get(MPU_KEY_METADATA);
+        if (markerKey != null &&
+                !decodeMetadataValue(markerKey).equals(mpu.blobName())) {
+            // an upload of another key, which this request does not name
             throw S3Exceptions.noSuchUpload(uploadId);
         }
         var contentMetadata = marker.getMetadata().contentMetadata();
@@ -1761,7 +1792,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // gone the upload has already completed (or never existed), so abort
         // must report no such upload rather than delete the segments that back
         // the live object.
-        if (!blobExists(container, mpuMetaKey(mpu.id()))) {
+        if (!isOpenUpload(mpu)) {
             throw S3Exceptions.noSuchKey(container, mpu.blobName(),
                     "no such multipart upload: " + mpu.id());
         }
