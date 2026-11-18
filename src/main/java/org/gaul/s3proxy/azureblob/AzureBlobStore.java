@@ -3671,6 +3671,14 @@ public final class AzureBlobStore implements BlobStore {
      */
     private static final class SuppliedTokenCredential
             implements TokenCredential {
+        /**
+         * Well in the past rather than the present moment: Azure reuses a
+         * token until the clock reads later than its expiry, and a clock as
+         * coarse as Windows's reads the same for two requests in a row.
+         */
+        private static final OffsetDateTime LAPSED =
+                Instant.EPOCH.atOffset(ZoneOffset.UTC);
+
         private final Supplier<Credentials> creds;
 
         SuppliedTokenCredential(Supplier<Credentials> creds) {
@@ -3685,7 +3693,7 @@ public final class AzureBlobStore implements BlobStore {
                     throw new IllegalStateException(
                             "Credential supplier named no session token");
                 }
-                return new AccessToken(sessionToken, OffsetDateTime.now());
+                return new AccessToken(sessionToken, LAPSED);
             });
         }
     }
