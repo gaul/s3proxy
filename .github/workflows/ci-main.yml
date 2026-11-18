@@ -120,7 +120,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with transient
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy.conf
@@ -177,7 +177,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with filesystem
         run: |
           mkdir /tmp/blobstore
@@ -254,7 +254,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with Azurite
         run: |
           ./src/test/resources/run-s3-tests.sh ${{ matrix.conf }}.conf
@@ -317,7 +317,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with LocalStack
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
@@ -379,7 +379,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with MiniStack
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-ministack.conf
@@ -434,7 +434,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with fake-gcs-server
         run: |
           STORAGE_EMULATOR_HOST=http://localhost:4443 ./src/test/resources/run-s3-tests.sh s3proxy-fake-gcs-server.conf
@@ -548,7 +548,7 @@ jobs:
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Run s3-tests with Swift
         run: |
           ./src/test/resources/run-s3-tests.sh s3proxy-swift.conf
