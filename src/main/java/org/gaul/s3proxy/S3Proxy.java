@@ -23,6 +23,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 
@@ -595,6 +596,72 @@ public final class S3Proxy {
             return credential;
         }
 
+        List<String> differingProperties(Builder that) {
+            var differences = new ArrayList<String>();
+            if (!Objects.equals(this.endpoint, that.endpoint)) {
+                differences.add(S3ProxyConstants.PROPERTY_ENDPOINT);
+            }
+            if (!Objects.equals(this.secureEndpoint, that.secureEndpoint)) {
+                differences.add(S3ProxyConstants.PROPERTY_SECURE_ENDPOINT);
+            }
+            if (!Objects.equals(this.sslContext, that.sslContext)) {
+                differences.add("programmatic SSL context");
+            }
+            if (!Objects.equals(this.keyStorePath, that.keyStorePath)) {
+                differences.add(S3ProxyConstants.PROPERTY_KEYSTORE_PATH);
+            }
+            if (!Objects.equals(this.keyStorePassword,
+                    that.keyStorePassword)) {
+                differences.add(S3ProxyConstants.PROPERTY_KEYSTORE_PASSWORD);
+            }
+            if (!Objects.equals(this.virtualHost, that.virtualHost)) {
+                differences.add(S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
+            }
+            if (!Objects.equals(this.servicePath, that.servicePath)) {
+                differences.add(S3ProxyConstants.PROPERTY_SERVICE_PATH);
+            }
+            if (this.maxSinglePartObjectSize !=
+                    that.maxSinglePartObjectSize) {
+                differences.add(
+                        S3ProxyConstants.PROPERTY_MAX_SINGLE_PART_OBJECT_SIZE);
+            }
+            if (this.v4MaxNonChunkedRequestSize !=
+                    that.v4MaxNonChunkedRequestSize) {
+                differences.add(S3ProxyConstants
+                        .PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE);
+            }
+            if (this.v4MaxChunkSize != that.v4MaxChunkSize) {
+                differences.add(S3ProxyConstants.PROPERTY_V4_MAX_CHUNK_SIZE);
+            }
+            if (this.ignoreUnknownHeaders != that.ignoreUnknownHeaders) {
+                differences.add(
+                        S3ProxyConstants.PROPERTY_IGNORE_UNKNOWN_HEADERS);
+            }
+            if (!Objects.equals(this.corsRules, that.corsRules)) {
+                differences.add("s3proxy.cors-*");
+            }
+            if (!Objects.equals(this.authenticationType,
+                    that.authenticationType)) {
+                differences.add(S3ProxyConstants.PROPERTY_AUTHORIZATION);
+            }
+            if (this.jettyMaxThreads != that.jettyMaxThreads) {
+                differences.add(S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS);
+            }
+            if (this.maximumTimeSkew != that.maximumTimeSkew) {
+                differences.add(S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
+            }
+            if (this.metricsEnabled != that.metricsEnabled) {
+                differences.add(S3ProxyConstants.PROPERTY_METRICS_ENABLED);
+            }
+            if (this.metricsPort != that.metricsPort) {
+                differences.add(S3ProxyConstants.PROPERTY_METRICS_PORT);
+            }
+            if (!Objects.equals(this.metricsHost, that.metricsHost)) {
+                differences.add(S3ProxyConstants.PROPERTY_METRICS_HOST);
+            }
+            return List.copyOf(differences);
+        }
+
         @Override
         public boolean equals(@Nullable Object object) {
             if (this == object) {
@@ -604,26 +671,14 @@ public final class S3Proxy {
             }
             S3Proxy.Builder that = (S3Proxy.Builder) object;
             // do not check credentials or storage backend fields
-            return Objects.equals(this.endpoint, that.endpoint) &&
-                    Objects.equals(this.secureEndpoint, that.secureEndpoint) &&
-                    Objects.equals(this.sslContext, that.sslContext) &&
-                    Objects.equals(this.keyStorePath, that.keyStorePath) &&
-                    Objects.equals(this.keyStorePassword,
-                            that.keyStorePassword) &&
-                    Objects.equals(this.virtualHost, that.virtualHost) &&
-                    Objects.equals(this.servicePath, that.servicePath) &&
-                    this.maxSinglePartObjectSize ==
-                            that.maxSinglePartObjectSize &&
-                    this.v4MaxNonChunkedRequestSize ==
-                            that.v4MaxNonChunkedRequestSize &&
-                    this.v4MaxChunkSize == that.v4MaxChunkSize &&
-                    this.ignoreUnknownHeaders == that.ignoreUnknownHeaders &&
-                    Objects.equals(this.corsRules, that.corsRules);
+            return differingProperties(that).isEmpty();
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(endpoint, secureEndpoint, sslContext,
+            return Objects.hash(authenticationType, jettyMaxThreads,
+                    maximumTimeSkew, metricsEnabled, metricsPort, metricsHost,
+                    endpoint, secureEndpoint, sslContext,
                     keyStorePath, keyStorePassword, virtualHost, servicePath,
                     maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,
                     v4MaxChunkSize, ignoreUnknownHeaders, corsRules);

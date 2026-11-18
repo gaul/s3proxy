@@ -55,6 +55,12 @@ public final class Main {
         throw new AssertionError("intentionally not implemented");
     }
 
+    static String multipleConfigurationsError(List<String> differingProperties) {
+        return "Multiple configurations require" +
+                " identical s3proxy properties; differing properties: " +
+                String.join(", ", differingProperties);
+    }
+
     private static final class Options {
         @Option(name = "--properties",
                 usage = "S3Proxy configuration (required, multiple allowed)")
@@ -181,11 +187,14 @@ public final class Main {
                 throw e;
             }
 
-            if (s3ProxyBuilder != null &&
-                    !s3ProxyBuilder.equals(s3ProxyBuilder2)) {
-                System.err.println("Multiple configurations require" +
-                        " identical s3proxy properties");
-                System.exit(1);
+            if (s3ProxyBuilder != null) {
+                List<String> differingProperties =
+                        s3ProxyBuilder.differingProperties(s3ProxyBuilder2);
+                if (!differingProperties.isEmpty()) {
+                    System.err.println(multipleConfigurationsError(
+                            differingProperties));
+                    System.exit(1);
+                }
             }
             s3ProxyBuilder = s3ProxyBuilder2;
         }
