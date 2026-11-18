@@ -79,7 +79,6 @@ import com.azure.storage.blob.models.ListBlobContainersOptions;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
 import com.azure.storage.blob.options.BlobBeginCopyOptions;
-import com.azure.storage.blob.options.BlobContainerCreateOptions;
 import com.azure.storage.blob.options.BlobUploadFromUrlOptions;
 import com.azure.storage.blob.options.BlockBlobCommitBlockListOptions;
 import com.azure.storage.blob.options.BlockBlobOutputStreamOptions;
@@ -221,6 +220,9 @@ public final class AzureBlobStore implements BlobStore {
     private static final BlobErrorCode
             OPERATION_NOT_ALLOWED_ON_AUTOMATIC_SNAPSHOT = BlobErrorCode
                     .fromString("OperationNotAllowedOnAutomaticSnapshot");
+    /** Azure refuses public container access when the account disables it. */
+    private static final BlobErrorCode PUBLIC_ACCESS_NOT_PERMITTED =
+            BlobErrorCode.fromString("PublicAccessNotPermitted");
     /**
      * How long after logging that a container's versions cannot be cleaned
      * up the store says so again, rather than on every request.
@@ -837,21 +839,20 @@ public final class AzureBlobStore implements BlobStore {
                     "anonymous write access unsupported in Azure");
         }
         String container = request.bucket();
-        var azureOptions = new BlobContainerCreateOptions();
-        if (request.acl() == BucketCannedACL.PUBLIC_READ) {
-            azureOptions.setPublicAccessType(PublicAccessType.CONTAINER);
-        }
+        var publicAccess = request.acl() == BucketCannedACL.PUBLIC_READ ?
+                PublicAccessType.CONTAINER : null;
         try {
-            var response = blobServiceClient
-                    .createBlobContainerIfNotExistsWithResponse(
-                            container, azureOptions, /*context=*/ null);
-            if (response.getStatusCode() != 201) {
+            blobServiceClient.getBlobContainerClient(container)
+                    .createWithResponse(Map.of(), publicAccess,
+                            /*timeout=*/ null, /*context=*/ null);
+        } catch (BlobStorageException bse) {
+            if (BlobErrorCode.CONTAINER_ALREADY_EXISTS.equals(
+                    bse.getErrorCode())) {
                 throw S3Exceptions.bucketAlreadyOwnedByYou(container);
             }
-            return CreateBucketResponse.builder().build();
-        } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
+        return CreateBucketResponse.builder().build();
     }
 
     @Override
@@ -2530,7 +2531,11 @@ public final class AzureBlobStore implements BlobStore {
         var client = blobServiceClient.getBlobContainerClient(container);
         var publicAccess = access == BucketCannedACL.PUBLIC_READ ?
                 PublicAccessType.CONTAINER : null;
-        client.setAccessPolicy(publicAccess, List.of());
+        try {
+            client.setAccessPolicy(publicAccess, List.of());
+        } catch (BlobStorageException bse) {
+            throw translate(bse, container, /*key=*/ null);
+        }
     }
 
     @Override
@@ -3535,6 +3540,12 @@ public final class AzureBlobStore implements BlobStore {
             String container, @Nullable String key,
             @Nullable String versionId) {
         var code = bse.getErrorCode();
+        if (PUBLIC_ACCESS_NOT_PERMITTED.equals(code)) {
+            // S3 expresses an account-level refusal to grant public access as
+            // AccessDenied rather than an internal storage error.
+            return S3Exceptions.accessDenied(
+                    Strings.nullToEmpty(bse.getMessage()), bse);
+        }
         if (versionId != null && !versionId.equals(NULL_VERSION_ID) &&
                 BlobErrorCode.BLOB_NOT_FOUND.equals(code)) {
             return S3Exceptions.noSuchVersion(container, key, versionId,

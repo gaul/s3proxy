@@ -138,6 +138,21 @@ public final class AzureBlobStoreTranslateTest {
                         e -> assertThat(e.statusCode()).isEqualTo(403));
     }
 
+    /** A real Azure account may reject public ACLs with this 409 error. */
+    @Test
+    public void testPublicAccessNotPermittedIsAccessDenied() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(409, "PublicAccessNotPermitted"),
+                "container", /*key=*/ null);
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(403);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("AccessDenied");
+                });
+    }
+
     /**
      * Put Blob From URL and Put Block From URL answer a failed source
      * condition with whatever the source answered: a 304 carrying neither an

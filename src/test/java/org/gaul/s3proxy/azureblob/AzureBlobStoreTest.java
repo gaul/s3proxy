@@ -49,8 +49,10 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -77,6 +79,10 @@ public final class AzureBlobStoreTest {
     private int listStatus = 200;
     /** How the fake Azure answers Put Blob From URL: 501 as Azurite does. */
     private int copyStatus = 201;
+    private int createStatus = 201;
+    private @Nullable String createErrorCode;
+    private int accessPolicyStatus = 200;
+    private @Nullable String accessPolicyErrorCode;
     private @Nullable HttpServer server;
 
     @AfterEach
@@ -84,6 +90,61 @@ public final class AzureBlobStoreTest {
         if (server != null) {
             server.stop(0);
         }
+    }
+
+    @Test
+    public void testPublicBucketCreateRefusalIsAccessDenied() throws IOException {
+        createStatus = 409;
+        createErrorCode = "PublicAccessNotPermitted";
+        var store = fakeAzureStore();
+
+        assertThatThrownBy(() -> store.createContainer(
+                CreateBucketRequest.builder().bucket("public-bucket")
+                        .acl(BucketCannedACL.PUBLIC_READ).build()))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> {
+                            assertThat(e.statusCode()).isEqualTo(403);
+                            assertThat(e.awsErrorDetails().errorCode())
+                                    .isEqualTo("AccessDenied");
+                        });
+        assertThat(azureRequests).anyMatch(request ->
+                request.startsWith("PUT /account/public-bucket?") &&
+                        request.contains("restype=container"));
+    }
+
+    @Test
+    public void testExistingContainerStillMapsToBucketAlreadyOwned() throws IOException {
+        createStatus = 409;
+        createErrorCode = "ContainerAlreadyExists";
+        var store = fakeAzureStore();
+
+        assertThatThrownBy(() -> store.createContainer(
+                CreateBucketRequest.builder().bucket("existing-bucket").build()))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> {
+                            assertThat(e.statusCode()).isEqualTo(409);
+                            assertThat(e.awsErrorDetails().errorCode())
+                                    .isEqualTo("BucketAlreadyOwnedByYou");
+                        });
+    }
+
+    @Test
+    public void testPublicAclRefusalIsAccessDenied() throws IOException {
+        accessPolicyStatus = 409;
+        accessPolicyErrorCode = "PublicAccessNotPermitted";
+        var store = fakeAzureStore();
+
+        assertThatThrownBy(() -> store.setContainerAccess("container",
+                BucketCannedACL.PUBLIC_READ))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> {
+                            assertThat(e.statusCode()).isEqualTo(403);
+                            assertThat(e.awsErrorDetails().errorCode())
+                                    .isEqualTo("AccessDenied");
+                        });
+        assertThat(azureRequests).anyMatch(request ->
+                request.startsWith("PUT /account/container?") &&
+                        request.contains("comp=acl"));
     }
 
     @Test
@@ -742,6 +803,25 @@ public final class AzureBlobStoreTest {
             } else {
                 status = 200;
                 headers.set("Content-Length", "1");
+            }
+        } else if (method.equals("PUT") && recorded.contains("comp=acl")) {
+            status = accessPolicyStatus;
+            if (status >= 400 && accessPolicyErrorCode != null) {
+                headers.set("x-ms-error-code", accessPolicyErrorCode);
+                headers.set("Content-Type", "application/xml");
+                body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                        "<Error><Code>" + accessPolicyErrorCode +
+                        "</Code><Message>refused</Message></Error>";
+            }
+        } else if (method.equals("PUT") &&
+                recorded.contains("restype=container")) {
+            status = createStatus;
+            if (status >= 400 && createErrorCode != null) {
+                headers.set("x-ms-error-code", createErrorCode);
+                headers.set("Content-Type", "application/xml");
+                body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                        "<Error><Code>" + createErrorCode +
+                        "</Code><Message>refused</Message></Error>";
             }
         } else if (method.equals("PUT") && copyStatus != 201) {
             // Put Blob From URL refused, as Azurite refuses it.
