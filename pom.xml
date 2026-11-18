@@ -451,22 +451,6 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
         </configuration>
       </plugin>
       <plugin>
-        <groupId>com.github.spotbugs</groupId>
-        <artifactId>spotbugs-maven-plugin</artifactId>
-        <version>4.10.5.0</version>
-        <configuration>
-          <effort>Max</effort>
-          <omitVisitors>CrossSiteScripting,DefaultEncodingDetector,FindNullDeref</omitVisitors>
-          <plugins>
-            <plugin>
-              <groupId>jp.skypencil.findbugs.slf4j</groupId>
-              <artifactId>bug-pattern</artifactId>
-              <version>1.5.0</version>
-            </plugin>
-          </plugins>
-        </configuration>
-      </plugin>
-      <plugin>
         <groupId>org.skife.maven</groupId>
         <artifactId>really-executable-jar-maven-plugin</artifactId>
         <version>2.1.1</version>
@@ -741,12 +725,6 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
     <dependency>
       <groupId>tools.jackson.dataformat</groupId>
       <artifactId>jackson-dataformat-xml</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.github.spotbugs</groupId>
-      <artifactId>spotbugs-annotations</artifactId>
-      <version>4.10.5</version>
-      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.jspecify</groupId>

@@ -259,8 +259,6 @@ public final class Main {
             private final StringBuilder builder = new StringBuilder();
 
             @Override
-            @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-                    "SLF4J_SIGN_ONLY_FORMAT")
             public void print(final @Nullable String string) {
                 logger.error("{}", string);
             }
