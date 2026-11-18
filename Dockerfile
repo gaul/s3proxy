@@ -49,6 +49,8 @@ WORKDIR /opt/s3proxy
 
 # The same JAVA_HOME as the eclipse-temurin base images
 ENV JAVA_HOME=/opt/java/openjdk
+# Without a UTF-8 locale the JVM can't store keys with non-ASCII characters
+ENV LANG=C.UTF-8
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 COPY --from=jre-build /javaruntime $JAVA_HOME
 
