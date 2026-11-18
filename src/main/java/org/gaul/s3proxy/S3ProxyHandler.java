@@ -369,6 +369,14 @@ public class S3ProxyHandler {
     private static final String UTF_8 = "UTF-8";
     /** The largest offset a range forwards, with room to add one to it. */
     private static final String MAX_RANGE_OFFSET = "999999999999999999";
+    /** The most of a refused request's body {@link #drainUnreadBody} reads. */
+    private static final long DRAIN_MAX_BYTES = 1024 * 1024;
+    /** How long it waits for more of that body once none is arriving. */
+    private static final long DRAIN_IDLE_NANOS =
+            TimeUnit.SECONDS.toNanos(1);
+    /** How long it waits in all, however the body trickles in. */
+    private static final long DRAIN_TOTAL_NANOS =
+            TimeUnit.SECONDS.toNanos(5);
     private static final String MULTIPART_STUB_PREFIX =
             Constants.MULTIPART_STUB_PREFIX;
     /** URLEncoder escapes / which we do not want. */
@@ -6832,6 +6840,63 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * Reads and discards what is left of a request body once the error that
+     * refused it has been written.  Jetty discards only what has arrived by
+     * the time the response completes, and closes on anything still on its
+     * way; those bytes then reach a closed socket, which answers them with a
+     * reset.  A reset can cost the client the response it was still
+     * reading -- Windows discards what it had received and not yet handed
+     * over -- so a PUT refused 403 or 400 surfaced as a broken connection.
+     * Waiting for the body lets the connection close in order.
+     *
+     * <p>The wait is short and bounded, since the request was refused and
+     * may be anonymous: it ends once nothing has arrived for
+     * {@link #DRAIN_IDLE_NANOS}, after {@link #DRAIN_TOTAL_NANOS} in all, or
+     * past {@link #DRAIN_MAX_BYTES}, and Jetty closes as it did before.  It
+     * polls rather than blocks because a blocking read ends only at Jetty's
+     * idle timeout.  A client that sent Expect: 100-continue is waiting for
+     * this answer before it sends anything, so there is nothing to wait for.
+     */
+    private static void drainUnreadBody(HttpServletRequest request) {
+        if (request.getHeader(HttpHeaders.EXPECT) != null ||
+                request.getContentLengthLong() > DRAIN_MAX_BYTES) {
+            return;
+        }
+        try {
+            var is = request.getInputStream();
+            var buffer = new byte[8192];
+            long drained = 0;
+            long start = System.nanoTime();
+            long lastProgress = start;
+            while (!is.isFinished() && drained <= DRAIN_MAX_BYTES) {
+                int available = is.available();
+                if (available > 0) {
+                    int count = is.read(buffer, 0,
+                            Math.min(available, buffer.length));
+                    if (count == -1) {
+                        return;
+                    }
+                    drained += count;
+                    lastProgress = System.nanoTime();
+                    continue;
+                }
+                long now = System.nanoTime();
+                if (now - lastProgress > DRAIN_IDLE_NANOS ||
+                        now - start > DRAIN_TOTAL_NANOS) {
+                    return;
+                }
+                Thread.sleep(5);
+            }
+        } catch (IOException | IllegalStateException e) {
+            // The client went away, or getReader() claimed the body.  The
+            // response is already written and the connection closes either
+            // way.
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     static String generateRequestId() {
         return "%016X".formatted(ThreadLocalRandom.current().nextLong());
     }
@@ -6867,6 +6932,7 @@ public class S3ProxyHandler {
         // alive connection).  Close the connection on those cases so the
         // client retries on a fresh socket.  An error that refused the
         // request before reading its body closes it too; see hasUnreadBody.
+        boolean unreadBody = hasUnreadBody(request);
         if (code.equals(S3ErrorCode.BAD_DIGEST.getErrorCode()) ||
                 code.equals(S3ErrorCode.INVALID_DIGEST.getErrorCode()) ||
                 code.equals(S3ErrorCode.INVALID_REQUEST.getErrorCode()) ||
@@ -6874,7 +6940,7 @@ public class S3ProxyHandler {
                         .getErrorCode()) ||
                 code.equals(S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH
                         .getErrorCode()) ||
-                hasUnreadBody(request)) {
+                unreadBody) {
             response.setHeader(HttpHeaders.CONNECTION, "close");
         }
 
@@ -6942,6 +7008,12 @@ public class S3ProxyHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
+        }
+
+        // only now, with the response written: the client is not kept
+        // waiting for an answer while its body is thrown away
+        if (unreadBody) {
+            drainUnreadBody(request);
         }
     }
 
