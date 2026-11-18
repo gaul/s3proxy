@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -349,6 +350,9 @@ public final class CrossOriginResourceSharingResponseTest {
      */
     @Test
     public void testCorsActualErrorNoSuchKey() throws Exception {
+        // The bucket must be public for an anonymous read to get as far as
+        // the missing key, and NTFS has nowhere to keep that.
+        assumeTrue(!TestUtils.filesystemOnWindows());
         var request = new HttpGet(URI.create(publicGET + "-missing"));
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         HttpResponse response = httpClient.execute(request);
@@ -382,6 +386,9 @@ public final class CrossOriginResourceSharingResponseTest {
     /** An origin no rule allows is still named by none of them. */
     @Test
     public void testCorsActualErrorDisallowedOrigin() throws Exception {
+        // The bucket must be public for an anonymous read to get as far as
+        // the missing key, and NTFS has nowhere to keep that.
+        assumeTrue(!TestUtils.filesystemOnWindows());
         var request = new HttpGet(URI.create(publicGET + "-missing"));
         request.setHeader(HttpHeaders.ORIGIN, "https://disallowed.example.org");
         HttpResponse response = httpClient.execute(request);

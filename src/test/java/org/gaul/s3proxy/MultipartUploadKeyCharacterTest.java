@@ -55,13 +55,16 @@ import software.amazon.awssdk.utils.AttributeMap;
  */
 public final class MultipartUploadKeyCharacterTest {
     /** Legal S3 keys that a blob index tag value cannot hold. */
-    private static final List<String> KEYS = List.of(
+    private static final List<String> ALL_KEYS = List.of(
             "report#2026.csv",
             "50%-off.png",
             "a&b?c=d.txt",
             "quarterly report (final).pdf",
             "résumé.pdf",
             "報告書.xlsx");
+
+    /** The keys the backend under test can store at all. */
+    private List<String> keys;
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -93,6 +96,12 @@ public final class MultipartUploadKeyCharacterTest {
                         .build())
                 .build();
 
+        // Windows cannot spell a question mark in a file name, so the
+        // filesystem store refuses that key in one part as well.
+        keys = TestUtils.filesystemOnWindows() ?
+                ALL_KEYS.stream().filter(key -> !key.contains("?")).toList() :
+                ALL_KEYS;
+
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
         blobStore.createContainer(containerName);
     }
@@ -112,7 +121,7 @@ public final class MultipartUploadKeyCharacterTest {
 
     @Test
     public void testMultipartUploadRoundTripsKey() {
-        for (String key : KEYS) {
+        for (String key : keys) {
             byte[] content = ("content of " + key).getBytes(
                     StandardCharsets.UTF_8);
 
@@ -139,7 +148,7 @@ public final class MultipartUploadKeyCharacterTest {
 
     @Test
     public void testListMultipartUploadsReportsKey() {
-        for (String key : KEYS) {
+        for (String key : keys) {
             String uploadId = client.createMultipartUpload(
                     b -> b.bucket(containerName).key(key)).uploadId();
 
