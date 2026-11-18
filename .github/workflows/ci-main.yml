@@ -188,6 +188,42 @@ jobs:
           name: s3-tests-results-filesystem
           path: target/s3-tests-*.xml
 
+  # The filesystem backend on Windows, where a file system differs in ways
+  # no Linux lane can show: names it reserves or cannot spell, case that is
+  # kept but not told apart, no POSIX permissions to carry an ACL, and files
+  # that cannot be removed or renamed while open.  See #813 and #905.  Only
+  # the Maven tests run here; s3-tests needs a shell and stays on Linux.
+  windowsFilesystemTests:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    needs: [meta]
+    steps:
+      # The runner's Git converts line endings on checkout, which would
+      # hand the tests resources that differ from the ones Linux reads.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6.2.0
+        with:
+          distribution: "temurin"
+          java-version: "25"
+          cache: "maven"
+
+      - name: Maven Test with filesystem
+        shell: pwsh
+        run: |
+          # s3proxy-filesystem.conf names /tmp/blobstore, which Windows
+          # reads as \tmp\blobstore on the drive of the working directory.
+          New-Item -ItemType Directory -Force `
+            (Join-Path (Get-Location).Drive.Root 'tmp\blobstore')
+          # Quoted, or PowerShell splits the argument at the dot.
+          mvn test "-Ds3proxy.test.conf=s3proxy-filesystem.conf"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: surefire-reports-windows-filesystem
+          path: target/surefire-reports/
+
   azuriteTests:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
