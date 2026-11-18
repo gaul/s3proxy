@@ -83,9 +83,15 @@ BEGIN {
 
 # Defaults precede S3PROXY_JAVA_OPTS so callers can override them: the last
 # occurrence of an -XX flag wins and an explicit -Xmx beats MaxRAMPercentage.
+# UseBASE64Intrinsics is off to keep requests away from the accelerated
+# Base64 decoder of CVE-2026-114938, which the image's OpenJDK 25.0.5.0.3
+# still has.
+# TODO: require a JDK with the fix (25.0.5.1 or later) in the Dockerfile once
+# Ubuntu packages one, then remove the flag.
 exec java \
     -XX:MaxRAMPercentage=75 \
     -XX:+UseCompactObjectHeaders \
+    -XX:-UseBASE64Intrinsics \
     $S3PROXY_JAVA_OPTS \
     -DLOG_LEVEL="${LOG_LEVEL}" \
     -jar /opt/s3proxy/s3proxy \
