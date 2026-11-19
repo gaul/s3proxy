@@ -20,10 +20,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.util.List;
 import java.util.Map;
 
@@ -201,6 +203,123 @@ public final class Nio2UserAttributesTest {
         assertThat(eTag).matches("\"?[0-9a-f]{32}-1\"?");
         assertThat(unquote(real.list(CONTAINER).contents().get(0).eTag()))
                 .isEqualTo(unquote(eTag));
+    }
+
+    /**
+     * The JDK puts a user attribute in the user namespace itself, so a name
+     * that began with "user." reached the filesystem as
+     * "user.user.content-md5", which ZFS refuses.  See issue #1264.
+     */
+    @Test
+    public void testAttributeNamesCarryNoPrefix(@TempDir Path temp)
+            throws IOException {
+        try (var with = withUserAttributes()) {
+            for (Path root : List.of(with.getPath("/"), temp)) {
+                if (!AbstractNio2BlobStore.supportsUserAttributes(root)) {
+                    continue;
+                }
+                var names = rawView(putWithMetadata(root)).list();
+
+                assertThat(names).contains("content-md5", "content-type",
+                        "user-metadata.owner");
+                assertThat(names).noneMatch(name -> name.startsWith("user."));
+            }
+        }
+    }
+
+    /**
+     * An object stored by a release that wrote the longer names keeps its
+     * ETag and metadata, and its key is free of them once it is rewritten.
+     */
+    @Test
+    public void testLegacyAttributeNamesAreRead(@TempDir Path temp)
+            throws IOException {
+        try (var with = withUserAttributes()) {
+            for (Path root : List.of(with.getPath("/"), temp)) {
+                if (!AbstractNio2BlobStore.supportsUserAttributes(root)) {
+                    continue;
+                }
+                var real = new Nio2Store(root);
+                var file = putWithMetadata(root);
+                var before = real.blobMetadata(CONTAINER, "key");
+                var raw = rawView(file);
+                for (String name : raw.list()) {
+                    var value = ByteBuffer.allocate(raw.size(name));
+                    raw.read(name, value);
+                    value.flip();
+                    raw.write("user." + name, value);
+                    raw.delete(name);
+                }
+                assertThat(raw.list()).isNotEmpty().allMatch(
+                        name -> name.startsWith("user."));
+
+                var after = real.blobMetadata(CONTAINER, "key");
+                assertThat(after.eTag()).isEqualTo(before.eTag())
+                        .doesNotContain("-");
+                assertThat(after.contentType()).isEqualTo("text/plain");
+                assertThat(after.metadata()).containsEntry("owner", "alice");
+                assertThat(real.list(CONTAINER).contents().get(0).eTag())
+                        .isEqualTo(before.eTag());
+
+                putWithMetadata(root);
+                assertThat(rawView(file).list()).noneMatch(
+                        name -> name.startsWith("user."));
+            }
+        }
+    }
+
+    /**
+     * Deleting the marker of a directory that still holds objects takes its
+     * attribute off the directory, under the older name as well.
+     */
+    @Test
+    public void testLegacyDirectoryMarkerIsCleared() throws IOException {
+        try (var with = withUserAttributes()) {
+            var real = new Nio2Store(with.getPath("/"));
+            real.createContainer(CONTAINER);
+            TestUtils.putBlob(real, CONTAINER, "dir/", ByteSource.empty());
+            TestUtils.putBlob(real, CONTAINER, "dir/key", CONTENT);
+            var raw = rawView(with.getPath("/", CONTAINER, "dir"));
+            var value = ByteBuffer.allocate(raw.size("content-md5"));
+            raw.read("content-md5", value);
+            value.flip();
+            raw.write("user.content-md5", value);
+            raw.delete("content-md5");
+            assertThat(real.blobExists(CONTAINER, "dir/")).isTrue();
+
+            real.removeBlob(CONTAINER, "dir/");
+
+            assertThat(real.blobExists(CONTAINER, "dir/")).isFalse();
+            assertThat(real.blobExists(CONTAINER, "dir/key")).isTrue();
+            assertThat(raw.list()).doesNotContain("content-md5",
+                    "user.content-md5");
+        }
+    }
+
+    private static FileSystem withUserAttributes() {
+        return Jimfs.newFileSystem(Configuration.unix().toBuilder()
+                .setAttributeViews("posix", "user")
+                .setWorkingDirectory("/")
+                .build());
+    }
+
+    /** Stores "key" with a Content-Type and user metadata; its file. */
+    private static Path putWithMetadata(Path root) throws IOException {
+        var real = new Nio2Store(root);
+        if (!real.containerExists(CONTAINER)) {
+            real.createContainer(CONTAINER);
+        }
+        real.putBlob(TestUtils.putRequest(CONTAINER, "key", CONTENT)
+                .toBuilder().contentType("text/plain")
+                .metadata(Map.of("owner", "alice")).build(),
+                CONTENT.openStream());
+        return root.resolve(CONTAINER).resolve("key");
+    }
+
+    /** The attributes as the filesystem holds them, not as the store does. */
+    private static UserDefinedFileAttributeView rawView(Path path) {
+        return Files.getFileAttributeView(path,
+                UserDefinedFileAttributeView.class);
     }
 
     private static String unquote(String eTag) {

@@ -142,19 +142,27 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
             AbstractNio2BlobStore.class);
-    private static final String XATTR_CACHE_CONTROL = "user.cache-control";
+    private static final String XATTR_CACHE_CONTROL = "cache-control";
     private static final String XATTR_CONTENT_DISPOSITION =
-            "user.content-disposition";
+            "content-disposition";
     private static final String XATTR_CONTENT_ENCODING =
-            "user.content-encoding";
+            "content-encoding";
     private static final String XATTR_CONTENT_LANGUAGE =
-            "user.content-language";
-    private static final String XATTR_CONTENT_MD5 = "user.content-md5";
-    private static final String XATTR_CONTENT_TYPE = "user.content-type";
-    private static final String XATTR_EXPIRES = "user.expires";
-    private static final String XATTR_STORAGE_TIER = "user.storage-tier";
+            "content-language";
+    private static final String XATTR_CONTENT_MD5 = "content-md5";
+    private static final String XATTR_CONTENT_TYPE = "content-type";
+    private static final String XATTR_EXPIRES = "expires";
+    private static final String XATTR_STORAGE_TIER = "storage-tier";
     private static final String XATTR_USER_METADATA_PREFIX =
-            "user.user-metadata.";
+            "user-metadata.";
+    /**
+     * What every attribute name began with through 4.2.0.  The JDK puts a
+     * user attribute in the operating system's user namespace itself, so
+     * those names reached the filesystem as "user.user.content-md5", which
+     * OpenZFS on Linux refuses outright (#1264).  Names are now written
+     * without it, and read with it where an older release wrote them.
+     */
+    private static final String LEGACY_XATTR_PREFIX = "user.";
     private static final Set<String> NO_ATTRIBUTES = Set.of();
     /** The attributes a write sets from the request, beside user metadata. */
     private static final Set<String> METADATA_ATTRIBUTES = Set.of(
@@ -196,34 +204,34 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // off the longest key segment the filesystem could hold.  Hidden from
     // list() and reserved from client keys, like the names above.
     private static final String TEMPORARY_DIR = ".s3proxy-tmp";
-    private static final String XATTR_VERSION_ID = "user.version-id";
-    private static final String XATTR_VERSION_KEY = "user.version-key";
-    private static final String XATTR_DELETE_MARKER = "user.delete-marker";
-    private static final String XATTR_VERSIONING = "user.versioning";
+    private static final String XATTR_VERSION_ID = "version-id";
+    private static final String XATTR_VERSION_KEY = "version-key";
+    private static final String XATTR_DELETE_MARKER = "delete-marker";
+    private static final String XATTR_VERSIONING = "versioning";
     // The container's default encryption, the ?encryption subresource:
     // what a write naming no encryption of its own comes to rest under,
     // the way S3 applies bucket default encryption.
     private static final String XATTR_BUCKET_ENCRYPTION_ALGORITHM =
-            "user.bucket-encryption-algorithm";
+            "bucket-encryption-algorithm";
     private static final String XATTR_BUCKET_ENCRYPTION_KMS_KEY_ID =
-            "user.bucket-encryption-kms-key-id";
+            "bucket-encryption-kms-key-id";
     private static final String XATTR_BUCKET_ENCRYPTION_BUCKET_KEY =
-            "user.bucket-encryption-bucket-key-enabled";
+            "bucket-encryption-bucket-key-enabled";
     // The encryption an object rests under, written only by a store that
     // answers supportsServerSideEncryption().  An object encrypted the way
     // every unasked-for object is carries none of these: absent algorithm
     // reads back as the default, so the common case costs no attribute.
-    private static final String XATTR_SSE_ALGORITHM = "user.sse-algorithm";
-    private static final String XATTR_SSE_KMS_KEY_ID = "user.sse-kms-key-id";
-    private static final String XATTR_SSE_KMS_CONTEXT = "user.sse-kms-context";
+    private static final String XATTR_SSE_ALGORITHM = "sse-algorithm";
+    private static final String XATTR_SSE_KMS_KEY_ID = "sse-kms-key-id";
+    private static final String XATTR_SSE_KMS_CONTEXT = "sse-kms-context";
     private static final String XATTR_SSE_BUCKET_KEY =
-            "user.sse-bucket-key-enabled";
+            "sse-bucket-key-enabled";
     // A customer-key object keeps the key's MD5 and never the key: enough
     // to recognize the key when a later request presents it, and no more
     // than S3 itself echoes on responses.
     private static final String XATTR_SSE_C_ALGORITHM =
-            "user.sse-c-algorithm";
-    private static final String XATTR_SSE_C_KEY_MD5 = "user.sse-c-key-md5";
+            "sse-c-algorithm";
+    private static final String XATTR_SSE_C_KEY_MD5 = "sse-c-key-md5";
     /** The version id every write to an unversioned container carries. */
     private static final String NULL_VERSION_ID = "null";
     private static final int UUID_STRING_LENGTH =
@@ -3370,11 +3378,107 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Nullable
     private static UserDefinedFileAttributeView getXattrView(Path path) {
         try {
-            return Files.getFileAttributeView(path,
+            var view = Files.getFileAttributeView(path,
                     UserDefinedFileAttributeView.class);
+            return view == null ? null : new LegacyNamesView(view);
         } catch (UnsupportedOperationException uoe) {
             logger.debug("xattrs not supported on {}", path);
             return null;
+        }
+    }
+
+    /**
+     * A file's user attributes under the names this store gives them,
+     * whichever release wrote them.  An attribute is written under its
+     * plain name and read from there first, then from the name carrying
+     * LEGACY_XATTR_PREFIX; a listing reports both as the plain name, and
+     * deleting removes both, so that an attribute taken off a file does
+     * not come back as its older copy.
+     */
+    private record LegacyNamesView(UserDefinedFileAttributeView delegate)
+            implements UserDefinedFileAttributeView {
+        @Override
+        public String name() {
+            return delegate.name();
+        }
+
+        @Override
+        public List<String> list() throws IOException {
+            var names = new LinkedHashSet<String>();
+            for (String name : delegate.list()) {
+                names.add(name.startsWith(LEGACY_XATTR_PREFIX) ?
+                        name.substring(LEGACY_XATTR_PREFIX.length()) : name);
+            }
+            return List.copyOf(names);
+        }
+
+        @Override
+        public int size(String name) throws IOException {
+            try {
+                return delegate.size(name);
+            } catch (IOException | IllegalArgumentException e) {
+                int size = legacy(() -> delegate.size(
+                        LEGACY_XATTR_PREFIX + name));
+                if (size < 0) {
+                    throw e;
+                }
+                return size;
+            }
+        }
+
+        @Override
+        public int read(String name, ByteBuffer dst) throws IOException {
+            try {
+                return delegate.read(name, dst);
+            } catch (IOException | IllegalArgumentException e) {
+                int read = legacy(() -> delegate.read(
+                        LEGACY_XATTR_PREFIX + name, dst));
+                if (read < 0) {
+                    throw e;
+                }
+                return read;
+            }
+        }
+
+        @Override
+        public int write(String name, ByteBuffer src) throws IOException {
+            return delegate.write(name, src);
+        }
+
+        @Override
+        public void delete(String name) throws IOException {
+            IOException failure = null;
+            try {
+                delegate.delete(name);
+            } catch (IOException ioe) {
+                failure = ioe;
+            }
+            try {
+                delegate.delete(LEGACY_XATTR_PREFIX + name);
+            } catch (IOException ioe) {
+                // Neither name was there to remove, or neither could be.
+                if (failure != null) {
+                    throw failure;
+                }
+            }
+        }
+
+        private interface LegacyRead {
+            int read() throws IOException;
+        }
+
+        /**
+         * Answers from the older name after the plain one failed, or -1
+         * where that has nothing either and the first failure stands.  A
+         * missing attribute is an IOException on a real filesystem and an
+         * IllegalArgumentException on the in-memory one.
+         */
+        private static int legacy(LegacyRead read) {
+            try {
+                return read.read();
+            } catch (IOException | IllegalArgumentException e) {
+                return -1;
+            }
         }
     }
 
