@@ -846,8 +846,12 @@ public final class AzureBlobStore implements BlobStore {
                     .createWithResponse(Map.of(), publicAccess,
                             /*timeout=*/ null, /*context=*/ null);
         } catch (BlobStorageException bse) {
-            if (BlobErrorCode.CONTAINER_ALREADY_EXISTS.equals(
-                    bse.getErrorCode())) {
+            var code = bse.getErrorCode();
+            if (PUBLIC_ACCESS_NOT_PERMITTED.equals(code)) {
+                throw S3Exceptions
+                        .invalidBucketAclWithBlockPublicAccessError(bse);
+            }
+            if (BlobErrorCode.CONTAINER_ALREADY_EXISTS.equals(code)) {
                 throw S3Exceptions.bucketAlreadyOwnedByYou(container);
             }
             throw translate(bse, container, /*key=*/ null);
@@ -3544,7 +3548,7 @@ public final class AzureBlobStore implements BlobStore {
             // S3 expresses an account-level refusal to grant public access as
             // AccessDenied rather than an internal storage error.
             return S3Exceptions.accessDenied(
-                    Strings.nullToEmpty(bse.getMessage()), bse);
+                    "The storage account does not permit public access", bse);
         }
         if (versionId != null && !versionId.equals(NULL_VERSION_ID) &&
                 BlobErrorCode.BLOB_NOT_FOUND.equals(code)) {
@@ -3580,6 +3584,11 @@ public final class AzureBlobStore implements BlobStore {
             }
             if (status == 400) {
                 return S3Exceptions.fromStatusCode(400, bse);
+            }
+            if (status == 409) {
+                return S3Exceptions.withCode(409, "OperationAborted",
+                        "A conflicting operation is currently in progress " +
+                        "against this resource. Please try again.", bse);
             }
             return bse;
         }
@@ -3618,6 +3627,12 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.invalidRequest("The object was stored using" +
                     " a form of Server Side Encryption.  The correct" +
                     " parameters must be provided to retrieve the object.");
+        } else if (bse.getStatusCode() == 409) {
+            // Preserve a useful S3 conflict response for Azure conflicts not
+            // otherwise mapped above, such as a container still being deleted.
+            return S3Exceptions.withCode(409, "OperationAborted",
+                    "A conflicting operation is currently in progress " +
+                    "against this resource. Please try again.", bse);
         } else if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
             // Surface a permission failure as 403 AccessDenied rather than a
             // generic 500.

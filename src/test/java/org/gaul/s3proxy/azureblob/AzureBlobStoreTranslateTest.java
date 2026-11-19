@@ -150,6 +150,22 @@ public final class AzureBlobStoreTranslateTest {
                     assertThat(e.statusCode()).isEqualTo(403);
                     assertThat(e.awsErrorDetails().errorCode())
                             .isEqualTo("AccessDenied");
+                    assertThat(e.message()).isEqualTo(
+                            "The storage account does not permit public access");
+                });
+    }
+
+    @Test
+    public void testUnrecognizedConflictMapsToOperationAborted() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(409, "ContainerBeingDeleted"),
+                "container", /*key=*/ null);
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(409);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("OperationAborted");
                 });
     }
 

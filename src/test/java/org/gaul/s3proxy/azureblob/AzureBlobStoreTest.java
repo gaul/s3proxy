@@ -93,7 +93,8 @@ public final class AzureBlobStoreTest {
     }
 
     @Test
-    public void testPublicBucketCreateRefusalIsAccessDenied() throws IOException {
+    public void testPublicBucketCreateRefusalMatchesS3AndHidesAzureXml()
+            throws IOException {
         createStatus = 409;
         createErrorCode = "PublicAccessNotPermitted";
         var store = fakeAzureStore();
@@ -103,9 +104,16 @@ public final class AzureBlobStoreTest {
                         .acl(BucketCannedACL.PUBLIC_READ).build()))
                 .isInstanceOfSatisfying(S3Exception.class,
                         e -> {
-                            assertThat(e.statusCode()).isEqualTo(403);
+                            assertThat(e.statusCode()).isEqualTo(400);
                             assertThat(e.awsErrorDetails().errorCode())
-                                    .isEqualTo("AccessDenied");
+                                    .isEqualTo(
+                                            "InvalidBucketAclWithBlockPublicAccessError");
+                            assertThat(e.message()).isEqualTo(
+                                    "Bucket cannot have public ACLs set with " +
+                                    "BlockPublicAccess enabled");
+                            assertThat(e.awsErrorDetails().errorMessage())
+                                    .isEqualTo(e.message())
+                                    .doesNotContain("<Error>", "<?xml");
                         });
         assertThat(azureRequests).anyMatch(request ->
                 request.startsWith("PUT /account/public-bucket?") &&
@@ -129,7 +137,27 @@ public final class AzureBlobStoreTest {
     }
 
     @Test
-    public void testPublicAclRefusalIsAccessDenied() throws IOException {
+    public void testOtherCreateConflictMapsToOperationAborted()
+            throws IOException {
+        createStatus = 409;
+        createErrorCode = "ContainerBeingDeleted";
+        var store = fakeAzureStore();
+
+        assertThatThrownBy(() -> store.createContainer(
+                CreateBucketRequest.builder().bucket("deleting-bucket").build()))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> {
+                            assertThat(e.statusCode()).isEqualTo(409);
+                            assertThat(e.awsErrorDetails().errorCode())
+                                    .isEqualTo("OperationAborted");
+                            assertThat(e.awsErrorDetails().errorMessage())
+                                    .doesNotContain("<Error>", "<?xml");
+                        });
+    }
+
+    @Test
+    public void testPublicAclRefusalIsSanitizedAccessDenied()
+            throws IOException {
         accessPolicyStatus = 409;
         accessPolicyErrorCode = "PublicAccessNotPermitted";
         var store = fakeAzureStore();
@@ -141,6 +169,12 @@ public final class AzureBlobStoreTest {
                             assertThat(e.statusCode()).isEqualTo(403);
                             assertThat(e.awsErrorDetails().errorCode())
                                     .isEqualTo("AccessDenied");
+                            assertThat(e.message()).isEqualTo(
+                                    "The storage account does not permit " +
+                                    "public access");
+                            assertThat(e.awsErrorDetails().errorMessage())
+                                    .isEqualTo(e.message())
+                                    .doesNotContain("<Error>", "<?xml");
                         });
         assertThat(azureRequests).anyMatch(request ->
                 request.startsWith("PUT /account/container?") &&

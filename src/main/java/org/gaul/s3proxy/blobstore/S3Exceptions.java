@@ -198,6 +198,16 @@ public final class S3Exceptions {
                 .build();
     }
 
+    /** S3's account-level refusal of a public ACL during bucket creation. */
+    public static S3Exception invalidBucketAclWithBlockPublicAccessError(
+            @Nullable Throwable cause) {
+        String message = "Bucket cannot have public ACLs set with " +
+                "BlockPublicAccess enabled";
+        return withCode(400,
+                "InvalidBucketAclWithBlockPublicAccessError", message,
+                cause);
+    }
+
     /**
      * An error of any S3 code, for a backend failure that has an S3
      * equivalent no other method here names: a rate limit, an outage, a
