@@ -108,11 +108,11 @@ public final class AzureBlobStoreTest {
                             assertThat(e.awsErrorDetails().errorCode())
                                     .isEqualTo(
                                             "InvalidBucketAclWithBlockPublicAccessError");
-                            assertThat(e.message()).isEqualTo(
+                            assertThat(e.getMessage()).isEqualTo(
                                     "Bucket cannot have public ACLs set with " +
                                     "BlockPublicAccess enabled");
                             assertThat(e.awsErrorDetails().errorMessage())
-                                    .isEqualTo(e.message())
+                                    .isEqualTo(e.getMessage())
                                     .doesNotContain("<Error>", "<?xml");
                         });
         assertThat(azureRequests).anyMatch(request ->
@@ -169,11 +169,11 @@ public final class AzureBlobStoreTest {
                             assertThat(e.statusCode()).isEqualTo(403);
                             assertThat(e.awsErrorDetails().errorCode())
                                     .isEqualTo("AccessDenied");
-                            assertThat(e.message()).isEqualTo(
+                            assertThat(e.getMessage()).isEqualTo(
                                     "The storage account does not permit " +
                                     "public access");
                             assertThat(e.awsErrorDetails().errorMessage())
-                                    .isEqualTo(e.message())
+                                    .isEqualTo(e.getMessage())
                                     .doesNotContain("<Error>", "<?xml");
                         });
         assertThat(azureRequests).anyMatch(request ->
