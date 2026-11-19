@@ -1,0 +1,172 @@
+name: Release
+
+# Cuts a release from master: sets the version, publishes to Maven Central,
+# tags, bumps to the next snapshot, pushes, and drafts the GitHub release.
+#
+# Secrets this needs:
+#   CENTRAL_USERNAME, CENTRAL_PASSWORD  a Central Portal user token
+#   GPG_PRIVATE_KEY                     the armored secret key, as printed by
+#                                       gpg --armor --export-secret-keys
+#   GPG_PASSPHRASE                      its passphrase
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version to release, e.g., 4.3.0.  Defaults to the pom's version
+          without -SNAPSHOT.
+        required: false
+      next_version:
+        description: >-
+          Version to continue with, e.g., 4.4.0-SNAPSHOT.  Defaults to the
+          next minor version.
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 60
+    permissions:
+      # push the commits and the tag, create the release
+      contents: write
+      # start Main CI for the tag
+      actions: write
+    steps:
+      - name: Require master
+        if: github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::Releases are cut from master, not ${GITHUB_REF}"
+          exit 1
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6.2.0
+        with:
+          distribution: "temurin"
+          java-version: "25"
+          cache: "maven"
+
+      - name: Choose versions
+        id: versions
+        env:
+          VERSION: ${{ inputs.version }}
+          NEXT_VERSION: ${{ inputs.next_version }}
+        run: |
+          current="$(mvn -q help:evaluate -Dexpression=project.version \
+            -DforceStdout)"
+          version="${VERSION:-${current%-SNAPSHOT}}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Not a release version: ${version}"
+            exit 1
+          fi
+          if [[ -z "${NEXT_VERSION}" ]]; then
+            IFS=. read -r major minor _ <<< "${version}"
+            NEXT_VERSION="${major}.$((minor + 1)).0-SNAPSHOT"
+          fi
+          if [[ ! "${NEXT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT$ ]]; then
+            echo "::error::Not a snapshot version: ${NEXT_VERSION}"
+            exit 1
+          fi
+          tag="s3proxy-${version}"
+          if git ls-remote --exit-code --tags origin "${tag}" > /dev/null; then
+            echo "::error::Tag ${tag} already exists"
+            exit 1
+          fi
+          {
+            echo "version=${version}"
+            echo "next_version=${NEXT_VERSION}"
+            echo "tag=${tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit the release version
+        env:
+          VERSION: ${{ steps.versions.outputs.version }}
+        run: |
+          mvn -q versions:set -DnewVersion="${VERSION}" \
+            -DgenerateBackupPoms=false
+          git commit --all --message "S3Proxy ${VERSION} release"
+
+      # Maven Central does not take a release back, so this comes before
+      # anything is pushed: a build that fails leaves the repository as it
+      # was.
+      - name: Publish to Maven Central
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          # maven-gpg-plugin's own signer reads these two; it needs neither
+          # a gpg binary nor a keyring.
+          MAVEN_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          cat > "${HOME}/.m2/settings.xml" <<'EOF'
+          <settings>
+            <servers>
+              <server>
+                <id>sonatype-central-portal</id>
+                <username>${env.CENTRAL_USERNAME}</username>
+                <password>${env.CENTRAL_PASSWORD}</password>
+                <configuration>
+                  <njord.publisher>sonatype-cp</njord.publisher>
+                  <njord.releaseUrl>njord:template:release-sca</njord.releaseUrl>
+                </configuration>
+              </server>
+            </servers>
+          </settings>
+          EOF
+          # AUTOMATIC has the Portal publish the deployment once it
+          # validates, in place of the Publish button; waiting through
+          # "publishing" fails this step when the Portal refuses it.
+          mvn clean deploy -P release \
+            -Dgpg.signer=bc \
+            -Dnjord.autoPublish \
+            -Dnjord.publisher.sonatype-cp.publishingType=AUTOMATIC \
+            -Dnjord.publisher.sonatype-cp.waitForStates=true \
+            -Dnjord.publisher.sonatype-cp.waitForStatesWaitStates=pending,validating,publishing \
+            -Dnjord.publisher.sonatype-cp.waitForStatesTimeout=PT30M
+
+      - name: Keep the executable
+        run: |
+          cp target/s3proxy "${RUNNER_TEMP}/s3proxy"
+
+      - name: Tag and bump to the next snapshot
+        env:
+          VERSION: ${{ steps.versions.outputs.version }}
+          NEXT_VERSION: ${{ steps.versions.outputs.next_version }}
+          TAG: ${{ steps.versions.outputs.tag }}
+        run: |
+          git tag --annotate "${TAG}" --message "S3Proxy ${VERSION} release"
+          mvn -q versions:set -DnewVersion="${NEXT_VERSION}" \
+            -DgenerateBackupPoms=false
+          git commit --all --message "Bump to ${NEXT_VERSION}"
+          git push --atomic origin HEAD:master "${TAG}"
+
+      # A push made with GITHUB_TOKEN starts no workflow, so ask for the
+      # tag's run, which builds and pushes the container images.
+      - name: Start Main CI for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.versions.outputs.tag }}
+        run: |
+          gh workflow run ci-main.yml --ref "${TAG}"
+
+      - name: Draft the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.versions.outputs.version }}
+          TAG: ${{ steps.versions.outputs.tag }}
+        run: |
+          gh release create "${TAG}" "${RUNNER_TEMP}/s3proxy" \
+            --draft --generate-notes --title "S3Proxy ${VERSION}"

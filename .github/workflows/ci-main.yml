@@ -9,6 +9,9 @@ on:
   pull_request:
     branches:
       - "*"
+  # The release workflow starts the tag's run this way: the tag it pushes
+  # with GITHUB_TOKEN triggers nothing.
+  workflow_dispatch:
 
 permissions:
   contents: read
