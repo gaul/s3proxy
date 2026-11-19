@@ -108,11 +108,13 @@ public final class AzureBlobStoreTest {
                             assertThat(e.awsErrorDetails().errorCode())
                                     .isEqualTo(
                                             "InvalidBucketAclWithBlockPublicAccessError");
-                            assertThat(e.getMessage()).isEqualTo(
+                            assertThat(e.getMessage()).startsWith(
                                     "Bucket cannot have public ACLs set with " +
                                     "BlockPublicAccess enabled");
                             assertThat(e.awsErrorDetails().errorMessage())
-                                    .isEqualTo(e.getMessage())
+                                    .isEqualTo(
+                                            "Bucket cannot have public ACLs set with " +
+                                            "BlockPublicAccess enabled")
                                     .doesNotContain("<Error>", "<?xml");
                         });
         assertThat(azureRequests).anyMatch(request ->
@@ -169,11 +171,13 @@ public final class AzureBlobStoreTest {
                             assertThat(e.statusCode()).isEqualTo(403);
                             assertThat(e.awsErrorDetails().errorCode())
                                     .isEqualTo("AccessDenied");
-                            assertThat(e.getMessage()).isEqualTo(
+                            assertThat(e.getMessage()).startsWith(
                                     "The storage account does not permit " +
                                     "public access");
                             assertThat(e.awsErrorDetails().errorMessage())
-                                    .isEqualTo(e.getMessage())
+                                    .isEqualTo(
+                                            "The storage account does not permit " +
+                                            "public access")
                                     .doesNotContain("<Error>", "<?xml");
                         });
         assertThat(azureRequests).anyMatch(request ->

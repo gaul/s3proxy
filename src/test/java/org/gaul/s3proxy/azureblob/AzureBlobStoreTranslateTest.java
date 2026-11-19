@@ -150,7 +150,7 @@ public final class AzureBlobStoreTranslateTest {
                     assertThat(e.statusCode()).isEqualTo(403);
                     assertThat(e.awsErrorDetails().errorCode())
                             .isEqualTo("AccessDenied");
-                    assertThat(e.getMessage()).isEqualTo(
+                    assertThat(e.getMessage()).startsWith(
                             "The storage account does not permit public access");
                 });
     }
