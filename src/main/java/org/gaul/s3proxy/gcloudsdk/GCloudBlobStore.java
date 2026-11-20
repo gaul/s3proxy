@@ -167,9 +167,17 @@ public final class GCloudBlobStore implements BlobStore {
     private static final int MAX_UPLOAD_CHUNK_SIZE = 15 * 1024 * 1024;
     // The unit GCS accepts a resumable chunk in, and the SDK's rounding unit.
     private static final int UPLOAD_CHUNK_UNIT = 256 * 1024;
+    // The suffix S3 gives an ETag of an object assembled from parts, which
+    // S3 SDKs take as a value they must not verify against the payload.
+    private static final String OPAQUE_ETAG_SUFFIX = "-1";
 
     private final Storage storage;
     private final boolean atomicBucketAcl;
+    /**
+     * Report an object's MD5 as its ETag, as S3 does, rather than the token
+     * GCS mints.  See {@link #reportETag(BlobInfo)}.
+     */
+    private final boolean md5ETags;
     /**
      * Whether a container versions objects, which decides if writes report
      * version ids and deletes leave markers.  S3 asks this on every
@@ -187,6 +195,20 @@ public final class GCloudBlobStore implements BlobStore {
     public GCloudBlobStore(
             Supplier<Credentials> creds,
             String endpointUrl) {
+        this(creds, endpointUrl, /*eTagMode=*/ "native");
+    }
+
+    public GCloudBlobStore(
+            Supplier<Credentials> creds,
+            String endpointUrl,
+            String eTagMode) {
+        this.md5ETags = switch (eTagMode) {
+        case "md5" -> true;
+        case "native" -> false;
+        default -> throw new IllegalArgumentException(
+                "Invalid ETag mode: " + eTagMode + ".  Supported modes:" +
+                " native, md5");
+        };
         var cred = creds.get();
         var storageBuilder = StorageOptions.newBuilder();
         // Fail rather than hanging forever on a stale connection.
@@ -269,6 +291,39 @@ public final class GCloudBlobStore implements BlobStore {
     // Lets tests see which credentials the client settled on.
     StorageOptions options() {
         return storage.getOptions();
+    }
+
+    /**
+     * The ETag to report for an object, and to evaluate a client's
+     * conditional request against.  GCS mints a base64 token that S3 SDKs
+     * decode as hex and reject -- the AWS SDK for .NET throws a
+     * FormatException from AWSSDKUtils.HexStringToBytes on every GetObject.
+     * In md5 mode an object written in one request reports its MD5 in hex,
+     * as S3 does, so a client can still verify what it downloaded.  A
+     * composed object, which GCS gives no MD5, reports its token hex-encoded
+     * under the multipart suffix instead, the one shape clients do not
+     * verify.  Writes still pin to the generation, so a condition evaluated
+     * against this value stays atomic.
+     */
+    String reportETag(BlobInfo blob) {
+        return reportETag(md5ETags, blob.getEtag(), blob.getMd5ToHexString());
+    }
+
+    static String reportETag(boolean md5ETags, String eTag,
+            @Nullable String md5Hex) {
+        if (!md5ETags) {
+            return eTag;
+        }
+        if (md5Hex != null) {
+            return md5Hex;
+        }
+        try {
+            return HexFormat.of().formatHex(Base64.getDecoder().decode(eTag)) +
+                    OPAQUE_ETAG_SUFFIX;
+        } catch (IllegalArgumentException iae) {
+            // An emulator may mint a token that is not base64.
+            return eTag + OPAQUE_ETAG_SUFFIX;
+        }
     }
 
     // Releases the SDK client's transport channels and background threads when
@@ -395,7 +450,7 @@ public final class GCloudBlobStore implements BlobStore {
                 prefixes.add(SdkResponses.commonPrefix(blob.getName()));
             } else {
                 contents.add(SdkResponses.objectEntry(blob.getName(),
-                        blob.getEtag(),
+                        reportETag(blob),
                         toInstant(blob.getUpdateTimeOffsetDateTime()),
                         blob.getSize(),
                         fromGcsStorageClass(blob.getStorageClass())));
@@ -813,7 +868,7 @@ public final class GCloudBlobStore implements BlobStore {
                 continue;
             }
             rows.add(new VersionRow(blob.getName(), blob.getGeneration(),
-                    isDeleteMarker(blob), blob.getEtag(),
+                    isDeleteMarker(blob), reportETag(blob),
                     toInstant(blob.getUpdateTimeOffsetDateTime()),
                     blob.getSize(),
                     fromGcsStorageClass(blob.getStorageClass())));
@@ -923,7 +978,7 @@ public final class GCloudBlobStore implements BlobStore {
         // backends report every conditional-header failure as 412; the
         // frontend (S3ProxyHandlerJetty) remaps GET/HEAD If-None-Match and
         // If-Modified-Since misses to 304 Not Modified.
-        String eTag = gcsBlob.getEtag();
+        String eTag = reportETag(gcsBlob);
         Instant lastModified = toInstant(gcsBlob.getUpdateTimeOffsetDateTime());
         enforceConditionalGet(request, eTag, lastModified);
 
@@ -985,7 +1040,7 @@ public final class GCloudBlobStore implements BlobStore {
                 .contentLanguage(gcsBlob.getContentLanguage())
                 .contentLength(contentLength)
                 .contentType(gcsBlob.getContentType())
-                .eTag(gcsBlob.getEtag())
+                .eTag(reportETag(gcsBlob))
                 .storageClass(
                         fromGcsStorageClass(gcsBlob.getStorageClass())
                                 .toString())
@@ -1160,7 +1215,7 @@ public final class GCloudBlobStore implements BlobStore {
                 Blob existing = storage.get(BlobId.of(container, name));
                 if (existing != null && !isDeleteMarker(existing) &&
                         maybeQuoteETag(ifNoneMatch).equals(
-                                maybeQuoteETag(existing.getEtag()))) {
+                                maybeQuoteETag(reportETag(existing)))) {
                     writeOptions.add(BlobWriteOption.generationNotMatch(
                             existing.getGeneration()));
                 }
@@ -1175,7 +1230,7 @@ public final class GCloudBlobStore implements BlobStore {
             Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
                     uploadChunkSize(request.contentLength()),
                     writeOptions.toArray(new BlobWriteOption[0]));
-            return SdkResponses.putResponse(gcsBlob.getEtag(),
+            return SdkResponses.putResponse(reportETag(gcsBlob),
                     isVersioned(container) ?
                             Long.toString(gcsBlob.getGeneration()) : null);
         } catch (StorageException se) {
@@ -1264,7 +1319,7 @@ public final class GCloudBlobStore implements BlobStore {
                 copyBuilder.setTarget(targetId, targetOptions);
             }
             var result = storage.copy(copyBuilder.build()).getResult();
-            return SdkResponses.copyResponse(result.getEtag(),
+            return SdkResponses.copyResponse(reportETag(result),
                     toInstant(result.getUpdateTimeOffsetDateTime()),
                     isVersioned(request.destinationBucket()) ?
                             Long.toString(result.getGeneration()) : null,
@@ -1282,7 +1337,7 @@ public final class GCloudBlobStore implements BlobStore {
      * copy to the verified generation so a concurrent change to the source
      * fails the copy rather than silently copying a different version.
      */
-    private static List<BlobSourceOption> checkCopySourceConditions(
+    private List<BlobSourceOption> checkCopySourceConditions(
             @Nullable Blob sourceBlob, @Nullable String ifMatch,
             @Nullable String ifNoneMatch, @Nullable Instant ifModifiedSince,
             @Nullable Instant ifUnmodifiedSince) {
@@ -1290,17 +1345,15 @@ public final class GCloudBlobStore implements BlobStore {
         if (sourceBlob == null) {
             return sourceOptions;
         }
-        String sourceETag = sourceBlob.getEtag();
-        if (sourceETag != null) {
-            String quoted = maybeQuoteETag(sourceETag);
-            if (ifMatch != null &&
-                    !maybeQuoteETag(ifMatch).equals(quoted)) {
-                throw preconditionFailed(sourceETag);
-            }
-            if (ifNoneMatch != null &&
-                    maybeQuoteETag(ifNoneMatch).equals(quoted)) {
-                throw preconditionFailed(sourceETag);
-            }
+        String sourceETag = reportETag(sourceBlob);
+        String quoted = maybeQuoteETag(sourceETag);
+        if (ifMatch != null &&
+                !maybeQuoteETag(ifMatch).equals(quoted)) {
+            throw preconditionFailed(sourceETag);
+        }
+        if (ifNoneMatch != null &&
+                maybeQuoteETag(ifNoneMatch).equals(quoted)) {
+            throw preconditionFailed(sourceETag);
         }
         Instant lastModified = toInstant(
                 sourceBlob.getUpdateTimeOffsetDateTime());
@@ -1504,7 +1557,7 @@ public final class GCloudBlobStore implements BlobStore {
         }
         return HeadObjectResponse.builder()
                 .metadata(sanitizeUserMetadata(gcsBlob.getMetadata()))
-                .eTag(gcsBlob.getEtag())
+                .eTag(reportETag(gcsBlob))
                 .lastModified(toInstant(
                         gcsBlob.getUpdateTimeOffsetDateTime()))
                 .storageClass(
@@ -1880,16 +1933,16 @@ public final class GCloudBlobStore implements BlobStore {
                             targetBlobName, "");
                 }
                 if (!maybeQuoteETag(ifMatch).equals(
-                        maybeQuoteETag(current.getEtag()))) {
-                    throw preconditionFailed(current.getEtag());
+                        maybeQuoteETag(reportETag(current)))) {
+                    throw preconditionFailed(reportETag(current));
                 }
             }
             if (ifNoneMatch != null && current != null &&
                     !isDeleteMarker(current) &&
                     (ifNoneMatch.equals("*") ||
                             maybeQuoteETag(ifNoneMatch).equals(
-                                    maybeQuoteETag(current.getEtag())))) {
-                throw preconditionFailed(current.getEtag());
+                                    maybeQuoteETag(reportETag(current))))) {
+                throw preconditionFailed(reportETag(current));
             }
             // A live object -- a delete marker included, which counts as
             // absent but still holds the key's generation -- pins the
@@ -1929,7 +1982,7 @@ public final class GCloudBlobStore implements BlobStore {
             }
             var result = copyWriter.getResult();
             removeStubGenerations(mpu.containerName(), nonce);
-            return SdkResponses.completeResponse(result.getEtag(),
+            return SdkResponses.completeResponse(reportETag(result),
                     isVersioned(mpu.containerName()) ?
                             Long.toString(result.getGeneration()) : null);
         }
@@ -1966,7 +2019,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         removeStubGenerations(mpu.containerName(), nonce);
 
-        return SdkResponses.completeResponse(composed.getEtag(),
+        return SdkResponses.completeResponse(reportETag(composed),
                 isVersioned(mpu.containerName()) ?
                         Long.toString(composed.getGeneration()) : null);
     }
@@ -2298,8 +2351,8 @@ public final class GCloudBlobStore implements BlobStore {
         }
         // If the ETag doesn't match, the precondition fails.
         if (!eTag.equals("*") && !maybeQuoteETag(eTag).equals(
-                maybeQuoteETag(blob.getEtag()))) {
-            throw preconditionFailed(blob.getEtag());
+                maybeQuoteETag(reportETag(blob)))) {
+            throw preconditionFailed(reportETag(blob));
         }
         return blob.getGeneration();
     }
