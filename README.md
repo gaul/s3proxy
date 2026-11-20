@@ -218,7 +218,7 @@ Some limitations depend on the storage backend:
 | --- | --- |
 | no per-object ACLs, including public-read | `azureblob`, `openstack-swift` |
 | no public-read-write buckets | `azureblob`, `openstack-swift` |
-| ETag is not the object MD5 | `azureblob`, `google-cloud-storage` |
+| ETag is not the object MD5 | `azureblob`, `google-cloud-storage` unless `s3proxy.google-cloud-storage.etag=md5` |
 | on a filesystem without user extended attributes, such as NFSv3: Content-Type and user metadata are not kept, and the ETag is derived from the file rather than the MD5, see [#1210](https://github.com/gaul/s3proxy/issues/1210) | `filesystem` |
 | `Cache-Control` not preserved | `google-cloud-storage`, `openstack-swift` |
 | `Content-Encoding` not preserved | `google-cloud-storage` |
@@ -322,6 +322,16 @@ the suffix off again when a conditional request names one.  The ETag remains
 opaque either way: it is not the object's MD5 and nothing can check the
 object against it.  Set `s3proxy.azureblob.etag=native` to report the bare
 Azure ETag, as releases before 4.0.0 did.
+
+GCS mints base64 ETags like `CISRiZr8lZgDEAE=`, which the AWS SDK for .NET
+decodes as hex on every GetObject and rejects with `FormatException:
+Additional non-parsable characters are at the end of the string`.  Set
+`s3proxy.google-cloud-storage.etag=md5` to report the object's MD5 in hex
+instead, as S3 does, so clients keep verifying downloads.  A composed object,
+such as one completed from a multipart upload, has no MD5 in GCS and reports
+its ETag hex-encoded under the `-1` suffix, which clients do not verify.
+Conditional requests are evaluated against the reported value.  The default,
+`native`, reports the GCS ETag unchanged.
 
 `aws-s3`, `azureblob` and `google-cloud-storage` perform a conditional PUT on
 the backend.  The `filesystem` and `transient` backends resolve

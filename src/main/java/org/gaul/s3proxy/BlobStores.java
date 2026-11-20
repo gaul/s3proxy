@@ -105,8 +105,11 @@ public final class BlobStores {
             yield new AzureBlobStore(creds, endpoint, eTagMode, auth,
                     versioning);
         }
-        case "google-cloud-storage" ->
-            new GCloudBlobStore(creds, endpoint);
+        case "google-cloud-storage" -> {
+            String eTagMode = property(properties,
+                    "s3proxy.google-cloud-storage.etag", "native");
+            yield new GCloudBlobStore(creds, endpoint, eTagMode);
+        }
         case "openstack-swift" -> {
             String projectName = property(properties,
                     OpenStackSwiftBlobStore.PROPERTY_PROJECT_NAME, "");
