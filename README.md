@@ -217,6 +217,7 @@ S3Proxy can modify its behavior based on middlewares:
 * [bucket aliasing](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
 * [bucket prefix scoping](https://github.com/gaul/s3proxy/wiki/Middleware-prefix-blobstore)
 * [bucket locator](https://github.com/gaul/s3proxy/wiki/Middleware-bucket-locator)
+* [encryption](https://github.com/gaul/s3proxy/wiki/Middleware-encryption)
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [latency](https://github.com/gaul/s3proxy/wiki/Middleware-latency)
