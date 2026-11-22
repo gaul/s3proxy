@@ -147,6 +147,14 @@ public final class S3ProxyConstants {
     public static final String PROPERTY_NO_CACHE_BLOBSTORE =
             "s3proxy.no-cache-blobstore";
 
+    /**
+     * Log one line for each request once it completes: the client address,
+     * method, path, status, bytes received and sent, duration and user
+     * agent.  Off by default.
+     */
+    public static final String PROPERTY_ACCESS_LOG =
+            "s3proxy.access-log";
+
     /** Enable Prometheus metrics endpoint at /metrics. */
     public static final String PROPERTY_METRICS_ENABLED =
             "s3proxy.metrics.enabled";

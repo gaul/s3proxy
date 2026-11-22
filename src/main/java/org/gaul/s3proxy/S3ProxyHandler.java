@@ -680,7 +680,9 @@ public class S3ProxyHandler {
             }
         }
 
-        logger.debug("request: {}", request);
+        // The path alone: the query string of a presigned URL carries the
+        // access key and the signature.
+        logger.debug("request: {} {}", method, request.getRequestURI());
         String hostHeader = request.getHeader(HttpHeaders.HOST);
         if (hostHeader != null && virtualHost.isPresent()) {
             hostHeader = HostAndPort.fromString(hostHeader).getHost();

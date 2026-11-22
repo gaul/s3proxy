@@ -143,6 +143,7 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                 throw throwable;
             }
         } finally {
+            traceResponse(response);
             recordMetrics(request, response, ctx, startNanos);
         }
     }
@@ -233,6 +234,22 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         } catch (IllegalArgumentException iae) {
             // ignored when the request was served, so ignored here
             return false;
+        }
+    }
+
+    /**
+     * Logs the status and headers of a response, as S3ProxyHandler logs the
+     * headers of the request it answers.  Issue #213.
+     */
+    private static void traceResponse(HttpServletResponse response) {
+        if (!logger.isTraceEnabled()) {
+            return;
+        }
+        logger.trace("response: {}", response.getStatus());
+        for (String headerName : response.getHeaderNames()) {
+            for (String value : response.getHeaders(headerName)) {
+                logger.trace("response header: {}: {}", headerName, value);
+            }
         }
     }
 

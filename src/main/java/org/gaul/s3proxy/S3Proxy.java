@@ -36,11 +36,14 @@ import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.UriCompliance;
+import org.eclipse.jetty.server.CustomRequestLog;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.RequestLog;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.Slf4jRequestLogWriter;
 import org.eclipse.jetty.server.handler.GracefulHandler;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
@@ -59,6 +62,16 @@ public final class S3Proxy {
     // requests; SIGKILL usually arrives sooner (docker stop defaults to
     // 10 seconds, Kubernetes to 30).
     private static final long STOP_TIMEOUT_MS = 30_000;
+    /** The logger the access log writes to, at INFO. */
+    private static final String ACCESS_LOG_NAME = "org.gaul.s3proxy.access";
+    /**
+     * Client address, request line, status, request and response body
+     * bytes, milliseconds taken, and user agent.  %U is the path without
+     * its query string, which in a presigned URL carries the access key and
+     * the signature.  There is no timestamp, the logger adding its own.
+     */
+    private static final String ACCESS_LOG_FORMAT =
+            "%{client}a \"%m %U %H\" %s %I %O %{ms}T \"%{User-Agent}i\"";
 
     private final Server server;
     // Non-null only when metrics are served on a dedicated port instead of
@@ -213,6 +226,18 @@ public final class S3Proxy {
         // parser refuses never reaches S3ProxyHandler -- with an S3 error
         // document instead of Jetty's HTML page.
         server.setErrorHandler(new S3ErrorHandler());
+        if (builder.accessLog) {
+            // Logged by Jetty rather than by S3ProxyHandler so that the
+            // requests Jetty rejects on its own are logged as well.
+            RequestLog.Writer writer = builder.accessLogWriter;
+            if (writer == null) {
+                var slf4jWriter = new Slf4jRequestLogWriter();
+                slf4jWriter.setLoggerName(ACCESS_LOG_NAME);
+                writer = slf4jWriter;
+            }
+            server.setRequestLog(new CustomRequestLog(writer,
+                    ACCESS_LOG_FORMAT));
+        }
         server.setStopTimeout(builder.stopTimeout);
     }
 
@@ -236,6 +261,8 @@ public final class S3Proxy {
         @Nullable private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
         private int maximumTimeSkew = 15 * 60;
+        private boolean accessLog;
+        private RequestLog.@Nullable Writer accessLogWriter;
         private boolean metricsEnabled;
         private int metricsPort = -1;
         @Nullable private String metricsHost;
@@ -414,6 +441,12 @@ public final class S3Proxy {
                 builder.maximumTimeSkew(Integer.parseInt(maximumTimeSkew));
             }
 
+            String accessLog = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_ACCESS_LOG);
+            if (!Strings.isNullOrEmpty(accessLog)) {
+                builder.accessLog(Boolean.parseBoolean(accessLog));
+            }
+
             String metricsEnabled = properties.getProperty(
                     S3ProxyConstants.PROPERTY_METRICS_ENABLED);
             if (!Strings.isNullOrEmpty(metricsEnabled)) {
@@ -547,6 +580,22 @@ public final class S3Proxy {
             return this;
         }
 
+        /**
+         * Log one line for each completed request to the logger named
+         * org.gaul.s3proxy.access.  The path is logged without its query
+         * string.
+         */
+        public Builder accessLog(boolean accessLog) {
+            this.accessLog = accessLog;
+            return this;
+        }
+
+        /** Where the access log is written instead of its logger: for tests. */
+        Builder accessLogWriter(RequestLog.Writer accessLogWriter) {
+            this.accessLogWriter = requireNonNull(accessLogWriter);
+            return this;
+        }
+
         public Builder metricsEnabled(boolean metricsEnabled) {
             this.metricsEnabled = metricsEnabled;
             return this;
@@ -650,6 +699,9 @@ public final class S3Proxy {
             if (this.maximumTimeSkew != that.maximumTimeSkew) {
                 differences.add(S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
             }
+            if (this.accessLog != that.accessLog) {
+                differences.add(S3ProxyConstants.PROPERTY_ACCESS_LOG);
+            }
             if (this.metricsEnabled != that.metricsEnabled) {
                 differences.add(S3ProxyConstants.PROPERTY_METRICS_ENABLED);
             }
@@ -677,7 +729,8 @@ public final class S3Proxy {
         @Override
         public int hashCode() {
             return Objects.hash(authenticationType, jettyMaxThreads,
-                    maximumTimeSkew, metricsEnabled, metricsPort, metricsHost,
+                    maximumTimeSkew, accessLog, metricsEnabled, metricsPort,
+                    metricsHost,
                     endpoint, secureEndpoint, sslContext,
                     keyStorePath, keyStorePassword, virtualHost, servicePath,
                     maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,

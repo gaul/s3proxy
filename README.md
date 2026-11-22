@@ -292,6 +292,24 @@ S3Proxy can modify its behavior based on middlewares:
 
 S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool). You can read more about how configure S3Proxy for SSL Support in [the dedicated wiki page](https://github.com/gaul/s3proxy/wiki/SSL-support) with Docker, Kubernetes or simply Java.
 
+## Access log
+
+Set `s3proxy.access-log=true`, or `S3PROXY_ACCESS_LOG=true` for the Docker
+image, to log one line for each request once it completes:
+
+```
+127.0.0.1 "PUT /bucket/key HTTP/1.1" 200 1000 0 12 "aws-cli/2.36.0"
+```
+
+The fields are the client address, the request line, the status, the bytes of
+request and response body, the milliseconds taken, and the user agent.  The
+path is logged without its query string, which in a presigned URL carries the
+access key and the signature.  The lines go to the logger
+`org.gaul.s3proxy.access` at the info level.
+
+With `LOG_LEVEL=trace` S3Proxy also logs the headers of each request and the
+status and headers of each response.
+
 ## Metrics
 
 S3Proxy can expose Prometheus metrics at `/metrics`: request counts and
