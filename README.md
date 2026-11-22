@@ -88,6 +88,27 @@ Maven Central hosts S3Proxy artifacts and the wiki has
 
 See the wiki for [examples of configurations](https://github.com/gaul/s3proxy/wiki/Storage-backend-examples).
 
+## Connection idle timeout
+
+`s3proxy.jetty.idle-timeout` sets the HTTP and HTTPS S3 listeners' maximum
+period without connection progress, in milliseconds. For example:
+
+```
+s3proxy.jetty.idle-timeout=120000
+```
+
+The Docker image accepts the equivalent `S3PROXY_JETTY_IDLE_TIMEOUT`
+environment variable. Embedded users can call `Builder.jettyIdleTimeout(long)`.
+When omitted, Jetty's default remains unchanged (30,000 milliseconds).
+Zero disables the idle timeout; negative values are rejected.
+
+This is an inactivity timeout, not a total request-duration limit. A client
+that pauses consuming a large download can eventually prevent the server
+from making write progress after network buffers fill. Increase the timeout
+if those pauses are expected, while accounting for connections and resources
+that slow clients can retain. This setting does not change backend storage
+timeouts, graceful shutdown, or a separate metrics listener's timeout.
+
 ## Backend credentials
 
 `jclouds.identity` and `jclouds.credential` name the enduring half of a backend
