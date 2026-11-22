@@ -1345,15 +1345,20 @@ public final class GCloudBlobStore implements BlobStore {
         if (sourceBlob == null) {
             return sourceOptions;
         }
-        String sourceETag = reportETag(sourceBlob);
-        String quoted = maybeQuoteETag(sourceETag);
-        if (ifMatch != null &&
-                !maybeQuoteETag(ifMatch).equals(quoted)) {
-            throw preconditionFailed(sourceETag);
-        }
-        if (ifNoneMatch != null &&
-                maybeQuoteETag(ifNoneMatch).equals(quoted)) {
-            throw preconditionFailed(sourceETag);
+        // An emulator may leave the ETag out, and then there is nothing to
+        // hold the conditions against.
+        String sourceETag = sourceBlob.getEtag() == null ? null :
+                reportETag(sourceBlob);
+        if (sourceETag != null) {
+            String quoted = maybeQuoteETag(sourceETag);
+            if (ifMatch != null &&
+                    !maybeQuoteETag(ifMatch).equals(quoted)) {
+                throw preconditionFailed(sourceETag);
+            }
+            if (ifNoneMatch != null &&
+                    maybeQuoteETag(ifNoneMatch).equals(quoted)) {
+                throw preconditionFailed(sourceETag);
+            }
         }
         Instant lastModified = toInstant(
                 sourceBlob.getUpdateTimeOffsetDateTime());
