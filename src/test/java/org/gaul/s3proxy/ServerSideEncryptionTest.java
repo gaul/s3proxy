@@ -218,6 +218,59 @@ public final class ServerSideEncryptionTest {
         assertThat(source.ssekmsKeyId()).isNull();
     }
 
+    /**
+     * A copy of an object onto itself is refused unless it changes something,
+     * and naming the encryption is what S3 counts as a change: it is how a
+     * caller re-encrypts an object in place.  Verified against AWS, which
+     * accepts the copy even when it names the encryption the object has.
+     */
+    @Test
+    public void testCopyOntoItselfNamingEncryption() throws Exception {
+        startEncrypting();
+        client.putObject(b -> b.bucket(containerName).key("blob"),
+                RequestBody.fromString("payload"));
+
+        assertThatThrownBy(() -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("blob")))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).awsErrorDetails().errorCode())
+                        .isEqualTo("InvalidRequest"));
+
+        var copy = client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .destinationBucket(containerName).destinationKey("blob")
+                .serverSideEncryption(ServerSideEncryption.AWS_KMS)
+                .ssekmsKeyId(KMS_KEY_ID));
+        assertThat(copy.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+        var head = client.headObject(b -> b.bucket(containerName).key("blob"));
+        assertThat(head.serverSideEncryption())
+                .isEqualTo(ServerSideEncryption.AWS_KMS);
+
+        client.putObject(b -> b.bucket(containerName).key("customer")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey("customer")
+                .destinationBucket(containerName).destinationKey("customer")
+                .copySourceSSECustomerAlgorithm("AES256")
+                .copySourceSSECustomerKey(encodeKey(KEY_A))
+                .copySourceSSECustomerKeyMD5(keyMD5(KEY_A))
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(encodeKey(KEY_A))
+                .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        var get = client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key("customer")
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(encodeKey(KEY_A))
+                .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(get.asUtf8String()).isEqualTo("payload");
+    }
+
     @Test
     public void testMultipartRestsUnderTheUploadsEncryption() throws Exception {
         startEncrypting();

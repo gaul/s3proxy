@@ -4336,12 +4336,26 @@ public class S3ProxyHandler {
 
         // Copying a named version of an object onto the object itself is a
         // legitimate way to restore that version, so the self-copy check
-        // applies only to a copy of the current object.
+        // applies only to a copy of the current object.  A copy that names
+        // how the object is to rest -- its encryption or its storage class
+        // -- is how S3 has a caller change either in place, and S3 accepts
+        // one that names what the object already has.  The tagging
+        // directive, an ACL and the other request headers do not make the
+        // copy legal there, so they do not here.
         if (sourceContainerName.equals(destContainerName) &&
                 sourceBlobName.equals(destBlobName) &&
                 sourceVersionId == null &&
-                !replaceMetadata) {
-            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST);
+                !replaceMetadata &&
+                request.getHeader(
+                        AwsHttpHeaders.SERVER_SIDE_ENCRYPTION) == null &&
+                request.getHeader(AwsHttpHeaders
+                        .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM) == null &&
+                request.getHeader(AwsHttpHeaders.STORAGE_CLASS) == null) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                    "This copy request is illegal because it is trying to" +
+                    " copy an object to itself without changing the" +
+                    " object's metadata, storage class, website redirect" +
+                    " location or encryption attributes.");
         }
 
         var copyRequest = CopyObjectRequest.builder()
