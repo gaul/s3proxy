@@ -29,6 +29,7 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.eclipse.jetty.ee10.servlet.ServletContextRequest;
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
@@ -242,13 +243,23 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             return;
         }
         long durationNanos = System.nanoTime() - startNanos;
+        // What crossed the connection, read from Jetty rather than counted
+        // here: the request body as it arrived, aws-chunked framing and all,
+        // and the response body as written, whether or not it has left the
+        // servlet's buffer yet.
+        var jettyRequest =
+                ServletContextRequest.getServletContextRequest(request);
+        long requestBytes = jettyRequest.getHttpInput().getContentReceived();
+        long responseBytes = jettyRequest.getHttpOutput().getWritten();
         metrics.recordRequest(
                 request.getMethod(),
                 request.getScheme(),
                 response.getStatus(),
                 ctx.getOperation(),
                 ctx.getBucket(),
-                durationNanos);
+                durationNanos,
+                requestBytes,
+                responseBytes);
     }
 
     public S3ProxyHandler getHandler() {

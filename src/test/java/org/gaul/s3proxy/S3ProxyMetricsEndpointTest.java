@@ -102,4 +102,61 @@ public final class S3ProxyMetricsEndpointTest {
         assertThat(response.headers().firstValue("Content-Type")
                 .orElse("")).contains(PROMETHEUS_CONTENT_TYPE);
     }
+
+    /**
+     * The body size histograms sum to the bytes each operation received and
+     * sent: an upload counts toward the request sizes and a download toward
+     * the response sizes.
+     */
+    @Test
+    public void testBodySizesAreRecorded() throws Exception {
+        s3Proxy = baseBuilder()
+                .metricsEnabled(true)
+                .build();
+        s3Proxy.start();
+        String base = "http://127.0.0.1:" + s3Proxy.getPort();
+        var client = HttpClient.newHttpClient();
+        var content = new byte[1000];
+
+        assertThat(client.send(HttpRequest.newBuilder(
+                URI.create(base + "/bucket"))
+                .PUT(HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.discarding()).statusCode())
+                .isEqualTo(200);
+        assertThat(client.send(HttpRequest.newBuilder(
+                URI.create(base + "/bucket/key"))
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(content)).build(),
+                HttpResponse.BodyHandlers.discarding()).statusCode())
+                .isEqualTo(200);
+        for (int i = 0; i < 2; ++i) {
+            assertThat(client.send(HttpRequest.newBuilder(
+                    URI.create(base + "/bucket/key")).build(),
+                    HttpResponse.BodyHandlers.ofByteArray()).body())
+                    .hasSize(content.length);
+        }
+
+        String metrics = get(base + "/metrics").body();
+        assertThat(sum(metrics, "http_server_request_body_size_bytes",
+                "PutObject")).isEqualTo(1000);
+        assertThat(sum(metrics, "http_server_response_body_size_bytes",
+                "PutObject")).isZero();
+        assertThat(sum(metrics, "http_server_request_body_size_bytes",
+                "GetObject")).isZero();
+        assertThat(sum(metrics, "http_server_response_body_size_bytes",
+                "GetObject")).isEqualTo(2000);
+    }
+
+    /** The _sum sample of one histogram for one S3 operation. */
+    private static double sum(String metrics, String name, String operation) {
+        return metrics.lines()
+                .filter(line -> line.startsWith(name + "_sum{"))
+                .filter(line -> line.contains(
+                        "s3_operation=\"" + operation + "\""))
+                .mapToDouble(line -> Double.parseDouble(
+                        line.substring(line.lastIndexOf(' ') + 1)))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "no " + name + " for " + operation + " in:\n" +
+                        metrics));
+    }
 }

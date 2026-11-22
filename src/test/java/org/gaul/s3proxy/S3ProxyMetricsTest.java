@@ -26,10 +26,13 @@ public final class S3ProxyMetricsTest {
         var metrics = new S3ProxyMetrics();
         try {
             metrics.recordRequest("GET", "http", 200, S3Operation.GET_OBJECT,
-                    "bucket", 1_500_000L);
+                    "bucket", 1_500_000L, /*requestBytes=*/ 0,
+                    /*responseBytes=*/ 4096);
             String body = metrics.scrape();
             assertThat(body).contains("http_server_request_duration");
             assertThat(body).contains("s3_operation=\"GetObject\"");
+            assertThat(body).contains("http_server_request_body_size_bytes");
+            assertThat(body).contains("http_server_response_body_size_bytes");
         } finally {
             metrics.close();
         }

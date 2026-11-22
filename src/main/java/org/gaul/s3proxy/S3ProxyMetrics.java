@@ -25,6 +25,7 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.DoubleHistogram;
+import io.opentelemetry.api.metrics.LongHistogram;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.exporter.prometheus.PrometheusMetricReader;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
@@ -46,8 +47,20 @@ public final class S3ProxyMetrics {
             0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5,
             0.75, 1.0, 2.5, 5.0, 7.5, 10.0);
 
+    /**
+     * Body sizes run from a few bytes of XML to objects of gigabytes, which
+     * the default boundaries, made for durations in milliseconds, would put
+     * in one bucket.
+     */
+    private static final List<Long> BODY_SIZE_BUCKETS = List.of(
+            1024L, 16L * 1024, 256L * 1024, 1024L * 1024,
+            16L * 1024 * 1024, 64L * 1024 * 1024, 256L * 1024 * 1024,
+            1024L * 1024 * 1024, 5L * 1024 * 1024 * 1024);
+
     private final SdkMeterProvider meterProvider;
     private final DoubleHistogram requestDuration;
+    private final LongHistogram requestBodySize;
+    private final LongHistogram responseBodySize;
     private final PrometheusMetricReader metricReader;
     private final PrometheusTextFormatWriter textFormatWriter;
 
@@ -66,6 +79,23 @@ public final class S3ProxyMetrics {
                 .setUnit("s")
                 .setExplicitBucketBoundariesAdvice(DURATION_BUCKETS)
                 .build();
+
+        // Named by the OpenTelemetry HTTP conventions.  Each sum is the
+        // bytes received or sent, by the same attributes as the duration.
+        requestBodySize = meter.histogramBuilder(
+                "http.server.request.body.size")
+                .ofLongs()
+                .setDescription("Size of HTTP server request bodies")
+                .setUnit("By")
+                .setExplicitBucketBoundariesAdvice(BODY_SIZE_BUCKETS)
+                .build();
+        responseBodySize = meter.histogramBuilder(
+                "http.server.response.body.size")
+                .ofLongs()
+                .setDescription("Size of HTTP server response bodies")
+                .setUnit("By")
+                .setExplicitBucketBoundariesAdvice(BODY_SIZE_BUCKETS)
+                .build();
     }
 
     public void recordRequest(
@@ -74,7 +104,9 @@ public final class S3ProxyMetrics {
             int statusCode,
             @Nullable S3Operation operation,
             @Nullable String bucket,
-            long durationNanos) {
+            long durationNanos,
+            long requestBytes,
+            long responseBytes) {
         if (operation == null) {
             return;
         }
@@ -91,7 +123,10 @@ public final class S3ProxyMetrics {
             builder.put(S3_BUCKET, bucket);
         }
 
-        requestDuration.record(durationSeconds, builder.build());
+        Attributes attributes = builder.build();
+        requestDuration.record(durationSeconds, attributes);
+        requestBodySize.record(requestBytes, attributes);
+        responseBodySize.record(responseBytes, attributes);
     }
 
     public String scrape() throws IOException {
