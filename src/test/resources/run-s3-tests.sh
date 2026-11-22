@@ -186,6 +186,14 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-ministack*.conf ]]; then
     tags="${tags/ and not versioning/}"
     enable_sse_tests
     use_created_kms_keys
+    # Object lock passes through as well, and MiniStack keeps the locks,
+    # with the gaps its markers record.
+    tags="${tags/ and not object_lock/}"
+    # A copy takes on its source's retention, ministackorg/ministack#2771,
+    # so this test leaves an object locked for years that no cleanup can
+    # delete, and every test after it fails to empty its buckets.  Run as an
+    # expected failure it would still do that, so it is deselected instead.
+    deselect_by_name="not test_object_lock_copy_does_not_inherit_retention"
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
     # fails_on_aws marks what real S3 refuses, and this lane used to deselect
@@ -204,9 +212,8 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     enable_sse_tests
     use_created_kms_keys
     # Object lock passes through as well, and LocalStack keeps the locks.
-    # It is the only lane that runs the tag: the other stores answer the
-    # lock 501, and MiniStack keeps a retention per key rather than per
-    # version and lets versioning be suspended under a lock.
+    # This lane and MiniStack's are the ones that run the tag: the other
+    # stores answer the lock 501.
     tags="${tags/ and not object_lock/}"
     # Five threads delete the same versions at once and each expects to have
     # deleted them all.  LocalStack refuses a version it no longer has, where

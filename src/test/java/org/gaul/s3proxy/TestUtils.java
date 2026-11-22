@@ -40,6 +40,9 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 
 public final class TestUtils {
+    /** Where the MiniStack lane publishes its emulator. */
+    static final int MINISTACK_PORT = 4567;
+
     private TestUtils() {
         throw new AssertionError("intentionally unimplemented");
     }
@@ -251,6 +254,24 @@ public final class TestUtils {
     /** Returns the provider which the s3proxy.test.conf system property
      * configures, resolved to its current name. */
     public static String testBlobStoreProvider() throws IOException {
+        return BlobStores.resolveProviderAlias(testProperties().getProperty(
+                Constants.PROPERTY_PROVIDER, ""));
+    }
+
+    /**
+     * Whether the tests run on the MiniStack lane: the aws-s3 store reaching
+     * the port that lane publishes its emulator on.  MiniStack, like S3
+     * since 2023, creates buckets with ACLs disabled and refuses an ACL set
+     * on them.
+     */
+    public static boolean miniStackLane() throws IOException {
+        Properties properties = testProperties();
+        return testBlobStoreProvider().equals("aws-s3") &&
+                URI.create(properties.getProperty(Constants.PROPERTY_ENDPOINT,
+                        "http://stub")).getPort() == MINISTACK_PORT;
+    }
+
+    private static Properties testProperties() throws IOException {
         var properties = new Properties();
         String configFile = System.getProperty("s3proxy.test.conf",
                 "s3proxy.conf");
@@ -258,8 +279,7 @@ public final class TestUtils {
                 configFile)).openStream()) {
             properties.load(is);
         }
-        return BlobStores.resolveProviderAlias(
-                properties.getProperty(Constants.PROPERTY_PROVIDER, ""));
+        return properties;
     }
 
     /**

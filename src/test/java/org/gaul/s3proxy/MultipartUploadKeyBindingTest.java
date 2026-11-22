@@ -109,8 +109,8 @@ public final class MultipartUploadKeyBindingTest {
                 .key("b").uploadId(uploadId).partNumber(1),
                 RequestBody.fromString("part")));
         // The aws-s3 store relays its backend's answer, and MiniStack
-        // 1.5.2 copies the part into the other key's upload where S3
-        // answers NoSuchUpload.
+        // copies the part into the other key's upload where S3 answers
+        // NoSuchUpload.
         if (!miniStack) {
             assertNoSuchUpload(() -> client.uploadPartCopy(b -> b
                     .sourceBucket(bucket).sourceKey("source")

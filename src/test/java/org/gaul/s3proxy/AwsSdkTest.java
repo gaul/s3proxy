@@ -149,8 +149,6 @@ public final class AwsSdkTest {
      * LocalStack rather than a test for whoever holds 4566.
      */
     private static final int LOCALSTACK_PORT = 4566;
-    /** Where the MiniStack lane publishes its emulator. */
-    private static final int MINISTACK_PORT = 4567;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";
 
@@ -2303,6 +2301,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
+        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
+        // and refuses the ACL this test sets.
+        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
@@ -3608,6 +3609,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectPublicRead() throws Exception {
+        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
+        // and refuses the ACL this test sets.
+        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         // Azure and Swift grant read at the container, so a per-blob ACL has
@@ -3634,6 +3638,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testCreateContainerPublicRead() throws Exception {
+        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
+        // and refuses the ACL this test sets.
+        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         // The access a container is created with must be the access it has.
@@ -3654,6 +3661,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testCreateContainerPublicReadWrite() throws Exception {
+        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
+        // and refuses the ACL this test sets.
+        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
@@ -3672,6 +3682,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testPublicReadWriteBucketAnonymousWrite() throws Exception {
+        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
+        // and refuses the ACL this test sets.
+        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
@@ -3706,6 +3719,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testPublicReadBucketRefusesAnonymousWrite() throws Exception {
+        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
+        // and refuses the ACL this test sets.
+        assumeTrue(!TestUtils.miniStackLane());
         // The write half is granted by public-read-write alone; a merely
         // readable bucket must go on refusing anonymous writes.
         client.putBucketAcl(b -> b.bucket(containerName)
@@ -5063,15 +5079,10 @@ public final class AwsSdkTest {
         }
     }
 
-    /**
-     * The ownership a CreateBucket names is the one the bucket has.  Not
-     * on the MiniStack lane: the release it pins ignores the header, which
-     * later releases honour.
-     */
+    /** The ownership a CreateBucket names is the one the bucket has. */
     @Test
     public void testContainerCreateObjectOwnership() throws Exception {
         assumeTrue(blobStore.supportsBucketAccessControls());
-        assumeTrue(blobStoreEndpoint.getPort() != MINISTACK_PORT);
         String bucket = createRandomContainerName();
         client.createBucket(b -> b.bucket(bucket)
                 .objectOwnership(ObjectOwnership.OBJECT_WRITER));

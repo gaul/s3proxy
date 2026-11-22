@@ -867,9 +867,12 @@ public final class EncryptedBlobStoreTest {
             assertThat(encryptedBlobStore.blobExists(containerName,
                 blobName)).isTrue();
 
-            // NTFS has no permission bits for the store to keep an ACL in
+            // NTFS has no permission bits for the store to keep an ACL in,
+            // and MiniStack, like S3 since 2023, creates buckets with ACLs
+            // disabled
             if (!Quirks.NO_BLOB_ACCESS_CONTROL.contains(provider) &&
-                    !TestUtils.filesystemOnWindows()) {
+                    !TestUtils.filesystemOnWindows() &&
+                    !TestUtils.miniStackLane()) {
                 ObjectCannedACL access =
                     encryptedBlobStore.getBlobAccess(containerName, blobName);
                 assertThat(access).isEqualTo(ObjectCannedACL.PRIVATE);
