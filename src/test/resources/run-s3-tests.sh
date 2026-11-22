@@ -261,7 +261,24 @@ deselect_args=()
 if [ -n "${deselect_by_name}" ]; then
     deselect_args=(-k "${deselect_by_name}")
 fi
+rc=0
 env -u FORCE_COLOR tox -- -m "${tags}" --s3proxy-backend="${backend}" \
         ${deselect_args[@]+"${deselect_args[@]}"} \
         --junitxml="${S3PROXY_JUNIT_XML}" \
-        ${TOX_TEST_ARGS[@]+"${TOX_TEST_ARGS[@]}"}
+        ${TOX_TEST_ARGS[@]+"${TOX_TEST_ARGS[@]}"} || rc=$?
+popd
+
+# On GitHub Actions, put the counts and the names of any test that broke on
+# the run's summary page.  A summary that cannot be written does not change
+# the lane's result.
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    lane="${S3PROXY_CONF%.conf}"
+    lane="${lane#s3proxy-}"
+    if [ "${lane}" = "s3proxy" ]; then
+        lane="transient"
+    fi
+    python3 -I src/test/resources/s3-tests-summary.py \
+            "${lane}" "${S3PROXY_JUNIT_XML}" \
+            >> "${GITHUB_STEP_SUMMARY}" || true
+fi
+exit "${rc}"
