@@ -47,8 +47,14 @@ import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -64,8 +70,14 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -196,6 +208,52 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public ListObjectVersionsResponse listVersions(
             ListObjectVersionsRequest request) {
         return delegate().listVersions(request);
+    }
+
+    /**
+     * A lock protects versions, so a wrapper that turns versioning off --
+     * each that renames or rewrites what it forwards does -- turns the
+     * lock off with it, without having to say so.
+     */
+    @Override
+    public boolean supportsObjectLock() {
+        return supportsVersioning() && delegate().supportsObjectLock();
+    }
+
+    @Override
+    public GetObjectLockConfigurationResponse getObjectLockConfiguration(
+            GetObjectLockConfigurationRequest request) {
+        return delegate().getObjectLockConfiguration(request);
+    }
+
+    @Override
+    public PutObjectLockConfigurationResponse putObjectLockConfiguration(
+            PutObjectLockConfigurationRequest request) {
+        return delegate().putObjectLockConfiguration(request);
+    }
+
+    @Override
+    public GetObjectRetentionResponse getObjectRetention(
+            GetObjectRetentionRequest request) {
+        return delegate().getObjectRetention(request);
+    }
+
+    @Override
+    public PutObjectRetentionResponse putObjectRetention(
+            PutObjectRetentionRequest request) {
+        return delegate().putObjectRetention(request);
+    }
+
+    @Override
+    public GetObjectLegalHoldResponse getObjectLegalHold(
+            GetObjectLegalHoldRequest request) {
+        return delegate().getObjectLegalHold(request);
+    }
+
+    @Override
+    public PutObjectLegalHoldResponse putObjectLegalHold(
+            PutObjectLegalHoldRequest request) {
+        return delegate().putObjectLegalHold(request);
     }
 
     @Override

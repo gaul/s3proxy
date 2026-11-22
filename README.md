@@ -332,7 +332,6 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * bucket replication
 * [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration (see below).
 * hosting static websites
-* object lock, including legal hold and retention
 * object ownership controls
 * object tagging
 * paginating ListParts with `part-number-marker`
@@ -365,6 +364,7 @@ Some limitations depend on the storage backend:
 | `UploadPartCopy` streams the data through S3Proxy instead of copying it on the backend | `filesystem`, `transient`, `openstack-swift`, `sftp` |
 | conditional PUT refuses `If-Match`, honoring only `If-None-Match: *` | `openstack-swift`, `sftp` |
 | object versioning is opt-in and needs the account versioned out of band; delete markers are emulated as tagged blobs; no per-bucket suspend, see [#1137](https://github.com/gaul/s3proxy/issues/1137) | `azureblob` |
+| no object lock, legal hold or retention; `aws-s3` passes them through to the service, which enforces them, except on a browser `POST` upload | `azureblob`, `filesystem`, `google-cloud-storage`, `openstack-swift`, `sftp`, `transient` |
 | no object versioning, see [#1138](https://github.com/gaul/s3proxy/issues/1138) | `filesystem` |
 | no object versioning, for want of a service analog | `openstack-swift`, `sftp` |
 | no server-side encryption, see [#1134](https://github.com/gaul/s3proxy/issues/1134) | `google-cloud-storage` |

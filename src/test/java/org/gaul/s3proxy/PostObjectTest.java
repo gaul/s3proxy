@@ -118,6 +118,22 @@ public final class PostObjectTest {
         assertThat(blobStore.blobExists(containerName, "foo.txt")).isTrue();
     }
 
+    /**
+     * A form that asks for an object lock is refused rather than uploaded
+     * without one: the upload would succeed and leave unprotected what the
+     * form asked to have retained.
+     */
+    @Test
+    public void testObjectLockFieldIsRefused() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo.txt",
+                "x-amz-object-lock-mode", "COMPLIANCE",
+                "x-amz-object-lock-retain-until-date",
+                "2038-01-01T00:00:00Z");
+        assertThat(response.statusCode()).isEqualTo(501);
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
     /** The browser has nowhere to show a body, so the form picks a status. */
     @Test
     public void testSuccessActionStatus201() throws Exception {

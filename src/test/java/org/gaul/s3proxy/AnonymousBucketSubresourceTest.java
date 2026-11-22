@@ -239,10 +239,17 @@ public final class AnonymousBucketSubresourceTest {
      */
     @Test
     public void testUnsupportedSubresourceIsNotTheObject() throws Exception {
-        for (String query : new String[] {"?tagging", "?retention"}) {
+        assertThat(get(publicBucket + "/" + KEY + "?tagging").statusCode())
+                .isEqualTo(501);
+        // The object lock subresources answer to permissions no ACL
+        // grants, so an unsigned request is refused them outright, whether
+        // or not the store behind keeps locks.
+        for (String query : new String[] {"?retention", "?legal-hold"}) {
             assertThat(get(publicBucket + "/" + KEY + query).statusCode())
-                    .isEqualTo(501);
+                    .isEqualTo(403);
         }
+        assertThat(get(publicBucket + "?object-lock").statusCode())
+                .isEqualTo(403);
         for (String query : new String[] {"?lifecycle", "?cors"}) {
             assertThat(get(publicBucket + query).statusCode())
                     .isEqualTo(501);

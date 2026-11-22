@@ -148,10 +148,13 @@ public final class ReadOnlyBlobStoreTest {
                 "getBlobAccess", "getBlobAcl", "getBucketEncryption",
                 "getBucketVersioning", "getContainerAccess",
                 "getContainerAcl",
-                "getMinimumMultipartPartSize", "headBucket", "list",
+                "getMinimumMultipartPartSize", "getObjectLegalHold",
+                "getObjectLockConfiguration", "getObjectRetention",
+                "headBucket", "list",
                 "listMultipartUpload",
                 "listMultipartUploads", "listV1", "listVersions",
                 "supportsBucketEncryption", "supportsCopyMultipartPart",
+                "supportsObjectLock",
                 "supportsServerSideEncryption", "supportsVersioning");
 
         var missing = new ArrayList<String>();

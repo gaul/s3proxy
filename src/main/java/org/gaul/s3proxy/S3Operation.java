@@ -49,6 +49,12 @@ public enum S3Operation {
     GET_BUCKET_VERSIONING("GetBucketVersioning"),
     PUT_BUCKET_VERSIONING("PutBucketVersioning"),
     LIST_OBJECT_VERSIONS("ListObjectVersions"),
+    GET_OBJECT_LOCK_CONFIGURATION("GetObjectLockConfiguration"),
+    PUT_OBJECT_LOCK_CONFIGURATION("PutObjectLockConfiguration"),
+    GET_OBJECT_RETENTION("GetObjectRetention"),
+    PUT_OBJECT_RETENTION("PutObjectRetention"),
+    GET_OBJECT_LEGAL_HOLD("GetObjectLegalHold"),
+    PUT_OBJECT_LEGAL_HOLD("PutObjectLegalHold"),
     OPTIONS_OBJECT("OptionsObject"),
     UNKNOWN("Unknown");
 

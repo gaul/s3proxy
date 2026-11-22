@@ -130,6 +130,11 @@ public final class SdkResponses {
                 .contentType(response.contentType())
                 .eTag(response.eTag())
                 .expires(response.expires())
+                .objectLockLegalHoldStatus(
+                        response.objectLockLegalHoldStatusAsString())
+                .objectLockMode(response.objectLockModeAsString())
+                .objectLockRetainUntilDate(
+                        response.objectLockRetainUntilDate())
                 .lastModified(response.lastModified())
                 .metadata(response.metadata())
                 .serverSideEncryption(response.serverSideEncryptionAsString())

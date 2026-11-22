@@ -113,6 +113,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectLockEnabled;
 import software.amazon.awssdk.services.s3.model.ObjectLockLegalHoldStatus;
+import software.amazon.awssdk.services.s3.model.ObjectLockMode;
 import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -2808,8 +2809,11 @@ public final class AwsSdkTest {
 
     @Test
     public void testContainerCreateObjectLockEnabled() throws Exception {
-        // Object lock needs versioning, which S3Proxy does not implement.
-        // S3Proxy answers this itself, before the backend sees the request.
+        // A store without object lock cannot give the bucket what it asks
+        // for, and an ordinary bucket in its place would be less than
+        // that.  S3Proxy answers this itself, before the backend sees the
+        // request.  testObjectLock covers the stores that keep locks.
+        assumeTrue(!blobStore.supportsObjectLock());
         String containerName2 = createRandomContainerName();
         try {
             client.createBucket(b -> b.bucket(containerName2)
@@ -5074,10 +5078,17 @@ public final class AwsSdkTest {
                         .key(blobName)))) {
             try {
                 operation.run();
-                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+                // A store that keeps locks answers these as S3 does, which
+                // for a bucket without the lock is a refusal of its own.
+                // Either way the object below is what was written.
+                if (!blobStore.supportsObjectLock()) {
+                    Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+                }
             } catch (S3Exception e) {
-                assertThat(e.awsErrorDetails().errorCode())
-                        .isEqualTo("NotImplemented");
+                if (!blobStore.supportsObjectLock()) {
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("NotImplemented");
+                }
             }
         }
 
@@ -5089,11 +5100,121 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * Object lock on a store that keeps it: the lock a write names is
+     * reported on a read, the retention and the legal hold are read and
+     * changed through their subresources, and a locked version is refused
+     * deletion until the caller bypasses a GOVERNANCE retention.
+     */
+    @Test
+    public void testObjectLock() throws Exception {
+        assumeTrue(blobStore.supportsObjectLock());
+        String bucket = createRandomContainerName();
+        String key = "locked";
+        client.createBucket(b -> b.bucket(bucket)
+                .objectLockEnabledForBucket(true));
+        String versionId = null;
+        try {
+            assertThat(client.getObjectLockConfiguration(
+                    b -> b.bucket(bucket)).objectLockConfiguration()
+                    .objectLockEnabled()).isEqualTo(ObjectLockEnabled.ENABLED);
+
+            client.putObjectLockConfiguration(b -> b.bucket(bucket)
+                    .objectLockConfiguration(c -> c
+                            .objectLockEnabled(ObjectLockEnabled.ENABLED)
+                            .rule(r -> r.defaultRetention(d -> d
+                                    .mode(ObjectLockRetentionMode.GOVERNANCE)
+                                    .days(1)))));
+            var retention = client.getObjectLockConfiguration(
+                    b -> b.bucket(bucket)).objectLockConfiguration().rule()
+                    .defaultRetention();
+            assertThat(retention.mode())
+                    .isEqualTo(ObjectLockRetentionMode.GOVERNANCE);
+            assertThat(retention.days()).isEqualTo(1);
+
+            // whole seconds, as S3 keeps the date
+            Instant until = Instant.now().plus(1, ChronoUnit.HOURS)
+                    .truncatedTo(ChronoUnit.SECONDS);
+            versionId = client.putObject(b -> b.bucket(bucket).key(key)
+                            .objectLockMode(ObjectLockMode.GOVERNANCE)
+                            .objectLockRetainUntilDate(until),
+                    RequestBody.fromString("payload")).versionId();
+            String version = versionId;
+
+            var head = client.headObject(b -> b.bucket(bucket).key(key));
+            assertThat(head.objectLockMode())
+                    .isEqualTo(ObjectLockMode.GOVERNANCE);
+            assertThat(head.objectLockRetainUntilDate()).isEqualTo(until);
+            var read = client.getObjectRetention(
+                    b -> b.bucket(bucket).key(key)).retention();
+            assertThat(read.mode())
+                    .isEqualTo(ObjectLockRetentionMode.GOVERNANCE);
+            assertThat(read.retainUntilDate()).isEqualTo(until);
+
+            // extending needs no bypass
+            Instant later = until.plus(1, ChronoUnit.HOURS);
+            client.putObjectRetention(b -> b.bucket(bucket).key(key)
+                    .retention(r -> r
+                            .mode(ObjectLockRetentionMode.GOVERNANCE)
+                            .retainUntilDate(later)));
+            assertThat(client.getObjectRetention(
+                    b -> b.bucket(bucket).key(key)).retention()
+                    .retainUntilDate()).isEqualTo(later);
+
+            client.putObjectLegalHold(b -> b.bucket(bucket).key(key)
+                    .legalHold(h -> h.status(ObjectLockLegalHoldStatus.ON)));
+            assertThat(client.getObjectLegalHold(
+                    b -> b.bucket(bucket).key(key)).legalHold().status())
+                    .isEqualTo(ObjectLockLegalHoldStatus.ON);
+            assertThat(client.headObject(b -> b.bucket(bucket).key(key))
+                    .objectLockLegalHoldStatus())
+                    .isEqualTo(ObjectLockLegalHoldStatus.ON);
+            client.putObjectLegalHold(b -> b.bucket(bucket).key(key)
+                    .legalHold(h -> h.status(ObjectLockLegalHoldStatus.OFF)));
+
+            // the version is protected, and stays readable
+            assertThatThrownBy(() -> client.deleteObject(b -> b
+                    .bucket(bucket).key(key).versionId(version)))
+                    .isInstanceOf(S3Exception.class)
+                    .satisfies(thrown -> assertThat(
+                            ((S3Exception) thrown).statusCode())
+                            .isEqualTo(403));
+            assertThat(client.getObjectAsBytes(b -> b.bucket(bucket).key(key)
+                    .versionId(version)).asUtf8String())
+                    .isEqualTo("payload");
+
+            // a retention names a mode and a date together
+            assertThatThrownBy(() -> client.putObject(b -> b.bucket(bucket)
+                            .key("half")
+                            .objectLockMode(ObjectLockMode.GOVERNANCE),
+                    RequestBody.fromString("payload")))
+                    .isInstanceOf(S3Exception.class)
+                    .satisfies(thrown -> assertThat(
+                            ((S3Exception) thrown).statusCode())
+                            .isEqualTo(400));
+        } finally {
+            // GOVERNANCE gives way to the bypass, so the bucket can go.
+            var versions = client.listObjectVersions(b -> b.bucket(bucket));
+            for (var version : versions.versions()) {
+                client.deleteObject(b -> b.bucket(bucket).key(version.key())
+                        .versionId(version.versionId())
+                        .bypassGovernanceRetention(true));
+            }
+            for (var marker : versions.deleteMarkers()) {
+                client.deleteObject(b -> b.bucket(bucket).key(marker.key())
+                        .versionId(marker.versionId())
+                        .bypassGovernanceRetention(true));
+            }
+            client.deleteBucket(b -> b.bucket(bucket));
+        }
+    }
+
     @Test
     public void testBucketObjectLockNotImplemented() throws Exception {
         // PUT on a bucket dispatches to CreateBucket, and GET to a listing
         // that a client parses as an empty ObjectLockConfiguration -- which
         // reads as "locking is configured" when nothing of the sort is.
+        assumeTrue(!blobStore.supportsObjectLock());
         for (var operation : List.<Runnable>of(
                 () -> client.putObjectLockConfiguration(
                         b -> b.bucket(containerName).objectLockConfiguration(

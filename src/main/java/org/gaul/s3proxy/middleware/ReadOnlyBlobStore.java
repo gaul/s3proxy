@@ -43,8 +43,14 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -103,6 +109,24 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     @Override
     public PutBucketVersioningResponse putBucketVersioning(
             PutBucketVersioningRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public PutObjectLockConfigurationResponse putObjectLockConfiguration(
+            PutObjectLockConfigurationRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public PutObjectRetentionResponse putObjectRetention(
+            PutObjectRetentionRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public PutObjectLegalHoldResponse putObjectLegalHold(
+            PutObjectLegalHoldRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

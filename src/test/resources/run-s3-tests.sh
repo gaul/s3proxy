@@ -165,6 +165,11 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     # SSE tests exercise the pass-through here rather than watching a
     # store that cannot encrypt refuse it.
     enable_sse_tests
+    # Object lock passes through as well, and LocalStack keeps the locks.
+    # It is the only lane that runs the tag: the other stores answer the
+    # lock 501, and MiniStack keeps a retention per key rather than per
+    # version and lets versioning be suspended under a lock.
+    tags="${tags/ and not object_lock/}"
     # Five threads delete the same versions at once and each expects to have
     # deleted them all.  LocalStack refuses a version it no longer has, where
     # S3 counts deleting one that is already gone as a success -- so whether

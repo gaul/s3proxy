@@ -60,8 +60,14 @@ import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -84,8 +90,14 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -592,6 +604,60 @@ public interface BlobStore extends AutoCloseable {
     default ListObjectVersionsResponse listVersions(
             ListObjectVersionsRequest request) {
         throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /**
+     * Whether this store keeps S3 Object Lock: retention and legal holds
+     * on object versions, and the bucket configuration that defaults them.
+     * Only a store that reports true is handed the x-amz-object-lock-*
+     * fields of a write, the bypass a delete may carry, and the six
+     * operations below; the default implementations throw
+     * UnsupportedOperationException, which the frontend answers
+     * NotImplemented before consulting them.  A lock protects versions, so
+     * a store that reports true also {@link #supportsVersioning}.
+     */
+    default boolean supportsObjectLock() {
+        return false;
+    }
+
+    /** GetObjectLockConfiguration: the bucket's ?object-lock subresource. */
+    default GetObjectLockConfigurationResponse getObjectLockConfiguration(
+            GetObjectLockConfigurationRequest request) {
+        throw new UnsupportedOperationException("object lock not supported");
+    }
+
+    /** PutObjectLockConfiguration: the frontend vets the body first. */
+    default PutObjectLockConfigurationResponse putObjectLockConfiguration(
+            PutObjectLockConfigurationRequest request) {
+        throw new UnsupportedOperationException("object lock not supported");
+    }
+
+    /** GetObjectRetention: the ?retention of the version the request names. */
+    default GetObjectRetentionResponse getObjectRetention(
+            GetObjectRetentionRequest request) {
+        throw new UnsupportedOperationException("object lock not supported");
+    }
+
+    /**
+     * PutObjectRetention.  The request's bypassGovernanceRetention is the
+     * x-amz-bypass-governance-retention header, which lets a caller the
+     * store permits shorten or remove a GOVERNANCE retention.
+     */
+    default PutObjectRetentionResponse putObjectRetention(
+            PutObjectRetentionRequest request) {
+        throw new UnsupportedOperationException("object lock not supported");
+    }
+
+    /** GetObjectLegalHold: the ?legal-hold of the version named. */
+    default GetObjectLegalHoldResponse getObjectLegalHold(
+            GetObjectLegalHoldRequest request) {
+        throw new UnsupportedOperationException("object lock not supported");
+    }
+
+    /** PutObjectLegalHold. */
+    default PutObjectLegalHoldResponse putObjectLegalHold(
+            PutObjectLegalHoldRequest request) {
+        throw new UnsupportedOperationException("object lock not supported");
     }
 
     /**

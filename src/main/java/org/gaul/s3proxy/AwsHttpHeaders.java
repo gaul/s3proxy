@@ -21,6 +21,10 @@ public final class AwsHttpHeaders {
     public static final String API_VERSION = "x-amz-api-version";
     public static final String BUCKET_OBJECT_LOCK_ENABLED =
             "x-amz-bucket-object-lock-enabled";
+    public static final String BUCKET_OBJECT_LOCK_TOKEN =
+            "x-amz-bucket-object-lock-token";
+    public static final String BYPASS_GOVERNANCE_RETENTION =
+            "x-amz-bypass-governance-retention";
     public static final String BUCKET_REGION = "x-amz-bucket-region";
     public static final String CHECKSUM_ALGORITHM = "x-amz-checksum-algorithm";
     public static final String CHECKSUM_CRC32 = "x-amz-checksum-crc32";
@@ -61,6 +65,11 @@ public final class AwsHttpHeaders {
     public static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
     public static final String MFA = "x-amz-mfa";
     public static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
+    public static final String OBJECT_LOCK_LEGAL_HOLD =
+            "x-amz-object-lock-legal-hold";
+    public static final String OBJECT_LOCK_MODE = "x-amz-object-lock-mode";
+    public static final String OBJECT_LOCK_RETAIN_UNTIL_DATE =
+            "x-amz-object-lock-retain-until-date";
     public static final String REQUEST_ID = "x-amz-request-id";
     public static final String SDK_CHECKSUM_ALGORITHM =
             "x-amz-sdk-checksum-algorithm";

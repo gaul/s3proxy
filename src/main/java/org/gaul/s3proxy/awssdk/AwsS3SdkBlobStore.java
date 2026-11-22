@@ -76,8 +76,14 @@ import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
@@ -104,8 +110,14 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
@@ -539,6 +551,75 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     @Override
     public boolean supportsBucketEncryption() {
         return true;
+    }
+
+    /**
+     * The service keeps the locks and enforces them: every lock field and
+     * operation is handed over as it came, and its refusals relay.
+     */
+    @Override
+    public boolean supportsObjectLock() {
+        return true;
+    }
+
+    @Override
+    public GetObjectLockConfigurationResponse getObjectLockConfiguration(
+            GetObjectLockConfigurationRequest request) {
+        try {
+            return s3Client.getObjectLockConfiguration(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), /*key=*/ null);
+        }
+    }
+
+    @Override
+    public PutObjectLockConfigurationResponse putObjectLockConfiguration(
+            PutObjectLockConfigurationRequest request) {
+        try {
+            return s3Client.putObjectLockConfiguration(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), /*key=*/ null);
+        }
+    }
+
+    @Override
+    public GetObjectRetentionResponse getObjectRetention(
+            GetObjectRetentionRequest request) {
+        try {
+            return s3Client.getObjectRetention(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), request.key());
+        }
+    }
+
+    @Override
+    public PutObjectRetentionResponse putObjectRetention(
+            PutObjectRetentionRequest request) {
+        try {
+            return s3Client.putObjectRetention(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), request.key());
+        }
+    }
+
+    @Override
+    public GetObjectLegalHoldResponse getObjectLegalHold(
+            GetObjectLegalHoldRequest request) {
+        try {
+            return s3Client.getObjectLegalHold(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), request.key());
+        }
+    }
+
+    @Override
+    public PutObjectLegalHoldResponse putObjectLegalHold(
+            PutObjectLegalHoldRequest request) {
+        try {
+            return s3Client.putObjectLegalHold(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), request.key());
+        }
     }
 
     @Override
