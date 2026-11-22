@@ -217,6 +217,53 @@ public final class UnsignedHeaderInjectionTest {
     }
 
     /**
+     * x-amz-content-sha256 is the one x-amz-* header a header-authorized
+     * request may leave out of its signed headers: the value is the payload
+     * line of the canonical request, so the signature covers it regardless.
+     * Verified against AWS, which serves the request.
+     */
+    @Test
+    public void testAuthorizationHeaderUnsignedContentSha256Succeeds()
+            throws Exception {
+        String timestamp = ISO8601.format(Instant.now());
+        var request = HttpRequest.newBuilder(URI.create(
+                        "http://" + host + "/" + dstContainer + "/" + DST_KEY))
+                .header("Authorization", authorization(timestamp,
+                        /*signContentSha256=*/ false))
+                .header("x-amz-date", timestamp)
+                .header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
+                .PUT(HttpRequest.BodyPublishers.ofString(UPLOAD))
+                .build();
+        HttpResponse<String> response = httpClient.send(request,
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(read(dstContainer, DST_KEY)).isEqualTo(UPLOAD);
+    }
+
+    /**
+     * Unsigned is not unprotected: a value other than the one the signature
+     * was computed over no longer verifies, as on AWS.
+     */
+    @Test
+    public void testAuthorizationHeaderUnsignedContentSha256AlteredRejected()
+            throws Exception {
+        String timestamp = ISO8601.format(Instant.now());
+        var request = HttpRequest.newBuilder(URI.create(
+                        "http://" + host + "/" + dstContainer + "/" + DST_KEY))
+                .header("Authorization", authorization(timestamp,
+                        /*signContentSha256=*/ false))
+                .header("x-amz-date", timestamp)
+                .header("x-amz-content-sha256", sha256(UPLOAD))
+                .PUT(HttpRequest.BodyPublishers.ofString(UPLOAD))
+                .build();
+        HttpResponse<String> response = httpClient.send(request,
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("SignatureDoesNotMatch");
+        assertThat(read(dstContainer, DST_KEY)).isEqualTo(PLACEHOLDER);
+    }
+
+    /**
      * A presigned PUT to dst/target signing host alone, as the AWS SDK
      * presigner emits and the report exercised.
      */
@@ -248,13 +295,24 @@ public final class UnsignedHeaderInjectionTest {
      * x-amz-copy-source added afterward is the one unsigned header.
      */
     private String authorization(String timestamp) throws Exception {
+        return authorization(timestamp, /*signContentSha256=*/ true);
+    }
+
+    /**
+     * The same, optionally leaving x-amz-content-sha256 out of the signed
+     * headers.  Its value is the payload line of the canonical request
+     * either way.
+     */
+    private String authorization(String timestamp, boolean signContentSha256)
+            throws Exception {
         String date = timestamp.substring(0, 8);
         String scope = date + "/us-east-1/s3/aws4_request";
-        String signedHeaders =
-                "host;x-amz-content-sha256;x-amz-date";
+        String signedHeaders = signContentSha256 ?
+                "host;x-amz-content-sha256;x-amz-date" : "host;x-amz-date";
         String path = "/" + dstContainer + "/" + DST_KEY;
         String canonicalHeaders = "host:" + host + "\n" +
-                "x-amz-content-sha256:UNSIGNED-PAYLOAD\n" +
+                (signContentSha256 ?
+                        "x-amz-content-sha256:UNSIGNED-PAYLOAD\n" : "") +
                 "x-amz-date:" + timestamp + "\n";
         String canonicalRequest = String.join("\n",
                 "PUT", path, "", canonicalHeaders, signedHeaders,

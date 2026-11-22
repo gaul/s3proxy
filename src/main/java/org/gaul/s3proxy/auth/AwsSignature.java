@@ -352,6 +352,13 @@ public final class AwsSignature {
      * that carries one it did not, so name them here for the refusal to
      * report.  Lower-cased and sorted, so the answer does not depend on how
      * the client happened to spell or order them.
+     *
+     * <p>The one exception is x-amz-content-sha256 on a request authorized
+     * by its Authorization header.  Its value is the last line of the
+     * canonical request, so the signature covers it whether or not the
+     * signed list names it -- altering it breaks the signature -- and S3
+     * accepts such a request.  A presigned URL has no such line unless it
+     * signs the header, so there the rule stands.
      */
     public static List<String> unsignedRequestHeaders(
             HttpServletRequest request, boolean presignedUrl) {
@@ -365,9 +372,14 @@ public final class AwsSignature {
         var unsigned = new ArrayList<String>();
         for (String name : Collections.list(request.getHeaderNames())) {
             String lower = name.toLowerCase();
-            if (lower.startsWith("x-amz-") && !signed.contains(lower)) {
-                unsigned.add(lower);
+            if (!lower.startsWith("x-amz-") || signed.contains(lower)) {
+                continue;
             }
+            if (!presignedUrl &&
+                    lower.equals(AwsHttpHeaders.CONTENT_SHA256)) {
+                continue;
+            }
+            unsigned.add(lower);
         }
         unsigned.sort(Comparator.naturalOrder());
         return unsigned;
