@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -357,15 +358,53 @@ public final class VersioningTest {
             }
         }
 
-        // deleting a version that does not exist reports NoSuchVersion for
-        // that key alone
-        var errorResponse = client.deleteObjects(b -> b.bucket(containerName)
+        // deleting a version that is already gone is a success, as it is
+        // on S3: the delete can be retried
+        var again = client.deleteObjects(b -> b.bucket(containerName)
                 .delete(d -> d.objects(
                         ObjectIdentifier.builder().key("a")
-                                .versionId("v9999999999999999").build())));
-        assertThat(errorResponse.errors()).hasSize(1);
-        assertThat(errorResponse.errors().get(0).code()).isEqualTo(
-                "NoSuchVersion");
+                                .versionId(put1.versionId()).build())));
+        assertThat(again.errors()).isEmpty();
+        assertThat(again.deleted()).hasSize(1);
+        assertThat(again.deleted().get(0).versionId()).isEqualTo(
+                put1.versionId());
+    }
+
+    @Test
+    public void testDeleteVersionTwice() throws Exception {
+        enableVersioning();
+        var key = "twice";
+        var put1 = client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("one"));
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("two"));
+
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .versionId(put1.versionId()));
+        // S3 answers 204 and echoes the version id for a version that is
+        // no longer there, verified against AWS
+        var again = client.deleteObject(b -> b.bucket(containerName).key(key)
+                .versionId(put1.versionId()));
+        assertThat(again.versionId()).isEqualTo(put1.versionId());
+        assertThat(again.deleteMarker()).isNull();
+
+        // the same goes for a delete marker
+        var marker = client.deleteObject(b -> b.bucket(containerName)
+                .key(key));
+        assertThat(marker.deleteMarker()).isTrue();
+        client.deleteObject(b -> b.bucket(containerName).key(key)
+                .versionId(marker.versionId()));
+        again = client.deleteObject(b -> b.bucket(containerName).key(key)
+                .versionId(marker.versionId()));
+        assertThat(again.versionId()).isEqualTo(marker.versionId());
+
+        // reading it is still NoSuchVersion
+        assertThatThrownBy(() -> client.headObject(b -> b
+                .bucket(containerName).key(key)
+                .versionId(put1.versionId())))
+                .isInstanceOf(S3Exception.class)
+                .extracting(e -> ((S3Exception) e).statusCode())
+                .isEqualTo(404);
     }
 
     @Test

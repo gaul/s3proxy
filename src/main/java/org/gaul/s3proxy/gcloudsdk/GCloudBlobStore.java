@@ -1441,8 +1441,11 @@ public final class GCloudBlobStore implements BlobStore {
                 deleteLiveObject(container, key);
                 return DeleteObjectResponse.builder().build();
             }
-            throw S3Exceptions.noSuchVersion(container, key, versionId,
-                    "no such version");
+            // Nothing here is ever the null version, so it is already
+            // gone, which S3 counts as deleted.
+            return DeleteObjectResponse.builder()
+                    .versionId(versionId)
+                    .build();
         }
         // Deleting the one version named removes data, live or archived,
         // with no marker; removing the newest promotes whatever it hid.
@@ -1457,8 +1460,12 @@ public final class GCloudBlobStore implements BlobStore {
             if (storage.get(container) == null) {
                 throw S3Exceptions.noSuchBucket(container, "");
             }
-            throw S3Exceptions.noSuchVersion(container, key, versionId,
-                    "no such version");
+            // A version that is not there is already deleted, which is
+            // what the request asked for: S3 answers 204 and echoes the
+            // version id, so that a delete can be retried.
+            return DeleteObjectResponse.builder()
+                    .versionId(versionId)
+                    .build();
         }
         boolean deleteMarker = isDeleteMarker(blob);
         try {

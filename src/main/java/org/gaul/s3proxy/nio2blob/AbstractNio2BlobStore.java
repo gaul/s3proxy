@@ -1797,8 +1797,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
-        throw S3Exceptions.noSuchVersion(container, key, versionId,
-                "no such version");
+        // A version that is not there is already deleted, which is what the
+        // request asked for: S3 answers 204 and echoes the version id, so
+        // that a delete can be retried.  Reads of it are NoSuchVersion.
+        return DeleteObjectResponse.builder()
+                .versionId(versionId)
+                .build();
     }
 
     /**
