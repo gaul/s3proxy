@@ -232,6 +232,13 @@ S3Proxy can modify its behavior based on middlewares:
 
 S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool). You can read more about how configure S3Proxy for SSL Support in [the dedicated wiki page](https://github.com/gaul/s3proxy/wiki/SSL-support) with Docker, Kubernetes or simply Java.
 
+## Metrics
+
+S3Proxy can expose Prometheus metrics at `/metrics`: request counts and
+durations and the bytes received and sent, by S3 operation, bucket, and
+status.  Set `s3proxy.metrics.enabled=true`; the wiki has
+[details](https://github.com/gaul/s3proxy/wiki/Metrics).
+
 ## Limitations
 
 S3Proxy has broad compatibility with the S3 API, however, it does not support:
