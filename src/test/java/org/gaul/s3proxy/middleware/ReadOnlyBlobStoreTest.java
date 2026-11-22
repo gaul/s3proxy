@@ -146,13 +146,16 @@ public final class ReadOnlyBlobStoreTest {
         var readOnlyOperations = Set.of(
                 "blobExists", "blobMetadata", "close", "delegate", "getBlob",
                 "getBlobAccess", "getBlobAcl", "getBucketEncryption",
+                "getBucketOwnershipControls",
                 "getBucketVersioning", "getContainerAccess",
                 "getContainerAcl",
                 "getMinimumMultipartPartSize", "getObjectLegalHold",
                 "getObjectLockConfiguration", "getObjectRetention",
+                "getPublicAccessBlock",
                 "headBucket", "list",
                 "listMultipartUpload",
                 "listMultipartUploads", "listV1", "listVersions",
+                "supportsBucketAccessControls",
                 "supportsBucketEncryption", "supportsCopyMultipartPart",
                 "supportsObjectLock",
                 "supportsServerSideEncryption", "supportsVersioning");

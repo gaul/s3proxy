@@ -37,12 +37,18 @@ import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -55,6 +61,8 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -68,6 +76,8 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
@@ -78,6 +88,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -208,6 +220,47 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     public ListObjectVersionsResponse listVersions(
             ListObjectVersionsRequest request) {
         return delegate().listVersions(request);
+    }
+
+    @Override
+    public boolean supportsBucketAccessControls() {
+        return delegate().supportsBucketAccessControls();
+    }
+
+    @Override
+    public GetBucketOwnershipControlsResponse getBucketOwnershipControls(
+            GetBucketOwnershipControlsRequest request) {
+        return delegate().getBucketOwnershipControls(request);
+    }
+
+    @Override
+    public PutBucketOwnershipControlsResponse putBucketOwnershipControls(
+            PutBucketOwnershipControlsRequest request) {
+        return delegate().putBucketOwnershipControls(request);
+    }
+
+    @Override
+    public DeleteBucketOwnershipControlsResponse deleteBucketOwnershipControls(
+            DeleteBucketOwnershipControlsRequest request) {
+        return delegate().deleteBucketOwnershipControls(request);
+    }
+
+    @Override
+    public GetPublicAccessBlockResponse getPublicAccessBlock(
+            GetPublicAccessBlockRequest request) {
+        return delegate().getPublicAccessBlock(request);
+    }
+
+    @Override
+    public PutPublicAccessBlockResponse putPublicAccessBlock(
+            PutPublicAccessBlockRequest request) {
+        return delegate().putPublicAccessBlock(request);
+    }
+
+    @Override
+    public DeletePublicAccessBlockResponse deletePublicAccessBlock(
+            DeletePublicAccessBlockRequest request) {
+        return delegate().deletePublicAccessBlock(request);
     }
 
     /**

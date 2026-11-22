@@ -33,14 +33,20 @@ import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
@@ -51,6 +57,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
@@ -127,6 +135,30 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     @Override
     public PutObjectLegalHoldResponse putObjectLegalHold(
             PutObjectLegalHoldRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public PutBucketOwnershipControlsResponse putBucketOwnershipControls(
+            PutBucketOwnershipControlsRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public DeleteBucketOwnershipControlsResponse deleteBucketOwnershipControls(
+            DeleteBucketOwnershipControlsRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public PutPublicAccessBlockResponse putPublicAccessBlock(
+            PutPublicAccessBlockRequest request) {
+        throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    @Override
+    public DeletePublicAccessBlockResponse deletePublicAccessBlock(
+            DeletePublicAccessBlockRequest request) {
         throw new UnsupportedOperationException("read-only BlobStore");
     }
 

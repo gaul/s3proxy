@@ -133,16 +133,19 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DefaultRetention;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -152,6 +155,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectLockConfigurationReques
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.Grant;
 import software.amazon.awssdk.services.s3.model.Grantee;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -178,14 +182,19 @@ import software.amazon.awssdk.services.s3.model.ObjectLockRetention;
 import software.amazon.awssdk.services.s3.model.ObjectLockRule;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Owner;
+import software.amazon.awssdk.services.s3.model.OwnershipControls;
+import software.amazon.awssdk.services.s3.model.OwnershipControlsRule;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PublicAccessBlockConfiguration;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -280,9 +289,7 @@ public class S3ProxyHandler {
             "metadataTable",
             "metrics",
             "notification",
-            "ownershipControls",
             "policyStatus",
-            "publicAccessBlock",
             "replication",
             "requestPayment",
             "restore",
@@ -346,6 +353,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.OBJECT_LOCK_LEGAL_HOLD,
             AwsHttpHeaders.OBJECT_LOCK_MODE,
             AwsHttpHeaders.OBJECT_LOCK_RETAIN_UNTIL_DATE,
+            AwsHttpHeaders.OBJECT_OWNERSHIP,
             AwsHttpHeaders.SDK_CHECKSUM_ALGORITHM,  // TODO: ignoring header
             AwsHttpHeaders.SERVER_SIDE_ENCRYPTION,
             AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEY_ID,
@@ -358,6 +366,17 @@ public class S3ProxyHandler {
             AwsHttpHeaders.TRAILER,
             AwsHttpHeaders.TRANSFER_ENCODING,  // TODO: ignoring header
             AwsHttpHeaders.USER_AGENT
+    );
+    /** The bucket subresources S3 gates ACLs behind. */
+    private static final Set<String> BUCKET_ACCESS_CONTROL_PARAMETERS = Set.of(
+            "ownershipControls",
+            "publicAccessBlock"
+    );
+    /** The values S3 has for a bucket's object ownership. */
+    private static final Set<String> OBJECT_OWNERSHIPS = Set.of(
+            "BucketOwnerEnforced",
+            "BucketOwnerPreferred",
+            "ObjectWriter"
     );
     /** The object lock subresources: one of a bucket, two of an object. */
     private static final Set<String> OBJECT_LOCK_PARAMETERS = Set.of(
@@ -1237,6 +1256,8 @@ public class S3ProxyHandler {
         checkVersionId(request, blobStore);
         checkServerSideEncryption(request, blobStore);
         checkObjectLock(request, blobStore, path, /*anonymous=*/ false);
+        checkBucketAccessControls(request, blobStore, path,
+                /*anonymous=*/ false);
 
         if (path.length > 2) {
             checkReservedBlobName(path[2]);
@@ -1255,6 +1276,27 @@ public class S3ProxyHandler {
                     setOperation(ctx, S3Operation.DELETE_BUCKET_ENCRYPTION);
                     handleDeleteBucketEncryption(request, response, blobStore,
                             path[1]);
+                    return;
+                }
+                if (request.getParameter("ownershipControls") != null) {
+                    setOperation(ctx,
+                            S3Operation.DELETE_BUCKET_OWNERSHIP_CONTROLS);
+                    var unused = blobStore.deleteBucketOwnershipControls(
+                            DeleteBucketOwnershipControlsRequest.builder()
+                                    .bucket(path[1])
+                                    .build());
+                    addCorsResponseHeader(request, response);
+                    response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+                    return;
+                }
+                if (request.getParameter("publicAccessBlock") != null) {
+                    setOperation(ctx, S3Operation.DELETE_PUBLIC_ACCESS_BLOCK);
+                    var unused = blobStore.deletePublicAccessBlock(
+                            DeletePublicAccessBlockRequest.builder()
+                                    .bucket(path[1])
+                                    .build());
+                    addCorsResponseHeader(request, response);
+                    response.setStatus(HttpServletResponse.SC_NO_CONTENT);
                     return;
                 }
                 // Bucket subresources that cannot be deleted must not fall
@@ -1306,6 +1348,17 @@ public class S3ProxyHandler {
                 } else if (request.getParameter("location") != null) {
                     setOperation(ctx, S3Operation.GET_BUCKET_LOCATION);
                     handleContainerLocation(request, response, blobStore,
+                            path[1]);
+                    return;
+                } else if (request.getParameter("ownershipControls") != null) {
+                    setOperation(ctx,
+                            S3Operation.GET_BUCKET_OWNERSHIP_CONTROLS);
+                    handleGetBucketOwnershipControls(request, response,
+                            blobStore, path[1]);
+                    return;
+                } else if (request.getParameter("publicAccessBlock") != null) {
+                    setOperation(ctx, S3Operation.GET_PUBLIC_ACCESS_BLOCK);
+                    handleGetPublicAccessBlock(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("object-lock") != null) {
@@ -1420,6 +1473,19 @@ public class S3ProxyHandler {
                     setOperation(ctx, S3Operation.PUT_BUCKET_ENCRYPTION);
                     handleSetBucketEncryption(request, response, is, blobStore,
                             path[1]);
+                    return;
+                }
+                if (request.getParameter("ownershipControls") != null) {
+                    setOperation(ctx,
+                            S3Operation.PUT_BUCKET_OWNERSHIP_CONTROLS);
+                    handlePutBucketOwnershipControls(request, response, is,
+                            blobStore, path[1]);
+                    return;
+                }
+                if (request.getParameter("publicAccessBlock") != null) {
+                    setOperation(ctx, S3Operation.PUT_PUBLIC_ACCESS_BLOCK);
+                    handlePutPublicAccessBlock(request, response, is,
+                            blobStore, path[1]);
                     return;
                 }
                 if (request.getParameter("object-lock") != null) {
@@ -1680,6 +1746,8 @@ public class S3ProxyHandler {
         // refusal exists to prevent.
         checkServerSideEncryption(request, blobStore);
         checkObjectLock(request, blobStore, path, /*anonymous=*/ true);
+        checkBucketAccessControls(request, blobStore, path,
+                /*anonymous=*/ true);
 
         if (path.length > 2) {
             checkReservedBlobName(path[2]);
@@ -3027,6 +3095,20 @@ public class S3ProxyHandler {
         if (objectLock) {
             createRequest.objectLockEnabledForBucket(true);
         }
+        // Whether the bucket takes ACLs at all, which S3 decides at
+        // creation unless told otherwise: a bucket created without this
+        // refuses them.  checkBucketAccessControls has already refused the
+        // header on a store that keeps no such setting.
+        String objectOwnership = request.getHeader(
+                AwsHttpHeaders.OBJECT_OWNERSHIP);
+        if (objectOwnership != null) {
+            if (!OBJECT_OWNERSHIPS.contains(objectOwnership)) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                        "Invalid x-amz-object-ownership header: " +
+                        objectOwnership);
+            }
+            createRequest.objectOwnership(objectOwnership);
+        }
         if ("public-read".equalsIgnoreCase(acl)) {
             createRequest.acl(BucketCannedACL.PUBLIC_READ);
         } else if ("public-read-write".equalsIgnoreCase(acl)) {
@@ -3770,6 +3852,175 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Versioning is not supported.");
         }
+    }
+
+    /**
+     * Vet the two bucket settings S3 gates ACLs behind -- the
+     * ?ownershipControls and ?publicAccessBlock subresources, and the
+     * x-amz-object-ownership a CreateBucket carries -- before the request
+     * is dispatched.  Only a store that keeps them may see them: ignoring
+     * the subresource would answer the plain operation underneath, so a
+     * DELETE of ?publicAccessBlock would delete the bucket.  An unsigned
+     * request is refused, since no ACL grants the permissions these answer
+     * to, and both belong to a bucket and never to an object.
+     */
+    private static void checkBucketAccessControls(HttpServletRequest request,
+            BlobStore blobStore, String[] path, boolean anonymous) {
+        String parameter = null;
+        for (String candidate : BUCKET_ACCESS_CONTROL_PARAMETERS) {
+            if (request.getParameter(candidate) != null) {
+                parameter = candidate;
+                break;
+            }
+        }
+        if (parameter == null &&
+                request.getHeader(AwsHttpHeaders.OBJECT_OWNERSHIP) == null) {
+            return;
+        }
+        if (anonymous) {
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+        }
+        if (!blobStore.supportsBucketAccessControls()) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Bucket ownership controls and public access block are" +
+                    " not supported.");
+        }
+        if (parameter == null) {
+            return;
+        }
+        String method = request.getMethod();
+        boolean object = path.length > 2 && !path[2].isEmpty();
+        if (object || !(method.equals("GET") || method.equals("PUT") ||
+                method.equals("DELETE"))) {
+            throw new S3ProxyException(S3ErrorCode.METHOD_NOT_ALLOWED);
+        }
+    }
+
+    private void handleGetBucketOwnershipControls(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException {
+        var controls = blobStore.getBucketOwnershipControls(
+                GetBucketOwnershipControlsRequest.builder()
+                        .bucket(containerName)
+                        .build())
+                .ownershipControls();
+
+        response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
+        try (Writer writer = response.getWriter()) {
+            response.setContentType(XML_CONTENT_TYPE);
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("OwnershipControls");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+            if (controls != null) {
+                for (var rule : controls.rules()) {
+                    xml.writeStartElement("Rule");
+                    if (rule.objectOwnershipAsString() != null) {
+                        writeSimpleElement(xml, "ObjectOwnership",
+                                rule.objectOwnershipAsString());
+                    }
+                    xml.writeEndElement();
+                }
+            }
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+    }
+
+    /**
+     * PutBucketOwnershipControls.  S3's schema takes one rule naming one
+     * of three ownerships; anything else is refused rather than forwarded,
+     * since the setting decides whether the bucket takes ACLs.
+     */
+    private void handlePutBucketOwnershipControls(HttpServletRequest request,
+            HttpServletResponse response, InputStream is, BlobStore blobStore,
+            String containerName) throws IOException {
+        var parsed = readXmlBody(readConfigurationBody(is),
+                OwnershipControlsRequest.class);
+        if (parsed.rules() == null || parsed.rules().size() != 1) {
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
+        }
+        String ownership = parsed.rules().iterator().next().objectOwnership();
+        if (ownership == null || !OBJECT_OWNERSHIPS.contains(ownership)) {
+            throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
+        }
+        var unused = blobStore.putBucketOwnershipControls(
+                PutBucketOwnershipControlsRequest.builder()
+                        .bucket(containerName)
+                        .ownershipControls(OwnershipControls.builder()
+                                .rules(OwnershipControlsRule.builder()
+                                        .objectOwnership(ownership)
+                                        .build())
+                                .build())
+                        .build());
+        addCorsResponseHeader(request, response);
+    }
+
+    private void handleGetPublicAccessBlock(HttpServletRequest request,
+            HttpServletResponse response, BlobStore blobStore,
+            String containerName) throws IOException {
+        var block = blobStore.getPublicAccessBlock(
+                GetPublicAccessBlockRequest.builder()
+                        .bucket(containerName)
+                        .build())
+                .publicAccessBlockConfiguration();
+
+        response.setCharacterEncoding(UTF_8);
+        addCorsResponseHeader(request, response);
+        try (Writer writer = response.getWriter()) {
+            response.setContentType(XML_CONTENT_TYPE);
+            XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
+                    writer);
+            xml.writeStartDocument();
+            xml.writeStartElement("PublicAccessBlockConfiguration");
+            xml.writeDefaultNamespace(AWS_XMLNS);
+            if (block != null) {
+                writeSimpleElement(xml, "BlockPublicAcls", String.valueOf(
+                        Boolean.TRUE.equals(block.blockPublicAcls())));
+                writeSimpleElement(xml, "IgnorePublicAcls", String.valueOf(
+                        Boolean.TRUE.equals(block.ignorePublicAcls())));
+                writeSimpleElement(xml, "BlockPublicPolicy", String.valueOf(
+                        Boolean.TRUE.equals(block.blockPublicPolicy())));
+                writeSimpleElement(xml, "RestrictPublicBuckets",
+                        String.valueOf(Boolean.TRUE.equals(
+                                block.restrictPublicBuckets())));
+            }
+            xml.writeEndElement();
+            xml.flush();
+        } catch (XMLStreamException xse) {
+            throw new IOException(xse);
+        }
+    }
+
+    /**
+     * PutPublicAccessBlock.  A setting the body leaves out is off, as on
+     * S3, so the four are forwarded as the body states them.
+     */
+    private void handlePutPublicAccessBlock(HttpServletRequest request,
+            HttpServletResponse response, InputStream is, BlobStore blobStore,
+            String containerName) throws IOException {
+        var parsed = readXmlBody(readConfigurationBody(is),
+                PublicAccessBlockRequest.class);
+        var unused = blobStore.putPublicAccessBlock(
+                PutPublicAccessBlockRequest.builder()
+                        .bucket(containerName)
+                        .publicAccessBlockConfiguration(
+                                PublicAccessBlockConfiguration.builder()
+                                        .blockPublicAcls(
+                                                parsed.blockPublicAcls())
+                                        .ignorePublicAcls(
+                                                parsed.ignorePublicAcls())
+                                        .blockPublicPolicy(
+                                                parsed.blockPublicPolicy())
+                                        .restrictPublicBuckets(parsed
+                                                .restrictPublicBuckets())
+                                        .build())
+                        .build());
+        addCorsResponseHeader(request, response);
     }
 
     /**

@@ -44,11 +44,15 @@ import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
@@ -56,6 +60,8 @@ import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketLocationResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
@@ -68,6 +74,8 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -88,6 +96,8 @@ import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketVersioningResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
@@ -98,6 +108,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -604,6 +616,62 @@ public interface BlobStore extends AutoCloseable {
     default ListObjectVersionsResponse listVersions(
             ListObjectVersionsRequest request) {
         throw new UnsupportedOperationException("versioning not supported");
+    }
+
+    /**
+     * Whether this store keeps the two bucket settings S3 gates ACLs
+     * behind: the object ownership controls, which say whether a bucket
+     * takes ACLs at all, and the public access block, which says whether
+     * it takes public ones.  Only a store that reports true is handed the
+     * x-amz-object-ownership a CreateBucket carries and the six operations
+     * below; the default implementations throw
+     * UnsupportedOperationException, which the frontend answers
+     * NotImplemented before consulting them.
+     */
+    default boolean supportsBucketAccessControls() {
+        return false;
+    }
+
+    /** GetBucketOwnershipControls: the bucket's setting, or the 404 S3 has for a bucket without one. */
+    default GetBucketOwnershipControlsResponse getBucketOwnershipControls(
+            GetBucketOwnershipControlsRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket access controls not supported");
+    }
+
+    /** PutBucketOwnershipControls: the frontend vets the body first. */
+    default PutBucketOwnershipControlsResponse putBucketOwnershipControls(
+            PutBucketOwnershipControlsRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket access controls not supported");
+    }
+
+    /** DeleteBucketOwnershipControls: removes the setting, leaving the service's default. */
+    default DeleteBucketOwnershipControlsResponse deleteBucketOwnershipControls(
+            DeleteBucketOwnershipControlsRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket access controls not supported");
+    }
+
+    /** GetPublicAccessBlock: the bucket's setting, or the 404 S3 has for a bucket without one. */
+    default GetPublicAccessBlockResponse getPublicAccessBlock(
+            GetPublicAccessBlockRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket access controls not supported");
+    }
+
+    /** PutPublicAccessBlock: the frontend vets the body first. */
+    default PutPublicAccessBlockResponse putPublicAccessBlock(
+            PutPublicAccessBlockRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket access controls not supported");
+    }
+
+    /** DeletePublicAccessBlock: removes the setting, leaving the service's default. */
+    default DeletePublicAccessBlockResponse deletePublicAccessBlock(
+            DeletePublicAccessBlockRequest request) {
+        throw new UnsupportedOperationException(
+                "bucket access controls not supported");
     }
 
     /**

@@ -115,6 +115,8 @@ import software.amazon.awssdk.services.s3.model.ObjectLockEnabled;
 import software.amazon.awssdk.services.s3.model.ObjectLockLegalHoldStatus;
 import software.amazon.awssdk.services.s3.model.ObjectLockMode;
 import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
+import software.amazon.awssdk.services.s3.model.ObjectOwnership;
+import software.amazon.awssdk.services.s3.model.OwnershipControlsRule;
 import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -147,6 +149,8 @@ public final class AwsSdkTest {
      * LocalStack rather than a test for whoever holds 4566.
      */
     private static final int LOCALSTACK_PORT = 4566;
+    /** Where the MiniStack lane publishes its emulator. */
+    private static final int MINISTACK_PORT = 4567;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";
 
@@ -5017,25 +5021,138 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * The two settings S3 gates ACLs behind, on a store that keeps them:
+     * both are set, read back and removed through their subresources.
+     */
+    @Test
+    public void testBucketAccessControls() throws Exception {
+        assumeTrue(blobStore.supportsBucketAccessControls());
+        String bucket = createRandomContainerName();
+        client.createBucket(b -> b.bucket(bucket));
+        try {
+            client.putBucketOwnershipControls(b -> b.bucket(bucket)
+                    .ownershipControls(c -> c.rules(
+                            OwnershipControlsRule.builder()
+                                    .objectOwnership(ObjectOwnership
+                                            .BUCKET_OWNER_ENFORCED)
+                                    .build())));
+            assertThat(client.getBucketOwnershipControls(
+                    b -> b.bucket(bucket)).ownershipControls().rules())
+                    .extracting(rule -> rule.objectOwnership())
+                    .containsExactly(ObjectOwnership.BUCKET_OWNER_ENFORCED);
+
+            client.putPublicAccessBlock(b -> b.bucket(bucket)
+                    .publicAccessBlockConfiguration(c -> c
+                            .blockPublicAcls(true)
+                            .ignorePublicAcls(false)
+                            .blockPublicPolicy(true)
+                            .restrictPublicBuckets(false)));
+            var block = client.getPublicAccessBlock(b -> b.bucket(bucket))
+                    .publicAccessBlockConfiguration();
+            assertThat(block.blockPublicAcls()).isTrue();
+            assertThat(block.ignorePublicAcls()).isFalse();
+            assertThat(block.blockPublicPolicy()).isTrue();
+            assertThat(block.restrictPublicBuckets()).isFalse();
+
+            client.deletePublicAccessBlock(b -> b.bucket(bucket));
+            client.deleteBucketOwnershipControls(b -> b.bucket(bucket));
+            client.headBucket(b -> b.bucket(bucket));
+        } finally {
+            client.deleteBucket(b -> b.bucket(bucket));
+        }
+    }
+
+    /**
+     * The ownership a CreateBucket names is the one the bucket has.  Not
+     * on the MiniStack lane: the release it pins ignores the header, which
+     * later releases honour.
+     */
+    @Test
+    public void testContainerCreateObjectOwnership() throws Exception {
+        assumeTrue(blobStore.supportsBucketAccessControls());
+        assumeTrue(blobStoreEndpoint.getPort() != MINISTACK_PORT);
+        String bucket = createRandomContainerName();
+        client.createBucket(b -> b.bucket(bucket)
+                .objectOwnership(ObjectOwnership.OBJECT_WRITER));
+        try {
+            assertThat(client.getBucketOwnershipControls(
+                    b -> b.bucket(bucket)).ownershipControls().rules())
+                    .extracting(rule -> rule.objectOwnership())
+                    .containsExactly(ObjectOwnership.OBJECT_WRITER);
+        } finally {
+            client.deleteBucket(b -> b.bucket(bucket));
+        }
+    }
+
+    /** An ownership S3 does not have is refused, not handed on. */
+    @Test
+    public void testContainerCreateInvalidObjectOwnership() throws Exception {
+        assumeTrue(blobStore.supportsBucketAccessControls());
+        String bucket = createRandomContainerName();
+        assertThatThrownBy(() -> client.createBucket(b -> b.bucket(bucket)
+                .overrideConfiguration(o -> o.putHeader(
+                        "x-amz-object-ownership", "Bogus"))))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(((S3Exception) thrown)
+                        .awsErrorDetails().errorCode())
+                        .isEqualTo("InvalidArgument"));
+    }
+
+    /** A store without the setting refuses a bucket that asks for one. */
+    @Test
+    public void testContainerCreateObjectOwnershipNotImplemented()
+            throws Exception {
+        assumeTrue(!blobStore.supportsBucketAccessControls());
+        String bucket = createRandomContainerName();
+        assertThatThrownBy(() -> client.createBucket(b -> b.bucket(bucket)
+                .objectOwnership(ObjectOwnership.OBJECT_WRITER)))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(((S3Exception) thrown)
+                        .awsErrorDetails().errorCode())
+                        .isEqualTo("NotImplemented"));
+        assertThatThrownBy(() -> client.getPublicAccessBlock(
+                b -> b.bucket(containerName)))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(((S3Exception) thrown)
+                        .awsErrorDetails().errorCode())
+                        .isEqualTo("NotImplemented"));
+    }
+
     @Test
     public void testBucketSubresourceDeleteDoesNotDeleteBucket()
             throws Exception {
         // DELETE on a bucket dispatches to DeleteBucket without inspecting
         // the subresource, so an unhandled one must be rejected earlier.
         // ?policy is rejected only here; GetBucketPolicy still answers.
+        try {
+            client.deleteBucketPolicy(b -> b.bucket(containerName));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("NotImplemented");
+        }
+        assertThat(client.listBuckets().buckets().stream()
+                .anyMatch(b -> b.name().equals(containerName))).isTrue();
+
+        // The ownership controls and the public access block have a real
+        // DELETE on a store that keeps them, and are refused on the rest.
+        // Either way only the setting may go, never the bucket.
         for (var operation : List.<Runnable>of(
-                () -> client.deleteBucketPolicy(
-                        b -> b.bucket(containerName)),
                 () -> client.deleteBucketOwnershipControls(
                         b -> b.bucket(containerName)),
                 () -> client.deletePublicAccessBlock(
                         b -> b.bucket(containerName)))) {
             try {
                 operation.run();
-                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+                if (!blobStore.supportsBucketAccessControls()) {
+                    Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+                }
             } catch (S3Exception e) {
-                assertThat(e.awsErrorDetails().errorCode())
-                        .isEqualTo("NotImplemented");
+                if (!blobStore.supportsBucketAccessControls()) {
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("NotImplemented");
+                }
             }
             assertThat(client.listBuckets().buckets().stream()
                     .anyMatch(b -> b.name().equals(containerName))).isTrue();

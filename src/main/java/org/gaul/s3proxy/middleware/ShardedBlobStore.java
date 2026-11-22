@@ -61,16 +61,24 @@ import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketAclResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.GetPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -83,8 +91,12 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -394,6 +406,60 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     public GetBucketAclResponse getContainerAcl(GetBucketAclRequest request) {
         if (!this.buckets.containsKey(request.bucket())) {
             return this.delegate().getContainerAcl(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public GetBucketOwnershipControlsResponse getBucketOwnershipControls(
+            GetBucketOwnershipControlsRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().getBucketOwnershipControls(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public PutBucketOwnershipControlsResponse putBucketOwnershipControls(
+            PutBucketOwnershipControlsRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().putBucketOwnershipControls(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public DeleteBucketOwnershipControlsResponse deleteBucketOwnershipControls(
+            DeleteBucketOwnershipControlsRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().deleteBucketOwnershipControls(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public GetPublicAccessBlockResponse getPublicAccessBlock(
+            GetPublicAccessBlockRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().getPublicAccessBlock(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public PutPublicAccessBlockResponse putPublicAccessBlock(
+            PutPublicAccessBlockRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().putPublicAccessBlock(request);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
+    public DeletePublicAccessBlockResponse deletePublicAccessBlock(
+            DeletePublicAccessBlockRequest request) {
+        if (!this.buckets.containsKey(request.bucket())) {
+            return this.delegate().deletePublicAccessBlock(request);
         }
         throw new UnsupportedOperationException("sharded bucket");
     }
