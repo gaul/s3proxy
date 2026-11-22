@@ -119,6 +119,42 @@ enable_sse_tests() {
     tags="${tags/ and not encryption/}"
 }
 
+# Creates a KMS key on the service the aws-s3 backend reaches and prints its
+# ARN.  The request is signed with the backend's own credentials and region,
+# so the key lands in the account S3Proxy's writes are made from.
+create_kms_key() {
+    local endpoint identity credential region response
+    endpoint=$(sed -n 's,^jclouds\.endpoint=,,p' target/s3proxy.conf)
+    identity=$(sed -n 's,^jclouds\.identity=,,p' target/s3proxy.conf)
+    credential=$(sed -n 's,^jclouds\.credential=,,p' target/s3proxy.conf)
+    region=$(sed -n 's,^jclouds\.region=,,p' target/s3proxy.conf)
+    response=$(curl --silent --show-error \
+            --aws-sigv4 "aws:amz:${region:-us-east-1}:kms" \
+            --user "${identity}:${credential}" \
+            --header 'Content-Type: application/x-amz-json-1.1' \
+            --header 'X-Amz-Target: TrentService.CreateKey' \
+            --data '{}' "${endpoint%/}/") || true
+    if ! python3 -c 'import json, sys
+print(json.load(sys.stdin)["KeyMetadata"]["Arn"])' <<< "${response}"; then
+        echo "could not create a KMS key at ${endpoint}: ${response}" >&2
+        return 1
+    fi
+}
+
+# The SSE-KMS tests encrypt with the two key ids s3-tests.conf names.  S3
+# refuses a key that does not exist, KMS.NotFoundException, and MiniStack
+# does too since 1.5.43, so a lane whose service encrypts creates two real
+# keys and hands the tests a copy of the conf that names them.
+use_created_kms_keys() {
+    local key1 key2
+    key1=$(create_kms_key)
+    key2=$(create_kms_key)
+    sed -e "s,^kms_keyid *=.*,kms_keyid = ${key1}," \
+            -e "s,^kms_keyid2 *=.*,kms_keyid2 = ${key2}," \
+            < "${S3TEST_CONF}" > target/s3-tests.conf
+    export S3TEST_CONF="${PWD}/target/s3-tests.conf"
+}
+
 backend=""
 # A -k expression for tests a marker cannot describe, empty for most lanes.
 deselect_by_name=""
@@ -149,6 +185,7 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-ministack*.conf ]]; then
     # has both, as they do on the LocalStack lane.
     tags="${tags/ and not versioning/}"
     enable_sse_tests
+    use_created_kms_keys
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
     # fails_on_aws marks what real S3 refuses, and this lane used to deselect
@@ -165,6 +202,7 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     # SSE tests exercise the pass-through here rather than watching a
     # store that cannot encrypt refuse it.
     enable_sse_tests
+    use_created_kms_keys
     # Object lock passes through as well, and LocalStack keeps the locks.
     # It is the only lane that runs the tag: the other stores answer the
     # lock 501, and MiniStack keeps a retention per key rather than per
