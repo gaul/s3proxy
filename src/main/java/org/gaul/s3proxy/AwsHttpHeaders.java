@@ -26,9 +26,11 @@ public final class AwsHttpHeaders {
     public static final String CHECKSUM_CRC32 = "x-amz-checksum-crc32";
     public static final String CHECKSUM_CRC32C = "x-amz-checksum-crc32c";
     public static final String CHECKSUM_CRC64NVME = "x-amz-checksum-crc64nvme";
+    public static final String CHECKSUM_MD5 = "x-amz-checksum-md5";
     public static final String CHECKSUM_MODE = "x-amz-checksum-mode";
     public static final String CHECKSUM_SHA1 = "x-amz-checksum-sha1";
     public static final String CHECKSUM_SHA256 = "x-amz-checksum-sha256";
+    public static final String CHECKSUM_SHA512 = "x-amz-checksum-sha512";
     public static final String CHECKSUM_TYPE = "x-amz-checksum-type";
     public static final String CONTENT_SHA256 = "x-amz-content-sha256";
     public static final String COPY_SOURCE = "x-amz-copy-source";

@@ -47,6 +47,10 @@ public record CompleteMultipartUploadRequest(
             @JacksonXmlProperty(localName = "ChecksumSHA1")
             @Nullable String checksumSHA1,
             @JacksonXmlProperty(localName = "ChecksumSHA256")
-            @Nullable String checksumSHA256) {
+            @Nullable String checksumSHA256,
+            @JacksonXmlProperty(localName = "ChecksumSHA512")
+            @Nullable String checksumSHA512,
+            @JacksonXmlProperty(localName = "ChecksumMD5")
+            @Nullable String checksumMD5) {
     }
 }

@@ -60,7 +60,15 @@ public enum FlexChecksum {
     SHA1("sha1", "ChecksumSHA1", AwsHttpHeaders.CHECKSUM_SHA1, 20,
             sdk(DefaultChecksumAlgorithm.SHA1), 0),
     SHA256("sha256", "ChecksumSHA256", AwsHttpHeaders.CHECKSUM_SHA256, 32,
-            sdk(DefaultChecksumAlgorithm.SHA256), 0);
+            sdk(DefaultChecksumAlgorithm.SHA256), 0),
+    SHA512("sha512", "ChecksumSHA512", AwsHttpHeaders.CHECKSUM_SHA512, 64,
+            sdk(DefaultChecksumAlgorithm.SHA512), 0),
+    // The same digest as Content-MD5 and, for a single-part object, the
+    // ETag -- but asked for as a flexible checksum, so it is echoed on the
+    // write, kept for a read with x-amz-checksum-mode, and composed from
+    // the parts of a multipart upload.
+    MD5("md5", "ChecksumMD5", AwsHttpHeaders.CHECKSUM_MD5, 16,
+            sdk(DefaultChecksumAlgorithm.MD5), 0);
 
     /**
      * Reserved user-metadata key prefix persisting the flexible checksum
@@ -157,6 +165,8 @@ public enum FlexChecksum {
         case CRC64NVME -> part.checksumCRC64NVME();
         case SHA1 -> part.checksumSHA1();
         case SHA256 -> part.checksumSHA256();
+        case SHA512 -> part.checksumSHA512();
+        case MD5 -> part.checksumMD5();
         };
     }
 
@@ -173,6 +183,8 @@ public enum FlexChecksum {
         case CRC64NVME -> response.checksumCRC64NVME();
         case SHA1 -> response.checksumSHA1();
         case SHA256 -> response.checksumSHA256();
+        case SHA512 -> response.checksumSHA512();
+        case MD5 -> response.checksumMD5();
         };
     }
 
@@ -189,6 +201,8 @@ public enum FlexChecksum {
         case CRC64NVME -> part.checksumCRC64NVME();
         case SHA1 -> part.checksumSHA1();
         case SHA256 -> part.checksumSHA256();
+        case SHA512 -> part.checksumSHA512();
+        case MD5 -> part.checksumMD5();
         };
     }
 
@@ -207,6 +221,8 @@ public enum FlexChecksum {
         case CRC64NVME -> builder.checksumCRC64NVME(value);
         case SHA1 -> builder.checksumSHA1(value);
         case SHA256 -> builder.checksumSHA256(value);
+        case SHA512 -> builder.checksumSHA512(value);
+        case MD5 -> builder.checksumMD5(value);
         };
     }
 
@@ -224,6 +240,8 @@ public enum FlexChecksum {
         case CRC64NVME -> builder.checksumCRC64NVME(value);
         case SHA1 -> builder.checksumSHA1(value);
         case SHA256 -> builder.checksumSHA256(value);
+        case SHA512 -> builder.checksumSHA512(value);
+        case MD5 -> builder.checksumMD5(value);
         };
     }
 
@@ -239,6 +257,8 @@ public enum FlexChecksum {
         case CRC64NVME -> builder.checksumCRC64NVME(value);
         case SHA1 -> builder.checksumSHA1(value);
         case SHA256 -> builder.checksumSHA256(value);
+        case SHA512 -> builder.checksumSHA512(value);
+        case MD5 -> builder.checksumMD5(value);
         };
     }
 
@@ -253,7 +273,8 @@ public enum FlexChecksum {
             PutObjectRequest.Builder builder) {
         return builder.checksumCRC32(null).checksumCRC32C(null)
                 .checksumCRC64NVME(null).checksumSHA1(null)
-                .checksumSHA256(null);
+                .checksumSHA256(null).checksumSHA512(null)
+                .checksumMD5(null);
     }
 
     /** As {@link #clearOn(PutObjectRequest.Builder)}, for one part. */
@@ -261,7 +282,8 @@ public enum FlexChecksum {
             UploadPartRequest.Builder builder) {
         return builder.checksumCRC32(null).checksumCRC32C(null)
                 .checksumCRC64NVME(null).checksumSHA1(null)
-                .checksumSHA256(null);
+                .checksumSHA256(null).checksumSHA512(null)
+                .checksumMD5(null);
     }
 
     /** User-metadata key persisting this checksum with the object. */

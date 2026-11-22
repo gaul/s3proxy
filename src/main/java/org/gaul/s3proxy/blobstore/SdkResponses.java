@@ -120,6 +120,8 @@ public final class SdkResponses {
                 .checksumCRC64NVME(response.checksumCRC64NVME())
                 .checksumSHA1(response.checksumSHA1())
                 .checksumSHA256(response.checksumSHA256())
+                .checksumSHA512(response.checksumSHA512())
+                .checksumMD5(response.checksumMD5())
                 .checksumType(response.checksumTypeAsString())
                 .contentDisposition(response.contentDisposition())
                 .contentEncoding(response.contentEncoding())

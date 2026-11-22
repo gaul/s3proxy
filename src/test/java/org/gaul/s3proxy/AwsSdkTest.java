@@ -532,6 +532,75 @@ public final class AwsSdkTest {
         assertThat(headResponse.metadata()).isEmpty();
     }
 
+    /**
+     * SHA-512 and MD5 are flexible checksums like the others: verified on
+     * the write, echoed by it, and kept for a read that asks.  Verified
+     * against AWS, which also refuses a value that does not describe the
+     * body with BadDigest.
+     */
+    @Test
+    public void testPutObjectChecksumSha512AndMd5() throws Exception {
+        var key = "testPutObjectChecksumSha512AndMd5";
+        var content = TestUtils.randomByteSource().slice(0, 1024).read();
+        var sha512 = Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("SHA-512").digest(content));
+        var md5 = Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("MD5").digest(content));
+
+        PutObjectResponse putResponse;
+        try {
+            putResponse = client.putObject(
+                    b -> b.bucket(containerName).key(key)
+                            .checksumSHA512(sha512),
+                    RequestBody.fromBytes(content));
+        } catch (S3Exception e) {
+            // An emulator behind aws-s3 that predates these algorithms
+            // refuses the header, and has nothing to get wrong here.
+            assumeTrue(e.statusCode() != 501);
+            throw e;
+        }
+        assertThat(putResponse.checksumSHA512()).isEqualTo(sha512);
+        HeadObjectResponse headResponse = client.headObject(
+                b -> b.bucket(containerName).key(key));
+        assertThat(headResponse.checksumSHA512()).isNull();
+        headResponse = client.headObject(b -> b.bucket(containerName).key(key)
+                .checksumMode(ChecksumMode.ENABLED));
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(headResponse.checksumSHA512()).isEqualTo(sha512);
+        }
+
+        putResponse = client.putObject(
+                b -> b.bucket(containerName).key(key).checksumMD5(md5),
+                RequestBody.fromBytes(content));
+        assertThat(putResponse.checksumMD5()).isEqualTo(md5);
+        headResponse = client.headObject(b -> b.bucket(containerName).key(key)
+                .checksumMode(ChecksumMode.ENABLED));
+        if (!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType)) {
+            assertThat(headResponse.checksumMD5()).isEqualTo(md5);
+            // the earlier algorithm went with the object it described
+            assertThat(headResponse.checksumSHA512()).isNull();
+        }
+
+        // a digest of the right length that does not describe the body
+        var wrongSha512 = Base64.getEncoder().encodeToString(new byte[64]);
+        var wrongMd5 = Base64.getEncoder().encodeToString(new byte[16]);
+        assertThatThrownBy(() -> client.putObject(
+                b -> b.bucket(containerName).key(key)
+                        .checksumSHA512(wrongSha512),
+                RequestBody.fromBytes(content)))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(((S3Exception) thrown)
+                        .awsErrorDetails().errorCode())
+                        .isEqualTo("BadDigest"));
+        assertThatThrownBy(() -> client.putObject(
+                b -> b.bucket(containerName).key(key).checksumMD5(wrongMd5),
+                RequestBody.fromBytes(content)))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(((S3Exception) thrown)
+                        .awsErrorDetails().errorCode())
+                        .isEqualTo("BadDigest"));
+    }
+
     @Test
     public void testGetObjectRangeOmitsChecksum() throws Exception {
         var key = "testGetObjectRangeChecksum";
