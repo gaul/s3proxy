@@ -38,11 +38,13 @@ import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.ObjectOwnership;
+import software.amazon.awssdk.services.s3.model.OwnershipControls;
+import software.amazon.awssdk.services.s3.model.OwnershipControlsRule;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
 
 public final class TestUtils {
-    /** Where the MiniStack lane publishes its emulator. */
-    static final int MINISTACK_PORT = 4567;
-
     private TestUtils() {
         throw new AssertionError("intentionally unimplemented");
     }
@@ -254,24 +256,6 @@ public final class TestUtils {
     /** Returns the provider which the s3proxy.test.conf system property
      * configures, resolved to its current name. */
     public static String testBlobStoreProvider() throws IOException {
-        return BlobStores.resolveProviderAlias(testProperties().getProperty(
-                Constants.PROPERTY_PROVIDER, ""));
-    }
-
-    /**
-     * Whether the tests run on the MiniStack lane: the aws-s3 store reaching
-     * the port that lane publishes its emulator on.  MiniStack, like S3
-     * since 2023, creates buckets with ACLs disabled and refuses an ACL set
-     * on them.
-     */
-    public static boolean miniStackLane() throws IOException {
-        Properties properties = testProperties();
-        return testBlobStoreProvider().equals("aws-s3") &&
-                URI.create(properties.getProperty(Constants.PROPERTY_ENDPOINT,
-                        "http://stub")).getPort() == MINISTACK_PORT;
-    }
-
-    private static Properties testProperties() throws IOException {
         var properties = new Properties();
         String configFile = System.getProperty("s3proxy.test.conf",
                 "s3proxy.conf");
@@ -279,7 +263,36 @@ public final class TestUtils {
                 configFile)).openStream()) {
             properties.load(is);
         }
-        return properties;
+        return BlobStores.resolveProviderAlias(
+                properties.getProperty(Constants.PROPERTY_PROVIDER, ""));
+    }
+
+    /**
+     * Lets a bucket take ACLs, public ones included, on a store that keeps
+     * the two settings S3 gates them behind.  S3 has created buckets with
+     * ACLs disabled and public access blocked since 2023, so a caller that
+     * sets an ACL first turns ACLs on and lifts the block, as this does.
+     * MiniStack follows S3 in the first; the stores S3Proxy implements
+     * itself take ACLs as they are and are left alone.
+     */
+    public static void allowAcls(BlobStore blobStore, String bucket) {
+        if (!blobStore.supportsBucketAccessControls()) {
+            return;
+        }
+        blobStore.putBucketOwnershipControls(
+                PutBucketOwnershipControlsRequest.builder()
+                        .bucket(bucket)
+                        .ownershipControls(OwnershipControls.builder()
+                                .rules(OwnershipControlsRule.builder()
+                                        .objectOwnership(
+                                                ObjectOwnership.OBJECT_WRITER)
+                                        .build())
+                                .build())
+                        .build());
+        blobStore.deletePublicAccessBlock(
+                DeletePublicAccessBlockRequest.builder()
+                        .bucket(bucket)
+                        .build());
     }
 
     /**

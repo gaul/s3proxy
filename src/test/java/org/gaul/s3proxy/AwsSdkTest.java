@@ -2301,12 +2301,11 @@ public final class AwsSdkTest {
 
     @Test
     public void testUpdateBlobXmlAcls() throws Exception {
-        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
-        // and refuses the ACL this test sets.
-        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
+
+        TestUtils.allowAcls(blobStore, containerName);
 
         String blobName = "testUpdateBlobXmlAcls-blob";
         putBlob(containerName, blobName, BYTE_SOURCE);
@@ -3609,15 +3608,13 @@ public final class AwsSdkTest {
 
     @Test
     public void testCopyObjectPublicRead() throws Exception {
-        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
-        // and refuses the ACL this test sets.
-        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         // Azure and Swift grant read at the container, so a per-blob ACL has
         // nowhere to live and the copy is refused instead.
         assumeTrue(!blobStoreType.equals("azureblob") &&
                 !blobStoreType.equals("openstack-swift"));
+        TestUtils.allowAcls(blobStore, containerName);
 
         client.putObject(b -> b.bucket(containerName).key("source"),
                 RequestBody.fromString("content"));
@@ -3636,11 +3633,20 @@ public final class AwsSdkTest {
                 .isEqualTo(ObjectCannedACL.PRIVATE);
     }
 
+    /**
+     * The ownership a CreateBucket naming an ACL needs on a store that keeps
+     * S3's setting for it, since a bucket there takes no ACL unless it says
+     * so; null elsewhere.  S3 itself also blocks public access on a new
+     * bucket and so refuses a public ACL at creation regardless, which the
+     * emulators these tests run against do not.
+     */
+    private @Nullable ObjectOwnership objectWriterIfControlled() {
+        return blobStore.supportsBucketAccessControls() ?
+                ObjectOwnership.OBJECT_WRITER : null;
+    }
+
     @Test
     public void testCreateContainerPublicRead() throws Exception {
-        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
-        // and refuses the ACL this test sets.
-        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         // The access a container is created with must be the access it has.
@@ -3650,6 +3656,7 @@ public final class AwsSdkTest {
         blobStore.createContainer(CreateBucketRequest.builder()
                 .bucket(publicContainer)
                 .acl(BucketCannedACL.PUBLIC_READ)
+                .objectOwnership(objectWriterIfControlled())
                 .build());
         try {
             assertThat(blobStore.getContainerAccess(publicContainer))
@@ -3661,9 +3668,6 @@ public final class AwsSdkTest {
 
     @Test
     public void testCreateContainerPublicReadWrite() throws Exception {
-        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
-        // and refuses the ACL this test sets.
-        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
@@ -3671,6 +3675,7 @@ public final class AwsSdkTest {
         blobStore.createContainer(CreateBucketRequest.builder()
                 .bucket(publicContainer)
                 .acl(BucketCannedACL.PUBLIC_READ_WRITE)
+                .objectOwnership(objectWriterIfControlled())
                 .build());
         try {
             assertThat(blobStore.getContainerAccess(publicContainer))
@@ -3682,13 +3687,11 @@ public final class AwsSdkTest {
 
     @Test
     public void testPublicReadWriteBucketAnonymousWrite() throws Exception {
-        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
-        // and refuses the ACL this test sets.
-        assumeTrue(!TestUtils.miniStackLane());
         // NTFS has no permission bits for the store to keep an ACL in
         assumeTrue(!TestUtils.filesystemOnWindows());
         assumeTrue(!Quirks.NO_PUBLIC_WRITE_ACCESS.contains(blobStoreType));
 
+        TestUtils.allowAcls(blobStore, containerName);
         client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ_WRITE));
 
@@ -3719,11 +3722,9 @@ public final class AwsSdkTest {
 
     @Test
     public void testPublicReadBucketRefusesAnonymousWrite() throws Exception {
-        // MiniStack, like S3 since 2023, creates buckets with ACLs disabled
-        // and refuses the ACL this test sets.
-        assumeTrue(!TestUtils.miniStackLane());
         // The write half is granted by public-read-write alone; a merely
         // readable bucket must go on refusing anonymous writes.
+        TestUtils.allowAcls(blobStore, containerName);
         client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ));
 

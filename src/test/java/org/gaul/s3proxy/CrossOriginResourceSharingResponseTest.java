@@ -82,10 +82,6 @@ public final class CrossOriginResourceSharingResponseTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        // The tests read their blob anonymously, through the public-read ACL
-        // set below, which MiniStack refuses: like S3 since 2023, it creates
-        // buckets with ACLs disabled.
-        assumeTrue(!TestUtils.miniStackLane());
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-cors.conf");
         var creds = AwsBasicCredentials.create(info.getS3Identity(),
@@ -115,6 +111,7 @@ public final class CrossOriginResourceSharingResponseTest {
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainer(containerName);
+        TestUtils.allowAcls(info.getBlobStore(), containerName);
 
         s3Client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ));

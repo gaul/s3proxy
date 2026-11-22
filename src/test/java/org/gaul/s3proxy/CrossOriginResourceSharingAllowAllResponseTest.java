@@ -17,7 +17,6 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -81,10 +80,6 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        // The tests read their blob anonymously, through the public-read ACL
-        // set below, which MiniStack refuses: like S3 since 2023, it creates
-        // buckets with ACLs disabled.
-        assumeTrue(!TestUtils.miniStackLane());
         TestUtils.S3ProxyLaunchInfo info = TestUtils.startS3Proxy(
                 "s3proxy-cors-allow-all.conf");
         var creds = AwsBasicCredentials.create(info.getS3Identity(),
@@ -114,6 +109,7 @@ public final class CrossOriginResourceSharingAllowAllResponseTest {
 
         containerName = createRandomContainerName();
         info.getBlobStore().createContainer(containerName);
+        TestUtils.allowAcls(info.getBlobStore(), containerName);
 
         s3Client.putBucketAcl(b -> b.bucket(containerName)
                 .acl(BucketCannedACL.PUBLIC_READ));
