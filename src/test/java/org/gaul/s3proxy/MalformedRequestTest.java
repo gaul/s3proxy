@@ -170,6 +170,57 @@ public final class MalformedRequestTest {
     }
 
     /**
+     * A copy source whose escapes are not UTF-8, or not escapes, is refused
+     * as S3 refuses it.  Decoded leniently it named the object spelled with
+     * U+FFFD instead, and copied that one where it existed.  Issue #201.
+     */
+    @Test
+    public void testCopySourceThatDoesNotDecode() throws Exception {
+        // what a lenient decoder makes of src%AE
+        assertThat(put(bucket + "/src%EF%BF%BD", "content").statusCode())
+                .isEqualTo(200);
+        var initiate = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + bucket +
+                        "/part-copy?uploads"))
+                        .POST(HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(initiate.statusCode()).isEqualTo(200);
+        String uploadId = initiate.body().replaceAll(
+                "(?s).*<UploadId>(.*)</UploadId>.*", "$1");
+
+        for (String source : List.of("/src%AE", "/src%C0%AF", "/src%ZZ",
+                "/src%", "/src%A", "/src%EF%BF%BD?versionId=%AE")) {
+            for (String target : List.of("/copy",
+                    "/part-copy?partNumber=1&uploadId=" + uploadId)) {
+                var copy = httpClient.send(
+                        HttpRequest.newBuilder(URI.create(baseUri + bucket +
+                                target))
+                                .header("x-amz-copy-source", bucket + source)
+                                .PUT(HttpRequest.BodyPublishers.noBody())
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertThat(copy.statusCode()).as("%s to %s", source, target)
+                        .isEqualTo(400);
+                assertThat(copy.body()).as("%s to %s", source, target)
+                        .contains("InvalidArgument")
+                        .contains("Invalid copy source encoding");
+            }
+        }
+
+        // while a source that does decode is still found
+        var copy = httpClient.send(
+                HttpRequest.newBuilder(URI.create(baseUri + bucket + "/copy"))
+                        .header("x-amz-copy-source",
+                                bucket + "/src%EF%BF%BD")
+                        .PUT(HttpRequest.BodyPublishers.noBody())
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(copy.statusCode()).isEqualTo(200);
+        assertThat(get(bucket + "/copy", "bytes=0-").body())
+                .isEqualTo("content");
+    }
+
+    /**
      * A Range that is not a range is ignored and the object served whole;
      * one that parses is served, or refused when it names no bytes.
      */

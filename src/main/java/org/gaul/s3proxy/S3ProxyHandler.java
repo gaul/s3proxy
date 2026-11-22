@@ -19,6 +19,7 @@ package org.gaul.s3proxy;
 import static java.util.Objects.requireNonNull;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,6 +27,9 @@ import java.io.PrintWriter;
 import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -4263,7 +4267,7 @@ public class S3ProxyHandler {
         if (!queryString.startsWith("versionId=")) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
-        String versionId = percentDecode(
+        String versionId = decodeCopySource(
                 queryString.substring("versionId=".length()));
         if (versionId.isEmpty()) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
@@ -4308,7 +4312,7 @@ public class S3ProxyHandler {
         String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         String sourceVersionId = parseCopySourceVersionId(rawCopySource,
                 blobStore);
-        String copySourceHeader = percentDecode(
+        String copySourceHeader = decodeCopySource(
                 stripCopySourceQuery(rawCopySource));
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
@@ -6163,7 +6167,7 @@ public class S3ProxyHandler {
         String rawCopySource = request.getHeader(AwsHttpHeaders.COPY_SOURCE);
         String sourceVersionId = parseCopySourceVersionId(rawCopySource,
                 blobStore);
-        String copySourceHeader = percentDecode(
+        String copySourceHeader = decodeCopySource(
                 stripCopySourceQuery(rawCopySource));
         if (copySourceHeader.startsWith("/")) {
             // Some clients like boto do not include the leading slash
@@ -7493,6 +7497,57 @@ public class S3ProxyHandler {
     private static String percentDecode(String value) {
         return URLDecoder.decode(value.replace("+", "%2B"),
                 StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Percent-decode an x-amz-copy-source, refusing what does not decode.
+     * The path of a request never arrives here undecodable, since Jetty has
+     * refused it; a header it passes along as it came.  URLDecoder puts
+     * U+FFFD wherever the escapes are not UTF-8, which names an object other
+     * than the one asked for, and one that may well exist.  S3 answers such
+     * a source, and an escape that is not two hex digits, with the error
+     * raised here.  Issue #201.
+     */
+    private static String decodeCopySource(String value) {
+        var bytes = new ByteArrayOutputStream(value.length());
+        int i = 0;
+        while (i < value.length()) {
+            char c = value.charAt(i);
+            if (c != '%') {
+                int end = value.indexOf('%', i);
+                if (end == -1) {
+                    end = value.length();
+                }
+                bytes.writeBytes(value.substring(i, end).getBytes(
+                        StandardCharsets.UTF_8));
+                i = end;
+                continue;
+            }
+            int high = i + 2 < value.length() ?
+                    Character.digit(value.charAt(i + 1), 16) : -1;
+            int low = i + 2 < value.length() ?
+                    Character.digit(value.charAt(i + 2), 16) : -1;
+            if (high == -1 || low == -1) {
+                throw invalidCopySourceEncoding(null);
+            }
+            bytes.write(high << 4 | low);
+            i += 3;
+        }
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes.toByteArray()))
+                    .toString();
+        } catch (CharacterCodingException cce) {
+            throw invalidCopySourceEncoding(cce);
+        }
+    }
+
+    private static S3ProxyException invalidCopySourceEncoding(
+            @Nullable Throwable cause) {
+        return new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                "Invalid copy source encoding", cause);
     }
 
     private static String encodeBlob(@Nullable String encodingType,
