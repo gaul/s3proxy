@@ -898,25 +898,6 @@ public class S3ProxyHandler {
 
         checkSupportedParameters(request);
 
-        // emit NotImplemented for unknown x-amz- headers
-        for (String headerName : Collections.list(request.getHeaderNames())) {
-            headerName = headerName.toLowerCase();
-            if (ignoreUnknownHeaders) {
-                continue;
-            }
-            if (!headerName.startsWith("x-amz-")) {
-                continue;
-            }
-            if (headerName.startsWith(USER_METADATA_PREFIX)) {
-                continue;
-            }
-            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
-                logger.error("Unknown header {} with URI {}",
-                        headerName, request.getRequestURI());
-                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
-            }
-        }
-
         AccessGrant grant = blobStoreLocator.locateBlobStore(
                 requestIdentity, path.length > 1 ? path[1] : null,
                 path.length > 2 ? path[2] : null);
@@ -1184,6 +1165,29 @@ public class S3ProxyHandler {
                         HexFormat.of().parseHex(pinnedSha256),
                         request.getContentLengthLong(),
                         S3ErrorCode.X_AMZ_CONTENT_S_H_A_256_MISMATCH);
+            }
+        }
+
+        // Emit NotImplemented for unknown x-amz- headers.  This comes after
+        // authentication so that a header the request did not sign is
+        // refused as that, 403, the way S3 refuses it, rather than as a
+        // feature the proxy lacks -- and so that only a caller who has
+        // authenticated learns which headers the proxy knows.
+        for (String headerName : Collections.list(request.getHeaderNames())) {
+            headerName = headerName.toLowerCase();
+            if (ignoreUnknownHeaders) {
+                continue;
+            }
+            if (!headerName.startsWith("x-amz-")) {
+                continue;
+            }
+            if (headerName.startsWith(USER_METADATA_PREFIX)) {
+                continue;
+            }
+            if (!SUPPORTED_X_AMZ_HEADERS.contains(headerName)) {
+                logger.error("Unknown header {} with URI {}",
+                        headerName, request.getRequestURI());
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             }
         }
 

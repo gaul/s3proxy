@@ -146,6 +146,24 @@ public final class UnsignedHeaderInjectionTest {
         assertThat(response.body()).contains("x-amz-acl");
     }
 
+    /**
+     * A header the proxy does not know is refused for being unsigned like
+     * any other, not answered NotImplemented: what was wrong with the
+     * request is that its signature does not cover it.  Verified against
+     * AWS, which answers 403 naming the header.
+     */
+    @Test
+    public void testPresignedUnknownHeaderRejectedAsUnsigned()
+            throws Exception {
+        HttpResponse<String> response = put(presign(),
+                "x-amz-malevolent", "evil-header");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).contains(
+                "<HeadersNotSigned>x-amz-malevolent</HeadersNotSigned>");
+        assertThat(read(dstContainer, DST_KEY)).isEqualTo(PLACEHOLDER);
+    }
+
     /** Used as signed, the very same URL still performs its one PUT. */
     @Test
     public void testPresignedUrlUsedAsSignedSucceeds() throws Exception {
