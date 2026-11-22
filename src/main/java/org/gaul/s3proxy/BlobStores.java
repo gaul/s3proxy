@@ -107,7 +107,7 @@ public final class BlobStores {
         }
         case "google-cloud-storage" -> {
             String eTagMode = property(properties,
-                    "s3proxy.google-cloud-storage.etag", "native");
+                    "s3proxy.google-cloud-storage.etag", "md5");
             yield new GCloudBlobStore(creds, endpoint, eTagMode);
         }
         case "openstack-swift" -> {

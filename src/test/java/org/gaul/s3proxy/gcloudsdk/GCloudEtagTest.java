@@ -94,7 +94,7 @@ public final class GCloudEtagTest {
     }
 
     @Test
-    public void testDefaultModeIsNative() {
+    public void testDefaultModeIsMd5() {
         var blob = BlobInfo.newBuilder(BlobId.of("bucket", "key"))
                 .setMd5(MD5_BASE64)
                 .build();
@@ -102,7 +102,7 @@ public final class GCloudEtagTest {
                 new Credentials("project", /*credential=*/ "")),
                 "http://127.0.0.1:1");
 
-        assertThat(store.reportETag(blob)).isEqualTo(blob.getEtag());
+        assertThat(store.reportETag(blob)).isEqualTo(MD5_HEX);
     }
 
     @Test

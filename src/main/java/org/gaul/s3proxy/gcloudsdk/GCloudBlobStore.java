@@ -195,7 +195,7 @@ public final class GCloudBlobStore implements BlobStore {
     public GCloudBlobStore(
             Supplier<Credentials> creds,
             String endpointUrl) {
-        this(creds, endpointUrl, /*eTagMode=*/ "native");
+        this(creds, endpointUrl, /*eTagMode=*/ "md5");
     }
 
     public GCloudBlobStore(
@@ -207,7 +207,7 @@ public final class GCloudBlobStore implements BlobStore {
         case "native" -> false;
         default -> throw new IllegalArgumentException(
                 "Invalid ETag mode: " + eTagMode + ".  Supported modes:" +
-                " native, md5");
+                " md5, native");
         };
         var cred = creds.get();
         var storageBuilder = StorageOptions.newBuilder();
