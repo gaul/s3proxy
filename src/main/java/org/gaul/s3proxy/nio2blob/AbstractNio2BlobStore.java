@@ -24,6 +24,7 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryIteratorException;
 import java.nio.file.DirectoryNotEmptyException;
@@ -45,6 +46,7 @@ import java.security.DigestInputStream;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -153,6 +155,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_CONTENT_TYPE = "content-type";
     private static final String XATTR_EXPIRES = "expires";
     private static final String XATTR_STORAGE_TIER = "storage-tier";
+    /**
+     * Marks an uploaded part that was written with holes, which joining the
+     * parts must copy the same way to keep.
+     */
+    private static final String XATTR_SPARSE = "sparse";
     private static final String XATTR_USER_METADATA_PREFIX =
             "user-metadata.";
     /**
@@ -204,6 +211,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // off the longest key segment the filesystem could hold.  Hidden from
     // list() and reserved from client keys, like the names above.
     private static final String TEMPORARY_DIR = ".s3proxy-tmp";
+    /**
+     * The granularity at which a write looks for zeros to leave as a hole:
+     * the block size of the filesystems that keep sparse files.
+     */
+    private static final int SPARSE_BLOCK_SIZE = 4096;
+    private static final int SPARSE_BUFFER_SIZE = 16 * SPARSE_BLOCK_SIZE;
+    private static final byte[] SPARSE_ZEROS = new byte[SPARSE_BLOCK_SIZE];
     private static final String XATTR_VERSION_ID = "version-id";
     private static final String XATTR_VERSION_KEY = "version-key";
     private static final String XATTR_DELETE_MARKER = "delete-marker";
@@ -1133,6 +1147,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // MD5 of an assembled multipart object, whose ETag is the digest
             // of the part digests that the caller already computed.
             HashCode actualHashCode = null;
+            long holes = 0;
             // Close the streams before doing xattr writes, setBlobAccess,
             // and Files.move: Windows refuses to atomically move a file
             // that still has an open OutputStream.
@@ -1142,8 +1157,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 var digest = MD5.newDigest();
                 try (var is = new DigestInputStream(
                         requireNonNull(blob.getPayload()), digest);
-                     var os = Files.newOutputStream(tmpPath)) {
-                    is.transferTo(os);
+                     var dst = Files.newByteChannel(tmpPath,
+                             StandardOpenOption.WRITE)) {
+                    holes = writeSparse(is, dst);
                 }
                 actualHashCode = HashCode.fromBytes(digest.digest());
                 var expectedHashCode = metadata.contentMD5();
@@ -1190,6 +1206,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
                     writeEncryptionAttr(view, blob);
+                    if (holes > 0 && blob.getMetadata().name().startsWith(
+                            MULTIPART_PREFIX)) {
+                        view.write(XATTR_SPARSE,
+                                ByteBuffer.wrap(new byte[] {1}));
+                    }
                     attributesStored = true;
                 } catch (IOException | UnsupportedOperationException e) {
                     attributeWriteFailed(tmpPath, e);
@@ -3496,6 +3517,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * which NFS and SMB can serve on the server rather than over the wire.
      * Where none of that holds the kernel still copies without the bytes
      * crossing into this process.
+     *
+     * <p>A part written with holes is the exception.  Sharing extents keeps
+     * them but the kernel's plain copy writes them out as zeros, and nothing
+     * here can tell which it got, so such a part is copied through this
+     * process, which skips its zeros again and has little else to copy.
      */
     private static void concatenate(List<Path> parts, Path tmpPath)
             throws IOException {
@@ -3505,6 +3531,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 try (var src = FileChannel.open(part, StandardOpenOption.READ)) {
                     long size = src.size();
                     long transferred = 0;
+                    if (safeGetXattrs(part).attributes()
+                            .contains(XATTR_SPARSE)) {
+                        writeSparse(Channels.newInputStream(src), dst);
+                        transferred = size;
+                    }
                     while (transferred < size) {
                         long count = src.transferTo(transferred,
                                 size - transferred, dst);
@@ -3525,6 +3556,71 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         " bytes from parts totalling " + position);
             }
         }
+    }
+
+    /**
+     * Writes a stream at the end of a file, seeking over the blocks that hold
+     * nothing but zeros rather than writing them.  A filesystem that keeps
+     * sparse files allocates nothing for what was skipped, so an object of
+     * zeros costs its length in neither disk nor write time; one that does
+     * not, Jimfs among them, fills the gap with the zeros it was spared and
+     * the file reads the same either way.  Issue #538.
+     *
+     * @return the number of bytes left as holes
+     */
+    static long writeSparse(InputStream is, SeekableByteChannel dst)
+            throws IOException {
+        var buffer = new byte[SPARSE_BUFFER_SIZE];
+        long position = dst.position();
+        // where the file ends so far: the end of the last bytes written
+        long written = position;
+        long holes = 0;
+        while (true) {
+            // Filled to the brim so that every block but the stream's last
+            // begins on a block boundary of the file.
+            int length = is.readNBytes(buffer, 0, buffer.length);
+            if (length == 0) {
+                break;
+            }
+            int offset = 0;
+            while (offset < length) {
+                // the run of blocks that are, or are not, all zeros
+                boolean zeros = isZeros(buffer, offset, length);
+                int end = offset;
+                do {
+                    end = Math.min(end + SPARSE_BLOCK_SIZE, length);
+                } while (end < length && isZeros(buffer, end, length) == zeros);
+                if (!zeros) {
+                    dst.position(position + offset);
+                    var run = ByteBuffer.wrap(buffer, offset, end - offset);
+                    while (run.hasRemaining()) {
+                        dst.write(run);
+                    }
+                    written = position + end;
+                } else {
+                    holes += end - offset;
+                }
+                offset = end;
+            }
+            position += length;
+            if (length < buffer.length) {
+                break;
+            }
+        }
+        if (written < position) {
+            // The file ends in a hole, which only a write beyond it makes
+            // part of the file.
+            dst.position(position - 1);
+            dst.write(ByteBuffer.wrap(new byte[1]));
+        }
+        return holes;
+    }
+
+    /** Whether the block starting at offset, cut short at limit, is zeros. */
+    private static boolean isZeros(byte[] buffer, int offset, int limit) {
+        int end = Math.min(offset + SPARSE_BLOCK_SIZE, limit);
+        return Arrays.mismatch(buffer, offset, end,
+                SPARSE_ZEROS, 0, end - offset) < 0;
     }
 
     /**
