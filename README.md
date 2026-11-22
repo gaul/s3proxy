@@ -34,14 +34,19 @@ produces a binary at `target/s3proxy`.  S3Proxy requires Java 17 or newer to
 run.
 
 Configure S3Proxy via a properties file.  An example using the local
-file system as the storage backend with anonymous access:
+file system as the storage backend:
 
 ```
-s3proxy.authorization=none
+s3proxy.authorization=aws-v4
+s3proxy.identity=local-identity
+s3proxy.credential=local-credential
 s3proxy.endpoint=http://127.0.0.1:8080
 jclouds.provider=filesystem
 jclouds.filesystem.basedir=/tmp/s3proxy
 ```
+
+Clients sign their requests with `s3proxy.identity` and `s3proxy.credential`
+as the access key and secret key.
 
 First create the filesystem basedir:
 
@@ -65,58 +70,13 @@ java -jar s3proxy --properties s3proxy.conf
 Finally test by creating a bucket then listing all the buckets:
 
 ```
-$ curl --request PUT http://localhost:8080/testbucket
+$ curl --aws-sigv4 aws:amz:us-east-1:s3 --user local-identity:local-credential \
+    --request PUT http://localhost:8080/testbucket
 
-$ curl http://localhost:8080/
+$ curl --aws-sigv4 aws:amz:us-east-1:s3 --user local-identity:local-credential \
+    http://localhost:8080/
 <?xml version='1.0' encoding='UTF-8'?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>75aa57f09aa0c8caeab4f8c24e99d10f8e7faeebf76c078efc7c6caea54ba06a</ID><DisplayName>CustomersName@amazon.com</DisplayName></Owner><Buckets><Bucket><Name>testbucket</Name><CreationDate>2015-08-05T22:16:24.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>
 ```
-
-## Authentication
-
-`s3proxy.authorization` says how S3Proxy verifies the clients that connect to
-it:
-
-| value | requests accepted |
-| --- | --- |
-| `none` | every request, without checking a signature |
-| `aws-v2` | those signed with AWS Signature Version 2 |
-| `aws-v4` | those signed with AWS Signature Version 4; the Docker image's default |
-| `aws-v2-or-v4` | those signed with either |
-
-With any value but `none`, `s3proxy.identity` and `s3proxy.credential` are the
-access key and secret key that clients sign their requests with.  They are
-S3Proxy's own and can be any strings: S3Proxy checks each signature against
-them itself and asks no other service.  They are unrelated to
-`jclouds.identity` and `jclouds.credential`, with which S3Proxy signs its own
-requests to the storage backend, so clients never hold the backend's
-credentials.
-
-```
-s3proxy.authorization=aws-v4
-s3proxy.identity=local-identity
-s3proxy.credential=local-credential
-s3proxy.endpoint=http://127.0.0.1:8080
-jclouds.provider=aws-s3
-jclouds.identity=AKIAIOSFODNN7EXAMPLE
-jclouds.credential=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-```
-
-A client of this configuration uses the first pair, not the second:
-
-```
-$ export AWS_ACCESS_KEY_ID=local-identity
-$ export AWS_SECRET_ACCESS_KEY=local-credential
-$ aws --endpoint-url http://127.0.0.1:8080 s3 ls
-```
-
-The Docker image sets `S3PROXY_IDENTITY` and `S3PROXY_CREDENTIAL` to
-`local-identity` and `local-credential`, which a deployment should replace.
-
-A request that carries no signature at all is anonymous rather than refused,
-and reaches only what an ACL makes public, such as an object written with
-the `public-read` ACL.  A signed request whose date differs from S3Proxy's
-clock by more than `s3proxy.maximum-timeskew` seconds, 900 by default, is
-refused.
 
 ## Usage with Java
 
