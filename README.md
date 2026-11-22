@@ -114,6 +114,10 @@ read -- environment, profile, container, and instance role for `aws-s3`,
 `DefaultAzureCredential` for `azureblob`, and application default credentials
 for `google-cloud-storage` -- every one of which renews what it finds.
 
+`azureblob` reads its endpoint from `jclouds.endpoint`.  Left unset, it uses
+`https://ACCOUNT.blob.core.windows.net` for the storage account that
+`jclouds.identity` names, and refuses to start when the identity names none.
+
 A Microsoft Entra access token that the application obtained itself, for
 example from a sidecar or a token broker that `DefaultAzureCredential` cannot
 read, also goes in `jclouds.session-token`, with `s3proxy.azureblob.auth=bearer`

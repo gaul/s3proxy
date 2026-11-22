@@ -39,6 +39,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 
 import com.azure.core.credential.AccessToken;
 import com.azure.core.credential.AzureNamedKeyCredential;
@@ -239,6 +240,10 @@ public final class AzureBlobStore implements BlobStore {
             /*retryDelayInMs=*/ null, /*maxRetryDelayInMs=*/ null,
             /*secondaryHost=*/ null);
 
+    /** What Azure allows a storage account to be named. */
+    private static final Pattern ACCOUNT_NAME =
+            Pattern.compile("[a-z0-9]{3,24}");
+
     private final BlobServiceClient blobServiceClient;
     private final BlobBatchClient blobBatchClient;
     private final BlobServiceAsyncClient blobServiceAsyncClient;
@@ -354,11 +359,8 @@ public final class AzureBlobStore implements BlobStore {
                 "Invalid ETag mode: " + eTagMode + ".  Supported modes:" +
                 " opaque, native");
         };
-        // TODO: derive endpoint from Constants.PROPERTY_ENDPOINT when unset,
-        // e.g., default to https://<account>.blob.core.windows.net based on
-        // the configured identity.
-        this.endpoint = endpointUrl;
         var cred = creds.get();
+        this.endpoint = resolveEndpoint(endpointUrl, cred);
         var blobServiceClientBuilder = new BlobServiceClientBuilder()
                 // The oldest version that carries startFrom on List Blobs,
                 // which list depends on.  Pinned rather than left at the
@@ -408,6 +410,31 @@ public final class AzureBlobStore implements BlobStore {
         blobServiceAsyncClient = blobServiceClientBuilder.buildAsyncClient();
         blobBatchClient = new BlobBatchClientBuilder(blobServiceClient)
                 .buildClient();
+    }
+
+    /**
+     * The endpoint to reach: the one configured, or, with none, the public
+     * cloud's for the storage account that the identity names.  An identity
+     * that could not be an account name -- absent, as when a token or
+     * DefaultAzureCredential authenticates, or naming something else --
+     * leaves nothing to derive one from, which is said here rather than
+     * left to the Azure client, whose complaint that the URL is malformed
+     * names neither the setting nor a remedy.  Issue #469.
+     */
+    static String resolveEndpoint(@Nullable String endpointUrl,
+            Credentials cred) {
+        if (!Strings.isNullOrEmpty(endpointUrl)) {
+            return endpointUrl;
+        }
+        String account = cred.identity();
+        if (!ACCOUNT_NAME.matcher(account).matches()) {
+            throw new IllegalArgumentException("azureblob needs an" +
+                    " endpoint, such as jclouds.endpoint=" +
+                    "https://ACCOUNT.blob.core.windows.net: none is" +
+                    " configured and the identity does not name a storage" +
+                    " account to derive one from");
+        }
+        return "https://" + account + ".blob.core.windows.net";
     }
 
     /**
