@@ -23,7 +23,7 @@ authenticates to the SFTP server with `jclouds.identity` and
 Example:
 
 ```
-s3proxy.authorization=aws-v2-or-v4
+s3proxy.authorization=aws-v4
 s3proxy.endpoint=http://127.0.0.1:8080
 s3proxy.identity=local-identity
 s3proxy.credential=local-credential

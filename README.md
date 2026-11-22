@@ -80,8 +80,8 @@ it:
 | --- | --- |
 | `none` | every request, without checking a signature |
 | `aws-v2` | those signed with AWS Signature Version 2 |
-| `aws-v4` | those signed with AWS Signature Version 4 |
-| `aws-v2-or-v4` | those signed with either; the Docker image's default |
+| `aws-v4` | those signed with AWS Signature Version 4; the Docker image's default |
+| `aws-v2-or-v4` | those signed with either |
 
 With any value but `none`, `s3proxy.identity` and `s3proxy.credential` are the
 access key and secret key that clients sign their requests with.  They are
@@ -92,7 +92,7 @@ requests to the storage backend, so clients never hold the backend's
 credentials.
 
 ```
-s3proxy.authorization=aws-v2-or-v4
+s3proxy.authorization=aws-v4
 s3proxy.identity=local-identity
 s3proxy.credential=local-credential
 s3proxy.endpoint=http://127.0.0.1:8080
