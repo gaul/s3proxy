@@ -3,7 +3,6 @@
 [![Github All Releases](https://img.shields.io/github/downloads/gaul/s3proxy/total.svg)](https://github.com/gaul/s3proxy/releases/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/andrewgaul/s3proxy.svg)](https://hub.docker.com/r/andrewgaul/s3proxy/)
 [![Maven Central](https://img.shields.io/maven-central/v/org.gaul/s3proxy.svg)](https://search.maven.org/#search%7Cga%7C1%7Ca%3A%22s3proxy%22)
-[![Twitter Follow](https://img.shields.io/twitter/follow/S3Proxy.svg?style=social&label=Follow)](https://twitter.com/S3Proxy)
 
 S3Proxy implements the
 [S3 API](https://en.wikipedia.org/wiki/Amazon_S3#S3_API_and_competing_services)
@@ -46,7 +45,8 @@ jclouds.filesystem.basedir=/tmp/s3proxy
 ```
 
 Clients sign their requests with `s3proxy.identity` and `s3proxy.credential`
-as the access key and secret key.
+as the access key and secret key.  Settings for the storage backend start
+with `jclouds.`, a prefix kept from when S3Proxy was built on Apache jclouds.
 
 First create the filesystem basedir:
 
@@ -125,29 +125,14 @@ for `google-cloud-storage` -- every one of which renews what it finds.
 `https://ACCOUNT.blob.core.windows.net` for the storage account that
 `jclouds.identity` names, and refuses to start when the identity names none.
 
-A Microsoft Entra access token that the application obtained itself, for
-example from a sidecar or a token broker that `DefaultAzureCredential` cannot
-read, also goes in `jclouds.session-token`, with `s3proxy.azureblob.auth=bearer`
-saying that it is a bearer token rather than a shared access signature.  The
-other values of `s3proxy.azureblob.auth` are `sas`, `key` and `default`.  When
-the property is not set, the store uses `sas` if there is a session token,
-`key` if there are an identity and a credential, and `default` otherwise.
-S3Proxy asks the supplier for a bearer token again on every request, as it
-does for a signature, and does not renew it: the supplier must always return
-one that is still valid.  The endpoint must be https, since the Azure client
-refuses to send a bearer token over http.  Server-side copies sign their
-source with a user delegation key, so the token's principal needs a role that
-includes `generateUserDelegationKey`, such as Storage Blob Delegator; without
-it reads and writes succeed but copies fail.
-
-S3Proxy 3.x reached Microsoft Entra through jclouds, and its
-`jclouds.azureblob.auth=azureAd` is no longer read.  By default it took a
-client id and secret in `jclouds.identity` and `jclouds.credential` and
-fetched and renewed tokens itself; that setup moves to `default`, where
-`DefaultAzureCredential` does the same from `AZURE_TENANT_ID`,
-`AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`.  `bearer` replaces only the setup
-in which `jclouds.oauth.credential-type` was overridden so that the
-application supplied the access token itself.
+`s3proxy.azureblob.auth` says how `azureblob` authenticates: `sas`, `key`,
+`default` for `DefaultAzureCredential`, or `bearer` for a Microsoft Entra
+access token the application supplies in `jclouds.session-token`.  When it is
+not set, the store uses `sas` if there is a session token, `key` if there are
+an identity and a credential, and `default` otherwise.  The wiki covers
+[Azure authentication](https://github.com/gaul/s3proxy/wiki/Azure-authentication)
+in more depth, including what a bearer token needs and how to move from
+S3Proxy 3.x's `jclouds.azureblob.auth=azureAd`.
 
 Three credentials are read only when the store is built, because nothing
 about them expires: an Azure account key, which the client copies out when it
@@ -155,6 +140,17 @@ is created; a Google service account key, which mints and renews access
 tokens of its own; and the `sftp` password, presented once when the
 connection opens.  `openstack-swift` re-reads the supplier whenever the
 Keystone token it holds nears its expiry.
+
+## Backend settings
+
+A few settings change how a backend answers:
+
+| setting | effect |
+| --- | --- |
+| `s3proxy.aws-s3.conditional-writes=emulated` | emulate conditional writes for an S3-compatible endpoint that does not implement them |
+| `s3proxy.azureblob.versioning=true` | turn on S3 versioning, for a storage account whose blob versioning is enabled out of band |
+| `s3proxy.azureblob.etag=native` | report Azure's bare ETag, as releases before 4.0.0 did, instead of one that S3 clients accept |
+| `s3proxy.google-cloud-storage.etag=native` | report GCS's bare ETag, as releases before 4.3.0 did, instead of the object's MD5 |
 
 ## Assigning buckets to backends
 
@@ -227,7 +223,7 @@ Some limits apply:
 * A bucket assigned to one identity's backend is refused to every other
   identity.
 * When two backends hold a bucket of the same name, the
-  [alias middleware](https://github.com/gaul/s3proxy/wiki/Middleware-bucket-locator)
+  [alias middleware](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
   gives each a distinct name.
 
 ## Middlewares
@@ -235,22 +231,22 @@ Some limits apply:
 S3Proxy can modify its behavior based on middlewares:
 
 * [bucket aliasing](https://github.com/gaul/s3proxy/wiki/Middleware-alias-blobstore)
+* [bucket locator](#assigning-buckets-to-backends)
 * [bucket prefix scoping](https://github.com/gaul/s3proxy/wiki/Middleware-prefix-blobstore)
-* [bucket locator](https://github.com/gaul/s3proxy/wiki/Middleware-bucket-locator)
 * [encryption](https://github.com/gaul/s3proxy/wiki/Middleware-encryption)
 * [eventual consistency modeling](https://github.com/gaul/s3proxy/wiki/Middleware---eventual-consistency)
 * [large object mocking](https://github.com/gaul/s3proxy/wiki/Middleware-large-object-mocking)
 * [latency](https://github.com/gaul/s3proxy/wiki/Middleware-latency)
+* [no cache override](https://github.com/gaul/s3proxy/wiki/Middleware-no-cache)
 * [read-only](https://github.com/gaul/s3proxy/wiki/Middleware-read-only)
 * [regex rename blobs](https://github.com/gaul/s3proxy/wiki/Middleware-regex)
 * [sharded backend containers](https://github.com/gaul/s3proxy/wiki/Middleware-sharded-backend)
 * [storage class override](https://github.com/gaul/s3proxy/wiki/Middleware-storage-class-override)
 * [user metadata replacer](https://github.com/gaul/s3proxy/wiki/Middleware-user-metadata-replacer)
-* [no cache override](https://github.com/gaul/s3proxy/wiki/Middleware-no-cache)
 
 ## SSL Support
 
-S3Proxy can listen on HTTPS by setting the `secure-endpoint` and [configuring a keystore](http://wiki.eclipse.org/Jetty/Howto/Configure_SSL#Generating_Keys_and_Certificates_with_JDK_keytool). You can read more about how configure S3Proxy for SSL Support in [the dedicated wiki page](https://github.com/gaul/s3proxy/wiki/SSL-support) with Docker, Kubernetes or simply Java.
+S3Proxy can listen on HTTPS by setting `s3proxy.secure-endpoint` and a keystore.  The [wiki](https://github.com/gaul/s3proxy/wiki/SSL-support) explains how to create the keystore and configure HTTPS with Docker, Kubernetes, or plain Java.
 
 ## Access log
 
@@ -277,6 +273,25 @@ durations and the bytes received and sent, by S3 operation, bucket, and
 status.  Set `s3proxy.metrics.enabled=true`; the wiki has
 [details](https://github.com/gaul/s3proxy/wiki/Metrics).
 
+## CORS
+
+S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
+file (and corresponding ENV variables for Docker):
+
+```
+s3proxy.cors-allow-origins=https://example\.com https://.+\.example\.com https://example\.cloud
+s3proxy.cors-allow-methods=GET PUT
+s3proxy.cors-allow-headers=Accept Content-Type
+s3proxy.cors-allow-credential=true
+```
+
+CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
+Actual CORS requests are supported for GET, PUT, POST, HEAD and DELETE methods.
+Cross-origin sharing is opt-in: a proxy with no CORS configuration, including
+one built through `S3Proxy.Builder` without `corsRules`, shares nothing.
+Responses that depend on the request `Origin` carry `Vary: Origin` so that
+shared caches do not serve one origin's response to another.
+
 ## Limitations
 
 S3Proxy has broad compatibility with the S3 API, however, it does not support:
@@ -290,7 +305,7 @@ S3Proxy has broad compatibility with the S3 API, however, it does not support:
 * bucket policies
 * bucket policy status
 * bucket replication
-* [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration (see below).
+* [CORS bucket operations](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors) like getting or setting the CORS configuration for a bucket. S3Proxy only supports a static configuration, see [CORS](#cors).
 * hosting static websites
 * object tagging
 * paginating ListParts with `part-number-marker`
@@ -330,149 +345,10 @@ Some limitations depend on the storage backend:
 | no server-side encryption, by design or for want of a service analog | `filesystem`, `openstack-swift`, `sftp` |
 | SSE-S3 only: AES256 relayed from Azure's own at-rest encryption; SSE-C ([#1135](https://github.com/gaul/s3proxy/issues/1135)) and SSE-KMS refused | `azureblob` |
 
-The backends that do version objects come by it differently.  `aws-s3`
-passes the requests through to a service that already versions, while
-`google-cloud-storage` translates S3 versioning onto GCS object generations,
-emulating delete markers as zero-byte generations; because GCS versioning is
-simply on or off, it refuses the Suspended state.  `transient` implements
-versioning itself, keeping every version but the current one as a hidden
-object.  `filesystem` shares that implementation and declines it: its versions
-would outlive the process, settling a layout on disk that S3Proxy would owe
-its users from then on.  `azureblob` maps onto Azure's own blob versioning,
-which is turned on per storage account on the management plane (ARM) and
-cannot be read or set through the data-plane SDK -- so it is opt-in through
-`s3proxy.azureblob.versioning=true`, by which the operator asserts the account
-has versioning on.  Azure keeps no delete markers, so, as
-`google-cloud-storage` does, a versioned delete writes an empty blob tagged as
-one, and a key whose current version is deleted by id reads as its newest
-remaining version.  Versioning cannot be suspended per bucket.  Every bucket
-reports Enabled, never unversioned: Azure keeps a version of every write in
-the account whatever S3 is told, and S3Proxy deletes none of the versions it
-keeps behind the caller's back, so an account versioned for data protection
-keeps that protection.  PutBucketVersioning with Suspended answers
-NotImplemented.  A blob written before the account was versioned has no
-Azure version id and reads as S3's null version, but only until it is
-first overwritten: Azure then keeps its content as a version under an id
-of its own, which S3Proxy cannot tell from one written while versioned,
-so that content is listed and read by that id, not as null.
-
-Versioning on `azureblob` costs requests beyond the one each operation makes:
-a copy reads its source's properties first; a write carrying If-Match, or
-If-None-Match: \*, reads the key's current version; a read of a key whose
-current version was deleted by id lists that key's versions; completing or
-aborting a multipart upload lists and deletes its stub's versions; and a
-batch delete becomes one request per key, so that each can leave its delete
-marker.  Plain writes and reads cost nothing extra.
-
-Server-side encryption divides `aws-s3` and `transient` from most of the
-rest, and divides the nio2 stores on the same line.  `aws-s3` forwards the header families --
-SSE-S3, SSE-KMS and SSE-C alike -- to a service that encrypts, while
-`transient` answers them itself: what it holds rests in a filesystem that
-dies with the process, so an object's encryption is the headers and nothing
-besides, which is all S3 lets a caller observe of SSE-S3 anyway.  SSE-C has
-an observable half beyond the headers -- an object stored under a customer's
-key answers only to that key -- and `transient` enforces it, keeping the
-key's MD5 and never the key.  Unlike S3, S3Proxy accepts SSE-C over plain
-HTTP, its TLS commonly terminating elsewhere.  `filesystem` writes to a real
-disk, where reporting AES256 over plaintext someone could go and read would
-be a claim S3Proxy has no business making, so it refuses every one of these
-headers instead.  `azureblob` stands halfway in: Azure encrypts everything
-at rest and says so on each response, which the store relays as SSE-S3 --
-an object's AES256 is Azure's answer, not S3Proxy's assertion -- while
-SSE-C and SSE-KMS are refused rather than silently accepted.
-
-Bucket default encryption, the `?encryption` subresource, rides the same
-divide.  `aws-s3` passes the configuration through, `transient` keeps it and
-rests unadorned writes under it -- a write naming its own encryption still
-wins -- and every other backend answers NotImplemented.  A bucket never
-given a configuration answers the 404 S3 spells
-ServerSideEncryptionConfigurationNotFoundError rather than the account-wide
-AES256 default modern AWS invents, which is also what the Ceph s3-tests
-expect of it.
-
-The `filesystem` backend stores a key as a path, so on Windows a key
-holding a backslash is refused with 400 InvalidArgument.  Windows reads
-that character as a directory separator and no file name can hold one, so
-the key `back\slash.txt` would come back from a listing as
-`back/slash.txt` and answer for whoever wrote *that* key instead --
-two S3 keys on one object.  Keys are spelled with forward slashes on every
-host, whatever the filesystem underneath.
-
-The `filesystem` backend keeps a canned ACL in the POSIX permission bits of
-the file or directory.  A file system without them, NTFS for one, has
-nowhere to keep it: a request that sets `public-read` succeeds and the
-bucket or object stays private.
-
-`aws-s3`, `azureblob` and `google-cloud-storage` copy a part on the server,
-in one request and without the bytes passing through S3Proxy.  Only
-`google-cloud-storage` falls back to streaming it, for a range covering less
-than the whole object, which GCS cannot copy server-side.
-
-Azure mints ETags like `0x8DD3F4A5F0B2C1E`, which S3 SDKs decode as hex and
-abort the request when they cannot -- the AWS SDK for .NET raises
-`ArgumentOutOfRangeException (Parameter 'hex')` and the one for Java reports
-`Input is expected to be encoded in multiple of 2 bytes`.  `azureblob`
-therefore reports it under the `-1` suffix S3 gives an object assembled from
-parts, which every client already treats as a value not to verify, and takes
-the suffix off again when a conditional request names one.  The ETag remains
-opaque either way: it is not the object's MD5 and nothing can check the
-object against it.  Set `s3proxy.azureblob.etag=native` to report the bare
-Azure ETag, as releases before 4.0.0 did.
-
-GCS mints base64 ETags like `CISRiZr8lZgDEAE=`, which the AWS SDK for .NET
-decodes as hex on every GetObject and rejects with `FormatException:
-Additional non-parsable characters are at the end of the string`.
-`google-cloud-storage` therefore reports the object's MD5 in hex instead, as
-S3 does, so clients keep verifying downloads.  A composed object, such as one
-completed from a multipart upload, has no MD5 in GCS and reports its ETag
-hex-encoded under the `-1` suffix, which clients do not verify.  Conditional
-requests are evaluated against the reported value.  Set
-`s3proxy.google-cloud-storage.etag=native` to report the bare GCS ETag, as
-releases before 4.3.0 did.
-
-`aws-s3`, `azureblob` and `google-cloud-storage` perform a conditional PUT on
-the backend.  The `filesystem` and `transient` backends resolve
-`If-None-Match` as they write and emulate `If-Match` within a single S3Proxy
-process, so it does not hold against another writer.  Where a backend cannot
-do either, a conditional PUT is refused rather than emulated, since emulating
-it would mean a read followed by a write -- which answers correctly only when
-nothing else is writing that key, and a conditional PUT is asked for
-precisely because something might be.  Set
-`s3proxy.aws-s3.conditional-writes=emulated` for an S3-compatible endpoint
-that does not implement conditional writes itself.
-
-`aws-s3` also deletes conditionally on the backend -- `If-Match`,
-`x-amz-if-match-size`, and `x-amz-if-match-last-modified-time`, on
-DeleteObject and DeleteObjects alike -- and the backend decides what it
-honors: Amazon general purpose buckets accept only `If-Match`, directory
-buckets all three.  `azureblob` conditions a delete on `If-Match` alone and
-refuses the other two.  The `filesystem` and `transient` backends compare all
-three against their own metadata, and `sftp` all but a condition naming
-an ETag, with the same single-process bound as their emulated `If-Match`
-put.  A conditional delete of an absent object succeeds like an
-unconditional one, as Ceph RGW answers it.  Other backends refuse
-conditional deletes.
-
-S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
-file (and corresponding ENV variables for Docker):
-
-```
-s3proxy.cors-allow-origins=https://example\.com https://.+\.example\.com https://example\.cloud
-s3proxy.cors-allow-methods=GET PUT
-s3proxy.cors-allow-headers=Accept Content-Type
-s3proxy.cors-allow-credential=true
-```
-
-CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
-Actual CORS requests are supported for GET, PUT, POST, HEAD and DELETE methods.
-Cross-origin sharing is opt-in: a proxy with no CORS configuration, including
-one built through `S3Proxy.Builder` without `corsRules`, shares nothing.
-Responses that depend on the request `Origin` carry `Vary: Origin` so that
-shared caches do not serve one origin's response to another.
-
-The wiki collects
-[compatibility notes](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)
-for specific storage backends.
+The wiki explains
+[how each backend behaves](https://github.com/gaul/s3proxy/wiki/Storage-backend-compatibility)
+in more depth: versioning, server-side encryption, ETags, conditional writes
+and deletes, and the `filesystem` backend on Windows.
 
 ## Support
 
@@ -482,13 +358,10 @@ for specific storage backends.
 
 ## References
 
-* [Ceph s3-tests](https://github.com/ceph/s3-tests) help maintain and improve compatibility with the S3 API
-* [fake-s3](https://github.com/jubos/fake-s3), [gofakes3](https://github.com/johannesboyne/gofakes3), [minio](https://github.com/minio/minio), [S3 ninja](https://github.com/scireum/s3ninja), and [s3rver](https://github.com/jamhall/s3rver) provide functionality similar to S3Proxy when using the filesystem backend
-* [GlacierProxy](https://github.com/bouncestorage/glacier-proxy) and [SwiftProxy](https://github.com/bouncestorage/swiftproxy) provide similar functionality for the Amazon Glacier and OpenStack Swift APIs
+* [Ceph s3-tests](https://github.com/ceph/ceph/tree/main/src/test/rgw/s3-tests) help maintain and improve compatibility with the S3 API
+* [gofakes3](https://github.com/johannesboyne/gofakes3), [minio](https://github.com/minio/minio), and [S3 ninja](https://github.com/scireum/s3ninja) provide functionality similar to S3Proxy when using the filesystem backend
 * [s3mock](https://github.com/adobe/S3Mock) - Adobe's s3 mock implementation
 * [s3proxy-chart](https://github.com/comet-ml/s3proxy-chart) - Helm chart for deploying S3Proxy
-* [sbt-s3](https://github.com/localytics/sbt-s3) runs S3Proxy via the Scala Build Tool
-* [swift3](https://github.com/openstack/swift3) provides an S3 middleware for OpenStack Swift
 * [Zenko](https://www.zenko.io/) provide similar multi-cloud functionality
 
 ## License
