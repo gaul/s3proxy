@@ -1799,6 +1799,14 @@ public final class AzureBlobStore implements BlobStore {
         if (haveSourceConditions) {
             azureOptions.setSourceRequestConditions(sourceConditions);
         }
+        // If-Match and If-None-Match guard the destination, judged by the
+        // request that writes it, as on a put.
+        BlobRequestConditions destinationConditions = writeConditions(
+                client, request.ifMatch(), request.ifNoneMatch());
+        if (destinationConditions != null) {
+            azureOptions.setDestinationRequestConditions(
+                    destinationConditions);
+        }
 
         try {
             var response = client.uploadFromUrlWithResponse(
@@ -1823,6 +1831,10 @@ public final class AzureBlobStore implements BlobStore {
                     !containerExists(request.destinationBucket())) {
                 throw S3Exceptions.noSuchBucket(
                         request.destinationBucket(), "", bse);
+            }
+            if (isMissingDestination(bse, request)) {
+                throw S3Exceptions.noSuchKey(request.destinationBucket(),
+                        request.destinationKey(), "", bse);
             }
             if (bse.getStatusCode() != 501) {
                 throw translate(bse, fromContainer, fromName,
@@ -1873,6 +1885,10 @@ public final class AzureBlobStore implements BlobStore {
                     copyOptions.setSourceRequestConditions(
                             copySourceConditions);
                 }
+                if (destinationConditions != null) {
+                    copyOptions.setDestinationRequestConditions(
+                            destinationConditions);
+                }
                 client.beginCopy(copyOptions).waitForCompletion();
                 if (replace) {
                     client.setHttpHeaders(headers);
@@ -1888,10 +1904,32 @@ public final class AzureBlobStore implements BlobStore {
                         .versionId(properties.getVersionId())
                         .build();
             } catch (BlobStorageException bse2) {
+                if (isMissingDestination(bse2, request)) {
+                    throw S3Exceptions.noSuchKey(request.destinationBucket(),
+                            request.destinationKey(), "", bse2);
+                }
                 throw translate(bse2, fromContainer, fromName,
                         request.sourceVersionId());
             }
         }
+    }
+
+    /**
+     * Whether a copy's If-Match failed for want of a destination.  Azure
+     * refuses the write whether the ETag differed or nothing was there to
+     * carry one, where S3 answers the second 404, as translateWrite tells
+     * apart for a put.  A source condition fails under a code of its own.
+     */
+    private boolean isMissingDestination(BlobStorageException bse,
+            CopyObjectRequest request) {
+        if (request.ifMatch() == null) {
+            return false;
+        }
+        var code = bse.getErrorCode();
+        return (BlobErrorCode.CONDITION_NOT_MET.equals(code) ||
+                BlobErrorCode.TARGET_CONDITION_NOT_MET.equals(code)) &&
+                !blobExists(request.destinationBucket(),
+                        request.destinationKey());
     }
 
     @Override

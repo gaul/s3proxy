@@ -106,6 +106,17 @@ public final class Quirks {
     );
 
     /**
+     * Blobstores whose copyBlob judges If-Match and If-None-Match against
+     * the destination in the request that writes it.  Swift's copy takes
+     * neither.
+     */
+    public static final Set<String> NATIVE_CONDITIONAL_COPY = Set.of(
+            "aws-s3",
+            "azureblob",
+            "google-cloud-storage"
+    );
+
+    /**
      * Blobstores whose completeMultipartUpload evaluates the conditional
      * headers itself.  This is not the same set as for a plain put: Swift's
      * manifest PUT only honours If-None-Match: *, so it cannot answer a

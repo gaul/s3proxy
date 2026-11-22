@@ -171,7 +171,13 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     # this passes depends on whether the threads overlap.  Neither expecting
     # a pass nor expecting a failure describes it, which is what a marker
     # would have to do.
+    #
+    # LocalStack refuses a CopyObject whose If-Match fails, 412, and on an
+    # unversioned bucket overwrites the destination's content anyway, as it
+    # does when asked directly.  The parametrized test passes on a versioned
+    # bucket and fails on the other, which one marker cannot say either.
     deselect_by_name="not test_versioning_concurrent_multi_object_delete"
+    deselect_by_name+=" and not test_copy_object_dest_if_match"
 elif [ "${S3PROXY_CONF}" = "s3proxy-filesystem.conf" ] ||
         [ "${S3PROXY_CONF}" = "s3proxy.conf" ]; then
     # s3proxy.conf defaults to the transient backend.

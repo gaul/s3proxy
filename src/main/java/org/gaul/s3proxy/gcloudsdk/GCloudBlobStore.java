@@ -1303,6 +1303,11 @@ public final class GCloudBlobStore implements BlobStore {
             targetOptions.add(BlobTargetOption.predefinedAcl(
                     Storage.PredefinedAcl.PUBLIC_READ));
         }
+        // If-Match and If-None-Match guard the destination, pinned to the
+        // generation the check saw so the copy cannot replace another.
+        targetOptions.addAll(destinationConditions(
+                request.destinationBucket(), request.destinationKey(),
+                request.ifMatch(), request.ifNoneMatch()));
 
         try {
             var copyBuilder = CopyRequest.newBuilder()
@@ -1328,6 +1333,48 @@ public final class GCloudBlobStore implements BlobStore {
         } catch (StorageException se) {
             throw translate(se, fromContainer, fromName);
         }
+    }
+
+    /**
+     * The conditions a copy or a multipart publish places on the key it is
+     * about to write, enforced as on a plain put: the check resolves the
+     * current object and the write pins its generation, so a concurrent
+     * change fails the write rather than being clobbered.  If-Match: *
+     * never arrives -- the frontend resolves existence and clears it -- so
+     * only named ETags and If-None-Match do.
+     */
+    private List<BlobTargetOption> destinationConditions(String container,
+            String key, @Nullable String ifMatch,
+            @Nullable String ifNoneMatch) {
+        var conditionOptions = new java.util.ArrayList<BlobTargetOption>();
+        if (ifMatch == null && ifNoneMatch == null) {
+            return conditionOptions;
+        }
+        Blob current = storage.get(BlobId.of(container, key));
+        if (ifMatch != null) {
+            if (current == null || isDeleteMarker(current)) {
+                throw S3Exceptions.noSuchKey(container, key, "");
+            }
+            if (!maybeQuoteETag(ifMatch).equals(
+                    maybeQuoteETag(reportETag(current)))) {
+                throw preconditionFailed(reportETag(current));
+            }
+        }
+        if (ifNoneMatch != null && current != null &&
+                !isDeleteMarker(current) &&
+                (ifNoneMatch.equals("*") ||
+                        maybeQuoteETag(ifNoneMatch).equals(
+                                maybeQuoteETag(reportETag(current))))) {
+            throw preconditionFailed(reportETag(current));
+        }
+        // A live object -- a delete marker included, which counts as
+        // absent but still holds the key's generation -- pins the write to
+        // what the checks saw; nothing at all requires the key to still be
+        // empty.
+        conditionOptions.add(current != null ?
+                BlobTargetOption.generationMatch(current.getGeneration()) :
+                BlobTargetOption.doesNotExist());
+        return conditionOptions;
     }
 
     /**
@@ -1928,42 +1975,9 @@ public final class GCloudBlobStore implements BlobStore {
             targetBuilder.setMetadata(userMetadata);
         }
 
-        // The publish conditions, enforced as on a plain put: the check
-        // resolves the current object and the write pins its generation, so
-        // a concurrent change fails the publish rather than being clobbered.
-        // If-Match: * never arrives -- the frontend resolves existence and
-        // clears it -- so only named ETags and If-None-Match do.
-        var conditionOptions = new java.util.ArrayList<BlobTargetOption>();
-        String ifMatch = request.ifMatch();
-        String ifNoneMatch = request.ifNoneMatch();
-        if (ifMatch != null || ifNoneMatch != null) {
-            Blob current = storage.get(
-                    BlobId.of(mpu.containerName(), targetBlobName));
-            if (ifMatch != null) {
-                if (current == null || isDeleteMarker(current)) {
-                    throw S3Exceptions.noSuchKey(mpu.containerName(),
-                            targetBlobName, "");
-                }
-                if (!maybeQuoteETag(ifMatch).equals(
-                        maybeQuoteETag(reportETag(current)))) {
-                    throw preconditionFailed(reportETag(current));
-                }
-            }
-            if (ifNoneMatch != null && current != null &&
-                    !isDeleteMarker(current) &&
-                    (ifNoneMatch.equals("*") ||
-                            maybeQuoteETag(ifNoneMatch).equals(
-                                    maybeQuoteETag(reportETag(current))))) {
-                throw preconditionFailed(reportETag(current));
-            }
-            // A live object -- a delete marker included, which counts as
-            // absent but still holds the key's generation -- pins the
-            // publish to what the checks saw; nothing at all requires the
-            // key to still be empty.
-            conditionOptions.add(current != null ?
-                    BlobTargetOption.generationMatch(current.getGeneration()) :
-                    BlobTargetOption.doesNotExist());
-        }
+        // The publish conditions, enforced as on a plain put.
+        var conditionOptions = destinationConditions(mpu.containerName(),
+                targetBlobName, request.ifMatch(), request.ifNoneMatch());
 
         // A single part is copied onto the target and can name the access on
         // that request, so no later one can fail and leave a private blob

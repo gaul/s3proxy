@@ -4484,19 +4484,26 @@ public class S3ProxyHandler {
         // If-Match and If-None-Match guard the destination, as they do on
         // a put; the x-amz-copy-source-if-* headers above guard the source.
         // Ignoring them would overwrite an object the caller made the copy
-        // conditional on, so a store that cannot judge them refuses.  S3
-        // judges them itself, and takes only an If-Match naming an ETag
-        // and If-None-Match: *, answering the other forms NotImplemented.
-        // The nio2 stores are judged here against their own metadata, as
-        // their conditional put and delete are: bounded by this process,
-        // and not atomic with the copy.  They take every form, which is
-        // what their put takes.
+        // conditional on, so a store that cannot judge them refuses.
+        //
+        // aws-s3, azureblob and google-cloud-storage judge them in the
+        // request that writes, as they do for a put, and If-Match is
+        // settled first the way a put settles it: the wildcard asks only
+        // that the destination exist, and no backend takes it on a write.
+        // What S3 itself declines -- it takes an If-Match naming an ETag
+        // and If-None-Match: * -- it answers NotImplemented.
+        //
+        // The filesystem and transient stores are judged here against
+        // their own metadata, as their conditional put and delete are:
+        // bounded by this process, and not atomic with the copy.
         String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
         String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
         if (ifMatch != null || ifNoneMatch != null) {
             String blobStoreType = getBlobStoreType(blobStore);
-            if (blobStoreType.equals("aws-s3")) {
-                copyRequest.ifMatch(ifMatch).ifNoneMatch(ifNoneMatch);
+            if (Quirks.NATIVE_CONDITIONAL_COPY.contains(blobStoreType)) {
+                copyRequest.ifMatch(settleIfMatch(blobStore, blobStoreType,
+                        destContainerName, destBlobName, ifMatch))
+                        .ifNoneMatch(ifNoneMatch);
             } else if (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType)) {
                 checkConditionalWrite(blobStore.blobMetadataIfPresent(
                         destContainerName, destBlobName), ifMatch,

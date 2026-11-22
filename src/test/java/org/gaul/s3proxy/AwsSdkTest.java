@@ -3373,6 +3373,72 @@ public final class AwsSdkTest {
     }
 
     /**
+     * If-Match and If-None-Match on a copy guard the destination, in the
+     * forms S3 takes: an If-Match naming an ETag and If-None-Match: *.  The
+     * stores that judge them natively and the two nio2 stores the frontend
+     * judges for are covered; the rest refuse the request.  The aws-s3
+     * lanes are left out because both run against emulators that get this
+     * wrong themselves: MiniStack ignores the condition, and LocalStack
+     * refuses the copy and overwrites the destination all the same.
+     */
+    @Test
+    public void testCopyObjectDestinationConditions() throws Exception {
+        assumeTrue(!blobStoreType.equals("aws-s3"));
+        assumeTrue(Quirks.NATIVE_CONDITIONAL_COPY.contains(blobStoreType) ||
+                Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType));
+        String source = "testCopyObjectDestinationConditions-source";
+        String dest = "testCopyObjectDestinationConditions-dest";
+        String sourceETag = client.putObject(
+                b -> b.bucket(containerName).key(source),
+                RequestBody.fromString("new")).eTag();
+
+        // nothing there to have matched
+        assertThatThrownBy(() -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey(source)
+                .destinationBucket(containerName).destinationKey(dest)
+                .ifMatch(sourceETag)))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).statusCode()).isEqualTo(404));
+
+        // If-None-Match: * writes a destination that is not there
+        client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey(source)
+                .destinationBucket(containerName).destinationKey(dest)
+                .ifNoneMatch("*"));
+        // and refuses one that is
+        String destETag = client.putObject(
+                b -> b.bucket(containerName).key(dest),
+                RequestBody.fromString("old")).eTag();
+        assertThatThrownBy(() -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey(source)
+                .destinationBucket(containerName).destinationKey(dest)
+                .ifNoneMatch("*")))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).statusCode()).isEqualTo(412));
+
+        // an ETag the destination does not have
+        assertThatThrownBy(() -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey(source)
+                .destinationBucket(containerName).destinationKey(dest)
+                .ifMatch("\"0123456789abcdef0123456789abcdef\"")))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).statusCode()).isEqualTo(412));
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(dest)).asUtf8String()).isEqualTo("old");
+
+        // and the one it has
+        client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey(source)
+                .destinationBucket(containerName).destinationKey(dest)
+                .ifMatch(destETag));
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(dest)).asUtf8String()).isEqualTo("new");
+    }
+
+    /**
      * The ETag a copy reports is the ETag of the object it left.  azureblob
      * set a REPLACE copy's metadata in a second request, which changes the
      * ETag, so the one in the response had already gone stale.
