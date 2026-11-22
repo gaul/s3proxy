@@ -406,6 +406,8 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                             request.copySourceIfMatch()))
                     .copySourceIfNoneMatch(maybeStripETagQuotes(
                             request.copySourceIfNoneMatch()))
+                    .ifMatch(maybeStripETagQuotes(request.ifMatch()))
+                    .ifNoneMatch(maybeStripETagQuotes(request.ifNoneMatch()))
                     .build();
         }
         try {

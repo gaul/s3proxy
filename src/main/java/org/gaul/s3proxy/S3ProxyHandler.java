@@ -4481,6 +4481,33 @@ public class S3ProxyHandler {
             }
         }
 
+        // If-Match and If-None-Match guard the destination, as they do on
+        // a put; the x-amz-copy-source-if-* headers above guard the source.
+        // Ignoring them would overwrite an object the caller made the copy
+        // conditional on, so a store that cannot judge them refuses.  S3
+        // judges them itself, and takes only an If-Match naming an ETag
+        // and If-None-Match: *, answering the other forms NotImplemented.
+        // The nio2 stores are judged here against their own metadata, as
+        // their conditional put and delete are: bounded by this process,
+        // and not atomic with the copy.  They take every form, which is
+        // what their put takes.
+        String ifMatch = request.getHeader(HttpHeaders.IF_MATCH);
+        String ifNoneMatch = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        if (ifMatch != null || ifNoneMatch != null) {
+            String blobStoreType = getBlobStoreType(blobStore);
+            if (blobStoreType.equals("aws-s3")) {
+                copyRequest.ifMatch(ifMatch).ifNoneMatch(ifNoneMatch);
+            } else if (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType)) {
+                checkConditionalWrite(blobStore.blobMetadataIfPresent(
+                        destContainerName, destBlobName), ifMatch,
+                        ifNoneMatch);
+            } else {
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                        "Conditional copies are not supported by this" +
+                        " backend.");
+            }
+        }
+
         CopyObjectResponse copyResult;
         try {
             copyResult = blobStore.copyBlob(copyRequest.build());
