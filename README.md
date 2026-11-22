@@ -198,17 +198,77 @@ Keystone token it holds nears its expiry.
 
 ## Assigning buckets to backends
 
-S3Proxy can be configured to assign buckets to different backends with the same
-credentials. The configuration in the properties file is as follows:
+One S3Proxy can serve several backends, such as two Azure storage accounts or
+a filesystem beside a cloud store.  Give `--properties` once per backend:
+
 ```
-s3proxy.bucket-locator.1=bucket
-s3proxy.bucket-locator.2=another-bucket
+s3proxy --properties one.conf --properties two.conf
 ```
 
-In addition to the explicit names, [glob syntax](https://docs.oracle.com/javase/tutorial/essential/io/fileOps.html#glob) can be used to configure many
-buckets for a given backend.
+Each file is a complete configuration.  The settings that describe S3Proxy's
+own listener, `s3proxy.endpoint` and `s3proxy.authorization` among them, must
+be the same in every file, and S3Proxy refuses to start when they differ.  The
+`jclouds.*` settings and the middlewares belong to the one backend that the
+file describes.
 
-A bucket (or a glob) cannot be assigned to multiple backends.
+A request reaches a backend in one of two ways:
+
+* **By credentials.**  Files with different values of `s3proxy.identity`
+  describe backends for different clients, and the access key a client signs
+  with selects its backend.
+* **By bucket name.**  Files that share `s3proxy.identity` and
+  `s3proxy.credential` list the buckets each backend serves:
+
+  ```
+  s3proxy.bucket-locator.1=bucket
+  s3proxy.bucket-locator.2=another-bucket
+  ```
+
+  The number only tells the entries apart.  An entry can be a
+  [glob](https://docs.oracle.com/javase/tutorial/essential/io/fileOps.html#glob),
+  such as `archive-*`.  A bucket or glob cannot be assigned to two backends,
+  and a bucket that no entry names goes to the first file given with that
+  identity.
+
+For example, these two files serve a writable storage account and a read-only
+one to the same client:
+
+```
+# one.conf
+s3proxy.endpoint=http://127.0.0.1:8080
+s3proxy.authorization=aws-v4
+s3proxy.identity=local-identity
+s3proxy.credential=local-credential
+jclouds.provider=azureblob
+jclouds.identity=account1
+jclouds.credential=KEY1
+s3proxy.bucket-locator.1=uploads
+```
+
+```
+# two.conf
+s3proxy.endpoint=http://127.0.0.1:8080
+s3proxy.authorization=aws-v4
+s3proxy.identity=local-identity
+s3proxy.credential=local-credential
+jclouds.provider=azureblob
+jclouds.identity=account2
+jclouds.credential=KEY2
+s3proxy.bucket-locator.1=archive-*
+s3proxy.read-only-blobstore=true
+```
+
+Some limits apply:
+
+* ListBuckets returns the buckets of the first file given for the client's
+  identity, not those of every backend.
+* CopyObject and UploadPartCopy cannot copy between backends: the source
+  bucket is looked for in the destination's backend.
+* A bucket assigned to one identity's backend is refused to every other
+  identity.
+* When two backends hold a bucket of the same name, the
+  [alias middleware](https://github.com/gaul/s3proxy/wiki/Middleware-bucket-locator)
+  gives each a distinct name.
 
 ## Middlewares
 
