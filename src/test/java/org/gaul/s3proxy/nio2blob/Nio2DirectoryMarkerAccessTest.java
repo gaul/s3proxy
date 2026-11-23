@@ -134,7 +134,9 @@ public final class Nio2DirectoryMarkerAccessTest {
 
         // a directory carries no version id, and is not the null version
         assertThatThrownBy(() -> blobStore.getBlobAccess(versioned,
-                "dir/sub", "null")).isInstanceOf(NoSuchKeyException.class);
+                "dir/sub", "null")).isInstanceOfSatisfying(
+                        S3Exception.class, e ->
+                                assertThat(e.statusCode()).isEqualTo(404));
     }
 
     /**

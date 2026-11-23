@@ -1781,7 +1781,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             Path containerPath, Path path, String key, String versionId) {
         try {
             synchronized (versionLock) {
-                if (Files.exists(path) &&
+                if (hasCurrentVersion(path, key) &&
                         currentVersionId(path).equals(versionId)) {
                     // Removing an object at its natural path is what the
                     // ordinary delete does, directory-marker keys included.
@@ -1797,9 +1797,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             .versionId(versionId)
                             .build();
                 }
-                for (var version : archivedVersions(containerPath, key)) {
+                var versions = archivedVersions(containerPath, key);
+                for (int i = 0; i < versions.size(); i++) {
+                    var version = versions.get(i);
                     if (!version.versionId().equals(versionId)) {
                         continue;
+                    }
+                    // Removing the delete marker on top of a version makes
+                    // that version current, which takes the key's path.
+                    // Where other keys leave no room for it there, the
+                    // marker stays: without it the key would have versions,
+                    // none of them current, and nothing to say it is deleted.
+                    if (i == 0 && version.deleteMarker() &&
+                            versions.size() > 1 &&
+                            !versions.get(1).deleteMarker() &&
+                            isPathTaken(containerPath, path)) {
+                        throw S3Exceptions.invalidArgument("Removing this" +
+                                " delete marker restores the version below" +
+                                " it, which this filesystem cannot store" +
+                                " while other keys hold the path of this" +
+                                " one.");
                     }
                     Files.delete(version.path());
                     // The version removed may have been the one standing for
@@ -2148,8 +2165,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (collectCommonPrefix(key, prefix, delimiter, commonPrefixes)) {
                 continue;
             }
-            boolean latest = Files.notExists(
-                    resolveBlobPath(containerPath, key)) &&
+            boolean latest = !hasCurrentVersion(
+                    resolveBlobPath(containerPath, key), key) &&
                     version.versionId().equals(latestArchived.get(key));
             Long size = null;
             String eTag = null;
@@ -3728,9 +3745,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // oblivious to versioning; the flat sidecar keeps a version file from
     // ever colliding with an object whose key happens to look like one.
     //
-    // The invariant the rest of this relies on: when the natural path exists
-    // it holds the newest version, and when it does not, either the key has
-    // no versions at all or the newest one is a delete marker.
+    // The invariant the rest of this relies on: when the natural path holds
+    // the key's object that is the newest version, and when it does not,
+    // either the key has no versions at all or the newest one is a delete
+    // marker.  The path existing is not enough to tell: the keys below a
+    // deleted key make a directory of it, which hasCurrentVersion sees past.
 
     @Nullable
     private BucketVersioningStatus readContainerStatus(Path containerPath) {
@@ -3816,7 +3835,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             Path containerPath, Path path, String key,
             @Nullable String versionId) {
         if (versionId == null) {
-            if (Files.exists(path)) {
+            if (hasCurrentVersion(path, key)) {
                 return new ResolvedVersion(path, currentVersionId(path));
             }
             var archived = archivedVersions(containerPath, key);
@@ -3827,7 +3846,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             return null;
         }
-        if (Files.exists(path) && currentVersionId(path).equals(versionId)) {
+        if (hasCurrentVersion(path, key) &&
+                currentVersionId(path).equals(versionId)) {
             return new ResolvedVersion(path, versionId);
         }
         for (var version : archivedVersions(containerPath, key)) {
@@ -3865,6 +3885,40 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             throw new RuntimeException(ioe);
         }
+    }
+
+    /**
+     * Whether the natural path of {@code key} holds its current version,
+     * which the path's existing does not settle: a directory there is the
+     * object of a directory-marker key alone, and to any other key merely
+     * where the keys below it live, while that key's own versions are all
+     * in the sidecar.  These are getBlobInternal's terms.
+     */
+    private static boolean hasCurrentVersion(Path path, String key) {
+        if (Files.isDirectory(path)) {
+            return key.endsWith("/") && safeGetXattrs(path).attributes()
+                    .contains(XATTR_CONTENT_MD5);
+        }
+        return !key.endsWith("/") && Files.exists(path);
+    }
+
+    /**
+     * Whether other keys leave no room for a file at {@code path}: it is the
+     * directory the keys below it live in, or lies below a file, which is
+     * another key's object and cannot also be a directory.
+     */
+    private static boolean isPathTaken(Path containerPath, Path path) {
+        if (Files.isDirectory(path)) {
+            return true;
+        }
+        for (var parent = path.getParent();
+                parent != null && !parent.equals(containerPath);
+                parent = parent.getParent()) {
+            if (Files.exists(parent)) {
+                return !Files.isDirectory(parent);
+            }
+        }
+        return false;
     }
 
     /** The version id of the object at its natural path. */
