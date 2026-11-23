@@ -157,6 +157,18 @@ public final class ReservedKeyNamespaceTest {
                 RequestBody.empty()));
     }
 
+    /**
+     * Where a prefix middleware puts the stubs of a prefixed bucket, as a
+     * client of the backend bucket through another configuration names them.
+     */
+    @Test
+    public void testPutOfPrefixedMultipartStubIsRefused() {
+        assertRefused(() -> client.putObject(
+                b -> b.bucket(containerName).key("team-a/" + stubKey())
+                        .contentType("text/attacker"),
+                RequestBody.empty()));
+    }
+
     @Test
     public void testDeleteOfReservedKeyIsRefused() {
         assertRefused(() -> client.deleteObject(

@@ -754,9 +754,16 @@ public class S3ProxyHandler {
      * since the stub is hidden from list(), whatever it leaves behind cannot
      * be seen or removed by the bucket's owner.  S3Proxy writes these names
      * itself, never from a request, so no legitimate request carries one.
+     *
+     * <p>Nor one with a later segment of the name: the prefix middleware
+     * puts its own in front of the stub's, so a prefixed bucket's stubs rest
+     * at "&lt;prefix&gt;.s3proxy-mpu-stub-...", which a client of the
+     * backend bucket reached through another configuration -- an alias, say
+     * -- could otherwise write.
      */
     private static void checkReservedBlobName(@Nullable String blobName) {
-        if (blobName != null && blobName.startsWith(MULTIPART_STUB_PREFIX)) {
+        if (blobName != null && (blobName.startsWith(MULTIPART_STUB_PREFIX) ||
+                blobName.contains("/" + MULTIPART_STUB_PREFIX))) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The key " + MULTIPART_STUB_PREFIX +
                     "... is reserved by S3Proxy.");

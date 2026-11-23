@@ -34,7 +34,9 @@ import com.google.common.base.Strings;
 
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -272,15 +274,36 @@ public final class RegexBlobStore extends ForwardingBlobStore {
     }
 
 
+    /**
+     * Maps a blob name through the first regex that matches it.
+     *
+     * <p>A multipart stub is S3Proxy's own bookkeeping and not a client's
+     * key: the handler names it, refuses that name to clients and hides it
+     * from listings.  So a stub keeps its name, since renamed it would rest
+     * where any client may name it, and a key which the regexes map onto a
+     * reserved name is refused, as the handler would have refused it had it
+     * seen the name after the mapping.
+     */
     private String replaceBlobName(String name) {
         String newName = name;
+
+        if (name.startsWith(Constants.MULTIPART_STUB_PREFIX)) {
+            return name;
+        }
 
         for (var entry : this.regexs) {
             Pattern pattern = entry.getKey();
             Matcher match = pattern.matcher(name);
 
             if (match.find()) {
-                return match.replaceAll(entry.getValue());
+                newName = match.replaceAll(entry.getValue());
+                if (newName.startsWith(
+                        Constants.MULTIPART_STUB_PREFIX)) {
+                    throw S3Exceptions.invalidArgument("The key " +
+                            Constants.MULTIPART_STUB_PREFIX +
+                            "... is reserved by S3Proxy.");
+                }
+                return newName;
             }
 
         }
