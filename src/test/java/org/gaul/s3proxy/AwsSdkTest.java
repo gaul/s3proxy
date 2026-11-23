@@ -2778,7 +2778,9 @@ public final class AwsSdkTest {
     @Test
     public void testContainerCreateDelete() throws Exception {
         assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
-        // LocalStack in us-east-1 returns 200 OK for duplicate bucket creation (legacy S3 behavior)
+        // In us-east-1 S3 answers 200 to creating a bucket the caller
+        // already owns, and LocalStack and MiniStack follow it; elsewhere
+        // it answers BucketAlreadyOwnedByYou, as S3Proxy's own stores do.
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
         assumeTrue(!blobStoreType.equals("aws-s3"));
         String containerName2 = createRandomContainerName();
@@ -4757,8 +4759,11 @@ public final class AwsSdkTest {
 
     /**
      * A suffix range that selects no bytes -- the last zero of an object,
-     * or any of an empty one -- cannot be satisfied.  azureblob resolves a
-     * suffix against the blob's size itself and answered 500.
+     * or any of an empty one -- is answered 416.  S3 agrees on the first,
+     * but answers a suffix of an empty object with the whole empty object,
+     * 200 and no Content-Range, so the second records S3Proxy's own answer
+     * rather than S3's.  azureblob resolves a suffix against the blob's
+     * size itself and answered 500.
      */
     @Test
     public void testSuffixRangeOfNoBytes() throws Exception {
@@ -4769,9 +4774,10 @@ public final class AwsSdkTest {
 
         var requests = new ArrayList<Map.Entry<String, String>>();
         requests.add(Map.entry("range-full", "bytes=-0"));
-        // The emulators behind aws-s3 answer a suffix of an empty object
-        // with the empty object, LocalStack as 200 and MiniStack as 206,
-        // and that provider relays what it is given.
+        // aws-s3 relays its backend's answer to a suffix of an empty
+        // object: the empty object, with 200 from S3 and LocalStack and
+        // 206 with an invalid Content-Range from MiniStack,
+        // ministackorg/ministack#2787.
         if (!blobStoreType.equals("aws-s3")) {
             requests.add(Map.entry("range-empty", "bytes=-5"));
         }
