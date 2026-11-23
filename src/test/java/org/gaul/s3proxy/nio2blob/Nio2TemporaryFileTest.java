@@ -33,6 +33,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -123,6 +124,37 @@ public final class Nio2TemporaryFileTest {
                     .isInstanceOfSatisfying(S3Exception.class, e ->
                             assertThat(e.statusCode()).isEqualTo(400));
         }
+    }
+
+    /**
+     * Nor is what the directory holds an object to a request that names
+     * it: a key reaching into the directory read the write in flight
+     * there, and went on reading one that died.
+     */
+    @Test
+    public void testTemporaryFileIsNotAnObject() throws Exception {
+        var temporary = root.resolve(CONTAINER).resolve(".s3proxy-tmp");
+        Files.createDirectory(temporary);
+        Files.write(temporary.resolve("abandoned"), CONTENT);
+
+        String key = ".s3proxy-tmp/abandoned";
+        assertThatThrownBy(() -> blobStore.getBlob(CONTAINER, key))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(400));
+        assertThatThrownBy(() -> blobStore.blobMetadata(CONTAINER, key))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(400));
+        assertThatThrownBy(() -> blobStore.getBlobAccess(CONTAINER, key))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(400));
+        assertThatThrownBy(() -> blobStore.copyBlob(
+                CopyObjectRequest.builder()
+                        .sourceBucket(CONTAINER).sourceKey(key)
+                        .destinationBucket(CONTAINER).destinationKey("copy")
+                        .build()))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(400));
+        assertThat(keys()).isEmpty();
     }
 
     private void put(String key, InputStream payload) {

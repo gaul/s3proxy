@@ -1458,6 +1458,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * the answer is to make it again.  Only the directory is ever made:
      * the container must already exist, and a write does not bring a
      * deleted one back.
+     *
+     * <p>The file starts out private.  Others-read is how this store
+     * records public-read, and the process's umask usually grants it, so a
+     * file left as created would be a public object for as long as its body
+     * took to arrive, whatever access the write asked for.  The write
+     * applies its own access once the file is whole; the file is still
+     * empty here, so nothing is readable in between.
      */
     private static Path createTemporaryFile(Path containerPath)
             throws IOException {
@@ -1469,8 +1476,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // another write's, or one left by a write that died
             }
             try {
-                return Files.createFile(
+                var file = Files.createFile(
                         dir.resolve(UUID.randomUUID().toString()));
+                setBlobAccessHelper(file, ObjectCannedACL.PRIVATE);
+                return file;
             } catch (NoSuchFileException nsfe) {
                 if (!Files.isDirectory(containerPath)) {
                     throw nsfe;
@@ -1735,6 +1744,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 var marker = newVersionPath(containerPath, key);
                 Files.createDirectories(requireNonNull(marker.getParent()));
                 Files.createFile(marker);
+                // It is the store's own file, not an object with an ACL,
+                // and as created it would read as a public one: see
+                // createTemporaryFile.
+                setBlobAccessHelper(marker, ObjectCannedACL.PRIVATE);
                 writeVersionAttributes(marker, key, markerId,
                         /*deleteMarker=*/ true);
                 Files.setLastModifiedTime(marker,
@@ -3658,6 +3671,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      *
      * <p>To keep that reserved namespace private, any other key that would
      * resolve to the slash blob or a descendant of it is rejected with 400.
+     * So is one that would resolve into {@link #TEMPORARY_DIR}: what lies
+     * there is a write still being assembled, which is not an object under
+     * any key, and the store itself never reaches it through one.
      *
      * <p>A key holding a "." or ".." segment is refused before it is
      * resolved; see {@link #checkNoDotSegment}.
@@ -3673,6 +3689,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             path = resolveName(containerPath, key, "key").normalize();
             if (path.startsWith(slashBlob)) {
                 throw returnResponseException(400);
+            }
+            if (path.startsWith(containerPath.resolve(TEMPORARY_DIR))) {
+                throw S3Exceptions.invalidArgument("The key " +
+                        TEMPORARY_DIR + " is reserved for writes in" +
+                        " progress.");
             }
         }
         checkValidPath(containerPath, path);
