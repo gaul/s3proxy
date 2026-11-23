@@ -3453,14 +3453,14 @@ public final class AwsSdkTest {
      * If-Match and If-None-Match on a copy guard the destination, in the
      * forms S3 takes: an If-Match naming an ETag and If-None-Match: *.  The
      * stores that judge them natively and the two nio2 stores the frontend
-     * judges for are covered; the rest refuse the request.  The aws-s3
-     * lanes are left out because both run against emulators that get this
-     * wrong themselves: MiniStack ignores the condition, and LocalStack
-     * refuses the copy and overwrites the destination all the same.
+     * judges for are covered; the rest refuse the request.  LocalStack is
+     * left out because it gets this wrong itself: it refuses the copy and
+     * overwrites the destination all the same.
      */
     @Test
     public void testCopyObjectDestinationConditions() throws Exception {
-        assumeTrue(!blobStoreType.equals("aws-s3"));
+        assumeTrue(!blobStoreType.equals("aws-s3") ||
+                blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
         assumeTrue(Quirks.NATIVE_CONDITIONAL_COPY.contains(blobStoreType) ||
                 Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType));
         String source = "testCopyObjectDestinationConditions-source";

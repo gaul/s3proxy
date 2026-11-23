@@ -55,7 +55,6 @@ public final class MultipartUploadKeyBindingTest {
     private S3Client client;
     private String bucket;
     private boolean awsS3;
-    private boolean miniStack;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -65,10 +64,6 @@ public final class MultipartUploadKeyBindingTest {
         blobStore = info.getBlobStore();
         awsS3 = "aws-s3".equals(info.getProperties().getProperty(
                 Constants.PROPERTY_PROVIDER));
-        // the port MiniStack's lane publishes, as AwsSdkTest has it
-        miniStack = awsS3 && URI.create(info.getProperties().getProperty(
-                Constants.PROPERTY_ENDPOINT, "http://stub")).getPort() ==
-                4567;
         bucket = TestUtils.createRandomContainerName();
         blobStore.createContainer(bucket);
         client = S3Client.builder()
@@ -108,15 +103,10 @@ public final class MultipartUploadKeyBindingTest {
         assertNoSuchUpload(() -> client.uploadPart(b -> b.bucket(bucket)
                 .key("b").uploadId(uploadId).partNumber(1),
                 RequestBody.fromString("part")));
-        // The aws-s3 store relays its backend's answer, and MiniStack
-        // copies the part into the other key's upload where S3 answers
-        // NoSuchUpload, ministackorg/ministack#2781.
-        if (!miniStack) {
-            assertNoSuchUpload(() -> client.uploadPartCopy(b -> b
-                    .sourceBucket(bucket).sourceKey("source")
-                    .destinationBucket(bucket).destinationKey("b")
-                    .uploadId(uploadId).partNumber(1)));
-        }
+        assertNoSuchUpload(() -> client.uploadPartCopy(b -> b
+                .sourceBucket(bucket).sourceKey("source")
+                .destinationBucket(bucket).destinationKey("b")
+                .uploadId(uploadId).partNumber(1)));
         // aws-s3 lists no parts for an upload that is not open, which is
         // how the frontend tells a completion retried from a first one; see
         // AwsSdkTest.testPartOperationsWithoutCreate
@@ -145,10 +135,8 @@ public final class MultipartUploadKeyBindingTest {
 
         // the upload of the key it was begun for is untouched, and holds
         // no part a refused request sent
-        if (!miniStack) {
-            assertThat(client.listParts(b -> b.bucket(bucket).key("a")
-                    .uploadId(uploadId)).parts()).isEmpty();
-        }
+        assertThat(client.listParts(b -> b.bucket(bucket).key("a")
+                .uploadId(uploadId)).parts()).isEmpty();
         String etag = client.uploadPart(b -> b.bucket(bucket).key("a")
                 .uploadId(uploadId).partNumber(1),
                 RequestBody.fromString("part")).eTag();

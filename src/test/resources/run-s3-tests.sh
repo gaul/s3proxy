@@ -189,11 +189,6 @@ elif [[ "${S3PROXY_CONF}" == s3proxy-ministack*.conf ]]; then
     # Object lock passes through as well, and MiniStack keeps the locks,
     # with the gaps its markers record.
     tags="${tags/ and not object_lock/}"
-    # A copy takes on its source's retention, ministackorg/ministack#2771,
-    # so this test leaves an object locked for years that no cleanup can
-    # delete, and every test after it fails to empty its buckets.  Run as an
-    # expected failure it would still do that, so it is deselected instead.
-    deselect_by_name="not test_object_lock_copy_does_not_inherit_retention"
 elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
     backend="localstack"
     # fails_on_aws marks what real S3 refuses, and this lane used to deselect
