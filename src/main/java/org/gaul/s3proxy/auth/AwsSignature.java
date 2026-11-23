@@ -299,9 +299,13 @@ public final class AwsSignature {
      * or null when it pinned none.  Naming that header among the signed ones
      * commits the URL to a single body, which some signers express by putting
      * the hash on the payload line of the canonical request where
-     * UNSIGNED-PAYLOAD would otherwise go.  A header the query string did not
-     * sign says nothing about how the URL was signed and is ignored, as is one
-     * of the streaming tokens, whose chunked body this path does not decode.
+     * UNSIGNED-PAYLOAD would otherwise go.  So does stating the hash as a
+     * query parameter of that name, which is where a presigner that moves the
+     * x-amz-* headers into the query string leaves it: the signature covers
+     * every parameter, so that one needs no mention among the signed headers.
+     * A header the query string did not sign says nothing about how the URL
+     * was signed and is ignored, as is one of the streaming tokens, whose
+     * chunked body this path does not decode.
      */
     @Nullable
     public static String pinnedPayloadHash(HttpServletRequest request) {
@@ -316,17 +320,25 @@ public final class AwsSignature {
                 break;
             }
         }
-        if (!signed) {
-            return null;
+        if (signed) {
+            String value = request.getHeader(AwsHttpHeaders.CONTENT_SHA256);
+            if (value != null && SHA256_HEX.matcher(value).matches()) {
+                return value;
+            }
         }
-        String value = request.getHeader(AwsHttpHeaders.CONTENT_SHA256);
-        if (value == null) {
-            value = request.getParameter("X-Amz-Content-Sha256");
+        // The parameter stands for the header, so it is spelled as loosely as
+        // one: a presigner moves the name across in whatever case it had.
+        for (String parameter : Collections.list(
+                request.getParameterNames())) {
+            if (!parameter.equalsIgnoreCase(AwsHttpHeaders.CONTENT_SHA256)) {
+                continue;
+            }
+            String value = request.getParameter(parameter);
+            if (value != null && SHA256_HEX.matcher(value).matches()) {
+                return value;
+            }
         }
-        if (value == null || !SHA256_HEX.matcher(value).matches()) {
-            return null;
-        }
-        return value;
+        return null;
     }
 
     /**

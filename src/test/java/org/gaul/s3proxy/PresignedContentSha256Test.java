@@ -28,6 +28,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.Random;
+import java.util.TreeMap;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -197,6 +198,76 @@ public final class PresignedContentSha256Test {
         assertThat(response.body()).contains("XAmzContentSHA256Mismatch");
     }
 
+    /**
+     * A presigner that moves the x-amz-* headers into the query string
+     * leaves the hash there and signs host alone.  The signature covers the
+     * parameter, so the URL is pinned all the same.
+     */
+    @Test
+    public void testQueryPinnedContentSha256() throws Exception {
+        String hash = sha256(CONTENT);
+        HttpResponse<String> response = put(presignWithParameter(null,
+                "X-Amz-Content-Sha256", hash, UNSIGNED), null);
+        assertThat(response.statusCode()).isEqualTo(200);
+    }
+
+    /** A hash pinned in the query string that the body does not match. */
+    @Test
+    public void testQueryPinnedContentSha256Mismatch() throws Exception {
+        String hash = sha256("some other content");
+        HttpResponse<String> response = put(presignWithParameter(null,
+                "X-Amz-Content-Sha256", hash, UNSIGNED), null);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("XAmzContentSHA256Mismatch");
+        assertThat(blobStore.blobExists(containerName, BLOB_NAME)).isFalse();
+    }
+
+    /** Other signers write the hash they moved on the payload line too. */
+    @Test
+    public void testQueryPinnedContentSha256OnPayloadLine() throws Exception {
+        String hash = sha256(CONTENT);
+        HttpResponse<String> response = put(presignWithParameter(null,
+                "X-Amz-Content-Sha256", hash, hash), null);
+        assertThat(response.statusCode()).isEqualTo(200);
+
+        hash = sha256("some other content");
+        response = put(presignWithParameter(null,
+                "X-Amz-Content-Sha256", hash, hash), null);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("XAmzContentSHA256Mismatch");
+    }
+
+    /** The parameter keeps whatever case the header it stands for had. */
+    @Test
+    public void testQueryPinnedContentSha256LowerCase() throws Exception {
+        String hash = sha256("some other content");
+        HttpResponse<String> response = put(presignWithParameter(null,
+                "x-amz-content-sha256", hash, UNSIGNED), null);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("XAmzContentSHA256Mismatch");
+    }
+
+    /**
+     * A hash in the query string pins the body even beside a signed header
+     * that pins none.
+     */
+    @Test
+    public void testQueryPinnedBesideUnsignedPayloadHeader() throws Exception {
+        String hash = sha256("some other content");
+        HttpResponse<String> response = put(presignWithParameter(UNSIGNED,
+                "X-Amz-Content-Sha256", hash, UNSIGNED), UNSIGNED);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("XAmzContentSHA256Mismatch");
+    }
+
+    /** The token presigners usually move there pins nothing. */
+    @Test
+    public void testQueryUnsignedPayload() throws Exception {
+        HttpResponse<String> response = put(presignWithParameter(null,
+                "X-Amz-Content-Sha256", UNSIGNED, UNSIGNED), null);
+        assertThat(response.statusCode()).isEqualTo(200);
+    }
+
     private static String sha256(String s) {
         return Hashing.sha256().hashString(s, StandardCharsets.UTF_8)
                 .toString();
@@ -247,17 +318,38 @@ public final class PresignedContentSha256Test {
      */
     private URI presign(String headerValue, String payloadLine,
             String signedExtra, String sentExtra) throws Exception {
+        return presign(headerValue, /*parameterName=*/ null,
+                /*parameterValue=*/ null, payloadLine, signedExtra,
+                sentExtra);
+    }
+
+    private URI presign(String headerValue, String parameterName,
+            String parameterValue, String payloadLine, String signedExtra,
+            String sentExtra) throws Exception {
         String timestamp = ISO8601.format(Instant.now());
         String date = timestamp.substring(0, 8);
         String scope = date + "/us-east-1/s3/aws4_request";
         String signedHeaders = headerValue != null ?
                 "host;x-amz-content-sha256" : "host";
-        String query = "X-Amz-Algorithm=AWS4-HMAC-SHA256" +
-                "&X-Amz-Credential=" +
-                urlEncode(identity + "/" + scope) +
-                "&X-Amz-Date=" + timestamp +
-                "&X-Amz-Expires=3600" +
-                "&X-Amz-SignedHeaders=" + urlEncode(signedHeaders);
+        // Sorted by name, as the canonical query string has to be.
+        var parameters = new TreeMap<String, String>();
+        parameters.put("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+        parameters.put("X-Amz-Credential", identity + "/" + scope);
+        parameters.put("X-Amz-Date", timestamp);
+        parameters.put("X-Amz-Expires", "3600");
+        parameters.put("X-Amz-SignedHeaders", signedHeaders);
+        if (parameterName != null) {
+            parameters.put(parameterName, parameterValue);
+        }
+        var queryBuilder = new StringBuilder();
+        for (var entry : parameters.entrySet()) {
+            if (!queryBuilder.isEmpty()) {
+                queryBuilder.append('&');
+            }
+            queryBuilder.append(entry.getKey()).append('=')
+                    .append(urlEncode(entry.getValue()));
+        }
+        String query = queryBuilder.toString();
         String canonicalHeaders = "host:" + host + "\n";
         if (headerValue != null) {
             canonicalHeaders += "x-amz-content-sha256:" + headerValue + "\n";
@@ -277,6 +369,16 @@ public final class PresignedContentSha256Test {
         String signature = hex(hmac(key, stringToSign));
         return URI.create("http://" + host + path + "?" + query +
                 sentExtra + "&X-Amz-Signature=" + signature);
+    }
+
+    /**
+     * Presigns a PUT with the hash stated as a query parameter as well, under the
+     * name given, or not at all when that is null.
+     */
+    private URI presignWithParameter(String headerValue, String parameterName,
+            String parameterValue, String payloadLine) throws Exception {
+        return presign(headerValue, parameterName, parameterValue,
+                payloadLine, "", "");
     }
 
     private static String urlEncode(String s) {
