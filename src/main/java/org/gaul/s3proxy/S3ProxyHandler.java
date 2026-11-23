@@ -6845,8 +6845,22 @@ public class S3ProxyHandler {
             if (access == ObjectCannedACL.PUBLIC_READ) {
                 stub.acl(ObjectCannedACL.PUBLIC_READ);
             }
-            blobStore.putBlob(stub.build(),
-                    new ByteArrayInputStream(new byte[0]));
+            try {
+                blobStore.putBlob(stub.build(),
+                        new ByteArrayInputStream(new byte[0]));
+            } catch (RuntimeException re) {
+                // The store already lists the upload, while the client is
+                // about to be told that it was not created and never learns
+                // its id.  Take it back rather than leave an upload that
+                // can be neither completed nor aborted for want of its stub.
+                try {
+                    blobStore.abortMultipartUpload(reconstructedMpu(
+                            containerName, blobName, mpu.id()));
+                } catch (RuntimeException abortFailure) {
+                    re.addSuppressed(abortFailure);
+                }
+                throw re;
+            }
         }
 
         response.setCharacterEncoding(UTF_8);
