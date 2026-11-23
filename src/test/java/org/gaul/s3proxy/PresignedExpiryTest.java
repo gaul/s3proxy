@@ -19,9 +19,19 @@ package org.gaul.s3proxy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Base64;
+import java.util.Locale;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +46,7 @@ import org.junit.jupiter.api.Test;
  */
 public final class PresignedExpiryTest {
     private static final String IDENTITY = "identity";
+    private static final String CREDENTIAL = "credential";
 
     private S3Proxy s3Proxy;
     private String baseUri;
@@ -46,7 +57,7 @@ public final class PresignedExpiryTest {
                 .stopTimeout(0)
                 .blobStore(TestUtils.createTransientBlobStore())
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4, IDENTITY,
-                        "credential")
+                        CREDENTIAL)
                 .endpoint(URI.create("http://127.0.0.1:0"))
                 .build();
         s3Proxy.start();
@@ -67,6 +78,38 @@ public final class PresignedExpiryTest {
     public void testUnparseableV2Expires() throws Exception {
         assertThat(statusOf("/container/blob?AWSAccessKeyId=" + IDENTITY +
                 "&Signature=abc&Expires=not-a-number")).isEqualTo(403);
+    }
+
+    /**
+     * A v2 request signed in the Authorization header over x-amz-date has an
+     * empty Date line in its string to sign, as a query signature without
+     * Expires would.  Moving its signature into the query string must not
+     * turn it into a URL that never expires.
+     */
+    @Test
+    public void testV2HeaderSignatureAsQueryWithoutExpires() throws Exception {
+        String date = DateTimeFormatter.ofPattern(
+                "EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH).format(
+                ZonedDateTime.now(ZoneOffset.UTC).minusDays(30));
+        String stringToSign = "GET\n\n\n\nx-amz-date:" + date +
+                "\n/container/blob";
+        Mac mac = Mac.getInstance("HmacSHA1");
+        mac.init(new SecretKeySpec(CREDENTIAL.getBytes(
+                StandardCharsets.UTF_8), "HmacSHA1"));
+        String signature = Base64.getEncoder().encodeToString(mac.doFinal(
+                stringToSign.getBytes(StandardCharsets.UTF_8)));
+
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(baseUri +
+                        "/container/blob?AWSAccessKeyId=" + IDENTITY +
+                        "&Signature=" + URLEncoder.encode(signature,
+                                StandardCharsets.UTF_8)))
+                        .header("x-amz-date", date)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).contains("Expires");
     }
 
     @Test

@@ -8675,6 +8675,18 @@ public class S3ProxyHandler {
      */
     private void checkPresignedExpiry(HttpServletRequest request) {
         String expiresString = request.getParameter("Expires");
+        // A v2 query signature states its window in Expires, and S3 refuses
+        // one that leaves it out.  Without it the Date line of the string to
+        // sign is empty, as it is for a request signed in the Authorization
+        // header over x-amz-date: that request's signature, moved into the
+        // query string, worked for as long as its credential did rather
+        // than only while its date was within the time skew.
+        if (request.getParameter("Signature") != null &&
+                expiresString == null) {
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                    "Query-string authentication requires the Signature," +
+                    " Expires and AWSAccessKeyId parameters");
+        }
         if (expiresString != null) { // v2 query
             long expires;
             try {

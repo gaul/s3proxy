@@ -134,6 +134,15 @@ public final class PresignedExpiryAnonymousTest {
         assertThat(response.body()).isEqualTo(CONTENT);
     }
 
+    /** A v2 URL that names no expiry has no window to be inside. */
+    @Test
+    public void testV2WithoutExpires() throws Exception {
+        HttpResponse<String> response = get(
+                "?AWSAccessKeyId=identity&Signature=abc");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("Expires");
+    }
+
     /** A v4 URL that names no lifetime has no window to be inside. */
     @Test
     public void testV4WithoutExpires() throws Exception {
