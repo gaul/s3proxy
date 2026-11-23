@@ -165,13 +165,24 @@ public final class AzureBlobStoreTranslateTest {
                 e -> assertThat(e.statusCode()).isEqualTo(412));
     }
 
-    /** The same code for a source that is missing is not a precondition. */
+    /**
+     * The same code for a source that is missing is not a precondition but
+     * the source's absence, which Put Blob From URL reports this way where
+     * the classic Copy Blob said BlobNotFound.  Passed on untranslated it
+     * was a 500.
+     */
     @Test
-    public void testCopySourceNotFoundIsNotPrecondition() {
-        var missing = azureException(404, "CannotVerifyCopySource");
+    public void testCopySourceNotFoundIsNoSuchKey() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(404, "CannotVerifyCopySource"),
+                "container", "key");
 
-        assertThat(AzureBlobStore.translate(missing, "container", "key"))
-                .isSameAs(missing);
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(404);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("NoSuchKey");
+                });
     }
 
     /** An Azure service error as the SDK would raise it. */

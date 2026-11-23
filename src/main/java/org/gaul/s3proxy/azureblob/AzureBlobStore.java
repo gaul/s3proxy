@@ -3603,6 +3603,12 @@ public final class AzureBlobStore implements BlobStore {
             String container, @Nullable String key,
             @Nullable String versionId) {
         var code = bse.getErrorCode();
+        if (bse.getStatusCode() == 404 &&
+                BlobErrorCode.CANNOT_VERIFY_COPY_SOURCE.equals(code)) {
+            // A copy from a URL reports the source's own 404 under this
+            // code, where the classic Copy Blob said BlobNotFound.
+            code = BlobErrorCode.BLOB_NOT_FOUND;
+        }
         if (versionId != null && !versionId.equals(NULL_VERSION_ID) &&
                 BlobErrorCode.BLOB_NOT_FOUND.equals(code)) {
             return S3Exceptions.noSuchVersion(container, key, versionId,
