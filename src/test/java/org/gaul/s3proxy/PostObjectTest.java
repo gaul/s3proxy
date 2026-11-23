@@ -42,6 +42,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 /**
  * A browser cannot set headers on a form submission, so everything a PUT says
@@ -276,6 +277,69 @@ public final class PostObjectTest {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("<Code>InvalidDigest</Code>");
         assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
+    /**
+     * The headers a PUT describes its object with are fields here, and are
+     * stored like them.  A policy pinning Content-Disposition to attachment
+     * is otherwise satisfied by a value nothing kept, and what it meant to
+     * be downloaded is served as a page.
+     */
+    @Test
+    public void testContentHeaderFields() throws Exception {
+        String policy = policy(
+                "{\"bucket\": \"" + containerName + "\"}," +
+                "{\"key\": \"foo.html\"}," +
+                "[\"starts-with\", \"$Content-Type\", \"\"]," +
+                "{\"Content-Disposition\": \"attachment\"}," +
+                "[\"starts-with\", \"$Content-Encoding\", \"\"]," +
+                "[\"starts-with\", \"$Content-Language\", \"\"]," +
+                "[\"starts-with\", \"$Cache-Control\", \"\"]," +
+                "[\"starts-with\", \"$Expires\", \"\"]");
+        HttpResponse<String> response = post(
+                "key", "foo.html",
+                "Content-Type", "text/html",
+                "Content-Disposition", "attachment",
+                "Content-Encoding", "identity",
+                "Content-Language", "en",
+                "Cache-Control", "no-store",
+                "Expires", "Thu, 01 Dec 1994 16:00:00 GMT",
+                "AWSAccessKeyId", IDENTITY,
+                "policy", policy,
+                "signature", sign(policy));
+        assertThat(response.statusCode()).isEqualTo(204);
+
+        // what a reader's browser is then told about the object
+        blobStore.setBlobAccess(containerName, "foo.html",
+                ObjectCannedACL.PUBLIC_READ);
+        var headers = httpClient.send(
+                HttpRequest.newBuilder(URI.create(bucketUri + "/foo.html"))
+                        .build(), HttpResponse.BodyHandlers.ofString())
+                .headers();
+        assertThat(headers.firstValue("Content-Type")).hasValue("text/html");
+        assertThat(headers.firstValue("Content-Disposition"))
+                .hasValue("attachment");
+        assertThat(headers.firstValue("Content-Encoding"))
+                .hasValue("identity");
+        assertThat(headers.firstValue("Content-Language")).hasValue("en");
+        assertThat(headers.firstValue("Cache-Control")).hasValue("no-store");
+        assertThat(headers.firstValue("Expires"))
+                .hasValue("Thu, 01 Dec 1994 16:00:00 GMT");
+    }
+
+    /**
+     * An Expires that is no date is accepted, as S3 accepts any text and a
+     * PUT does, and the object stored with none.
+     */
+    @Test
+    // the stores keep Expires as the instant the SDK has deprecated
+    @SuppressWarnings("deprecation")
+    public void testMalformedExpiresFieldIsIgnored() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo.txt", "Expires", "tomorrow");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobMetadata(containerName, "foo.txt")
+                .expires()).isNull();
     }
 
     /** A signed policy the form satisfies. */

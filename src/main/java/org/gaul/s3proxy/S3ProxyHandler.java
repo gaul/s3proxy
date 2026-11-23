@@ -6349,6 +6349,25 @@ public class S3ProxyHandler {
         if (!Strings.isNullOrEmpty(contentType)) {
             putRequest.contentType(contentType);
         }
+        // The other headers a PUT describes its object with are form fields
+        // here, and are stored as handlePutBlob stores them.  The policy has
+        // already judged them, so dropping one leaves a condition satisfied
+        // by a value nothing kept: a policy that pins Content-Disposition to
+        // attachment would have its uploads served inline.
+        putRequest.cacheControl(fields.get("cache-control"))
+                .contentDisposition(fields.get("content-disposition"))
+                .contentEncoding(fields.get("content-encoding"))
+                .contentLanguage(fields.get("content-language"));
+        String expires = fields.get("expires");
+        if (expires != null) {
+            // Parsed as Jetty parses the Expires header of a PUT, and, as
+            // there, text that is no date is accepted and stored as no
+            // Expires: S3 takes any, and the stores keep an instant.
+            long expiresMillis = HttpDateTime.parseToEpoch(expires);
+            if (expiresMillis != -1) {
+                putRequest.expires(Instant.ofEpochMilli(expiresMillis));
+            }
+        }
         // The form's encryption fields ride the way the header family does
         // on a PUT: the backend performs the encryption and judges the
         // values.  A store that cannot encrypt refuses them here the way
