@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy.middleware;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
@@ -128,6 +129,15 @@ public final class Middlewares {
                 ShardedBlobStore.parseBucketShards(properties);
         Map<String, String> prefixes =
                 ShardedBlobStore.parsePrefixes(properties);
+        // The sharded middleware replaces a sharded bucket's name with its
+        // shard's before the middlewares beneath it see the request, so an
+        // alias or a prefix keyed by that bucket would silently never apply.
+        for (String bucket : shards.keySet()) {
+            checkArgument(!aliases.containsKey(bucket),
+                    "Bucket %s cannot have both an alias and shards", bucket);
+            checkArgument(!prefixMap.containsKey(bucket),
+                    "Bucket %s cannot have both a prefix and shards", bucket);
+        }
         if (!shards.isEmpty()) {
             System.err.println("Using sharded buckets backend");
             blobStore = ShardedBlobStore.newShardedBlobStore(blobStore,
