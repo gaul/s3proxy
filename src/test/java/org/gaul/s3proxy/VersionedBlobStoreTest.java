@@ -503,7 +503,7 @@ public final class VersionedBlobStoreTest {
     @Test
     public void testListVersionsResumesAfterADeletedVersion() {
         // MiniStack skips the rest of the key when the version its marker
-        // names is gone.
+        // names is gone, ministackorg/ministack#2784.
         assumeTrue(!isEmulator(MINISTACK_PORT));
         enableVersioning();
         put("blob", FIRST);
@@ -624,8 +624,11 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testConditionalDeleteJudgesTheVersionItNames() {
-        // MiniStack judges a conditional delete of a key but answers
-        // NoSuchKey once one names a version id.
+        // MiniStack judges a condition naming a version against the current
+        // version and deletes the one named, where S3 answers 501 and the
+        // test skips itself, ministackorg/ministack#2785.  It fails sooner
+        // than that, though: assumeConditionalDeletes rethrows the 404 that
+        // S3 and MiniStack both answer for its absent probe key.
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
@@ -659,8 +662,11 @@ public final class VersionedBlobStoreTest {
     /** The same, for the conditions a batch delete carries per key. */
     @Test
     public void testBatchConditionalDeleteJudgesTheVersionItNames() {
-        // MiniStack judges a conditional delete of a key but answers
-        // NoSuchKey once one names a version id.
+        // MiniStack judges a condition naming a version against the current
+        // version and deletes the one named, where S3 answers 501 and the
+        // test skips itself, ministackorg/ministack#2785.  It fails sooner
+        // than that, though: assumeConditionalDeletes rethrows the 404 that
+        // S3 and MiniStack both answer for its absent probe key.
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
@@ -703,8 +709,11 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testConditionalDeleteRemovesADeleteMarker() {
-        // MiniStack judges a conditional delete of a key but answers
-        // NoSuchKey once one names a version id.
+        // MiniStack judges a condition naming a version against the current
+        // version and deletes the one named, where S3 answers 501 and the
+        // test skips itself, ministackorg/ministack#2785.  It fails sooner
+        // than that, though: assumeConditionalDeletes rethrows the 404 that
+        // S3 and MiniStack both answer for its absent probe key.
         assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
