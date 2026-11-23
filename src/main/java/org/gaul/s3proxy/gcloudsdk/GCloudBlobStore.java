@@ -1259,6 +1259,7 @@ public final class GCloudBlobStore implements BlobStore {
             InputStream payload) {
         String container = request.bucket();
         String name = request.key();
+        checkNotReserved(name);
         var blobInfo = BlobInfo.newBuilder(BlobId.of(container, name));
         blobInfo.setContentType(request.contentType());
         blobInfo.setContentDisposition(request.contentDisposition());
@@ -1363,6 +1364,7 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        checkNotReserved(request.destinationKey());
         String fromContainer = request.sourceBucket();
         String fromName = request.sourceKey();
         Blob sourceBlob = resolveVersion(fromContainer, fromName,
@@ -1573,6 +1575,7 @@ public final class GCloudBlobStore implements BlobStore {
         }
         String container = request.bucket();
         String key = request.key();
+        checkNotReserved(key);
         String versionId = request.versionId();
         if (versionId == null) {
             if (!isVersioned(container)) {
@@ -1670,6 +1673,13 @@ public final class GCloudBlobStore implements BlobStore {
             // Versioned deletes each carry their own semantics -- a marker
             // to write and report, or one generation to remove outright --
             // which the batch cannot express.
+            return BlobStore.super.removeBlobs(request);
+        }
+        if (objects.stream().anyMatch(
+                o -> o.key().startsWith(STUB_BLOB_PREFIX))) {
+            // The batch names its keys to GCS itself and would delete a
+            // reserved one.  removeBlob refuses it with the typed failure
+            // that becomes that object's error, and deletes the others.
             return BlobStore.super.removeBlobs(request);
         }
         var deleted = new ImmutableList.Builder<DeletedObject>();
@@ -1899,6 +1909,7 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public void setBlobAccess(String container, String key,
             ObjectCannedACL access) {
+        checkNotReserved(key);
         try {
             if (access == ObjectCannedACL.PUBLIC_READ) {
                 storage.createAcl(BlobId.of(container, key),
@@ -1922,6 +1933,7 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public void setBlobAccess(String container, String key,
             ObjectCannedACL access, @Nullable String versionId) {
+        checkNotReserved(key);
         Blob blob = resolveVersion(container, key, versionId);
         if (blob == null) {
             throw S3Exceptions.noSuchKey(container, key, "");
@@ -1945,6 +1957,9 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
+        // Completing this upload writes an object under the requested key,
+        // which is the same write putBlob refuses.
+        checkNotReserved(request.key());
         String container = request.bucket();
         if (!containerExists(container)) {
             throw S3Exceptions.noSuchBucket(container, "");
@@ -2538,6 +2553,27 @@ public final class GCloudBlobStore implements BlobStore {
     public long getMinimumMultipartPartSize() {
         // GCS minimum part is 5 MB except for last part
         return 5L * 1024 * 1024;
+    }
+
+    /**
+     * Refuse a client key naming the store's multipart bookkeeping.  The
+     * stub, the parts and the intermediate composes are objects of the
+     * client's own bucket, and completeMultipartUpload publishes what the
+     * stub's metadata says: the target key, the headers, the user metadata
+     * and the ACL.  Upload IDs are the stubs' names and not secret, being
+     * what ListMultipartUploads returns, so a client able to write one --
+     * bucket WRITE is all that takes, which a public-read-write bucket
+     * grants anyone -- decided what another client's upload published, a
+     * private upload made public-read included, and one able to delete it
+     * ended the upload.  The multipart methods reach these names through
+     * {@code storage} directly and never through the methods that call
+     * this.  Reads are not refused, as on the nio2 stores.
+     */
+    private static void checkNotReserved(String key) {
+        if (key.startsWith(STUB_BLOB_PREFIX)) {
+            throw S3Exceptions.invalidArgument("The key " + STUB_BLOB_PREFIX +
+                    "... is reserved for multipart uploads.");
+        }
     }
 
     private static String makePartBlobName(String nonce, int partNumber) {
