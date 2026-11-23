@@ -1686,6 +1686,9 @@ public final class GCloudBlobStore implements BlobStore {
         if (bucket == null) {
             throw S3Exceptions.noSuchBucket(container, "");
         }
+        if (preventsPublicAccess(bucket)) {
+            return BucketCannedACL.PRIVATE;
+        }
         try {
             var acls = bucket.listAcls();
             for (var acl : acls) {
@@ -1704,6 +1707,33 @@ public final class GCloudBlobStore implements BlobStore {
             }
         }
         return BucketCannedACL.PRIVATE;
+    }
+
+    /**
+     * Whether the bucket overrides what its ACL and those of its objects
+     * grant allUsers.  Public access prevention leaves the entries where
+     * they are, to take effect again once it is lifted, and GCS refuses an
+     * anonymous request whatever they say.  The requests of this store are
+     * not anonymous, so the frontend must not take an entry alone to make
+     * anything public.  A bucket that inherits the prevention from an
+     * organization policy does not say so in its own metadata and is not
+     * recognized here.
+     */
+    private static boolean preventsPublicAccess(Bucket bucket) {
+        var configuration = bucket.getIamConfiguration();
+        return configuration != null &&
+                configuration.getPublicAccessPrevention() ==
+                        BucketInfo.PublicAccessPrevention.ENFORCED;
+    }
+
+    /**
+     * As above, for the bucket of an object whose ACL is about to be read.
+     * A missing bucket prevents nothing: the ACL read reports it.
+     */
+    private boolean preventsPublicAccess(String container) {
+        var bucket = storage.get(container,
+                BucketGetOption.fields(BucketField.IAMCONFIGURATION));
+        return bucket != null && preventsPublicAccess(bucket);
     }
 
     @Override
@@ -1734,10 +1764,15 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public ObjectCannedACL getBlobAccess(String container, String key) {
         try {
+            // Asked for every key rather than only for one whose ACL has
+            // an entry for allUsers, so that how long a refusal takes does
+            // not tell such a key from a private one.
+            boolean prevented = preventsPublicAccess(container);
             var acls = storage.listAcls(BlobId.of(container, key));
             for (var acl : acls) {
                 if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
-                    return ObjectCannedACL.PUBLIC_READ;
+                    return prevented ? ObjectCannedACL.PRIVATE :
+                            ObjectCannedACL.PUBLIC_READ;
                 }
             }
         } catch (StorageException se) {
@@ -1769,10 +1804,12 @@ public final class GCloudBlobStore implements BlobStore {
         try {
             // The blobId carries the generation, so the ACL read is the
             // version's own rather than the live object's.
+            boolean prevented = preventsPublicAccess(container);
             var acls = storage.listAcls(blob.getBlobId());
             for (var acl : acls) {
                 if (acl.getEntity().equals(Acl.User.ofAllUsers())) {
-                    return ObjectCannedACL.PUBLIC_READ;
+                    return prevented ? ObjectCannedACL.PRIVATE :
+                            ObjectCannedACL.PUBLIC_READ;
                 }
             }
         } catch (StorageException se) {
