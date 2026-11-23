@@ -22,6 +22,8 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import com.google.common.base.Ascii;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.gaul.s3proxy.AwsHttpHeaders;
@@ -376,17 +378,24 @@ public enum FlexChecksum {
     @Nullable
     public static FlexChecksum fromAlgorithmName(String name) {
         for (FlexChecksum checksum : values()) {
-            if (checksum.name().equalsIgnoreCase(name)) {
+            if (Ascii.equalsIgnoreCase(checksum.name(), name)) {
                 return checksum;
             }
         }
         return null;
     }
 
+    /**
+     * The checksum a header, trailer or form field of this name carries, or
+     * null.  Matched as ASCII, as are the two lookups beside this one:
+     * String.equalsIgnoreCase folds Unicode too -- U+017F LATIN SMALL LETTER
+     * LONG S equals "s" -- and so takes for a checksum a name that everything
+     * else comparing names takes for a different one.
+     */
     @Nullable
     public static FlexChecksum fromHeaderName(String header) {
         for (FlexChecksum checksum : values()) {
-            if (checksum.header().equalsIgnoreCase(header)) {
+            if (Ascii.equalsIgnoreCase(checksum.header(), header)) {
                 return checksum;
             }
         }
@@ -396,7 +405,7 @@ public enum FlexChecksum {
     @Nullable
     public static FlexChecksum fromMetadataKey(String key) {
         for (FlexChecksum checksum : values()) {
-            if (checksum.metadataKey().equalsIgnoreCase(key)) {
+            if (Ascii.equalsIgnoreCase(checksum.metadataKey(), key)) {
                 return checksum;
             }
         }

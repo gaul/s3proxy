@@ -24,6 +24,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -270,6 +271,67 @@ public final class PostObjectTest {
     }
 
     /**
+     * A policy naming a checksum pins the payload, so the value the payload
+     * is verified against has to be the one the policy was shown.  A field
+     * whose name only Unicode case folding equates with the checksum's --
+     * U+017F LATIN SMALL LETTER LONG S for the s of sha256 -- is another
+     * field to the policy and must be another field to the digest check.
+     */
+    @Test
+    public void testChecksumFieldLookalikeDoesNotReplacePinnedChecksum()
+            throws Exception {
+        String pinned = sha256("reviewed");
+        String policy = checksumPolicy(pinned);
+        HttpResponse<String> response = post(
+                "key", "foo.txt",
+                "AWSAccessKeyId", IDENTITY,
+                "policy", policy,
+                "signature", sign(policy),
+                "x-amz-checksum-sha256", pinned,
+                "x-amz-checksum-\u017fha256", sha256("bar"));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>BadDigest</Code>");
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
+    /**
+     * The other direction: U+212A KELVIN SIGN lowercases to the k of
+     * checksum, so this spelling is the pinned field to the policy and must
+     * be the checksum to the digest check as well.
+     */
+    @Test
+    public void testChecksumFieldFoldedToPinnedNameIsTheChecksum()
+            throws Exception {
+        String pinned = sha256("reviewed");
+        String policy = checksumPolicy(pinned);
+        HttpResponse<String> response = post(
+                "key", "foo.txt",
+                "AWSAccessKeyId", IDENTITY,
+                "policy", policy,
+                "signature", sign(policy),
+                "x-amz-checksum-sha256", sha256("bar"),
+                "x-amz-chec\u212asum-sha256", pinned);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>BadDigest</Code>");
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
+    /** The pinned payload itself is still admitted. */
+    @Test
+    public void testChecksumPinnedByPolicy() throws Exception {
+        String pinned = sha256("bar");
+        String policy = checksumPolicy(pinned);
+        HttpResponse<String> response = post(
+                "key", "foo.txt",
+                "AWSAccessKeyId", IDENTITY,
+                "policy", policy,
+                "signature", sign(policy),
+                "X-Amz-Checksum-SHA256", pinned);
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(body("foo.txt")).isEqualTo("bar");
+    }
+
+    /**
      * A form arrives before the policy inside it can say who authorized the
      * upload, so how much of it the proxy will read is bounded rather than
      * trusted.  Jetty bounds the number of parts and nothing else, which left
@@ -331,6 +393,20 @@ public final class PostObjectTest {
                 Instant.now().plus(1, ChronoUnit.HOURS) +
                 "\", \"conditions\": [" + conditions + "]}")
                 .getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** A policy admitting one key and one payload, named by its SHA-256. */
+    private String checksumPolicy(String checksum) {
+        return policy(
+                "{\"bucket\": \"" + containerName + "\"}," +
+                "{\"key\": \"foo.txt\"}," +
+                "{\"x-amz-checksum-sha256\": \"" + checksum + "\"}");
+    }
+
+    private static String sha256(String payload) throws Exception {
+        return Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("SHA-256").digest(
+                        payload.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static String sign(String policy) throws Exception {

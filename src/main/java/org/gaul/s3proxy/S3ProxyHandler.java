@@ -6070,8 +6070,14 @@ public class S3ProxyHandler {
         }
         try {
             for (var part : parts) {
-                var name = part.getName();
-                if (name.equalsIgnoreCase("file")) {
+                // Lowercased once, and every decision below is made on the
+                // result.  Folding the name one way for the policy and
+                // another for the checksum lets a form send two fields that
+                // are one checksum to the digest check and two fields to
+                // the policy, and so verify the payload against a value
+                // the policy never saw.
+                var name = part.getName().toLowerCase(Locale.ROOT);
+                if (name.equals("file")) {
                     // TODO: buffers entire payload
                     payload = part.getContentAsString(
                             StandardCharsets.ISO_8859_1)
@@ -6080,7 +6086,7 @@ public class S3ProxyHandler {
                     continue;
                 }
                 String value = part.getContentAsString(StandardCharsets.UTF_8);
-                fields.put(name.toLowerCase(java.util.Locale.ROOT), value);
+                fields.put(name, value);
                 FlexChecksum candidate = FlexChecksum.fromHeaderName(name);
                 if (candidate != null) {
                     if (checksum != null && checksum != candidate) {
