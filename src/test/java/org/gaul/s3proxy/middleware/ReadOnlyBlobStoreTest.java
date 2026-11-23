@@ -19,6 +19,7 @@ package org.gaul.s3proxy.middleware;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
@@ -162,7 +163,9 @@ public final class ReadOnlyBlobStoreTest {
 
         var missing = new ArrayList<String>();
         for (Method method : ForwardingBlobStore.class.getDeclaredMethods()) {
+            // a private helper forwards nothing
             if (method.isSynthetic() ||
+                    Modifier.isPrivate(method.getModifiers()) ||
                     readOnlyOperations.contains(method.getName())) {
                 continue;
             }

@@ -280,39 +280,59 @@ public abstract class ForwardingBlobStore extends ForwardingObject
         return supportsVersioning() && delegate().supportsObjectLock();
     }
 
+    /**
+     * Refuse an object-lock call where this store reports no object lock.
+     * The frontend asks {@link #supportsObjectLock} first and never makes
+     * one, but a wrapper that renames buckets or keys forwards these
+     * untranslated, so one an embedder made anyway would act on another
+     * bucket's or another key's lock.
+     */
+    private void requireObjectLock() {
+        if (!supportsObjectLock()) {
+            throw new UnsupportedOperationException(
+                    "object lock not supported");
+        }
+    }
+
     @Override
     public GetObjectLockConfigurationResponse getObjectLockConfiguration(
             GetObjectLockConfigurationRequest request) {
+        requireObjectLock();
         return delegate().getObjectLockConfiguration(request);
     }
 
     @Override
     public PutObjectLockConfigurationResponse putObjectLockConfiguration(
             PutObjectLockConfigurationRequest request) {
+        requireObjectLock();
         return delegate().putObjectLockConfiguration(request);
     }
 
     @Override
     public GetObjectRetentionResponse getObjectRetention(
             GetObjectRetentionRequest request) {
+        requireObjectLock();
         return delegate().getObjectRetention(request);
     }
 
     @Override
     public PutObjectRetentionResponse putObjectRetention(
             PutObjectRetentionRequest request) {
+        requireObjectLock();
         return delegate().putObjectRetention(request);
     }
 
     @Override
     public GetObjectLegalHoldResponse getObjectLegalHold(
             GetObjectLegalHoldRequest request) {
+        requireObjectLock();
         return delegate().getObjectLegalHold(request);
     }
 
     @Override
     public PutObjectLegalHoldResponse putObjectLegalHold(
             PutObjectLegalHoldRequest request) {
+        requireObjectLock();
         return delegate().putObjectLegalHold(request);
     }
 

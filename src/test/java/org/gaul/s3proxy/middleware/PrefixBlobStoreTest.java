@@ -44,12 +44,8 @@ import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
@@ -245,36 +241,6 @@ public final class PrefixBlobStoreTest {
         assertThatThrownBy(() -> prefixBlobStore.deleteBucket(containerName))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(blobStore.containerExists(containerName)).isTrue();
-    }
-
-    /** Object lock is per object, and an object here is under the prefix. */
-    @Test
-    public void testObjectLockNamesThePrefixedKey() {
-        var recorded = new ArrayList<String>();
-        var recording = new ForwardingBlobStore(blobStore) {
-            @Override
-            public GetObjectRetentionResponse getObjectRetention(
-                    GetObjectRetentionRequest request) {
-                recorded.add(request.key());
-                return GetObjectRetentionResponse.builder().build();
-            }
-
-            @Override
-            public PutObjectLegalHoldResponse putObjectLegalHold(
-                    PutObjectLegalHoldRequest request) {
-                recorded.add(request.key());
-                return PutObjectLegalHoldResponse.builder().build();
-            }
-        };
-        var store = PrefixBlobStore.newPrefixBlobStore(recording,
-                Map.of(containerName, prefix));
-
-        store.getObjectRetention(GetObjectRetentionRequest.builder()
-                .bucket(containerName).key("key").build());
-        store.putObjectLegalHold(PutObjectLegalHoldRequest.builder()
-                .bucket(containerName).key("key").build());
-
-        assertThat(recorded).containsExactly(prefix + "key", prefix + "key");
     }
 
     @Test

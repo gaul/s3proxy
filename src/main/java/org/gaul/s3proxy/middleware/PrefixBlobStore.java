@@ -55,12 +55,8 @@ import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
-import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -71,14 +67,8 @@ import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
 import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsResponse;
-import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
-import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
-import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -303,13 +293,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         return super.deletePublicAccessBlock(request);
     }
 
-    @Override
-    public PutObjectLockConfigurationResponse putObjectLockConfiguration(
-            PutObjectLockConfigurationRequest request) {
-        refusePrefixed(request.bucket());
-        return super.putObjectLockConfiguration(request);
-    }
-
     /**
      * Deleting the bucket deletes the backend bucket, which the other
      * prefixes live in too: emptied of its own objects, one prefix's client
@@ -327,43 +310,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         if (hasPrefix(container)) {
             throw new UnsupportedOperationException("prefixed bucket");
         }
-    }
-
-    // Object lock is kept per object, so a prefixed bucket names its
-    // objects under the prefix here as everywhere else.  Forwarded as they
-    // were, these read and set the retention of whatever object of the
-    // backend bucket had the unprefixed name: another prefix's.
-
-    @Override
-    public GetObjectRetentionResponse getObjectRetention(
-            GetObjectRetentionRequest request) {
-        return super.getObjectRetention(request.toBuilder()
-                .key(addPrefix(request.bucket(), request.key()))
-                .build());
-    }
-
-    @Override
-    public PutObjectRetentionResponse putObjectRetention(
-            PutObjectRetentionRequest request) {
-        return super.putObjectRetention(request.toBuilder()
-                .key(addPrefix(request.bucket(), request.key()))
-                .build());
-    }
-
-    @Override
-    public GetObjectLegalHoldResponse getObjectLegalHold(
-            GetObjectLegalHoldRequest request) {
-        return super.getObjectLegalHold(request.toBuilder()
-                .key(addPrefix(request.bucket(), request.key()))
-                .build());
-    }
-
-    @Override
-    public PutObjectLegalHoldResponse putObjectLegalHold(
-            PutObjectLegalHoldRequest request) {
-        return super.putObjectLegalHold(request.toBuilder()
-                .key(addPrefix(request.bucket(), request.key()))
-                .build());
     }
 
     @Override
