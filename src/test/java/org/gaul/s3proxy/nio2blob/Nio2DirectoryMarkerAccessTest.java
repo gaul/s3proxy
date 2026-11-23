@@ -52,9 +52,19 @@ public final class Nio2DirectoryMarkerAccessTest {
     @TempDir
     private Path root;
 
+    /**
+     * The filesystem store keeps an ACL in POSIX permission bits, which a
+     * filesystem without them -- NTFS -- cannot hold, so every object there
+     * reads back private; it is checked only where they exist.
+     */
     private List<BlobStore> blobStores() {
+        var transient_ = new TransientNio2BlobStore();
+        if (!root.getFileSystem().supportedFileAttributeViews()
+                .contains("posix")) {
+            return List.of(transient_);
+        }
         return List.of(new FilesystemNio2BlobStore(root.toString()),
-                new TransientNio2BlobStore());
+                transient_);
     }
 
     @Test
