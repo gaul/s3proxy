@@ -466,8 +466,24 @@ public final class AwsSignature {
             headersWithValues.append(header);
             headersWithValues.append(':');
 
+            List<String> values = Collections.list(request.getHeaders(header));
+            // V4 signs the lines of a repeated header as one value joined
+            // with commas, so "a" and "b" on two lines sign the same as
+            // "a,b" on one.  The handlers read an x-amz-* header from its
+            // first line alone, so a signed value cut at one of its commas
+            // would verify and yet say something else -- an
+            // x-amz-copy-source of bucket/a,b copying bucket/a.  Refuse the
+            // repeat, save for the one such header the handlers read line
+            // by line, which an AWS SDK may split.
+            if (values.size() > 1 && header.startsWith("x-amz-") &&
+                    !header.equals(AwsHttpHeaders.OBJECT_ATTRIBUTES)) {
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                        "The request repeats a header it declares as" +
+                        " signed: " + header);
+            }
+
             boolean firstValue = true;
-            for (String value : Collections.list(request.getHeaders(header))) {
+            for (String value : values) {
                 if (firstValue) {
                     firstValue = false;
                 } else {
@@ -476,8 +492,23 @@ public final class AwsSignature {
                 // Quoted or not: the SDKs collapse every run of spaces
                 // when they sign, so sparing a value that opens with a
                 // quote signed a different string than the client had.
+                String sent = value;
                 value = REPEATING_WHITESPACE.matcher(value.trim())
                         .replaceAll(" ");
+                // Every spelling of a run of whitespace signs as one space,
+                // while the handlers read the header as it was sent: a URL
+                // signed to copy bucket/a b would verify for, and copy, the
+                // key with two spaces or a tab there instead.  Clients sign
+                // the folded value, so refuse an x-amz-* header sent in any
+                // spelling but that one.  User metadata is only stored, and
+                // clients do send it unfolded.
+                if (!value.equals(sent) && header.startsWith("x-amz-") &&
+                        !header.startsWith("x-amz-meta-")) {
+                    throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                            "A signed header carries whitespace other than" +
+                            " single spaces, which the signature does not" +
+                            " cover: " + header);
+                }
                 headersWithValues.append(value);
             }
         }

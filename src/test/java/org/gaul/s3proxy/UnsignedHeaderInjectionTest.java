@@ -196,6 +196,97 @@ public final class UnsignedHeaderInjectionTest {
     }
 
     /**
+     * A signed header is not to be cut in two either.  V4 signs repeated
+     * lines as one value joined with commas while the handlers read the
+     * first line, so a URL signed to copy "secret,suffix" would otherwise
+     * copy "secret" for a bearer who sends the value as two lines.
+     */
+    @Test
+    public void testPresignedCopySourceSplitRejected() throws Exception {
+        String source = "/" + srcContainer + "/" + SRC_KEY;
+        String timestamp = ISO8601.format(Instant.now());
+        String date = timestamp.substring(0, 8);
+        String scope = date + "/us-east-1/s3/aws4_request";
+        String signedHeaders = "host;x-amz-copy-source";
+        String query = "X-Amz-Algorithm=AWS4-HMAC-SHA256" +
+                "&X-Amz-Credential=" + urlEncode(identity + "/" + scope) +
+                "&X-Amz-Date=" + timestamp +
+                "&X-Amz-Expires=3600" +
+                "&X-Amz-SignedHeaders=" + urlEncode(signedHeaders);
+        String path = "/" + dstContainer + "/" + DST_KEY;
+        String canonicalRequest = String.join("\n",
+                "PUT", path, query, "host:" + host + "\n" +
+                "x-amz-copy-source:" + source + ",suffix\n", signedHeaders,
+                "UNSIGNED-PAYLOAD");
+        String stringToSign = String.join("\n",
+                "AWS4-HMAC-SHA256", timestamp, scope,
+                sha256(canonicalRequest));
+        URI uri = URI.create("http://" + host + path + "?" + query +
+                "&X-Amz-Signature=" +
+                hex(hmac(signingKey(date), stringToSign)));
+
+        // As signed, the URL names an object that does not exist.
+        assertThat(put(uri, "x-amz-copy-source", source + ",suffix")
+                .statusCode()).isEqualTo(404);
+
+        HttpResponse<String> response = put(uri,
+                "x-amz-copy-source", source,
+                "x-amz-copy-source", "suffix");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).contains("x-amz-copy-source");
+        assertThat(read(dstContainer, DST_KEY)).isEqualTo(PLACEHOLDER);
+    }
+
+    /**
+     * Nor is the whitespace of a signed header to be respelled.  V4 signs a
+     * run of spaces and tabs as one space while the handlers read the value
+     * as sent, so a URL signed to copy "a b" would otherwise also copy the
+     * keys with two spaces or a tab there.
+     */
+    @Test
+    public void testPresignedCopySourceWhitespaceRejected() throws Exception {
+        String source = "/" + srcContainer + "/a b";
+        URI uri = presign("host;x-amz-copy-source",
+                "x-amz-copy-source:" + source + "\n");
+        String[] keys = {"a b", "a  b", "a\tb"};
+        for (String key : keys) {
+            TestUtils.putBlob(blobStore, srcContainer, key,
+                    ByteSource.wrap(key.getBytes(StandardCharsets.UTF_8)));
+        }
+        try {
+            assertThat(put(uri, "x-amz-copy-source", source).statusCode())
+                    .isEqualTo(200);
+            assertThat(read(dstContainer, DST_KEY)).isEqualTo("a b");
+
+            for (String key : new String[] {"a  b", "a\tb"}) {
+                HttpResponse<String> response = put(uri,
+                        "x-amz-copy-source", "/" + srcContainer + "/" + key);
+                assertThat(response.statusCode()).isEqualTo(403);
+                assertThat(response.body()).contains("AccessDenied");
+                assertThat(response.body()).contains("x-amz-copy-source");
+                assertThat(read(dstContainer, DST_KEY)).isEqualTo("a b");
+            }
+        } finally {
+            for (String key : keys) {
+                blobStore.removeBlob(srcContainer, key);
+            }
+        }
+    }
+
+    /** User metadata is stored as sent, however its whitespace signed. */
+    @Test
+    public void testPresignedUserMetadataWhitespaceAccepted()
+            throws Exception {
+        HttpResponse<String> response = put(
+                presign("host;x-amz-meta-key", "x-amz-meta-key:one two\n"),
+                "x-amz-meta-key", "one  two");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(blobStore.blobMetadata(dstContainer, DST_KEY)
+                .metadata()).containsEntry("key", "one  two");
+    }
+
+    /**
      * The Authorization-header control: host, x-amz-content-sha256 and
      * x-amz-date signed, no unsigned header added, so the PUT proceeds.
      */
@@ -268,10 +359,18 @@ public final class UnsignedHeaderInjectionTest {
      * presigner emits and the report exercised.
      */
     private URI presign() throws Exception {
+        return presign("host", "");
+    }
+
+    /**
+     * A presigned PUT to dst/target that also signs x-amz-* headers:
+     * amzHeaderLines are their canonical lines, each ending in a newline.
+     */
+    private URI presign(String signedHeaders, String amzHeaderLines)
+            throws Exception {
         String timestamp = ISO8601.format(Instant.now());
         String date = timestamp.substring(0, 8);
         String scope = date + "/us-east-1/s3/aws4_request";
-        String signedHeaders = "host";
         String query = "X-Amz-Algorithm=AWS4-HMAC-SHA256" +
                 "&X-Amz-Credential=" + urlEncode(identity + "/" + scope) +
                 "&X-Amz-Date=" + timestamp +
@@ -279,8 +378,8 @@ public final class UnsignedHeaderInjectionTest {
                 "&X-Amz-SignedHeaders=" + urlEncode(signedHeaders);
         String path = "/" + dstContainer + "/" + DST_KEY;
         String canonicalRequest = String.join("\n",
-                "PUT", path, query, "host:" + host + "\n", signedHeaders,
-                "UNSIGNED-PAYLOAD");
+                "PUT", path, query, "host:" + host + "\n" + amzHeaderLines,
+                signedHeaders, "UNSIGNED-PAYLOAD");
         String stringToSign = String.join("\n",
                 "AWS4-HMAC-SHA256", timestamp, scope,
                 sha256(canonicalRequest));
