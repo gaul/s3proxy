@@ -238,6 +238,46 @@ public final class PostObjectTest {
                 .metadata()).containsOnlyKeys("foo");
     }
 
+    /** Content-MD5 is a header on a PUT and a field here, and binds alike. */
+    @Test
+    public void testContentMD5() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo.txt", "Content-MD5", md5("bar"));
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(body("foo.txt")).isEqualTo("bar");
+    }
+
+    /**
+     * A policy can pin the field but cannot see the payload, so a form that
+     * sends the digest the policy admits beside some other payload has to be
+     * refused by the handler.
+     */
+    @Test
+    public void testContentMD5Mismatch() throws Exception {
+        String policy = policy(
+                "{\"bucket\": \"" + containerName + "\"}," +
+                "{\"key\": \"foo.txt\"}," +
+                "{\"Content-MD5\": \"" + md5("approved") + "\"}");
+        HttpResponse<String> response = post(
+                "key", "foo.txt",
+                "Content-MD5", md5("approved"),
+                "AWSAccessKeyId", IDENTITY,
+                "policy", policy,
+                "signature", sign(policy));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>BadDigest</Code>");
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
+    @Test
+    public void testContentMD5Malformed() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo.txt", "Content-MD5", "not-a-digest");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>InvalidDigest</Code>");
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
     /** A signed policy the form satisfies. */
     @Test
     public void testAuthenticatedPost() throws Exception {
@@ -415,6 +455,12 @@ public final class PostObjectTest {
                 CREDENTIAL.getBytes(StandardCharsets.UTF_8), "HmacSHA1"));
         return Base64.getEncoder().encodeToString(
                 mac.doFinal(policy.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String md5(String payload) throws Exception {
+        return Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("MD5").digest(
+                        payload.getBytes(StandardCharsets.UTF_8)));
     }
 
     private String body(String blobName) throws Exception {

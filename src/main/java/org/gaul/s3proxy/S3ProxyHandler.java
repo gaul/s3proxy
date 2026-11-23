@@ -6323,6 +6323,24 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
             }
         }
+        // The form's spelling of the header a PUT is held to.  A policy can
+        // only compare the field with the digest it pins, so whether the
+        // payload has that digest is answered here or nowhere.
+        String contentMD5 = fields.get("content-md5");
+        if (contentMD5 != null) {
+            byte[] expected;
+            try {
+                expected = Base64.getDecoder().decode(contentMD5);
+            } catch (IllegalArgumentException iae) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
+            }
+            if (expected.length != MD5.LENGTH) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
+            }
+            if (!MessageDigest.isEqual(expected, MD5.hash(payload))) {
+                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
+            }
+        }
 
         var putRequest = PutObjectRequest.builder()
                 .bucket(containerName)
