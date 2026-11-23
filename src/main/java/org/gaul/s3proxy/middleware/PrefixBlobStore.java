@@ -31,32 +31,55 @@ import com.google.common.collect.ImmutableList;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
-import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
-import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectLegalHoldResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketEncryptionResponse;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
+import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLockConfigurationResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionResponse;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockRequest;
+import software.amazon.awssdk.services.s3.model.PutPublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
@@ -202,6 +225,143 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
                 .build();
     }
 
+    // A prefixed bucket is one part of a backend bucket, and the ACL and
+    // the default encryption are the backend bucket's: they cover every
+    // other prefix in it as well.  Passing a change through let the client
+    // of one prefix open all of them to anonymous callers, so a prefixed
+    // bucket keeps what the backend bucket has.
+
+    @Override
+    public CreateBucketResponse createContainer(CreateBucketRequest request) {
+        BucketCannedACL acl = request.acl();
+        if (hasPrefix(request.bucket()) && acl != null &&
+                acl != BucketCannedACL.PRIVATE) {
+            throw new UnsupportedOperationException("prefixed bucket");
+        }
+        return super.createContainer(request);
+    }
+
+    @Override
+    public void setContainerAccess(String container,
+            BucketCannedACL containerAccess) {
+        if (!hasPrefix(container)) {
+            super.setContainerAccess(container, containerAccess);
+            return;
+        }
+        // Some clients restate the ACL a bucket already has; that changes
+        // nothing for anyone and needs no refusal.
+        if (getContainerAccess(container) != containerAccess) {
+            throw new UnsupportedOperationException("prefixed bucket");
+        }
+    }
+
+    @Override
+    public PutBucketEncryptionResponse putBucketEncryption(
+            PutBucketEncryptionRequest request) {
+        refusePrefixed(request.bucket());
+        return super.putBucketEncryption(request);
+    }
+
+    @Override
+    public PutBucketOwnershipControlsResponse putBucketOwnershipControls(
+            PutBucketOwnershipControlsRequest request) {
+        refusePrefixed(request.bucket());
+        return super.putBucketOwnershipControls(request);
+    }
+
+    @Override
+    public DeleteBucketOwnershipControlsResponse deleteBucketOwnershipControls(
+            DeleteBucketOwnershipControlsRequest request) {
+        refusePrefixed(request.bucket());
+        return super.deleteBucketOwnershipControls(request);
+    }
+
+    @Override
+    public PutPublicAccessBlockResponse putPublicAccessBlock(
+            PutPublicAccessBlockRequest request) {
+        refusePrefixed(request.bucket());
+        return super.putPublicAccessBlock(request);
+    }
+
+    @Override
+    public DeletePublicAccessBlockResponse deletePublicAccessBlock(
+            DeletePublicAccessBlockRequest request) {
+        refusePrefixed(request.bucket());
+        return super.deletePublicAccessBlock(request);
+    }
+
+    @Override
+    public PutObjectLockConfigurationResponse putObjectLockConfiguration(
+            PutObjectLockConfigurationRequest request) {
+        refusePrefixed(request.bucket());
+        return super.putObjectLockConfiguration(request);
+    }
+
+    /**
+     * Deleting the bucket deletes the backend bucket, which the other
+     * prefixes live in too: emptied of its own objects, one prefix's client
+     * took the bucket from under every other, whose writes then answered
+     * NoSuchBucket.  As with the ACL, the backend bucket is not a prefix's
+     * to delete.
+     */
+    @Override
+    public void deleteBucket(String container) {
+        refusePrefixed(container);
+        super.deleteBucket(container);
+    }
+
+    private void refusePrefixed(String container) {
+        if (hasPrefix(container)) {
+            throw new UnsupportedOperationException("prefixed bucket");
+        }
+    }
+
+    // Object lock is kept per object, so a prefixed bucket names its
+    // objects under the prefix here as everywhere else.  Forwarded as they
+    // were, these read and set the retention of whatever object of the
+    // backend bucket had the unprefixed name: another prefix's.
+
+    @Override
+    public GetObjectRetentionResponse getObjectRetention(
+            GetObjectRetentionRequest request) {
+        return super.getObjectRetention(request.toBuilder()
+                .key(addPrefix(request.bucket(), request.key()))
+                .build());
+    }
+
+    @Override
+    public PutObjectRetentionResponse putObjectRetention(
+            PutObjectRetentionRequest request) {
+        return super.putObjectRetention(request.toBuilder()
+                .key(addPrefix(request.bucket(), request.key()))
+                .build());
+    }
+
+    @Override
+    public GetObjectLegalHoldResponse getObjectLegalHold(
+            GetObjectLegalHoldRequest request) {
+        return super.getObjectLegalHold(request.toBuilder()
+                .key(addPrefix(request.bucket(), request.key()))
+                .build());
+    }
+
+    @Override
+    public PutObjectLegalHoldResponse putObjectLegalHold(
+            PutObjectLegalHoldRequest request) {
+        return super.putObjectLegalHold(request.toBuilder()
+                .key(addPrefix(request.bucket(), request.key()))
+                .build());
+    }
+
+    @Override
+    public DeleteBucketEncryptionResponse deleteBucketEncryption(
+            DeleteBucketEncryptionRequest request) {
+        if (hasPrefix(request.bucket())) {
+            throw new UnsupportedOperationException("prefixed bucket");
+        }
+        return super.deleteBucketEncryption(request);
+    }
+
     @Override
     public boolean blobExists(String container, String name) {
         return super.blobExists(container, addPrefix(container, name));
@@ -294,9 +454,9 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     /**
      * Removes what this store shows of the bucket: the objects under its
-     * prefix.  The backend bucket is deleted only if that leaves it empty.
-     * Forwarded as it was, this emptied the whole backend bucket, taking
-     * every object outside the prefix with it.
+     * prefix.  Forwarded as it was, this emptied the whole backend bucket,
+     * taking every object outside the prefix with it.  The backend bucket
+     * stays, emptied or not: other prefixes live in it, and see deleteBucket.
      */
     @Override
     public void deleteContainer(String container) {
@@ -311,14 +471,6 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
         clearContainer(ListObjectsV2Request.builder()
                 .bucket(container)
                 .build());
-        try {
-            super.deleteBucket(container);
-        } catch (AwsServiceException e) {
-            if (!"BucketNotEmpty".equals(S3Exceptions.errorCode(e))) {
-                throw e;
-            }
-            // what remains is outside the prefix, and not this store's
-        }
     }
 
     @Override

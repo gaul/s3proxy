@@ -17,9 +17,11 @@
 package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -37,11 +39,22 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectLegalHoldResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
+import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 
 public final class PrefixBlobStoreTest {
@@ -192,14 +205,53 @@ public final class PrefixBlobStoreTest {
                 .isFalse();
     }
 
+    /**
+     * Other prefixes live in the backend bucket too, and would find it gone
+     * however empty this one's view of it was.
+     */
     @Test
-    public void testDeleteContainerRemovesAnEmptiedBucket() throws Exception {
+    public void testDeleteContainerKeepsAnEmptiedBucket() throws Exception {
         TestUtils.putBlob(prefixBlobStore, containerName, "inside",
                 TestUtils.randomByteSource().slice(0, 16));
 
         prefixBlobStore.deleteContainer(containerName);
 
-        assertThat(blobStore.containerExists(containerName)).isFalse();
+        assertThat(blobStore.containerExists(containerName)).isTrue();
+        assertThat(blobStore.blobExists(containerName, prefix + "inside"))
+                .isFalse();
+        assertThatThrownBy(() -> prefixBlobStore.deleteBucket(containerName))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(blobStore.containerExists(containerName)).isTrue();
+    }
+
+    /** Object lock is per object, and an object here is under the prefix. */
+    @Test
+    public void testObjectLockNamesThePrefixedKey() {
+        var recorded = new ArrayList<String>();
+        var recording = new ForwardingBlobStore(blobStore) {
+            @Override
+            public GetObjectRetentionResponse getObjectRetention(
+                    GetObjectRetentionRequest request) {
+                recorded.add(request.key());
+                return GetObjectRetentionResponse.builder().build();
+            }
+
+            @Override
+            public PutObjectLegalHoldResponse putObjectLegalHold(
+                    PutObjectLegalHoldRequest request) {
+                recorded.add(request.key());
+                return PutObjectLegalHoldResponse.builder().build();
+            }
+        };
+        var store = PrefixBlobStore.newPrefixBlobStore(recording,
+                Map.of(containerName, prefix));
+
+        store.getObjectRetention(GetObjectRetentionRequest.builder()
+                .bucket(containerName).key("key").build());
+        store.putObjectLegalHold(PutObjectLegalHoldRequest.builder()
+                .bucket(containerName).key("key").build());
+
+        assertThat(recorded).containsExactly(prefix + "key", prefix + "key");
     }
 
     @Test
@@ -353,6 +405,96 @@ public final class PrefixBlobStoreTest {
     @Test
     public void testFollowsABackendThatCopiesNoPart() {
         assertThat(prefixBlobStore.supportsCopyMultipartPart()).isFalse();
+    }
+
+    /**
+     * The ACL belongs to the backend bucket and so to every prefix in it.
+     * Setting it through one prefix opened the others to anonymous callers.
+     */
+    @Test
+    public void testRefusesToChangeTheBackendBucketAccess() {
+        assertThatThrownBy(() -> prefixBlobStore.setContainerAccess(
+                containerName, BucketCannedACL.PUBLIC_READ_WRITE))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(blobStore.getContainerAccess(containerName))
+                .isEqualTo(BucketCannedACL.PRIVATE);
+
+        // restating what the bucket has is no change
+        prefixBlobStore.setContainerAccess(containerName,
+                BucketCannedACL.PRIVATE);
+
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ);
+        assertThatThrownBy(() -> prefixBlobStore.setContainerAccess(
+                containerName, BucketCannedACL.PRIVATE))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(prefixBlobStore.getContainerAccess(containerName))
+                .isEqualTo(BucketCannedACL.PUBLIC_READ);
+    }
+
+    @Test
+    public void testRefusesToCreateAPublicBackendBucket() {
+        String other = TestUtils.createRandomContainerName();
+        BlobStore store = PrefixBlobStore.newPrefixBlobStore(blobStore,
+                Map.of(other, prefix));
+        try {
+            assertThatThrownBy(() -> store.createContainer(
+                    CreateBucketRequest.builder()
+                            .bucket(other)
+                            .acl(BucketCannedACL.PUBLIC_READ_WRITE)
+                            .build()))
+                    .isInstanceOf(UnsupportedOperationException.class);
+            assertThat(blobStore.containerExists(other)).isFalse();
+
+            store.createContainer(other);
+            assertThat(blobStore.getContainerAccess(other))
+                    .isEqualTo(BucketCannedACL.PRIVATE);
+        } finally {
+            blobStore.deleteContainer(other);
+        }
+    }
+
+    /** The default encryption is the backend bucket's in the same way. */
+    @Test
+    public void testRefusesToChangeTheBackendBucketEncryption() {
+        var configuration = ServerSideEncryptionConfiguration.builder()
+                .rules(ServerSideEncryptionRule.builder()
+                        .applyServerSideEncryptionByDefault(
+                                ServerSideEncryptionByDefault.builder()
+                                        .sseAlgorithm(
+                                                ServerSideEncryption.AES256)
+                                        .build())
+                        .build())
+                .build();
+        assertThatThrownBy(() -> prefixBlobStore.putBucketEncryption(
+                containerName, configuration))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> blobStore.getBucketEncryption(containerName))
+                .isInstanceOf(S3Exception.class);
+
+        blobStore.putBucketEncryption(containerName, configuration);
+        assertThatThrownBy(() -> prefixBlobStore.deleteBucketEncryption(
+                containerName))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(prefixBlobStore.getBucketEncryption(containerName))
+                .isEqualTo(configuration);
+    }
+
+    @Test
+    public void testLeavesAnUnprefixedBucketItsAccess() {
+        String other = TestUtils.createRandomContainerName();
+        prefixBlobStore.createContainer(CreateBucketRequest.builder()
+                .bucket(other)
+                .acl(BucketCannedACL.PUBLIC_READ)
+                .build());
+        try {
+            prefixBlobStore.setContainerAccess(other,
+                    BucketCannedACL.PUBLIC_READ_WRITE);
+            assertThat(blobStore.getContainerAccess(other))
+                    .isEqualTo(BucketCannedACL.PUBLIC_READ_WRITE);
+        } finally {
+            blobStore.deleteContainer(other);
+        }
     }
 
     @Test
