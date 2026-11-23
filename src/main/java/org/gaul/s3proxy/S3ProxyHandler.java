@@ -23,6 +23,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.PushbackInputStream;
 import java.io.Writer;
@@ -7752,9 +7753,15 @@ public class S3ProxyHandler {
             return;
         }
 
-        response.setCharacterEncoding(UTF_8);
-        try (Writer writer = response.getWriter()) {
-            response.setContentType(XML_CONTENT_TYPE);
+        // The document is rendered whole and sent with its length, as S3
+        // sends its errors.  Streamed through the response's writer it went
+        // out unframed whenever Connection: close was set above: Jetty then
+        // ends the body by closing the connection rather than chunking it,
+        // and the CRT client behind aws s3 cp reads such a body as empty,
+        // reporting a bare 403 where the error said AccessDenied.
+        var body = new ByteArrayOutputStream();
+        try (Writer writer = new OutputStreamWriter(body,
+                StandardCharsets.UTF_8)) {
             XMLStreamWriter xml = xmlOutputFactory.createXMLStreamWriter(
                     writer);
             xml.writeStartDocument();
@@ -7777,6 +7784,12 @@ public class S3ProxyHandler {
             xml.flush();
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
+        }
+        response.setCharacterEncoding(UTF_8);
+        response.setContentType(XML_CONTENT_TYPE);
+        response.setContentLength(body.size());
+        try (OutputStream out = response.getOutputStream()) {
+            body.writeTo(out);
         }
 
         // only now, with the response written: the client is not kept

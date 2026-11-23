@@ -30,6 +30,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -93,6 +95,34 @@ public final class UnreadBodyErrorTest {
                     new BufferedInputStream(socket.getInputStream()));
             assertThat(head).startsWith("HTTP/1.1 403 ");
             assertThat(head).containsIgnoringCase("Connection: close");
+        }
+    }
+
+    /**
+     * The refusal states its length even though it closes the connection.
+     * Without one the body ends only at the close, which the CRT client
+     * behind aws s3 cp reads as no body at all, losing the error code.
+     */
+    @Test
+    public void testRefusedBeforeBodyStatesLength() throws Exception {
+        try (var socket = connect()) {
+            OutputStream out = socket.getOutputStream();
+            InputStream in = new BufferedInputStream(socket.getInputStream());
+            out.write(("PUT /" + containerName + "/key HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1\r\n" +
+                    "Content-Length: 16\r\n" +
+                    "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+            out.flush();
+
+            String head = readHead(in);
+            assertThat(head).containsIgnoringCase("Connection: close");
+            Matcher matcher = Pattern.compile("(?im)^Content-Length: (\\d+)$")
+                    .matcher(head.replace("\r", ""));
+            assertThat(matcher.find()).as(head).isTrue();
+            byte[] body = in.readNBytes(Integer.parseInt(matcher.group(1)));
+            assertThat(new String(body, StandardCharsets.UTF_8))
+                    .contains("<Code>AccessDenied</Code>")
+                    .endsWith("</Error>");
         }
     }
 
