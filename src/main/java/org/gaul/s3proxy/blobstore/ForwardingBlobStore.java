@@ -199,6 +199,13 @@ public abstract class ForwardingBlobStore extends ForwardingObject
         return delegate().supportsVersioning();
     }
 
+    // Not what supportsVersioning answers: a wrapper that overrides that to
+    // turn versioning off still stands over the versions its delegate keeps.
+    @Override
+    public boolean keepsVersions() {
+        return supportsVersioning() || delegate().keepsVersions();
+    }
+
     @Override
     public boolean supportsServerSideEncryption() {
         return delegate().supportsServerSideEncryption();

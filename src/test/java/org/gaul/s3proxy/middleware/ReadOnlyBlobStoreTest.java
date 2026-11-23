@@ -152,7 +152,7 @@ public final class ReadOnlyBlobStoreTest {
                 "getMinimumMultipartPartSize", "getObjectLegalHold",
                 "getObjectLockConfiguration", "getObjectRetention",
                 "getPublicAccessBlock",
-                "headBucket", "list",
+                "headBucket", "keepsVersions", "list",
                 "listMultipartUpload",
                 "listMultipartUploads", "listV1", "listVersions",
                 "supportsBucketAccessControls",

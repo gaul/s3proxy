@@ -568,6 +568,18 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
+     * Whether a bucket of this store may hold a version of an object other
+     * than its current one.  A store that {@link #supportsVersioning} does,
+     * and so does a wrapper that reports no versioning, for want of a way
+     * to carry the versioned operations, over a store that goes on keeping
+     * versions.  Only where this is false is the version ID "null" sure to
+     * name the current object.
+     */
+    default boolean keepsVersions() {
+        return supportsVersioning();
+    }
+
+    /**
      * GetBucketVersioning: the bucket's versioning configuration.  A bucket
      * that has never been versioned answers a response with no status,
      * which is what S3's empty VersioningConfiguration says; mfaDelete

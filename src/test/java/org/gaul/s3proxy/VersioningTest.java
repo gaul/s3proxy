@@ -22,9 +22,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 import org.assertj.core.api.Fail;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.middleware.Middlewares;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +40,8 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectAttributes;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -465,5 +469,108 @@ public final class VersioningTest {
         var nullVersion = client.getObject(b -> b.bucket(containerName)
                 .key(key).versionId("null"));
         assertThat(new String(nullVersion.readAllBytes())).isEqualTo("three");
+    }
+
+    /**
+     * A middleware that turns versioning off still stands over the versions
+     * its backend keeps, and there "null" is the version written before the
+     * bucket was versioned rather than the current one.  Taken for the
+     * current one, which it is in a store that keeps no versions, it had a
+     * request naming the oldest version read, copy and share the newest.
+     * Sharding any bucket did that to all the others, which the middleware
+     * otherwise passes through unchanged.
+     */
+    @Test
+    public void testNullVersionBehindMiddleware() throws Exception {
+        var key = "key";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("old"));
+        enableVersioning();
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("new"));
+
+        var properties = new Properties();
+        properties.setProperty(S3ProxyConstants.PROPERTY_SHARDED_BLOBSTORE +
+                ".another-bucket.shards", "4");
+        BlobStore sharded = Middlewares.wrap(blobStore, properties,
+                unused -> {
+                    throw new AssertionError("no second backend");
+                });
+        assertThat(sharded.supportsVersioning()).isFalse();
+        assertThat(sharded.keepsVersions()).isTrue();
+
+        S3Proxy shardedProxy = S3Proxy.builder()
+                .stopTimeout(0)
+                .endpoint(URI.create("http://127.0.0.1:0"))
+                .blobStore(sharded)
+                .build();
+        shardedProxy.start();
+        try (S3Client shardedClient = S3Client.builder()
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create("identity", "credential")))
+                .region(Region.US_EAST_1)
+                .endpointOverride(URI.create(
+                        "http://127.0.0.1:" + shardedProxy.getPort()))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .build()) {
+            assertNotImplemented(() -> shardedClient.getObject(b -> b
+                    .bucket(containerName).key(key).versionId("null")));
+            assertNotImplemented(() -> shardedClient.headObject(b -> b
+                    .bucket(containerName).key(key).versionId("null")));
+            assertNotImplemented(() -> shardedClient.getObjectAcl(b -> b
+                    .bucket(containerName).key(key).versionId("null")));
+            assertNotImplemented(() -> shardedClient.putObjectAcl(b -> b
+                    .bucket(containerName).key(key).versionId("null")
+                    .acl(ObjectCannedACL.PUBLIC_READ)));
+            assertNotImplemented(() -> shardedClient.copyObject(b -> b
+                    .sourceBucket(containerName).sourceKey(key)
+                    .sourceVersionId("null")
+                    .destinationBucket(containerName).destinationKey("copy")));
+
+            // nor may a delete remove a version the middleware hides,
+            // one at a time or in a batch
+            assertNotImplemented(() -> shardedClient.deleteObject(b -> b
+                    .bucket(containerName).key(key).versionId("null")));
+            assertNotImplemented(() -> shardedClient.deleteObjects(b -> b
+                    .bucket(containerName).delete(d -> d.objects(
+                            ObjectIdentifier.builder().key(key)
+                                    .versionId("null").build()))));
+            var current = shardedClient.getObject(b -> b
+                    .bucket(containerName).key(key));
+            assertThat(new String(current.readAllBytes())).isEqualTo("new");
+        } finally {
+            shardedProxy.stop();
+        }
+        assertThat(client.listObjectVersions(b -> b.bucket(containerName))
+                .versions()).hasSize(2);
+    }
+
+    /**
+     * GetObjectAttributes answers for the current object alone, which is not
+     * what "null" names in a bucket that has versions.
+     */
+    @Test
+    public void testGetObjectAttributesRefusesNullVersion() throws Exception {
+        var key = "key";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("old"));
+        enableVersioning();
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("new"));
+
+        assertNotImplemented(() -> client.getObjectAttributes(b -> b
+                .bucket(containerName).key(key).versionId("null")
+                .objectAttributes(ObjectAttributes.OBJECT_SIZE)));
+    }
+
+    private static void assertNotImplemented(Runnable request) {
+        try {
+            request.run();
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(501);
+        }
     }
 }

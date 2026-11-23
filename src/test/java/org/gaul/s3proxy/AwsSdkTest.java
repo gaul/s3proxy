@@ -1137,9 +1137,20 @@ public final class AwsSdkTest {
         }
 
         // the object survived all three; "null" names it as every object in
-        // an unversioned bucket carries that version
-        client.headObject(b -> b.bucket(containerName).key(key)
-                .versionId("null"));
+        // an unversioned bucket carries that version, which a middleware
+        // over a store that keeps versions cannot say of it
+        if (blobStore.keepsVersions()) {
+            try {
+                client.headObject(b -> b.bucket(containerName).key(key)
+                        .versionId("null"));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(501);
+            }
+        } else {
+            client.headObject(b -> b.bucket(containerName).key(key)
+                    .versionId("null"));
+        }
         client.deleteObject(b -> b.bucket(containerName).key(key)
                 .versionId("null"));
     }

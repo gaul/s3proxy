@@ -4083,6 +4083,14 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
             }
+            // Nor is "null" the current object where a middleware hides the
+            // versions its backend keeps; see checkVersionId.
+            if (s3Object.versionId() != null &&
+                    !keyStore.supportsVersioning() &&
+                    keyStore.keepsVersions()) {
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                        "Versioning is not supported.");
+            }
             objects.add(ObjectIdentifier.builder()
                     .key(s3Object.key())
                     .versionId(s3Object.versionId())
@@ -4382,10 +4390,16 @@ public class S3ProxyHandler {
      * parameter silently operates on the current object instead -- for a
      * DELETE that destroys data the caller never named.  "null" is the
      * version every object in an unversioned bucket carries, so it denotes
-     * the current object and is allowed.  A store with versioning receives
-     * the parameter in the operations that consume it; the ones that do not
-     * -- object ACLs, GetObjectAttributes -- refuse it individually via
-     * {@link #checkVersionId(HttpServletRequest)}.
+     * the current object and is allowed, unless the store {@link
+     * BlobStore#keepsVersions} all the same: a middleware that turns
+     * versioning off over a backend which has it.  There "null" may be the
+     * version written before the bucket was versioned: a read would serve
+     * a newer version than the request named, and a DELETE, which hands
+     * the parameter on, would remove a version the middleware hides.  A
+     * store with versioning receives the parameter in the operations that
+     * consume it; the ones that do not -- object ACLs, GetObjectAttributes
+     * -- refuse it individually via
+     * {@link #checkVersionId(HttpServletRequest, boolean)}.
      *
      * <p>Note this cannot live in UNSUPPORTED_PARAMETERS, which rejects a
      * parameter outright, and which anonymous requests never reach.  Both
@@ -4395,14 +4409,21 @@ public class S3ProxyHandler {
     private static void checkVersionId(HttpServletRequest request,
             BlobStore blobStore) {
         if (!blobStore.supportsVersioning()) {
-            checkVersionId(request);
+            checkVersionId(request, /*acceptNull=*/
+                    !blobStore.keepsVersions());
         }
     }
 
-    /** Vet a versionId for an operation that cannot resolve one. */
-    private static void checkVersionId(HttpServletRequest request) {
+    /**
+     * Vet a versionId for an operation that cannot resolve one.  The caller
+     * accepts "null" where it is sure to name the current object, which is
+     * what such an operation acts on.
+     */
+    private static void checkVersionId(HttpServletRequest request,
+            boolean acceptNull) {
         String versionId = request.getParameter("versionId");
-        if (versionId != null && !versionId.equals("null")) {
+        if (versionId != null &&
+                !(acceptNull && versionId.equals("null"))) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Versioning is not supported.");
         }
@@ -5145,8 +5166,9 @@ public class S3ProxyHandler {
             String containerName, String blobName)
             throws IOException {
         // Resolves only the current object; ignoring a versionId would
-        // answer with the wrong version's attributes.
-        checkVersionId(request);
+        // answer with the wrong version's attributes, and "null" is one
+        // where versions are kept.
+        checkVersionId(request, /*acceptNull=*/ !blobStore.keepsVersions());
         Set<String> attributes = requestedObjectAttributes(request);
 
         // A read like HEAD, of much the same things, and it answers to the
@@ -5471,8 +5493,9 @@ public class S3ProxyHandler {
      * query must split from the raw header before percent-decoding: decoding
      * first would conflate a key containing an encoded "?versionId=" with
      * the version syntax.  On a store without versioning only the literal
-     * "null" is accepted, denoting the current object as {@link
-     * #checkVersionId(HttpServletRequest)} does for the query parameter.
+     * "null" is accepted, denoting the current object where {@link
+     * #checkVersionId(HttpServletRequest, BlobStore)} takes it to for the
+     * query parameter.
      */
     @Nullable
     private static String parseCopySourceVersionId(String rawCopySource,
@@ -5491,7 +5514,7 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
         }
         if (!blobStore.supportsVersioning()) {
-            if (!versionId.equals("null")) {
+            if (!versionId.equals("null") || blobStore.keepsVersions()) {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
             }
