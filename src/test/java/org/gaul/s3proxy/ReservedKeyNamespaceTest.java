@@ -229,6 +229,39 @@ public final class ReservedKeyNamespaceTest {
                 .contents()).isEmpty();
     }
 
+    /**
+     * The parts of an upload whose key holds a slash lie in a directory of
+     * the store's own.  A prefix naming that directory, or the bucket's own
+     * by way of a dot segment, started the listing past the point where the
+     * reserved names are hidden.
+     */
+    @Test
+    public void testReservedDirectoriesAreNotListable() {
+        client.putObject(b -> b.bucket(containerName).key("dir/blob"),
+                RequestBody.fromBytes(CONTENT));
+        String id = client.createMultipartUpload(b -> b
+                .bucket(containerName).key("dir/victim")).uploadId();
+        client.uploadPart(b -> b.bucket(containerName).key("dir/victim")
+                .uploadId(id).partNumber(1),
+                RequestBody.fromBytes(CONTENT));
+
+        for (String prefix : List.of(MULTIPART_PREFIX + id + "-dir/",
+                MULTIPART_PREFIX + id + "-dir/victim-", "./", "dir/../")) {
+            for (String delimiter : List.of("", "/")) {
+                var listing = client.listObjectsV2(b -> b
+                        .bucket(containerName).prefix(prefix)
+                        .delimiter(delimiter));
+                assertThat(listing.contents()).as(prefix).isEmpty();
+                assertThat(listing.commonPrefixes()).as(prefix).isEmpty();
+            }
+        }
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName)
+                .prefix("dir/")).contents().stream().map(o -> o.key()))
+                .containsExactly("dir/blob");
+        assertThat(client.listParts(b -> b.bucket(containerName)
+                .key("dir/victim").uploadId(id)).parts()).hasSize(1);
+    }
+
     /** What the refusals above protect: the upload publishes what it was given. */
     @Test
     public void testUploadInFlightIsUnaffected() {

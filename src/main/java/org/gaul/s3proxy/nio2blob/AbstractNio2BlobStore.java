@@ -376,9 +376,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         var pathPrefix = containerPath.resolve(prefix).normalize();
         checkValidPath(containerPath, pathPrefix);
+        // The walk starts at the prefix's directory, which is held to the
+        // container as the prefix is: "../<container>" and an absolute path
+        // to the container both resolve to it, but their directory is the
+        // one holding every container, and the walk listed them all.
+        checkValidPath(containerPath, dirPrefix);
+        var filterMultipart = !includeMultipart;
+        // No key holds a "." or ".." segment, so none begins with a prefix
+        // whose directory does.  Resolving one would start the walk at
+        // another directory than the prefix spells, and "./" is the
+        // container by a name listHelper does not know it under, so nothing
+        // reserved was hidden.
+        if (!dirPrefix.equals(dirPrefix.normalize())) {
+            return SdkResponses.objectsPage(List.of(), List.of(), null);
+        }
+        // listHelper hides a reserved name where it meets one, directly
+        // under the container.  A walk starting below the container has
+        // already passed that name, so it is looked for here: a prefix of
+        // ".mpus-<uploadId>-dir/" listed the parts of an upload to "dir/...".
+        if (!dirPrefix.equals(containerPath) && isReservedName(
+                containerPath.relativize(dirPrefix).getName(0).toString(),
+                filterMultipart)) {
+            return SdkResponses.objectsPage(List.of(), List.of(), null);
+        }
         logger.debug("Listing blobs at: {}", pathPrefix);
         var set = ImmutableSortedSet.<ListEntry>naturalOrder();
-        var filterMultipart = !includeMultipart;
         var pathPrefixString = root.resolve(pathPrefix).toAbsolutePath().toString();
         try {
             listHelper(set, containerPath, dirPrefix, pathPrefixString, delimiter,
@@ -494,28 +516,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     // same name is a client's key like any other, which a
                     // PUT accepts: hiding it there kept an object out of
                     // every listing while it held the bucket undeletable.
-                    if (containerPath.equals(path.getParent())) {
-                        String name = requireNonNull(path.getFileName()).toString();
-                        if (filterMultipart &&
-                                name.startsWith(MULTIPART_PREFIX)) {
-                            continue;
-                        }
-                        // The reserved backing store for the "/" key is not
-                        // itself a client-visible object; the key "/" is
-                        // never enumerated.
-                        if (name.equals(SLASH_BLOB_NAME)) {
-                            continue;
-                        }
-                        // Non-current versions are objects of
-                        // ListObjectVersions alone; ListObjects reports what
-                        // is current.
-                        if (name.equals(VERSIONS_DIR)) {
-                            continue;
-                        }
-                        // nor is a write still being assembled an object
-                        if (name.equals(TEMPORARY_DIR)) {
-                            continue;
-                        }
+                    if (containerPath.equals(path.getParent()) &&
+                            isReservedName(requireNonNull(
+                                    path.getFileName()).toString(),
+                                    filterMultipart)) {
+                        continue;
                     }
                     if (!path.toAbsolutePath().toString().startsWith(
                             pathPrefixString)) {
@@ -543,6 +548,29 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
         }
+    }
+
+    /**
+     * Whether a name directly under the container is one of the store's
+     * own, which no listing reports.
+     */
+    private static boolean isReservedName(String name,
+            boolean filterMultipart) {
+        if (filterMultipart && name.startsWith(MULTIPART_PREFIX)) {
+            return true;
+        }
+        // The reserved backing store for the "/" key is not itself a
+        // client-visible object; the key "/" is never enumerated.
+        if (name.equals(SLASH_BLOB_NAME)) {
+            return true;
+        }
+        // Non-current versions are objects of ListObjectVersions alone;
+        // ListObjects reports what is current.
+        if (name.equals(VERSIONS_DIR)) {
+            return true;
+        }
+        // nor is a write still being assembled an object
+        return name.equals(TEMPORARY_DIR);
     }
 
     private void listEntry(ImmutableSortedSet.Builder<ListEntry> builder,
