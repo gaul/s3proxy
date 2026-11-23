@@ -1467,8 +1467,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 exists = true;
             } else if (entry.getKey().equalsIgnoreCase(
                     SwiftHeaders.CONTAINER_READ)) {
-                var read = entry.getValue();
-                if (read != null && read.contains(".r:*")) {
+                if (isPublicRead(entry.getValue())) {
                     access = BucketCannedACL.PUBLIC_READ;
                 }
             }
@@ -1477,6 +1476,24 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw S3Exceptions.noSuchBucket(container, "");
         }
         return access;
+    }
+
+    /**
+     * Whether a container read ACL is S3's public-read: anyone may read the
+     * objects and anyone may list them.  Swift grants the two apart, .r:* for
+     * an object and .rlistings beside it for the listing, and .r:* alone
+     * shares objects by name without telling anyone the names.  S3Proxy
+     * lists a public-read bucket with its own token, so Swift never applies
+     * the ACL to the anonymous client; only both together may be reported,
+     * which is also what setContainerAccess writes.  Elements are compared
+     * whole: the referrer .r:*.example.com is not everyone.
+     */
+    static boolean isPublicRead(@Nullable String readAcl) {
+        if (readAcl == null) {
+            return false;
+        }
+        var grants = Splitter.on(',').trimResults().splitToList(readAcl);
+        return grants.contains(".r:*") && grants.contains(".rlistings");
     }
 
     @Override
