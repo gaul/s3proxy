@@ -58,13 +58,13 @@ public final class Nio2DirectoryMarkerAccessTest {
      * reads back private; it is checked only where they exist.
      */
     private List<BlobStore> blobStores() {
-        var transient_ = new TransientNio2BlobStore();
+        var transientStore = new TransientNio2BlobStore();
         if (!root.getFileSystem().supportedFileAttributeViews()
                 .contains("posix")) {
-            return List.of(transient_);
+            return List.of(transientStore);
         }
         return List.of(new FilesystemNio2BlobStore(root.toString()),
-                transient_);
+                transientStore);
     }
 
     @Test
