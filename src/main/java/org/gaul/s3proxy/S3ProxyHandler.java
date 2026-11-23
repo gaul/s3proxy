@@ -6148,6 +6148,14 @@ public class S3ProxyHandler {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
+        // S3 has no empty key, and no other request can name one: a URI
+        // without a key is the bucket.  A store refuses it, but a middleware
+        // that adds to the key, e.g., the ".s3enc" of encryption, hands the
+        // store a name it accepts, and the object could never be deleted.
+        if (blobName.isEmpty()) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "User key must have a length greater than 0.");
+        }
         // This key comes from the form rather than the URI, so it has not
         // passed the check in doHandle.
         checkReservedBlobName(blobName);

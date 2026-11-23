@@ -206,6 +206,19 @@ public final class PostObjectTest {
         assertThat(body("uploads/payload.txt")).isEqualTo("bar");
     }
 
+    /**
+     * An empty key is refused for what it is rather than left to the store:
+     * a middleware that adds to the key would have the store accept it.
+     */
+    @Test
+    public void testEmptyKeyIsRefused() throws Exception {
+        HttpResponse<String> response = post("key", "");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>InvalidArgument</Code>")
+                .contains("User key must have a length greater than 0.");
+    }
+
     @Test
     public void testUserMetadata() throws Exception {
         HttpResponse<String> response = post(
