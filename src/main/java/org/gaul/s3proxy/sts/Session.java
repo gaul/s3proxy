@@ -63,6 +63,10 @@ public final class Session {
         String cannedAcl = request.getHeader(AwsHttpHeaders.ACL);
         boolean setsAcl = cannedAcl != null &&
                 !cannedAcl.equalsIgnoreCase("private");
+        String bypass = request.getHeader(
+                AwsHttpHeaders.BYPASS_GOVERNANCE_RETENTION);
+        boolean bypassesGovernance = bypass != null &&
+                Boolean.parseBoolean(bypass.strip());
         switch (operation) {
         case LIST_BUCKETS -> require("s3:ListAllMyBuckets",
                 S3_ARN_PREFIX + "*", Map.of());
@@ -127,6 +131,16 @@ public final class Session {
             if (setsAcl) {
                 requireObject("s3:PutObjectAcl", bucket, key);
             }
+            if (request.getHeader(AwsHttpHeaders.OBJECT_LOCK_MODE) != null ||
+                    request.getHeader(
+                            AwsHttpHeaders.OBJECT_LOCK_RETAIN_UNTIL_DATE) !=
+                            null) {
+                requireObject("s3:PutObjectRetention", bucket, key);
+            }
+            if (request.getHeader(AwsHttpHeaders.OBJECT_LOCK_LEGAL_HOLD) !=
+                    null) {
+                requireObject("s3:PutObjectLegalHold", bucket, key);
+            }
         }
         case UPLOAD_PART, UPLOAD_PART_COPY, COMPLETE_MULTIPART_UPLOAD ->
             requireObject("s3:PutObject", bucket, key);
@@ -134,11 +148,40 @@ public final class Session {
                 "s3:AbortMultipartUpload", bucket, key);
         case LIST_PARTS -> requireObject("s3:ListMultipartUploadParts",
                 bucket, key);
-        case DELETE_OBJECT -> requireObject(
-                versioned ? "s3:DeleteObjectVersion" : "s3:DeleteObject",
-                bucket, key);
+        case DELETE_OBJECT -> {
+            requireObject(
+                    versioned ? "s3:DeleteObjectVersion" : "s3:DeleteObject",
+                    bucket, key);
+            if (bypassesGovernance) {
+                requireObject("s3:BypassGovernanceRetention", bucket, key);
+            }
+        }
         case DELETE_OBJECTS -> {
             // checked key by key in the handler
+        }
+        case GET_BUCKET_OWNERSHIP_CONTROLS -> requireBucket(
+                "s3:GetBucketOwnershipControls", bucket, Map.of());
+        case PUT_BUCKET_OWNERSHIP_CONTROLS, DELETE_BUCKET_OWNERSHIP_CONTROLS ->
+            requireBucket("s3:PutBucketOwnershipControls", bucket, Map.of());
+        case GET_PUBLIC_ACCESS_BLOCK -> requireBucket(
+                "s3:GetBucketPublicAccessBlock", bucket, Map.of());
+        case PUT_PUBLIC_ACCESS_BLOCK, DELETE_PUBLIC_ACCESS_BLOCK ->
+            requireBucket("s3:PutBucketPublicAccessBlock", bucket, Map.of());
+        case GET_OBJECT_LOCK_CONFIGURATION -> requireBucket(
+                "s3:GetBucketObjectLockConfiguration", bucket, Map.of());
+        case PUT_OBJECT_LOCK_CONFIGURATION -> requireBucket(
+                "s3:PutBucketObjectLockConfiguration", bucket, Map.of());
+        case GET_OBJECT_LEGAL_HOLD -> requireObject("s3:GetObjectLegalHold",
+                bucket, key);
+        case PUT_OBJECT_LEGAL_HOLD -> requireObject("s3:PutObjectLegalHold",
+                bucket, key);
+        case GET_OBJECT_RETENTION -> requireObject("s3:GetObjectRetention",
+                bucket, key);
+        case PUT_OBJECT_RETENTION -> {
+            requireObject("s3:PutObjectRetention", bucket, key);
+            if (bypassesGovernance) {
+                requireObject("s3:BypassGovernanceRetention", bucket, key);
+            }
         }
         // A CORS preflight is not signed and answers only with the bucket's
         // CORS rules, which are the proxy's configuration, not its data.

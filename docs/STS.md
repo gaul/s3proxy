@@ -64,6 +64,11 @@ Each S3 operation requires the IAM action AWS documents for it, e.g.
 `s3:PutObject` on its destination, `DeleteObjects` requires `s3:DeleteObject`
 on every key, `GetObjectAttributes` requires `s3:GetObject` as well, and
 writing with a non-private `x-amz-acl` also requires `s3:PutObjectAcl`.
+Object lock follows the same rule: writing with `x-amz-object-lock-mode` or
+`x-amz-object-lock-retain-until-date` also requires `s3:PutObjectRetention`,
+with `x-amz-object-lock-legal-hold` also `s3:PutObjectLegalHold`, and
+`x-amz-bypass-governance-retention: true` requires
+`s3:BypassGovernanceRetention`.
 Operations naming a `versionId` require the `*Version` actions, e.g.
 `s3:GetObjectVersion`, `s3:DeleteObjectVersion`.
 
