@@ -22,12 +22,15 @@ import static java.util.Objects.requireNonNull;
 import java.io.InputStream;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.google.common.base.Strings;
 
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -65,13 +68,16 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
  * s3proxy.regex-blobstore.replace.&lt;regex name&gt; = &lt;regex replace
  * expression&gt;
  *
- * You can add multiple regex, they will be applied from the beginning to the
- * end,
- * stopping as soon as the first regex matches.
+ * You can add multiple regex, they will be applied in the order of their
+ * names, stopping as soon as the first regex matches.  A number within a
+ * name sorts by its value, so that rule2 comes before rule10.  The order in
+ * which the properties are written does not count, since Properties does not
+ * keep it.
  */
 public final class RegexBlobStore extends ForwardingBlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
             RegexBlobStore.class);
+    private static final Pattern NUMBER = Pattern.compile("[0-9]+");
 
     private final List<Entry<Pattern, String>> regexs;
 
@@ -106,7 +112,11 @@ public final class RegexBlobStore extends ForwardingBlobStore {
         // need an order, and a properties file has none: its names come
         // back in hash order, which differs from one JVM to the next.  The
         // rule names give one that the configuration controls.
-        configRegex.sort(Entry.comparingByKey());
+        // A number within a name sorts by its value, so that rule2 comes
+        // before rule10, as a list numbered past nine is meant.
+        configRegex.sort(Entry.comparingByKey(
+                Comparator.comparing(RegexBlobStore::padNumbers)
+                        .thenComparing(Comparator.naturalOrder())));
 
         for (Entry<String, String> entry : configRegex) {
             String key = entry.getKey();
@@ -136,6 +146,12 @@ public final class RegexBlobStore extends ForwardingBlobStore {
         }
 
         return List.copyOf(regexs);
+    }
+
+    /** Pads the numbers in a name so that they sort by value. */
+    private static String padNumbers(String name) {
+        return NUMBER.matcher(name).replaceAll(number -> Strings.padStart(
+                number.group(), /*minLength=*/ 19, '0'));
     }
 
     @Override

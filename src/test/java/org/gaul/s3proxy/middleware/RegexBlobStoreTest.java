@@ -75,6 +75,22 @@ public final class RegexBlobStoreTest {
                 "a", "b", "c", "d", "f", "k", "m", "q", "x", "z");
     }
 
+    /** Numbered rules run as numbered, rule 10 after rule 2. */
+    @Test
+    public void testNumberedRulesApplyInNumberOrder() {
+        var properties = new java.util.Properties();
+        for (int i = 1; i <= 12; i++) {
+            properties.setProperty("s3proxy.regex-blobstore.match." + i,
+                    ".*");
+            properties.setProperty("s3proxy.regex-blobstore.replace." + i,
+                    Integer.toString(i));
+        }
+        var regexs = RegexBlobStore.parseRegexs(properties);
+        assertThat(regexs).extracting(Map.Entry::getValue).containsExactly(
+                "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
+                "12");
+    }
+
     @Test
     public void testRemoveSomeCharsFromName() throws IOException {
         var regexes = List.<Map.Entry<Pattern, String>>of(
