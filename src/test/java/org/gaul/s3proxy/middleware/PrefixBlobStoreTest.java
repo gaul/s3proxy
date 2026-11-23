@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 
@@ -98,6 +99,28 @@ public final class PrefixBlobStoreTest {
              InputStream actual = stored) {
             assertThat(actual).hasSameContentAs(expected);
         }
+    }
+
+    /**
+     * The prefix holds for every spelling of the bucket: a backend which
+     * ignores case opens the same bucket for all of them.
+     */
+    @Test
+    public void testPrefixIgnoresBucketCase() throws IOException {
+        String upperCase = containerName.toUpperCase(Locale.ROOT);
+        blobStore.createContainer(upperCase);
+        ByteSource content = TestUtils.randomByteSource().slice(0, 32);
+        TestUtils.putBlob(prefixBlobStore, upperCase, "object.txt", content);
+
+        assertThat(blobStore.blobExists(upperCase,
+                prefix + "object.txt")).isTrue();
+        assertThat(blobStore.blobExists(upperCase, "object.txt")).isFalse();
+        assertThat(prefixBlobStore.blobExists(upperCase, "object.txt"))
+                .isTrue();
+
+        assertThatThrownBy(() -> PrefixBlobStore.newPrefixBlobStore(
+                blobStore, Map.of("bucket", "a/", "Bucket", "b/")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

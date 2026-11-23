@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -159,8 +160,12 @@ public final class Main {
             }
             for (String key : properties.stringPropertyNames()) {
                 if (key.startsWith(S3ProxyConstants.PROPERTY_BUCKET_LOCATOR)) {
+                    // GlobBlobStoreLocator matches the lower-case spelling
+                    // of a bucket, so that every spelling of it has the
+                    // same owner.
                     String bucketLocator = requireNonNull(
-                            properties.getProperty(key));
+                            properties.getProperty(key))
+                            .toLowerCase(Locale.ROOT);
                     if (locatorGlobs.add(bucketLocator)) {
                         globLocators.put(
                                 FileSystems.getDefault().getPathMatcher(

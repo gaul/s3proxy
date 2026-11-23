@@ -18,6 +18,7 @@ package org.gaul.s3proxy.middleware;
 
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,6 +43,15 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
     private final Map<String, AccessGrant> locator;
     private final Map<PathMatcher, GlobTarget> globLocator;
 
+    /**
+     * Locates by identity, and by bucket where a glob names it.
+     *
+     * @param locator the grant of each identity
+     * @param globLocator matchers of bucket names.  A bucket is matched by
+     *     its lower-case spelling first, so patterns should be lower-case;
+     *     one which is not matches only the exact spelling and does not
+     *     keep other spellings of the bucket from the caller's own store.
+     */
     public GlobBlobStoreLocator(Map<String, AccessGrant> locator,
             Map<PathMatcher, GlobTarget> globLocator) {
         this.locator = locator;
@@ -54,19 +64,15 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
         AccessGrant grant = locator.get(identity);
         GlobTarget globTarget = null;
         if (container != null) {
-            for (var entry : globLocator.entrySet()) {
-                if (entry.getKey().matches(FileSystems.getDefault()
-                        .getPath(container))) {
-                    globTarget = entry.getValue();
-                    // Globs may overlap.  The requester's own match is the
-                    // one that serves them; taking whichever matched last
-                    // denied them their bucket whenever another backend's
-                    // glob also covered its name.
-                    if (identity != null && globTarget.identity().equals(
-                            Optional.of(identity))) {
-                        break;
-                    }
-                }
+            // Match the lower-case spelling first.  A glob is
+            // case-sensitive but a store need not be: a filesystem store on
+            // a case-insensitive volume opens alice-1 for ALICE-1, which
+            // would otherwise match no glob and be served from the caller's
+            // own store instead of being refused.
+            globTarget = matchGlob(container.toLowerCase(Locale.ROOT),
+                    identity);
+            if (globTarget == null) {
+                globTarget = matchGlob(container, identity);
             }
         }
         if (globTarget == null) {
@@ -95,5 +101,25 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
     @Override
     public boolean scopesBuckets() {
         return !globLocator.isEmpty();
+    }
+
+    private @Nullable GlobTarget matchGlob(String container,
+            @Nullable String identity) {
+        GlobTarget globTarget = null;
+        for (var entry : globLocator.entrySet()) {
+            if (entry.getKey().matches(FileSystems.getDefault()
+                    .getPath(container))) {
+                globTarget = entry.getValue();
+                // Globs may overlap.  The requester's own match is the
+                // one that serves them; taking whichever matched last
+                // denied them their bucket whenever another backend's
+                // glob also covered its name.
+                if (identity != null && globTarget.identity().equals(
+                        Optional.of(identity))) {
+                    break;
+                }
+            }
+        }
+        return globTarget;
     }
 }

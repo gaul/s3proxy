@@ -119,6 +119,31 @@ public final class GlobBlobStoreLocatorTest {
                 .blobStore()).isSameAs(blobStoreTwo);
     }
 
+    /** Every spelling of a bucket belongs to the identity its glob names. */
+    @Test
+    public void testLocateGlobIgnoresCase() {
+        var credsMap = ImmutableMap.of(
+                "id1", new AccessGrant("one", blobStoreOne),
+                "id2", new AccessGrant("two", blobStoreTwo));
+        var globMap = Map.of(
+                FileSystems.getDefault().getPathMatcher("glob:one-*"),
+                new GlobTarget(Optional.of("id1"), blobStoreOne),
+                FileSystems.getDefault().getPathMatcher("glob:[!o]*"),
+                new GlobTarget(Optional.of("id2"), blobStoreTwo));
+        var locator = new GlobBlobStoreLocator(credsMap, globMap);
+
+        assertThat(locator.locateBlobStore("id2", "one-bucket", null))
+                .isNull();
+        assertThat(locator.locateBlobStore("id2", "ONE-bucket", null))
+                .isNull();
+        assertThat(locator.locateBlobStore("id2", "One-Bucket", null))
+                .isNull();
+        assertThat(locator.locateBlobStore("id1", "ONE-bucket", null)
+                .blobStore()).isSameAs(blobStoreOne);
+        assertThat(locator.locateBlobStore("id2", "TWO-bucket", null)
+                .blobStore()).isSameAs(blobStoreTwo);
+    }
+
     @Test
     public void testOverlappingGlobsServeTheirOwner() {
         var credsMap = ImmutableSortedMap.of(

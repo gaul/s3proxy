@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -147,6 +148,48 @@ public final class CopySourceAuthorizationTest {
                 .as("copy from a bucket the identity may not read must fail")
                 .isNotNull();
         assertThat(blobStore.blobExists(attackerContainer, "loot")).isFalse();
+    }
+
+    /**
+     * Nor through another spelling of the bucket: a store which ignores case
+     * opens the victim's bucket for it, so the locator must refuse it too.
+     */
+    @Test
+    public void testCopyFromOtherCaseOfSourceIsDenied() {
+        putSecret();
+
+        String errorCode = catchErrorCode(() -> attackerClient.copyObject(
+                b -> b.sourceBucket(victimContainer.toUpperCase(Locale.ROOT))
+                        .sourceKey("secret")
+                        .destinationBucket(attackerContainer)
+                        .destinationKey("loot")));
+        assertThat(errorCode).isEqualTo("AccessDenied");
+    }
+
+    /**
+     * The source is held to the names a bucket in the URI may have, so that
+     * the locator is not asked about a name the store may read differently.
+     */
+    @Test
+    public void testCopyFromInvalidSourceBucketNameIsDenied()
+            throws Exception {
+        // U+200D, which a case-insensitive volume ignores in a name
+        String unaddressable = "\u200d" + attackerContainer;
+        blobStore.createContainer(unaddressable);
+        try {
+            TestUtils.putBlob(blobStore, unaddressable, "mine",
+                    ByteSource.wrap(new byte[1]));
+
+            String errorCode = catchErrorCode(() -> attackerClient.copyObject(
+                    b -> b.sourceBucket(unaddressable).sourceKey("mine")
+                            .destinationBucket(attackerContainer)
+                            .destinationKey("copy")));
+            assertThat(errorCode).isEqualTo("NoSuchBucket");
+            assertThat(blobStore.blobExists(attackerContainer, "copy"))
+                    .isFalse();
+        } finally {
+            blobStore.deleteContainer(unaddressable);
+        }
     }
 
     /** Same for the multipart UploadPartCopy variant. */

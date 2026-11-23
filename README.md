@@ -182,9 +182,9 @@ A request reaches a backend in one of two ways:
 
   The number only tells the entries apart.  An entry can be a
   [glob](https://docs.oracle.com/javase/tutorial/essential/io/fileOps.html#glob),
-  such as `archive-*`.  A bucket or glob cannot be assigned to two backends,
-  and a bucket that no entry names goes to the first file given with that
-  identity.
+  such as `archive-*`.  Entries match a bucket however its name is cased.
+  A bucket or glob cannot be assigned to two backends, and a bucket that no
+  entry names goes to the first file given with that identity.
 
 For example, these two files serve a writable storage account and a read-only
 one to the same client:

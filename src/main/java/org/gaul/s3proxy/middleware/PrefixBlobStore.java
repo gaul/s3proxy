@@ -22,6 +22,7 @@ import static java.util.Objects.requireNonNull;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 
@@ -94,7 +95,19 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
 
     private PrefixBlobStore(BlobStore delegate, Map<String, String> prefixes) {
         super(delegate);
-        this.prefixes = Map.copyOf(requireNonNull(prefixes));
+        // Keyed by the lower-case spelling of the bucket.  A backend need
+        // not tell TENANT from tenant -- a filesystem store on a
+        // case-insensitive volume opens one directory for both -- and a
+        // spelling with no prefix passes through to all of the bucket.
+        Map<String, String> lowerCase = new HashMap<>();
+        for (var entry : requireNonNull(prefixes).entrySet()) {
+            checkArgument(lowerCase.put(
+                    entry.getKey().toLowerCase(Locale.ROOT),
+                    entry.getValue()) == null,
+                    "Multiple prefixes configured for bucket %s",
+                    entry.getKey());
+        }
+        this.prefixes = Map.copyOf(lowerCase);
     }
 
     static BlobStore newPrefixBlobStore(BlobStore delegate,
@@ -122,12 +135,12 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     private boolean hasPrefix(String container) {
-        return this.prefixes.containsKey(container);
+        return getPrefix(container) != null;
     }
 
     @Nullable
     private String getPrefix(String container) {
-        return this.prefixes.get(container);
+        return this.prefixes.get(container.toLowerCase(Locale.ROOT));
     }
 
     private String addPrefix(String container, String name) {
