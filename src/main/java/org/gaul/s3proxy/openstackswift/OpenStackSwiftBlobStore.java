@@ -211,7 +211,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     // Reserved key prefix for multipart-upload internals (segment objects and a
     // metadata marker) stored alongside user objects in the same container.
     // Keys under this prefix are hidden from list() so an in-progress or
-    // completed multipart upload does not expose its segments.
+    // completed multipart upload does not expose its segments, and reserved
+    // from client keys; see isReserved.
     private static final String MPU_PREFIX = ".s3proxy-mpu/";
     private static final String MPU_META_SUFFIX = "/.meta";
     // User-metadata key on the marker object recording the target object name.
@@ -726,7 +727,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw translate(re, container, /*key=*/ null);
         }
         for (var object : objects) {
-            removeBlob(container, object.getName());
+            removeBlobInternal(container, object.getName());
         }
     }
 
@@ -836,7 +837,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
-        Blob blob = getBlobCarrier(request.bucket(), request.key(), request);
+        Blob blob = isReserved(request.key()) ? null :
+                getBlobCarrier(request.bucket(), request.key(), request);
         if (blob == null) {
             throw S3Exceptions.noSuchKey(request.bucket(), request.key(),
                     "no such object");
@@ -1022,6 +1024,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
+        checkNotReserved(request.key());
         var builder = Blob.builder(request.key())
                 .payload(payload)
                 .cacheControl(request.cacheControl())
@@ -1196,6 +1199,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         String fromName = request.sourceKey();
         String toContainer = request.destinationBucket();
         String toName = request.destinationKey();
+        checkNotReserved(toName);
+        if (isReserved(fromName)) {
+            throw S3Exceptions.noSuchKey(fromContainer, fromName,
+                    "while copying");
+        }
         enforceCopySourcePreconditions(fromContainer, fromName, request);
         if (request.metadataDirective() == MetadataDirective.REPLACE) {
             // S3 CopyObject with metadata directive REPLACE.  Swift's COPY
@@ -1251,8 +1259,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw new UnsupportedOperationException(
                     "conditional delete not supported");
         }
-        String container = request.bucket();
-        String key = request.key();
+        checkNotReserved(request.key());
+        removeBlobInternal(request.bucket(), request.key());
+        return DeleteObjectResponse.builder().build();
+    }
+
+    /**
+     * Deletes without the reserved-name check, for the multipart bookkeeping
+     * this store both writes and cleans up.
+     */
+    private void removeBlobInternal(String container, String key) {
         var swift = objectStorage();
         String encoded = encodeName(key);
         var options = ObjectDeleteOptions.create();
@@ -1276,7 +1292,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 !containerExists(container)) {
             throw S3Exceptions.noSuchBucket(container, "");
         }
-        return DeleteObjectResponse.builder().build();
     }
 
     /**
@@ -1315,6 +1330,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      */
     @Override
     public boolean blobExists(String container, String key) {
+        return !isReserved(key) && blobExistsInternal(container, key);
+    }
+
+    /**
+     * Asks without the reserved-name check, for the marker that says an
+     * upload is still open.
+     */
+    private boolean blobExistsInternal(String container, String key) {
         if (hasPathTraversal(key)) {
             return false;
         }
@@ -1339,7 +1362,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         String key = request.key();
         Blob blob;
         try {
-            blob = headBlob(container, key);
+            blob = isReserved(key) ? null : headBlob(container, key);
         } catch (NoSuchBucketException nsbe) {
             throw S3Exceptions.noSuchKey(container, key, "no such object",
                     nsbe);
@@ -1538,6 +1561,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
+        // Completing this upload writes an object under the requested key,
+        // which is the same write putBlob refuses.
+        checkNotReserved(request.key());
         String uploadId = UUID.randomUUID().toString();
 
         var userMetadata = new HashMap<String, String>(request.metadata());
@@ -1650,12 +1676,19 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * and answers to any.
      */
     private boolean isOpenUpload(MultipartUpload mpu) {
-        HeadObjectResponse marker = blobMetadataIfPresent(
-                mpu.containerName(), mpuMetaKey(mpu.id()));
+        // Read past the reserved-name check, which the marker's name is
+        // subject to as a client's key.
+        Blob marker;
+        try {
+            marker = headBlob(mpu.containerName(), mpuMetaKey(mpu.id()));
+        } catch (NoSuchBucketException nsbe) {
+            return false;
+        }
         if (marker == null) {
             return false;
         }
-        String encoded = marker.metadata().get(MPU_KEY_METADATA);
+        String encoded = marker.getMetadata().userMetadata()
+                .get(MPU_KEY_METADATA);
         return encoded == null ||
                 decodeMetadataValue(encoded).equals(mpu.blobName());
     }
@@ -1663,6 +1696,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(MultipartUpload mpu,
             CompleteMultipartUploadRequest request) {
+        // The key comes with this request, not from the marker, so it need
+        // not be the one initiateMultipartUpload was asked about.
+        checkNotReserved(mpu.blobName());
         List<CompletedPart> parts = request.multipartUpload() == null ?
                 List.of() : request.multipartUpload().parts();
         var swift = objectStorage();
@@ -1784,7 +1820,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
 
         // The manifest now references the segments, which must persist; only
         // the metadata marker is no longer needed.
-        removeBlob(container, mpuMetaKey(uploadId));
+        removeBlobInternal(container, mpuMetaKey(uploadId));
 
         return SdkResponses.completeResponse(
                 mpuETag != null ? mpuETag : sloETag);
@@ -1814,7 +1850,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw translate(re, container, /*key=*/ null);
         }
         for (var object : objects) {
-            removeBlob(container, object.getName());
+            removeBlobInternal(container, object.getName());
         }
     }
 
@@ -1861,6 +1897,38 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public long getMinimumMultipartPartSize() {
         return 1;
+    }
+
+    /**
+     * Whether a client's key names the store's own multipart bookkeeping: an
+     * upload's marker or one of its segments.  Hiding these from list() does
+     * not keep them from a client that asks by name, and the name is the
+     * upload ID, which ListMultipartUploads hands to anyone who may list the
+     * container.  Nor do they have an access of their own: Swift grants read
+     * by container, so a public-read one served anyone the parts and the
+     * metadata of an upload not yet completed, and the segments an
+     * overwritten object left behind.  So a read finds nothing at such a
+     * key, and a write is refused by {@link #checkNotReserved}.  The store
+     * reaches these names through getBlobCarrier, putBlobInternal,
+     * blobExistsInternal and removeBlobInternal, which do not ask this.
+     * A prefix comparison is enough: {@link #encodeName} refuses the dot
+     * segments by which another spelling could reach the same name.
+     */
+    static boolean isReserved(String key) {
+        return key.startsWith(MPU_PREFIX);
+    }
+
+    /**
+     * Refuse a client key that {@link #isReserved}.  Writing or deleting one
+     * replaces or discards a segment that a finished object's manifest names,
+     * which Swift then refuses to serve, or the marker that holds the
+     * metadata an open upload completes with.
+     */
+    private static void checkNotReserved(String key) {
+        if (isReserved(key)) {
+            throw S3Exceptions.invalidArgument("The key " + MPU_PREFIX +
+                    "... is reserved for multipart uploads.");
+        }
     }
 
     private static String mpuSegmentPrefix(String uploadId) {
