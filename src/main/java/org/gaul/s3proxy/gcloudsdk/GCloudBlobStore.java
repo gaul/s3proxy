@@ -194,6 +194,16 @@ public final class GCloudBlobStore implements BlobStore {
                     .expireAfterWrite(java.time.Duration.ofSeconds(5))
                     .maximumSize(1000)
                     .build();
+    /**
+     * Whether a container has uniform bucket-level access, which decides if
+     * a write can name its object's ACL.  Asked on every write and answered
+     * only through bucket metadata, so cached as briefly as versioning is.
+     */
+    private final Cache<String, Boolean> uniformAccessContainers =
+            CacheBuilder.newBuilder()
+                    .expireAfterWrite(java.time.Duration.ofSeconds(5))
+                    .maximumSize(1000)
+                    .build();
 
     public GCloudBlobStore(
             Supplier<Credentials> creds,
@@ -677,6 +687,63 @@ public final class GCloudBlobStore implements BlobStore {
                 Boolean.TRUE.equals(bucket.versioningEnabled());
         versionedContainers.put(container, enabled);
         return enabled;
+    }
+
+    /**
+     * Whether the container has uniform bucket-level access.  Its objects
+     * have no ACLs, so none is public or inherits anything, and GCS refuses
+     * with 400 any request that names one.
+     */
+    private boolean hasUniformAccess(String container) {
+        Boolean cached = uniformAccessContainers.getIfPresent(container);
+        if (cached != null) {
+            return cached;
+        }
+        Bucket bucket;
+        try {
+            bucket = storage.get(container,
+                    BucketGetOption.fields(BucketField.IAMCONFIGURATION));
+        } catch (StorageException se) {
+            throw translate(se, container, /*key=*/ null);
+        }
+        var iam = bucket == null ? null : bucket.getIamConfiguration();
+        boolean uniform = iam != null && Boolean.TRUE.equals(
+                iam.isUniformBucketLevelAccessEnabled());
+        uniformAccessContainers.put(container, uniform);
+        return uniform;
+    }
+
+    /**
+     * The ACL a write names for the object it creates, or null where it can
+     * name none.  S3 creates an object private unless the request says
+     * otherwise, and the frontend asks for that by naming no ACL.  GCS gives
+     * an object written without one its bucket's default object ACL, which
+     * S3 has no counterpart of and which may grant allUsers: everything
+     * written to such a bucket would be public, x-amz-acl: private or not.
+     * So a private write names projectPrivate, the default object ACL of a
+     * new bucket: one that kept it gets the objects it always got, and one
+     * that changed it no longer decides what S3's private means.
+     */
+    private Storage.@Nullable PredefinedAcl predefinedAcl(String container,
+            boolean publicRead) {
+        if (publicRead) {
+            return Storage.PredefinedAcl.PUBLIC_READ;
+        }
+        return hasUniformAccess(container) ? null :
+                Storage.PredefinedAcl.PROJECT_PRIVATE;
+    }
+
+    /**
+     * The options that write the store's own objects -- a multipart upload's
+     * stub and parts, a delete marker -- private, as predefinedAcl writes a
+     * private object.  They hold the upload's metadata and content, and a
+     * bucket's default object ACL would make them as public as it makes
+     * anything else written without an ACL.
+     */
+    private BlobTargetOption[] bookkeepingTargetOptions(String container) {
+        var acl = predefinedAcl(container, /*publicRead=*/ false);
+        return acl == null ? new BlobTargetOption[0] :
+                new BlobTargetOption[] {BlobTargetOption.predefinedAcl(acl)};
     }
 
     private static boolean isDeleteMarker(BlobInfo blob) {
@@ -1267,9 +1334,10 @@ public final class GCloudBlobStore implements BlobStore {
                 }
             }
         }
-        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
-            writeOptions.add(BlobWriteOption.predefinedAcl(
-                    Storage.PredefinedAcl.PUBLIC_READ));
+        var acl = predefinedAcl(container,
+                request.acl() == ObjectCannedACL.PUBLIC_READ);
+        if (acl != null) {
+            writeOptions.add(BlobWriteOption.predefinedAcl(acl));
         }
 
         try (var is = payload) {
@@ -1345,9 +1413,10 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         var targetOptions = new java.util.ArrayList<BlobTargetOption>();
-        if (request.acl() == ObjectCannedACL.PUBLIC_READ) {
-            targetOptions.add(BlobTargetOption.predefinedAcl(
-                    Storage.PredefinedAcl.PUBLIC_READ));
+        var acl = predefinedAcl(request.destinationBucket(),
+                request.acl() == ObjectCannedACL.PUBLIC_READ);
+        if (acl != null) {
+            targetOptions.add(BlobTargetOption.predefinedAcl(acl));
         }
         // If-Match and If-None-Match guard the destination, pinned to the
         // generation the check saw so the copy cannot replace another.
@@ -1518,7 +1587,8 @@ public final class GCloudBlobStore implements BlobStore {
                     .build();
             Blob marker;
             try {
-                marker = storage.create(markerInfo, new byte[0]);
+                marker = storage.create(markerInfo, new byte[0],
+                        bookkeepingTargetOptions(container));
             } catch (StorageException se) {
                 throw translate(se, container, /*key=*/ null);
             }
@@ -1930,7 +2000,8 @@ public final class GCloudBlobStore implements BlobStore {
                 BlobId.of(container, uploadKey))
                 .setMetadata(stubMetadata)
                 .build();
-        storage.create(stubInfo, new byte[0]);
+        storage.create(stubInfo, new byte[0],
+                bookkeepingTargetOptions(container));
 
         return new MultipartUpload(uploadKey, request);
     }
@@ -2067,10 +2138,10 @@ public final class GCloudBlobStore implements BlobStore {
         // where the caller asked for a public one.  Compose cannot; see below.
         boolean publicRead = ObjectCannedACL.PUBLIC_READ.name().equals(
                 stubMetadata.get(BLOB_ACCESS_KEY));
+        var acl = predefinedAcl(mpu.containerName(), publicRead);
         var targetOptions = new java.util.ArrayList<BlobTargetOption>();
-        if (publicRead) {
-            targetOptions.add(BlobTargetOption.predefinedAcl(
-                    Storage.PredefinedAcl.PUBLIC_READ));
+        if (acl != null) {
+            targetOptions.add(BlobTargetOption.predefinedAcl(acl));
         }
         targetOptions.addAll(conditionOptions);
 
@@ -2124,6 +2195,25 @@ public final class GCloudBlobStore implements BlobStore {
         if (publicRead) {
             storage.createAcl(composed.getBlobId(),
                     Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER));
+        } else if (acl != null) {
+            // Composed without an ACL, the object has its bucket's default
+            // one, which may grant allUsers where the upload is private.
+            // The grant is removed as setBlobAccess removes it, which is no
+            // error where there is none.  Until the compose can name the
+            // ACL, such an object is public for as long as this takes; and
+            // should the removal fail, the object is removed instead rather
+            // than left public.  The parts are still there, so the caller
+            // can complete again.
+            try {
+                storage.deleteAcl(composed.getBlobId(), Acl.User.ofAllUsers());
+            } catch (RuntimeException re) {
+                try {
+                    storage.delete(composed.getBlobId());
+                } catch (RuntimeException re2) {
+                    re.addSuppressed(re2);
+                }
+                throw re;
+            }
         }
 
         removeStubGenerations(mpu.containerName(), nonce);
@@ -2174,7 +2264,13 @@ public final class GCloudBlobStore implements BlobStore {
             for (var source : group) {
                 composeBuilder.addSource(source.getName());
             }
-            storage.compose(composeBuilder.build());
+            Blob intermediate = storage.compose(composeBuilder.build());
+            // Like the final compose, this one cannot name the ACL, and
+            // the intermediate holds the upload's content.
+            if (predefinedAcl(container, /*publicRead=*/ false) != null) {
+                storage.deleteAcl(intermediate.getBlobId(),
+                        Acl.User.ofAllUsers());
+            }
 
             intermediateIds.add(BlobId.of(container, intermediateName));
             groupIndex++;
@@ -2210,13 +2306,19 @@ public final class GCloudBlobStore implements BlobStore {
             // was written refused it too late: the part's name is its
             // number, so the bad bytes had already replaced the part they
             // were a retry of, and deleting them took that part too.
+            var partOptions = new ArrayList<BlobWriteOption>();
+            var acl = predefinedAcl(mpu.containerName(),
+                    /*publicRead=*/ false);
+            if (acl != null) {
+                partOptions.add(BlobWriteOption.predefinedAcl(acl));
+            }
             if (contentMD5 != null) {
                 partInfo.setMd5(Base64.getEncoder().encodeToString(
                         contentMD5.asBytes()));
-                upload(partInfo.build(), dis, contentLength, MD5_MATCH);
-            } else {
-                upload(partInfo.build(), dis, contentLength);
+                partOptions.add(MD5_MATCH);
             }
+            upload(partInfo.build(), dis, contentLength,
+                    partOptions.toArray(new BlobWriteOption[0]));
 
             md5Hash = digest.digest();
         } catch (StorageException se) {
@@ -2322,7 +2424,9 @@ public final class GCloudBlobStore implements BlobStore {
                     .setSource(source)
                     .setSourceOptions(sourceOptions)
                     .setTarget(BlobInfo.newBuilder(BlobId.of(
-                            mpu.containerName(), partBlobName)).build())
+                            mpu.containerName(), partBlobName)).build(),
+                            List.of(bookkeepingTargetOptions(
+                                    mpu.containerName())))
                     .build();
             var result = storage.copy(copyRequest).getResult();
             // Match uploadMultipartPart's hex MD5 part ETag;
