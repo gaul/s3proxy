@@ -1041,6 +1041,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         logger.debug("Creating blob at: {}", path);
 
         if (blob.getMetadata().name().endsWith("/")) {
+            if (path.equals(containerPath)) {
+                // An absolute key can spell the bucket's own directory, whose
+                // mode is the bucket's ACL and not an object's to set.
+                throw S3Exceptions.invalidArgument("The key names the" +
+                        " bucket's own directory, which cannot be stored" +
+                        " as an object.");
+            }
             // The marker is the directory, which has nowhere to keep
             // content.  It was accepted and dropped: a PUT with a body, or
             // a multipart upload, answered 200 for an object that then read
@@ -1081,6 +1088,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 throw new RuntimeException(ioe);
             }
 
+            // The directory is the object and its mode is the object's ACL,
+            // as a file's is.  Nothing chose the mode it was made with, now
+            // or earlier to hold a key below it, and that mode usually lets
+            // others read, so set it before the marker makes it an object.
+            setBlobAccessHelper(path, access);
+
             var view = getXattrView(path);
             if (view != null) {
                 try {
@@ -1103,8 +1116,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                 }
             }
-
-            setBlobAccessHelper(path, access);
 
             // A directory marker is the directory itself, which the versions
             // of the keys below it live in; it is not versioned.
@@ -2523,6 +2534,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var resolved = resolveVersion(container, containerPath, path, key,
                 versionId);
         if (resolved == null) {
+            throw S3Exceptions.noSuchKey(container, key, "");
+        }
+        // resolveVersion takes whatever is at the key's path for its current
+        // version.  A directory is an object only where a marker was stored
+        // under the key with the slash; one that merely holds other keys has
+        // no ACL, and its mode is not one that anybody set.
+        if (Files.isDirectory(resolved.path()) &&
+                !blobExists(container, key)) {
             throw S3Exceptions.noSuchKey(container, key, "");
         }
         return resolved.path();
