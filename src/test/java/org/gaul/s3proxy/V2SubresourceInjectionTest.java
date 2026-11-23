@@ -152,16 +152,96 @@ public final class V2SubresourceInjectionTest {
     }
 
     /**
-     * A V2 presigned GET, signing the given path and, when named, the one
-     * subresource alongside it -- the canonicalized resource S3Proxy builds
+     * V2 signs subresource values decoded and unescaped, so a value may not
+     * spell out another subresource: folding uploadId into partNumber drops
+     * the parameter without changing the string to sign, and a URL signed to
+     * upload one part would replace the finished object instead.
+     */
+    @Test
+    public void testUploadPartUrlCannotPutObject() throws Exception {
+        String path = "/" + container + "/" + KEY;
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(
+                        presign("POST", path, "uploads") + "&uploads"))
+                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        String body = response.body();
+        String uploadId = body.substring(
+                body.indexOf("<UploadId>") + "<UploadId>".length(),
+                body.indexOf("</UploadId>"));
+
+        String url = presign("PUT", path,
+                "partNumber=1&uploadId=" + uploadId);
+        response = put(url + "&partNumber=1&uploadId=" + uploadId);
+        assertThat(response.statusCode()).isEqualTo(200);
+
+        response = put(url + "&partNumber=1%26uploadId%3D" + uploadId);
+        assertThat(response.statusCode()).isEqualTo(403);
+
+        response = get(presign(path, /*subresource=*/ null));
+        assertThat(response.body()).isEqualTo(CONTENT);
+
+        response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(
+                        presign("DELETE", path, "uploadId=" + uploadId) +
+                        "&uploadId=" + uploadId))
+                        .DELETE().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(204);
+    }
+
+    /** The same folding between two subresources of a GetObject. */
+    @Test
+    public void testFoldedSubresourceRejected() throws Exception {
+        String url = presign("/" + container + "/" + KEY,
+                "response-content-language=en" +
+                "&response-content-type=text/plain");
+        HttpResponse<String> response = get(url +
+                "&response-content-language=en" +
+                "&response-content-type=text/plain");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Content-Type"))
+                .hasValue("text/plain");
+
+        response = get(url + "&response-content-language=" +
+                "en%26response-content-type%3Dtext/plain");
+        assertThat(response.statusCode()).isEqualTo(403);
+    }
+
+    /**
+     * An ampersand that introduces no signed subresource has only one reading
+     * and keeps working.
+     */
+    @Test
+    public void testAmpersandInSubresourceValueAccepted() throws Exception {
+        HttpResponse<String> response = get(presign(
+                "/" + container + "/" + KEY,
+                "response-content-disposition=attachment; filename=\"a&b\"") +
+                "&response-content-disposition=" +
+                "attachment%3B%20filename%3D%22a%26b%22");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Content-Disposition"))
+                .hasValue("attachment; filename=\"a&b\"");
+    }
+
+    /**
+     * A V2 presigned GET, signing the given path and, when named, the
+     * subresources alongside it -- the canonicalized resource S3Proxy builds
      * for a query-authenticated request.
      */
     private String presign(String path, String subresource) throws Exception {
+        return presign("GET", path, subresource);
+    }
+
+    private String presign(String method, String path, String subresource)
+            throws Exception {
         long expires = System.currentTimeMillis() / 1000 + 3600;
         String resource = subresource == null ? path :
                 path + "?" + subresource;
         String stringToSign = String.join("\n",
-                "GET", "", "", Long.toString(expires), resource);
+                method, "", "", Long.toString(expires), resource);
         Mac mac = Mac.getInstance("HmacSHA1");
         mac.init(new SecretKeySpec(credential.getBytes(
                 StandardCharsets.UTF_8), "HmacSHA1"));
@@ -178,6 +258,14 @@ public final class V2SubresourceInjectionTest {
     private HttpResponse<String> get(String url) throws Exception {
         return httpClient.send(
                 HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> put(String url) throws Exception {
+        return httpClient.send(
+                HttpRequest.newBuilder(URI.create(url))
+                        .PUT(HttpRequest.BodyPublishers.ofString("replaced"))
+                        .build(),
                 HttpResponse.BodyHandlers.ofString());
     }
 }

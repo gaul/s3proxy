@@ -196,6 +196,7 @@ public final class AwsSignature {
 
                 String value = request.getParameter(subresource);
                 if (!"".equals(value)) {
+                    checkNoEmbeddedSubresource(subresource, value);
                     builder.append('=').append(value);
                 }
                 separator = '&';
@@ -218,6 +219,38 @@ public final class AwsSignature {
                 Base64.getEncoder().encodeToString(mac.doFinal(
                         stringToSign.getBytes(StandardCharsets.UTF_8))),
                 stringToSign, /*canonicalRequest=*/ null);
+    }
+
+    /**
+     * Refuse a subresource value that reads as further subresources.  V2
+     * signs the values decoded, joined by '&' and '=' with nothing escaped,
+     * so "partNumber=1%26uploadId%3DX" has the string to sign of
+     * "partNumber=1&uploadId=X" yet carries no uploadId: a URL signed for
+     * UploadPart would verify as a PutObject over the finished object.
+     * Clients sign the values unescaped, so escaping them here is not an
+     * option.  Instead refuse the one spelling with two readings, a value in
+     * which a signed subresource name follows an ampersand, which leaves
+     * every string to sign with a single set of parameters behind it.  Any
+     * other ampersand, such as one in the filename of a
+     * response-content-disposition, is unambiguous and left alone.
+     */
+    private static void checkNoEmbeddedSubresource(String subresource,
+            String value) {
+        int ampersand = value.indexOf('&');
+        if (ampersand == -1) {
+            return;
+        }
+        for (String parameter : Splitter.on('&').split(
+                value.substring(ampersand + 1))) {
+            int equals = parameter.indexOf('=');
+            String name = equals == -1 ? parameter :
+                    parameter.substring(0, equals);
+            if (SIGNED_SUBRESOURCES.contains(name)) {
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                        "The value of " + subresource + " must not contain" +
+                        " the subresource " + name);
+            }
+        }
     }
 
     private static byte[] signMessage(byte[] data, byte[] key, String algorithm)
