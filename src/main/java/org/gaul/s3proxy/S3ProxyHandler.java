@@ -193,6 +193,7 @@ import software.amazon.awssdk.services.s3.model.Owner;
 import software.amazon.awssdk.services.s3.model.OwnershipControls;
 import software.amazon.awssdk.services.s3.model.OwnershipControlsRule;
 import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.Permission;
 import software.amazon.awssdk.services.s3.model.PublicAccessBlockConfiguration;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
 import software.amazon.awssdk.services.s3.model.PutBucketOwnershipControlsRequest;
@@ -210,6 +211,7 @@ import software.amazon.awssdk.services.s3.model.ServerSideEncryptionByDefault;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionConfiguration;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryptionRule;
 import software.amazon.awssdk.services.s3.model.StorageClass;
+import software.amazon.awssdk.services.s3.model.Type;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
@@ -1957,19 +1959,31 @@ public class S3ProxyHandler {
 
     /**
      * Refuse an anonymous write unless the bucket grants AllUsers WRITE --
-     * the one grant S3 answers an unsigned write from.
+     * the one grant S3 answers an unsigned write from.  The grants are asked
+     * for rather than the canned access: a store that keeps real grants may
+     * hold WRITE without READ, which no canned ACL names and which
+     * getContainerAccess therefore reports as private.
      */
     private static void checkPublicWriteAccess(BlobStore blobStore,
             String containerName) {
-        BucketCannedACL access;
+        GetBucketAclResponse acl;
         try {
-            access = blobStore.getContainerAccess(containerName);
+            acl = blobStore.getContainerAcl(GetBucketAclRequest.builder()
+                    .bucket(containerName)
+                    .build());
         } catch (NoSuchBucketException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
         }
-        if (access != BucketCannedACL.PUBLIC_READ_WRITE) {
-            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+        for (Grant grant : acl.grants()) {
+            Grantee grantee = grant.grantee();
+            if ((grant.permission() == Permission.WRITE ||
+                    grant.permission() == Permission.FULL_CONTROL) &&
+                    grantee != null && grantee.type() == Type.GROUP &&
+                    Constants.ALL_USERS_URI.equals(grantee.uri())) {
+                return;
+            }
         }
+        throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
     }
 
     /**

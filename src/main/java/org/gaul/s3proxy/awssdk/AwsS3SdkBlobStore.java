@@ -507,11 +507,16 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             var response = s3Client.getBucketAcl(GetBucketAclRequest.builder()
                     .bucket(container)
                     .build());
-            if (hasAllUsersGrant(response.grants(), Permission.WRITE)) {
-                return BucketCannedACL.PUBLIC_READ_WRITE;
+            // S3 grants READ, which is to list the bucket, apart from WRITE,
+            // which is to put into it.  No canned ACL says write-without-read
+            // and public-read-write lets anyone list, so a bucket that grants
+            // AllUsers WRITE alone is private, as the nio2 stores report it.
+            if (!hasAllUsersGrant(response.grants(), Permission.READ)) {
+                return BucketCannedACL.PRIVATE;
             }
-            return hasAllUsersGrant(response.grants(), Permission.READ) ?
-                    BucketCannedACL.PUBLIC_READ : BucketCannedACL.PRIVATE;
+            return hasAllUsersGrant(response.grants(), Permission.WRITE) ?
+                    BucketCannedACL.PUBLIC_READ_WRITE :
+                    BucketCannedACL.PUBLIC_READ;
         } catch (NoSuchBucketException e) {
             throw e;
         } catch (S3Exception e) {
