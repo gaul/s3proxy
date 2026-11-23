@@ -180,12 +180,19 @@ public final class PostPolicy {
             } else if (node.isArray() && node.size() == 3) {
                 String operator = lower(stringValue(node.get(0)));
                 if (operator.equals("content-length-range")) {
-                    minLength = length(node.get(1));
-                    maxLength = length(node.get(2));
-                    if (minLength > maxLength) {
+                    long min = length(node.get(1));
+                    long max = length(node.get(2));
+                    if (min > max) {
                         throw invalid("Invalid policy: content-length-range" +
                                 " minimum exceeds its maximum", null);
                     }
+                    // Every condition has to hold, so a further range narrows
+                    // the ones before it rather than replacing them.  Ranges
+                    // that do not overlap leave a minimum above the maximum,
+                    // which no payload satisfies.
+                    minLength = Math.max(minLength, min);
+                    maxLength = maxLength == NO_LIMIT ? max :
+                            Math.min(maxLength, max);
                 } else if (operator.equals("eq") ||
                         operator.equals("starts-with")) {
                     String field = stringValue(node.get(1));

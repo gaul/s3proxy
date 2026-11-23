@@ -179,6 +179,42 @@ public final class PostPolicyTest {
         policy.evaluate(fields("bucket", "buck"), 1024);
     }
 
+    /**
+     * Several ranges all have to hold, as any other conditions do, in
+     * whichever order the document lists them.  Keeping only the last would
+     * let a general cap undo the stricter range before it.
+     */
+    @Test
+    public void testEveryLengthRangeHasToHold() throws Exception {
+        String strict = "[\"content-length-range\", 512, 1024]";
+        String lax = "[\"content-length-range\", 0, 1048576]";
+        for (String ranges : List.of(strict + "," + lax, lax + "," + strict)) {
+            PostPolicy policy = parse(policy(
+                    "{\"bucket\": \"buck\"}," + ranges));
+            assertCode(() -> policy.evaluate(fields("bucket", "buck"), 511),
+                    S3ErrorCode.ENTITY_TOO_SMALL);
+            policy.evaluate(fields("bucket", "buck"), 512);
+            policy.evaluate(fields("bucket", "buck"), 1024);
+            assertCode(() -> policy.evaluate(fields("bucket", "buck"), 1025),
+                    S3ErrorCode.ENTITY_TOO_LARGE);
+        }
+    }
+
+    /** Ranges with nothing in common admit no length at all. */
+    @Test
+    public void testDisjointLengthRangesAdmitNothing() throws Exception {
+        PostPolicy policy = parse(policy(
+                "{\"bucket\": \"buck\"}," +
+                "[\"content-length-range\", 0, 10]," +
+                "[\"content-length-range\", 20, 30]"));
+        assertCode(() -> policy.evaluate(fields("bucket", "buck"), 5),
+                S3ErrorCode.ENTITY_TOO_SMALL);
+        assertCode(() -> policy.evaluate(fields("bucket", "buck"), 15),
+                S3ErrorCode.ENTITY_TOO_SMALL);
+        assertCode(() -> policy.evaluate(fields("bucket", "buck"), 25),
+                S3ErrorCode.ENTITY_TOO_LARGE);
+    }
+
     /** Every way a document can fail to be one, all of them 400. */
     @Test
     public void testMalformedDocumentsAreBadRequests() {
