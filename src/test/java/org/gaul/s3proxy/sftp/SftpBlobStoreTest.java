@@ -18,6 +18,7 @@ package org.gaul.s3proxy.sftp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -35,11 +36,17 @@ import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import org.assertj.core.api.Assertions;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 public final class SftpBlobStoreTest {
     private static final String SFTP_USER = "sftp-user";
@@ -112,6 +119,81 @@ public final class SftpBlobStoreTest {
                 "16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SHA-256");
+    }
+
+    /**
+     * MINA reports a directory that still holds entries as a generic SFTP
+     * failure rather than DirectoryNotEmptyException.  A delete removes the
+     * directories it leaves empty and has to stop at one that is not.
+     */
+    @Test
+    public void testDeleteLeavesDirectoryInUse() throws Exception {
+        var hostKeyProvider = startSftpServer();
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            blobStore.createContainer(bucket);
+            for (var key : List.of("dir/sub/one", "dir/sub/two")) {
+                blobStore.putBlob(PutObjectRequest.builder()
+                        .bucket(bucket).key(key).contentLength(0L).build(),
+                        new ByteArrayInputStream(new byte[0]));
+            }
+
+            blobStore.removeBlob(bucket, "dir/sub/one");
+            assertThat(blobStore.blobExists(bucket, "dir/sub/two")).isTrue();
+
+            blobStore.removeBlob(bucket, "dir/sub/two");
+            assertThat(sftpRoot.resolve(BASEDIR.substring(1)).resolve(bucket))
+                    .isEmptyDirectory();
+        }
+    }
+
+    /**
+     * The parts of an upload to a key in a directory lie beside its stub in
+     * a directory of their own, so removing the first part meets a directory
+     * still in use.  Failing there left the upload open after its object was
+     * stored, to take parts and be completed again, and kept an abort from
+     * removing it.
+     */
+    @Test
+    public void testMultipartUploadOfKeyInDirectoryEnds() throws Exception {
+        var hostKeyProvider = startSftpServer();
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            var key = "dir/object.txt";
+            blobStore.createContainer(bucket);
+            var create = CreateMultipartUploadRequest.builder()
+                    .bucket(bucket).key(key).build();
+
+            var completed = blobStore.initiateMultipartUpload(create);
+            uploadPart(blobStore, completed);
+            blobStore.completeMultipartUpload(completed,
+                    CompleteMultipartUploadRequest.builder()
+                            .bucket(bucket).key(key)
+                            .multipartUpload(CompletedMultipartUpload.builder()
+                                    .parts(CompletedPart.builder()
+                                            .partNumber(1).build())
+                                    .build())
+                            .build());
+            assertThat(blobStore.blobExists(bucket, key)).isTrue();
+            assertThat(blobStore.listMultipartUploads(bucket)).isEmpty();
+
+            var aborted = blobStore.initiateMultipartUpload(create);
+            uploadPart(blobStore, aborted);
+            blobStore.abortMultipartUpload(aborted);
+            assertThat(blobStore.listMultipartUploads(bucket)).isEmpty();
+        }
+    }
+
+    private static void uploadPart(SftpBlobStore blobStore,
+            MultipartUpload mpu) {
+        blobStore.uploadMultipartPart(mpu, UploadPartRequest.builder()
+                .bucket(mpu.containerName()).key(mpu.blobName())
+                .uploadId(mpu.id()).partNumber(1).contentLength(4L).build(),
+                new ByteArrayInputStream(new byte[4]));
     }
 
     private SftpBlobStore buildBlobStore(String hostKey) {

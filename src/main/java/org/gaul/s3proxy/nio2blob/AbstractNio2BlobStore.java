@@ -3170,6 +3170,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } catch (DirectoryNotEmptyException dnee) {
                 break;
             } catch (IOException ioe) {
+                // An SFTP server reports the non-empty directory as a
+                // generic failure (SSH_FX_DIR_NOT_EMPTY) that the provider
+                // does not map to DirectoryNotEmptyException.  A directory
+                // that is still there is where the cleanup ends.
+                if (Files.isDirectory(path)) {
+                    logger.debug("leaving directory {}", path, ioe);
+                    break;
+                }
                 // Another delete's cleanup already removed this parent.
                 if (!vanished(ioe, path)) {
                     throw ioe;
