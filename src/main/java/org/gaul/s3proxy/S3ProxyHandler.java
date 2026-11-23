@@ -104,6 +104,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -171,6 +172,7 @@ import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
@@ -555,6 +557,11 @@ public class S3ProxyHandler {
                     }
                     return new AccessGrant(localCredential, blobStore);
                 }
+
+                @Override
+                public boolean scopesBuckets() {
+                    return false;
+                }
             };
         } else {
             anonymousIdentity = true;
@@ -566,6 +573,11 @@ public class S3ProxyHandler {
                         @Nullable String identityArg,
                         @Nullable String container, @Nullable String blob) {
                     return anonymousGrant;
+                }
+
+                @Override
+                public boolean scopesBuckets() {
+                    return false;
                 }
             };
         }
@@ -2673,15 +2685,17 @@ public class S3ProxyHandler {
      * bucket, the way {@link #authorizeCopySource} asks it for a source named
      * in a header.
      *
-     * <p>The backend has already paged the listing by the time it arrives
-     * here, so filtering shortens a page rather than refilling it, and the
-     * continuation token still counts in unfiltered buckets.  A client that
-     * follows the token to the end still sees every bucket it may address;
-     * only the size of each page it sees along the way varies.
+     * <p>This has to happen before the listing is paged, not after.  A
+     * continuation token may name a bucket -- the emulated paging's is the
+     * last one of its page -- so the token of a page the backend cut from
+     * all of its buckets can spell out one that was then filtered from it,
+     * and at one bucket to a page spells out nearly all of them.
+     * handleContainerList therefore pages over the filtered listing.
      *
      * <p>Deployments with a single blob store are unaffected: their locators
-     * ignore the bucket entirely and answer for the identity alone, so every
-     * bucket survives.
+     * ignore the bucket entirely and answer for the identity alone, which
+     * {@link BlobStoreLocator#scopesBuckets} says, so nothing is filtered
+     * and the backend pages the listing itself.
      */
     private List<Bucket> authorizedBuckets(List<Bucket> buckets,
             @Nullable String requestIdentity) {
@@ -2713,7 +2727,24 @@ public class S3ProxyHandler {
         }
         String prefix = request.getParameter("prefix");
 
-        var result = blobStore.list(ListBucketsRequest.builder()
+        BlobStore listingStore = blobStore;
+        if (blobStoreLocator.scopesBuckets()) {
+            // A wrapper inherits the emulated paging, which cuts its pages
+            // from the wrapper's own list(): every page is full while
+            // buckets this identity may address remain, and a token names
+            // one of those and is issued only while another follows.
+            listingStore = new ForwardingBlobStore(blobStore) {
+                @Override
+                public ListBucketsResponse list() {
+                    var all = super.list();
+                    return all.toBuilder()
+                            .buckets(authorizedBuckets(all.buckets(),
+                                    requestIdentity))
+                            .build();
+                }
+            };
+        }
+        var result = listingStore.list(ListBucketsRequest.builder()
                 .maxBuckets(maxBuckets)
                 // S3 treats an empty continuation-token as absent rather
                 // than refusing it; a native store would reject the empty
@@ -2722,8 +2753,7 @@ public class S3ProxyHandler {
                         request.getParameter("continuation-token")))
                 .prefix(prefix)
                 .build());
-        List<Bucket> page = authorizedBuckets(result.buckets(),
-                requestIdentity);
+        List<Bucket> page = result.buckets();
         String nextContinuationToken = result.continuationToken();
 
         response.setCharacterEncoding(UTF_8);

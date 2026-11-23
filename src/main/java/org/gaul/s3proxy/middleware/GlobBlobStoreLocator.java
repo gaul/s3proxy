@@ -90,4 +90,10 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
         }
         return new AccessGrant(grant.credential(), globTarget.blobStore());
     }
+
+    /** Without a glob the container is never consulted. */
+    @Override
+    public boolean scopesBuckets() {
+        return !globLocator.isEmpty();
+    }
 }

@@ -28,6 +28,7 @@ import java.util.Optional;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.middleware.GlobBlobStoreLocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,8 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
@@ -57,6 +60,8 @@ public final class ListBucketsTenantScopeTest {
     private static final String BOB_BUCKET = "tenant-b-secrets";
     /** Matches no glob, so the locator answers for the identity alone. */
     private static final String SHARED_BUCKET = "common-assets";
+    /** What a backend that pages for itself answers with. */
+    private static final String NATIVE_TOKEN = "backend-token";
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -147,6 +152,114 @@ public final class ListBucketsTenantScopeTest {
             client.listObjectsV2(b -> b.bucket(ALICE_BUCKET));
             client.headBucket(b -> b.bucket(SHARED_BUCKET));
         }
+    }
+
+    /**
+     * The continuation token is part of the listing too.  The emulated paging
+     * issues the name of the last bucket of a page, so a page cut from every
+     * bucket the backend held and only then filtered carried the name of a
+     * bucket the filter had just removed: one bucket to a page, the tokens
+     * spelled out the names the pages hid.
+     */
+    @Test
+    public void testContinuationTokenOmitsAnotherIdentitysBucket() {
+        // in order: SHARED_BUCKET, ALICE_BUCKET, BOB_BUCKET
+        try (S3Client client = client(BOB, BOB_SECRET)) {
+            var first = client.listBuckets(b -> b.maxBuckets(1));
+            assertThat(first.buckets().stream().map(b -> b.name()))
+                    .containsExactly(SHARED_BUCKET);
+            assertThat(first.continuationToken()).isEqualTo(SHARED_BUCKET);
+
+            // resumes at the next bucket it may name, not at an empty page
+            // whose token is the one it may not
+            var second = client.listBuckets(b -> b.maxBuckets(1)
+                    .continuationToken(first.continuationToken()));
+            assertThat(second.buckets().stream().map(b -> b.name()))
+                    .containsExactly(BOB_BUCKET);
+            assertThat(second.continuationToken()).isNull();
+        }
+    }
+
+    /**
+     * Nor does a token say that more buckets follow when the only ones which
+     * do belong to another identity: with a prefix, that would answer
+     * whether anybody else's bucket begins with it.
+     */
+    @Test
+    public void testNoContinuationTokenForAnotherIdentitysBuckets() {
+        try (S3Client client = client(ALICE, ALICE_SECRET)) {
+            // BOB_BUCKET follows in the backend
+            var page = client.listBuckets(b -> b.maxBuckets(2));
+            assertThat(page.buckets().stream().map(b -> b.name()))
+                    .containsExactly(SHARED_BUCKET, ALICE_BUCKET);
+            assertThat(page.continuationToken()).isNull();
+
+            // and so it does under the prefix the two have in common
+            page = client.listBuckets(b -> b.maxBuckets(1)
+                    .prefix("tenant-"));
+            assertThat(page.buckets().stream().map(b -> b.name()))
+                    .containsExactly(ALICE_BUCKET);
+            assertThat(page.continuationToken()).isNull();
+        }
+    }
+
+    /**
+     * A backend which pages for itself issues tokens of its own, and nothing
+     * says one of those does not name a bucket.  Under a locator that scopes
+     * buckets the pages are cut from the filtered listing instead, and the
+     * backend's token is never asked for.
+     */
+    @Test
+    public void testNativeTokenStaysBehindScopingLocator() {
+        var nativeStore = nativelyPaging(blobStore);
+        Map<String, AccessGrant> locator = Map.of(
+                BOB, new AccessGrant(BOB_SECRET, nativeStore));
+        var globs = Map.of(glob("tenant-a-*"),
+                new GlobBlobStoreLocator.GlobTarget(Optional.of(ALICE),
+                        nativeStore));
+        s3Proxy.setBlobStoreLocator(new GlobBlobStoreLocator(locator, globs));
+
+        try (S3Client client = client(BOB, BOB_SECRET)) {
+            var page = client.listBuckets(b -> b.maxBuckets(1));
+            assertThat(page.buckets().stream().map(b -> b.name()))
+                    .containsExactly(SHARED_BUCKET);
+            assertThat(page.continuationToken()).isEqualTo(SHARED_BUCKET);
+        }
+    }
+
+    /**
+     * A locator without globs answers for the identity alone and hides
+     * nothing, so the backend keeps its own paging and its own tokens.
+     */
+    @Test
+    public void testUnscopedLocatorLeavesPagingToBackend() {
+        Map<String, AccessGrant> locator = Map.of(
+                BOB, new AccessGrant(BOB_SECRET, nativelyPaging(blobStore)));
+        s3Proxy.setBlobStoreLocator(
+                new GlobBlobStoreLocator(locator, Map.of()));
+
+        try (S3Client client = client(BOB, BOB_SECRET)) {
+            var page = client.listBuckets(b -> b.maxBuckets(1));
+            assertThat(page.continuationToken()).isEqualTo(NATIVE_TOKEN);
+        }
+    }
+
+    /**
+     * A store whose service pages ListBuckets itself, as aws-s3 does, and
+     * answers every page with the same token.
+     */
+    private static BlobStore nativelyPaging(BlobStore delegate) {
+        return new ForwardingBlobStore(delegate) {
+            @Override
+            public ListBucketsResponse list(ListBucketsRequest request) {
+                return ListBucketsResponse.builder()
+                        .buckets(delegate().list().buckets().stream()
+                                .limit(request.maxBuckets())
+                                .toList())
+                        .continuationToken(NATIVE_TOKEN)
+                        .build();
+            }
+        };
     }
 
     private static PathMatcher glob(String pattern) {

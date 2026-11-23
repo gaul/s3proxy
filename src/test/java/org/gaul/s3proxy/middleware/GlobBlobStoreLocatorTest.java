@@ -57,6 +57,20 @@ public final class GlobBlobStoreLocatorTest {
     }
 
     @Test
+    public void testScopesBucketsOnlyWithGlobs() {
+        var credsMap = ImmutableMap.of(
+                "id1", new AccessGrant("one", blobStoreOne));
+        assertThat(new GlobBlobStoreLocator(credsMap, Map.of())
+                .scopesBuckets()).isFalse();
+
+        var globMap = Map.of(
+                FileSystems.getDefault().getPathMatcher("glob:container1"),
+                new GlobTarget(Optional.of("id1"), blobStoreOne));
+        assertThat(new GlobBlobStoreLocator(credsMap, globMap)
+                .scopesBuckets()).isTrue();
+    }
+
+    @Test
     public void testLocateContainer() {
         var credsMap = ImmutableMap.of(
                 "id1", new AccessGrant("one", blobStoreOne),
