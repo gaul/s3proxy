@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -240,6 +241,55 @@ public final class PostPolicyTest {
                 "{\"bucket\": \"buck\"}," +
                 "[\"starts-with\", \"$tagging\", \"\"]"));
         policy.evaluate(fields("bucket", "buck", "tagging", "<Tagging/>"), 0);
+    }
+
+    /**
+     * A Content-Type holding commas is a list, and a starts-with has to hold
+     * for every member of it rather than for the string as a whole: a browser
+     * takes the last member for the type of what it is served, so a prefix
+     * met only by the first would let a policy for video/ store a page.
+     */
+    @Test
+    public void testStartsWithHoldsForEveryContentTypeInAList()
+            throws Exception {
+        PostPolicy policy = parse(policy(
+                "{\"bucket\": \"buck\"}," +
+                "[\"starts-with\", \"$Content-Type\", \"video/\"]," +
+                "[\"starts-with\", \"$x-amz-meta-foo\", \"video/\"]"));
+        policy.evaluate(fields("bucket", "buck",
+                "content-type", "video/mp4",
+                "x-amz-meta-foo", "video/mp4"), 0);
+        policy.evaluate(fields("bucket", "buck",
+                "content-type", "video/mp4,video/webm",
+                "x-amz-meta-foo", "video/mp4"), 0);
+        policy.evaluate(fields("bucket", "buck",
+                "content-type", "video/mp4, video/webm",
+                "x-amz-meta-foo", "video/mp4"), 0);
+        for (String contentType : List.of(
+                "text/html",
+                "video/mp4,text/html",
+                "video/mp4, text/html",
+                "video/mp4,video/webm,text/html",
+                "video/mp4,")) {
+            assertCode(() -> policy.evaluate(fields("bucket", "buck",
+                    "content-type", contentType,
+                    "x-amz-meta-foo", "video/mp4"), 0),
+                    S3ErrorCode.ACCESS_DENIED);
+        }
+        // Only Content-Type is a list; any other field is one string.
+        policy.evaluate(fields("bucket", "buck",
+                "content-type", "video/mp4",
+                "x-amz-meta-foo", "video/mp4,text/html"), 0);
+
+        // eq never was a prefix, and names the whole value.
+        PostPolicy exact = parse(policy(
+                "{\"bucket\": \"buck\"}," +
+                "{\"Content-Type\": \"video/mp4,video/webm\"}"));
+        exact.evaluate(fields("bucket", "buck",
+                "content-type", "video/mp4,video/webm"), 0);
+        assertCode(() -> exact.evaluate(fields("bucket", "buck",
+                "content-type", "video/mp4"), 0),
+                S3ErrorCode.ACCESS_DENIED);
     }
 
     /** A $ in a value is literal, not a reference to anything. */

@@ -26,6 +26,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.common.base.Splitter;
+
 import org.gaul.s3proxy.S3ErrorCode;
 import org.gaul.s3proxy.S3ProxyException;
 import org.jspecify.annotations.Nullable;
@@ -91,7 +93,25 @@ public final class PostPolicy {
      */
     private record Condition(boolean startsWith, String field, String value) {
         boolean matches(String actual) {
-            return startsWith ? actual.startsWith(value) : actual.equals(value);
+            if (!startsWith) {
+                return actual.equals(value);
+            }
+            // S3 reads a Content-Type holding commas as a list, every member
+            // of which has to meet a starts-with.  A browser reads the header
+            // the object is later served with as a list too and takes its
+            // last member for the type, so a prefix that held for the string
+            // as a whole would admit "video/mp4,text/html" under "video/".
+            // The members are trimmed, as a list header's are.
+            if (field.equals("content-type")) {
+                for (String member : Splitter.on(',').trimResults()
+                        .split(actual)) {
+                    if (!member.startsWith(value)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            return actual.startsWith(value);
         }
     }
 
