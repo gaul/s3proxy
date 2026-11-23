@@ -4226,10 +4226,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     /** Resolves a container name relative to root and rejects names that
-     *  normalize to a path outside root (e.g. "..", "../foo", "/abs"). */
+     *  normalize to a path outside root (e.g. "..", "../foo", "/abs").
+     *  A name that normalizes to root itself (e.g. "", ".") is no container
+     *  either: root is where the containers are, so that as one of them it
+     *  would hold every other's objects under the key "container/key". */
     private Path resolveContainer(String container) {
         var path = root.resolve(container);
         checkValidPath(root, path);
+        if (path.normalize().equals(root.normalize())) {
+            throw S3Exceptions.noSuchBucket(container, "");
+        }
         return path;
     }
 

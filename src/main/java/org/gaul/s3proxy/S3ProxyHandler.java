@@ -776,6 +776,24 @@ public class S3ProxyHandler {
         return true;
     }
 
+    /**
+     * Refuse what the service root does not answer.  "/" names no bucket and
+     * is exempt from {@link #isValidContainer} so that ListBuckets can be
+     * asked of it, but every other operation reads its bucket from the path
+     * and finds the empty name there.  No bucket locator scopes that name to
+     * an identity, and a store that keeps its buckets as directories may take
+     * it for the directory holding all of them, where another identity's
+     * bucket/key is just a key: DeleteObjects and a form POST sent to "/"
+     * removed and replaced objects in buckets the caller was never given.
+     * GET is ListBuckets, and OPTIONS a preflight that both paths refuse
+     * where they dispatch it.
+     */
+    private static void checkServiceRootMethod(String method) {
+        if (!method.equals("GET") && !method.equals("OPTIONS")) {
+            throw new S3ProxyException(S3ErrorCode.METHOD_NOT_ALLOWED);
+        }
+    }
+
     public final void doHandle(HttpServletRequest baseRequest,
             HttpServletRequest request, HttpServletResponse response,
             InputStream is, @Nullable RequestContext ctx)
@@ -1400,7 +1418,9 @@ public class S3ProxyHandler {
         }
 
         // Validate container name
-        if (!uri.equals("/") && !isValidContainer(path[1])) {
+        if (uri.equals("/")) {
+            checkServiceRootMethod(method);
+        } else if (!isValidContainer(path[1])) {
             if (method.equals("PUT") &&
                     (path.length <= 2 || path[2].isEmpty()) &&
                     !"".equals(request.getParameter("acl")))  {
@@ -1742,6 +1762,11 @@ public class S3ProxyHandler {
         case "OPTIONS" -> {
             authorize(ctx, session, request, path,
                     S3Operation.OPTIONS_OBJECT);
+            if (uri.equals("/")) {
+                // A preflight is answered for a bucket and the service root
+                // is none, which is how the anonymous path answers it too.
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+            }
             handleOptionsBlob(request, response, blobStore, path[1]);
             return;
         }
@@ -2149,8 +2174,13 @@ public class S3ProxyHandler {
         // than asking a backend about it, and so does this one: the two
         // disagreeing about what a bucket is called is how a request comes to
         // be answered differently depending on who is asking.
-        if (!uri.equals("/") &&
-                (path.length <= 1 || !isValidContainer(path[1]))) {
+        if (uri.equals("/")) {
+            // Nor does either take the service root for a bucket.  A form
+            // POST arrives here whether it is signed or not, and one sent to
+            // the root was stored in the bucket "", under a key of its
+            // choosing.
+            checkServiceRootMethod(method);
+        } else if (path.length <= 1 || !isValidContainer(path[1])) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
 
@@ -5474,10 +5504,20 @@ public class S3ProxyHandler {
      * that check.  A BlobStoreLocator which scopes buckets to identities --
      * GlobBlobStoreLocator does -- would otherwise still let a caller read a
      * bucket it cannot address directly by copying out of it.
+     *
+     * <p>Nor has the source passed doHandle's check of the bucket name, and
+     * a locator can only scope a name a bucket can have: "//bucket/key" names
+     * the bucket "" and "/./bucket/key" the bucket ".", which match no glob
+     * and which a store keeping its buckets as directories may take for the
+     * directory that holds them all.  Such a name is answered as doHandle
+     * answers it.
      */
     private void authorizeCopySource(HttpServletRequest request,
             @Nullable String requestIdentity, String sourceContainerName,
             String sourceBlobName, @Nullable String sourceVersionId) {
+        if (!isValidContainer(sourceContainerName)) {
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
+        }
         if (blobStoreLocator.locateBlobStore(requestIdentity,
                 sourceContainerName, sourceBlobName) == null) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
