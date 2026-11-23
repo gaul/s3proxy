@@ -1620,7 +1620,7 @@ public class S3ProxyHandler {
                 authorize(ctx, session, request, path,
                         S3Operation.DELETE_OBJECTS);
                 handleMultiBlobRemove(request, response, is, blobStore,
-                        path[1]);
+                        requestIdentity, path[1]);
                 return;
             } else if ((path.length <= 2 || path[2].isEmpty()) &&
                     (request.getParameter("uploads") != null ||
@@ -3957,7 +3957,8 @@ public class S3ProxyHandler {
 
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
-            BlobStore blobStore, String containerName)
+            BlobStore blobStore, @Nullable String requestIdentity,
+            String containerName)
             throws IOException {
         // S3 requires a digest of the key list, Content-MD5 or one of the
         // flexible checksums modern AWS SDKs send in its place.
@@ -3996,9 +3997,10 @@ public class S3ProxyHandler {
             }
         }
 
-        boolean supportsVersioning = blobStore.supportsVersioning();
-        String blobStoreType = getBlobStoreType(blobStore);
         boolean anyCondition = false;
+        // The store the locator names for each key, in the body's order.
+        var keyStores = new ArrayList<BlobStore>(dmor.objects().size());
+        boolean anyOtherStore = false;
         var objects = new ImmutableList.Builder<ObjectIdentifier>();
         for (DeleteMultipleObjectsRequest.S3Object s3Object :
                 dmor.objects()) {
@@ -4008,9 +4010,24 @@ public class S3ProxyHandler {
             // These keys arrive in the body, not the URI, so they have not
             // passed the check in doHandle.
             checkReservedBlobName(s3Object.key());
+            // Nor has the BlobStoreLocator been asked about them: doHandle
+            // located the bucket and whichever key the URI named, if any.  A
+            // locator which decides by key would otherwise refuse a key to
+            // DELETE and hand it over here, so ask about each one, the way
+            // authorizeCopySource asks about a source named in a header.
+            // Its answer also names the store which holds the key, as it
+            // does for the key of a DELETE.
+            AccessGrant keyGrant = blobStoreLocator.locateBlobStore(
+                    requestIdentity, containerName, s3Object.key());
+            if (keyGrant == null) {
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+            }
+            BlobStore keyStore = keyGrant.blobStore();
+            keyStores.add(keyStore);
+            anyOtherStore |= !keyStore.equals(blobStore);
             if (s3Object.hasCondition()) {
-                checkConditionalDeleteSupport(blobStoreType, s3Object.eTag(),
-                        s3Object.parsedSize(),
+                checkConditionalDeleteSupport(getBlobStoreType(keyStore),
+                        s3Object.eTag(), s3Object.parsedSize(),
                         s3Object.parsedLastModifiedTime());
                 // Parse eagerly so a malformed value fails the request
                 // before any key is deleted.
@@ -4021,7 +4038,8 @@ public class S3ProxyHandler {
             // On a versioning store even the literal "null" names a version
             // -- the one written while the bucket was unversioned -- so any
             // VersionId element rides along to the store.
-            if (!(s3Object.versionId() != null && supportsVersioning) &&
+            if (!(s3Object.versionId() != null &&
+                    keyStore.supportsVersioning()) &&
                     s3Object.hasVersion()) {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                         "Versioning is not supported.");
@@ -4038,27 +4056,31 @@ public class S3ProxyHandler {
         // and the aws-s3 passthrough stay here, one key at a time.  Every
         // other request goes to the store's batch delete, which answers for
         // each key and lets a store with a bulk delete of its own spend one
-        // round trip rather than a thousand.
+        // round trip rather than a thousand.  That is the store the request
+        // was located in, so a key the locator places in another one also
+        // sends the request key by key, each to its own store.
         DeleteObjectsResponse deleteResponse;
-        if (anyCondition) {
+        if (anyCondition || anyOtherStore) {
             var deleted = new ImmutableList.Builder<DeletedObject>();
             var errors = new ImmutableList.Builder<S3Error>();
+            var keyStoreIterator = keyStores.iterator();
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
                 // the loop above refused a missing key
                 String key = requireNonNull(s3Object.key());
                 String versionId = s3Object.versionId();
+                BlobStore keyStore = keyStoreIterator.next();
                 try {
                     DeleteObjectResponse result = null;
                     if (s3Object.hasCondition() &&
                             !Quirks.NATIVE_CONDITIONAL_DELETE.contains(
-                                    blobStoreType)) {
-                        result = conditionalDelete(blobStore, containerName,
+                                    getBlobStoreType(keyStore))) {
+                        result = conditionalDelete(keyStore, containerName,
                                 key, versionId, s3Object.eTag(),
                                 s3Object.parsedSize(),
                                 s3Object.parsedLastModifiedTime());
                     } else if (s3Object.hasCondition()) {
-                        result = blobStore.removeBlob(
+                        result = keyStore.removeBlob(
                                 DeleteObjectRequest.builder()
                                         .bucket(containerName)
                                         .key(key)
@@ -4069,7 +4091,7 @@ public class S3ProxyHandler {
                                                 .parsedLastModifiedTime())
                                         .build());
                     } else {
-                        result = blobStore.removeBlob(
+                        result = keyStore.removeBlob(
                                 DeleteObjectRequest.builder()
                                         .bucket(containerName)
                                         .key(key)
