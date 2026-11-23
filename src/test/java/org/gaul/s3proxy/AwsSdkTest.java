@@ -2387,6 +2387,51 @@ public final class AwsSdkTest {
         }
     }
 
+    /**
+     * A policy that the checksum sent with it does not describe is refused
+     * rather than applied.  The checksum is all that ties a presigned
+     * PutObjectAcl to the policy its signer meant, and S3 holds the body to
+     * Content-MD5 and to x-amz-checksum-* alike.
+     */
+    @Test
+    public void testUpdateBlobXmlAclsBadDigest() throws Exception {
+        assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType));
+
+        String blobName = "testUpdateBlobXmlAclsBadDigest-blob";
+        putBlob(containerName, blobName, BYTE_SOURCE);
+
+        GetObjectAclResponse acl = client.getObjectAcl(
+                b -> b.bucket(containerName).key(blobName));
+        var withRead = new ArrayList<>(acl.grants());
+        withRead.add(Grant.builder()
+                .grantee(Grantee.builder().type(Type.GROUP)
+                        .uri(ALL_USERS_GROUP).build())
+                .permission(Permission.READ)
+                .build());
+        // each the digest of no bytes
+        var digests = Map.of(
+                "Content-MD5", "1B2M2Y8AsgTpgAmY7PhCfg==",
+                "x-amz-checksum-sha256",
+                "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=");
+        for (var digest : digests.entrySet()) {
+            try {
+                client.putObjectAcl(b -> b.bucket(containerName).key(blobName)
+                        .overrideConfiguration(o -> o.putHeader(
+                                digest.getKey(), digest.getValue()))
+                        .accessControlPolicy(p -> p.owner(acl.owner())
+                                .grants(withRead)));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(400);
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("BadDigest");
+            }
+            assertThat(client.getObjectAcl(
+                    b -> b.bucket(containerName).key(blobName)).grants())
+                    .containsExactlyInAnyOrderElementsOf(acl.grants());
+        }
+    }
+
     // Measured against S3: CompleteMultipartUpload answers 400 MalformedXML
     // for a Part without an ETag element.
     @Test

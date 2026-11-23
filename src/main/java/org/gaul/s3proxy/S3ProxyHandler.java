@@ -25,7 +25,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
-import java.io.PushbackInputStream;
 import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
@@ -2349,9 +2348,8 @@ public class S3ProxyHandler {
             return;
         }
 
-        var pis = new PushbackInputStream(is);
-        int ch = pis.read();
-        if (ch != -1) {
+        byte[] body = readXmlRequestBody(request, is);
+        if (body.length != 0) {
             // A request states its ACL one way or the other, and S3
             // refuses both.  The signature covers x-amz-acl, but neither a
             // presigned URL nor V2 covers the body, so a document that won
@@ -2360,9 +2358,8 @@ public class S3ProxyHandler {
             if (cannedAcl != null) {
                 throw new S3ProxyException(S3ErrorCode.UNEXPECTED_CONTENT);
             }
-            pis.unread(ch);
             AccessControlPolicy policy = readXmlBody(
-                    pis, AccessControlPolicy.class);
+                    body, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
                 access = BucketCannedACL.PRIVATE;
@@ -2507,9 +2504,8 @@ public class S3ProxyHandler {
             return;
         }
 
-        var pis = new PushbackInputStream(is);
-        int ch = pis.read();
-        if (ch != -1) {
+        byte[] body = readXmlRequestBody(request, is);
+        if (body.length != 0) {
             // A request states its ACL one way or the other, and S3
             // refuses both.  The signature covers x-amz-acl, but neither a
             // presigned URL nor V2 covers the body, so a document that won
@@ -2518,9 +2514,8 @@ public class S3ProxyHandler {
             if (cannedAcl != null) {
                 throw new S3ProxyException(S3ErrorCode.UNEXPECTED_CONTENT);
             }
-            pis.unread(ch);
             AccessControlPolicy policy = readXmlBody(
-                    pis, AccessControlPolicy.class);
+                    body, AccessControlPolicy.class);
             String accessString = mapXmlAclsToCannedPolicy(policy);
             if (accessString.equals("private")) {
                 access = ObjectCannedACL.PRIVATE;
@@ -2826,13 +2821,7 @@ public class S3ProxyHandler {
                     "Versioning is not supported.");
         }
 
-        // Bound the buffered body: the configuration is a few elements, but
-        // the request is otherwise attacker-controlled.
-        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
-                .readAllBytes();
-        if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
-        }
+        byte[] body = readXmlRequestBody(request, is);
         VersioningConfigurationRequest vcr = readXmlBody(body,
                 VersioningConfigurationRequest.class);
         // Disabled is what S3 answers for a bucket that has never asked for
@@ -2935,13 +2924,7 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
                     "Bucket default encryption is not supported.");
         }
-        // Bound the buffered body: the configuration is a few elements, but
-        // the request is otherwise attacker-controlled.
-        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
-                .readAllBytes();
-        if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
-        }
+        byte[] body = readXmlRequestBody(request, is);
         var configuration = readXmlBody(body,
                 ServerSideEncryptionConfigurationRequest.class);
         // S3's schema requires the rule, nothing in S3 produces more than
@@ -3452,17 +3435,13 @@ public class S3ProxyHandler {
         }
 
         String locationString;
-        try (PushbackInputStream pis = new PushbackInputStream(is)) {
-            int ch = pis.read();
-            if (ch == -1) {
-                // handle empty bodies
-                locationString = null;
-            } else {
-                pis.unread(ch);
-                org.gaul.s3proxy.CreateBucketRequest cbr = readXmlBody(
-                        pis, org.gaul.s3proxy.CreateBucketRequest.class);
-                locationString = cbr.locationConstraint();
-            }
+        byte[] body = readXmlRequestBody(request, is);
+        if (body.length == 0) {
+            locationString = null;
+        } else {
+            org.gaul.s3proxy.CreateBucketRequest cbr = readXmlBody(
+                    body, org.gaul.s3proxy.CreateBucketRequest.class);
+            locationString = cbr.locationConstraint();
         }
 
         // The backend determines the region; clients sending a
@@ -3832,53 +3811,83 @@ public class S3ProxyHandler {
     }
 
     /**
-     * Validate the request body against Content-MD5 (legacy) or any
-     * x-amz-checksum-* header (modern AWS SDKs).  Throws if no checksum is
-     * present or if validation fails.
+     * Hold a body to its Content-MD5, when the request names one, answering
+     * InvalidDigest for a value that is not an MD5 and BadDigest for one
+     * that does not match.  Whether it named one is the result.
      */
-    private static void validateMultiBlobRemoveChecksum(
-            HttpServletRequest request, byte[] body) {
+    private static boolean validateContentMD5(HttpServletRequest request,
+            byte[] body) {
         String contentMD5 = request.getHeader(HttpHeaders.CONTENT_MD5);
-        if (contentMD5 != null) {
-            byte[] expected;
-            try {
-                expected = Base64.getDecoder().decode(contentMD5);
-            } catch (IllegalArgumentException iae) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
-            }
-            if (expected.length != MD5.LENGTH) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
-            }
-            if (!MessageDigest.isEqual(expected, MD5.hash(body))) {
-                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
-            }
-            return;
+        if (contentMD5 == null) {
+            return false;
         }
-        // Match modern AWS SDKs that send a flexible checksum header in
-        // place of Content-MD5.  Try each algorithm we recognise; the SDK
-        // sends only one.
+        byte[] expected;
+        try {
+            expected = Base64.getDecoder().decode(contentMD5);
+        } catch (IllegalArgumentException iae) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST, iae);
+        }
+        if (expected.length != MD5.LENGTH) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_DIGEST);
+        }
+        if (!MessageDigest.isEqual(expected, MD5.hash(body))) {
+            throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
+        }
+        return true;
+    }
+
+    /**
+     * Hold a body to every digest of it the request names, Content-MD5 and
+     * each x-amz-checksum-* alike, and say whether it named any.  Every one
+     * is checked: Content-MD5 need not be signed, so stopping at the first
+     * that matched let a bearer add one for a body of their own and keep a
+     * signed checksum from being looked at.
+     */
+    private static boolean validateBodyDigests(HttpServletRequest request,
+            byte[] body) {
+        boolean named = validateContentMD5(request, body);
         for (FlexChecksum checksum : FlexChecksum.values()) {
-            if (checksum.validateHeader(request, body)) {
-                return;
-            }
+            named |= checksum.validateHeader(request, body);
         }
-        throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                "Missing required header for this request: Content-Md5");
+        return named;
+    }
+
+    /**
+     * Read a body the proxy parses rather than stores, bounded since the
+     * request is otherwise attacker-controlled, and hold it to the digests
+     * the request names.  Stored bodies are checked as they stream; these
+     * were not checked at all, so a presigned URL or a V2 signature, which
+     * cover a digest header but not the body, accepted any body next to a
+     * digest signed for another -- an ACL that published what the signer
+     * meant to keep private.
+     */
+    private byte[] readXmlRequestBody(HttpServletRequest request,
+            InputStream is) throws IOException {
+        byte[] body = readBoundedBody(is);
+        validateBodyDigests(request, body);
+        return body;
+    }
+
+    private byte[] readBoundedBody(InputStream is) throws IOException {
+        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
+                .readAllBytes();
+        if (body.length == v4MaxNonChunkedRequestSize + 1) {
+            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+        }
+        return body;
     }
 
     private void handleMultiBlobRemove(HttpServletRequest request,
             HttpServletResponse response, InputStream is,
             BlobStore blobStore, String containerName)
             throws IOException {
-        // Bound the buffered body: a MultiObjectDelete is limited to 1000
-        // keys, but the request is otherwise attacker-controlled, so read at
-        // most one byte past the limit and reject rather than exhaust the heap.
-        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
-                .readAllBytes();
-        if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
+        // S3 requires a digest of the key list, Content-MD5 or one of the
+        // flexible checksums modern AWS SDKs send in its place.
+        byte[] body = readBoundedBody(is);
+        if (!validateBodyDigests(request, body)) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                    "Missing required header for this request: Content-Md5");
         }
-        validateMultiBlobRemoveChecksum(request, body);
         DeleteMultipleObjectsRequest dmor = readXmlBody(
                 body, DeleteMultipleObjectsRequest.class);
         if (dmor.objects() == null) {
@@ -4345,7 +4354,7 @@ public class S3ProxyHandler {
     private void handlePutBucketOwnershipControls(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException {
-        var parsed = readXmlBody(readConfigurationBody(is),
+        var parsed = readXmlBody(readXmlRequestBody(request, is),
                 OwnershipControlsRequest.class);
         if (parsed.rules() == null || parsed.rules().size() != 1) {
             throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
@@ -4409,7 +4418,7 @@ public class S3ProxyHandler {
     private void handlePutPublicAccessBlock(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException {
-        var parsed = readXmlBody(readConfigurationBody(is),
+        var parsed = readXmlBody(readXmlRequestBody(request, is),
                 PublicAccessBlockRequest.class);
         var unused = blobStore.putPublicAccessBlock(
                 PutPublicAccessBlockRequest.builder()
@@ -4532,16 +4541,6 @@ public class S3ProxyHandler {
         return value == null ? null : Boolean.valueOf(value.strip());
     }
 
-    /** Read a small configuration body, bounded like the others. */
-    private byte[] readConfigurationBody(InputStream is) throws IOException {
-        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
-                .readAllBytes();
-        if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
-        }
-        return body;
-    }
-
     /** GetObjectLockConfiguration: the store answers, or says there is none. */
     private void handleGetObjectLockConfiguration(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
@@ -4604,7 +4603,7 @@ public class S3ProxyHandler {
     private void handlePutObjectLockConfiguration(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName) throws IOException {
-        var parsed = readXmlBody(readConfigurationBody(is),
+        var parsed = readXmlBody(readXmlRequestBody(request, is),
                 ObjectLockConfigurationRequest.class);
         if (!"Enabled".equals(parsed.objectLockEnabled())) {
             throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
@@ -4692,7 +4691,7 @@ public class S3ProxyHandler {
     private void handlePutObjectRetention(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName) throws IOException {
-        var parsed = readXmlBody(readConfigurationBody(is),
+        var parsed = readXmlBody(readXmlRequestBody(request, is),
                 ObjectRetentionRequest.class);
         var retention = ObjectLockRetention.builder();
         if (parsed.mode() != null || parsed.retainUntilDate() != null) {
@@ -4751,7 +4750,7 @@ public class S3ProxyHandler {
     private void handlePutObjectLegalHold(HttpServletRequest request,
             HttpServletResponse response, InputStream is, BlobStore blobStore,
             String containerName, String blobName) throws IOException {
-        var parsed = readXmlBody(readConfigurationBody(is),
+        var parsed = readXmlBody(readXmlRequestBody(request, is),
                 ObjectLegalHoldRequest.class);
         if (!"ON".equals(parsed.status()) && !"OFF".equals(parsed.status())) {
             throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
@@ -6649,8 +6648,12 @@ public class S3ProxyHandler {
         // meaning, even when the completion would fail for other reasons.
         MpuChecksums.validateHeaderValues(request);
 
+        // Its x-amz-checksum-* headers describe the object, not this body,
+        // so only Content-MD5 is held to it.
+        byte[] body = readBoundedBody(is);
+        validateContentMD5(request, body);
         CompleteMultipartUploadRequest cmu = readXmlBody(
-                is, CompleteMultipartUploadRequest.class);
+                body, CompleteMultipartUploadRequest.class);
         if (cmu.parts() != null) {
             for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
                 // S3 answers MalformedXML for a part without an ETag
@@ -8653,12 +8656,7 @@ public class S3ProxyHandler {
                 !transferEncoding.toLowerCase().contains("chunked")) {
             throw new S3ProxyException(S3ErrorCode.MISSING_CONTENT_LENGTH);
         }
-        byte[] body = ByteStreams.limit(is, v4MaxNonChunkedRequestSize + 1)
-                .readAllBytes();
-        if (body.length == v4MaxNonChunkedRequestSize + 1) {
-            throw new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
-        }
-        return body;
+        return readBoundedBody(is);
     }
 
     /**
