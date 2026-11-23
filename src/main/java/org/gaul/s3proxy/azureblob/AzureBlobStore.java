@@ -1044,13 +1044,16 @@ public final class AzureBlobStore implements BlobStore {
                     throw translate(bse, container, key, request.versionId());
                 }
                 long count = Math.min(tail, blobSize);
-                if (count == 0) {
-                    // The last no bytes of a blob, or any of an empty one:
-                    // S3 answers that no such range can be satisfied, and
-                    // there is no range of nothing to ask Azure for.
-                    throw S3Exceptions.fromStatusCode(416);
+                // The whole of an empty blob is read with no range.
+                if (!range.wholeOfEmpty(blobSize)) {
+                    if (count == 0) {
+                        // The last no bytes of a blob: S3 answers that no
+                        // such range can be satisfied, and there is no
+                        // range of nothing to ask Azure for.
+                        throw S3Exceptions.fromStatusCode(416);
+                    }
+                    azureRange = new BlobRange(blobSize - count, count);
                 }
-                azureRange = new BlobRange(blobSize - count, count);
             } else if (range.last() == null) {
                 // handle to read from an offset till the end
                 azureRange = new BlobRange(range.first());

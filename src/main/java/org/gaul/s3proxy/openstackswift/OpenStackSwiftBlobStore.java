@@ -867,9 +867,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // survives instead of being stripped (and the body gunzipped).
         downloadOptions.header(HttpHeaders.ACCEPT_ENCODING, "identity");
         boolean ranged = options.range() != null;
-        // A suffix range selecting no bytes -- the last zero of an object,
-        // or any of an empty one -- cannot be satisfied, and S3 says so.
-        // Swift ignores such a range and serves the whole object.
+        // A suffix range of no bytes, bytes=-0, cannot be satisfied, and S3
+        // says so; Swift ignores it and serves the whole object.  Any other
+        // suffix of an empty object Swift answers with the whole of it, a
+        // 200 with no Content-Range, as S3 does.
         boolean suffixRange = ranged &&
                 requireNonNull(options.range()).startsWith("bytes=-");
         if (suffixRange && CharMatcher.is('0').matchesAllOf(
@@ -974,16 +975,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         long contentLength = resolveContentLength(swift, container, key,
                 response.header(HttpHeaders.CONTENT_LENGTH),
                 ranged ? response.header(HttpHeaders.CONTENT_RANGE) : null);
-        if (suffixRange && contentLength == 0 &&
-                response.header(HttpHeaders.CONTENT_RANGE) == null) {
-            // the empty object, whole: no suffix of it holds a byte
-            try {
-                response.close();
-            } catch (IOException ioe) {
-                // The connection is being abandoned; ignore close failures.
-            }
-            throw S3Exceptions.fromStatusCode(STATUS_RANGE_NOT_SATISFIABLE);
-        }
         var builder = Blob.builder(key)
                 .payload(payload.getInputStream())
                 .contentLength(contentLength)

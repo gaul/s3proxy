@@ -897,6 +897,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     long offset = 0;
                     long last = size;
                     var range = SdkRequests.parseRange(options.range());
+                    if (range != null && range.wholeOfEmpty(size)) {
+                        range = null;
+                    }
                     boolean hasRange = range != null;
                     if (range != null) {
                         // HTTP uses a closed interval while Java array indexing uses a

@@ -986,6 +986,9 @@ public final class GCloudBlobStore implements BlobStore {
         Long rangeOffset = null;
         Long rangeEnd = null;
         var range = SdkRequests.parseRange(request.range());
+        if (range != null && range.wholeOfEmpty(blobSize)) {
+            range = null;
+        }
         if (range != null) {
             if (range.first() == null) {
                 // trailing range: last N bytes

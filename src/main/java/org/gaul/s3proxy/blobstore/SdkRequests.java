@@ -46,6 +46,18 @@ public final class SdkRequests {
      * range bytes=A- is (A, null).
      */
     public record ByteRange(@Nullable Long first, @Nullable Long last) {
+        /**
+         * Whether this range asks for the whole of an object of
+         * {@code size} bytes that is empty: a suffix of any length but
+         * zero.  HTTP counts it satisfiable, the whole representation
+         * standing in for a suffix longer than it, and S3 answers the
+         * empty object with a 200 and no Content-Range, since none can
+         * name a range of no bytes.  bytes=-0 selects nothing and stays
+         * unsatisfiable.  A store reads such a range as no range at all.
+         */
+        public boolean wholeOfEmpty(long size) {
+            return size == 0 && first == null && last != null && last > 0;
+        }
     }
 
     /** Formats a closed range request header. */

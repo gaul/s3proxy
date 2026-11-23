@@ -149,6 +149,8 @@ public final class AwsSdkTest {
      * LocalStack rather than a test for whoever holds 4566.
      */
     private static final int LOCALSTACK_PORT = 4566;
+    /** The port MiniStack's lane publishes. */
+    private static final int MINISTACK_PORT = 4567;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";
 
@@ -4758,12 +4760,12 @@ public final class AwsSdkTest {
     }
 
     /**
-     * A suffix range that selects no bytes -- the last zero of an object,
-     * or any of an empty one -- is answered 416.  S3 agrees on the first,
-     * but answers a suffix of an empty object with the whole empty object,
-     * 200 and no Content-Range, so the second records S3Proxy's own answer
-     * rather than S3's.  azureblob resolves a suffix against the blob's
-     * size itself and answered 500.
+     * A suffix range of no bytes, bytes=-0, cannot be satisfied, and S3
+     * answers it 416.  Any other suffix of an empty object is the whole of
+     * it, which RFC 9110 counts satisfiable and S3 answers 200 with the
+     * empty object and no Content-Range, since none can name a range of no
+     * bytes.  azureblob resolves a suffix against the blob's size itself
+     * and answered both 500.
      */
     @Test
     public void testSuffixRangeOfNoBytes() throws Exception {
@@ -4772,24 +4774,22 @@ public final class AwsSdkTest {
         client.putObject(b -> b.bucket(containerName).key("range-full"),
                 RequestBody.fromString("content"));
 
-        var requests = new ArrayList<Map.Entry<String, String>>();
-        requests.add(Map.entry("range-full", "bytes=-0"));
-        // aws-s3 relays its backend's answer to a suffix of an empty
-        // object: the empty object, with 200 from S3 and LocalStack and
-        // 206 with an invalid Content-Range from MiniStack,
-        // ministackorg/ministack#2787.
-        if (!blobStoreType.equals("aws-s3")) {
-            requests.add(Map.entry("range-empty", "bytes=-5"));
-        }
-        for (var request : requests) {
-            try {
-                client.getObjectAsBytes(b -> b.bucket(containerName)
-                        .key(request.getKey()).range(request.getValue()));
-                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
-            } catch (S3Exception e) {
-                assertThat(e.statusCode()).isEqualTo(416);
-            }
-        }
+        assertThatThrownBy(() -> client.getObjectAsBytes(b -> b
+                .bucket(containerName).key("range-full").range("bytes=-0")))
+                .isInstanceOf(S3Exception.class)
+                .satisfies(thrown -> assertThat(
+                        ((S3Exception) thrown).statusCode()).isEqualTo(416));
+
+        // aws-s3 relays its backend's answer, and MiniStack answers 206
+        // with an invalid Content-Range, ministackorg/ministack#2787.
+        assumeTrue(!blobStoreType.equals("aws-s3") ||
+                blobStoreEndpoint.getPort() != MINISTACK_PORT);
+        var empty = client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key("range-empty").range("bytes=-5"));
+        assertThat(empty.response().sdkHttpResponse().statusCode())
+                .isEqualTo(200);
+        assertThat(empty.response().contentRange()).isNull();
+        assertThat(empty.asByteArray()).isEmpty();
     }
 
     /**
