@@ -213,6 +213,16 @@ public final class PostObjectTest {
                 .metadata()).containsEntry("foo", "barclamp");
     }
 
+    /** An empty Content-Type field names no type, as an empty header does. */
+    @Test
+    public void testEmptyContentTypeField() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo", "Content-Type", "");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobMetadata(containerName, "foo")
+                .contentType()).isEqualTo("binary/octet-stream");
+    }
+
     /**
      * Metadata under the name this proxy keeps a validated checksum by is
      * not the form's to set: it would be reported back as the checksum.

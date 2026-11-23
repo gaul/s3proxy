@@ -5540,7 +5540,8 @@ public class S3ProxyHandler {
                     copyRequest.contentLanguage(headerValue);
                 } else if (headerName.equalsIgnoreCase(
                         HttpHeaders.CONTENT_TYPE)) {
-                    copyRequest.contentType(headerValue);
+                    // An empty type is no type, as in parseContentMetadata.
+                    copyRequest.contentType(Strings.emptyToNull(headerValue));
                 } else if (startsWithIgnoreCase(headerName,
                         USER_METADATA_PREFIX)) {
                     String key = headerName.substring(
@@ -6321,7 +6322,7 @@ public class S3ProxyHandler {
                 .bucket(containerName)
                 .key(blobName)
                 .contentLength((long) payload.length);
-        if (contentType != null) {
+        if (!Strings.isNullOrEmpty(contentType)) {
             putRequest.contentType(contentType);
         }
         // The form's encryption fields ride the way the header family does
@@ -7858,9 +7859,10 @@ public class S3ProxyHandler {
         // S3 names a type for every object, so one a backend reports none for
         // -- written around S3Proxy, or by a client of a backend that does not
         // require one -- answers with the default rather than with no
-        // Content-Type at all.
-        response.setContentType(contentType != null ? contentType :
-                ContentMetadata.DEFAULT_CONTENT_TYPE);
+        // Content-Type at all.  An empty type names none either, and would
+        // leave a browser to guess one from the object's bytes.
+        response.setContentType(Strings.isNullOrEmpty(contentType) ?
+                ContentMetadata.DEFAULT_CONTENT_TYPE : contentType);
         String eTag = metadata.eTag();
         if (eTag != null) {
             response.addHeader(HttpHeaders.ETAG, maybeQuoteETag(eTag));
@@ -8312,7 +8314,11 @@ public class S3ProxyHandler {
                 request.getHeader(HttpHeaders.CONTENT_DISPOSITION),
                 contentEncoding,
                 request.getHeader(HttpHeaders.CONTENT_LANGUAGE),
-                request.getContentType(),
+                // A header that is present but empty names no type.  A V2
+                // signature reads it as an absent one, so stored as a type
+                // it would let a request signed for no Content-Type replace
+                // the default with none at all.
+                Strings.emptyToNull(request.getContentType()),
                 expires == -1 ? null : Instant.ofEpochMilli(expires));
     }
 
