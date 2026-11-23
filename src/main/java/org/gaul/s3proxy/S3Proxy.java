@@ -119,7 +119,18 @@ public final class S3Proxy {
         server = new Server(pool);
 
         var httpConfiguration = new HttpConfiguration();
-        httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY);
+        // Legacy compliance keeps header values as the client spelled them,
+        // which signatures cover, but it also accepts a request that frames
+        // its body twice.  The chunks of Transfer-Encoding then delimit the
+        // body while Content-Length stays in the headers, where signing and
+        // the upload handlers read it as the length of a body that can have
+        // any other: a presigned URL that signed Content-Length would store
+        // an object of any size.  No S3 client sends both and RFC 9112 6.3
+        // has such a message handled as an error, so refuse it with 400 as
+        // Jetty's stricter modes do.
+        httpConfiguration.setHttpCompliance(HttpCompliance.LEGACY.without(
+                "S3PROXY", HttpCompliance.Violation
+                        .TRANSFER_ENCODING_WITH_CONTENT_LENGTH));
         httpConfiguration.setUriCompliance(UriCompliance.LEGACY);
         httpConfiguration.setHeaderCacheCaseSensitive(true);
         // Do not name the embedded server or its version, in the Server header

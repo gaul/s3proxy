@@ -27,6 +27,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -128,6 +129,28 @@ public final class TransferEncodingChunkedTest {
         assertThat(response).startsWith("HTTP/1.1 400 ");
         assertThat(response).contains(
                 "<Code>MaxMessageLengthExceeded</Code>");
+    }
+
+    /**
+     * A body framed both ways has two lengths: the one its chunks add up to,
+     * which is what would be stored, and the one Content-Length states, which
+     * is what a signature covers.  It is refused, whichever header is first.
+     */
+    @Test
+    public void testChunkedUploadWithContentLength() throws Exception {
+        startProxy(128 * 1024);
+        String length = "Content-Length: 3\r\n";
+        String chunked = "Transfer-Encoding: chunked\r\n";
+        for (String framing : List.of(length + chunked, chunked + length)) {
+            String response = send("PUT /container/blob HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1\r\n" +
+                    framing +
+                    "\r\n" +
+                    "6\r\nfoobar\r\n0\r\n\r\n");
+            assertThat(response).startsWith("HTTP/1.1 400 ");
+            assertThat(response).contains("<Code>InvalidRequest</Code>");
+            assertThat(get("/container/blob")).startsWith("HTTP/1.1 404 ");
+        }
     }
 
     private String putChunked(String pathAndQuery, String chunkedBody)
