@@ -168,6 +168,64 @@ public final class CopySourceAuthorizationTest {
                 .isNotNull();
     }
 
+    /**
+     * A grant for another store does not authorize the source either.  The
+     * attacker's buckets live on a store of its own, except attacker-* which
+     * the locator places on the victim's: the victim bucket does not exist
+     * for the attacker, but a copy that runs on the destination's store
+     * would find it there.
+     */
+    @Test
+    public void testCopyFromSourceOnAnotherStoreIsRefused() {
+        putSecret();
+        serveAttackerFromItsOwnStore();
+
+        assertThat(catchErrorCode(() -> attackerClient.getObject(
+                b -> b.bucket(victimContainer).key("secret"))))
+                .isEqualTo("NoSuchBucket");
+        assertThat(catchErrorCode(() -> attackerClient.copyObject(
+                b -> b.sourceBucket(victimContainer).sourceKey("secret")
+                        .destinationBucket(attackerContainer)
+                        .destinationKey("loot"))))
+                .as("copy from a bucket served by another store must fail")
+                .isEqualTo("NotImplemented");
+        assertThat(blobStore.blobExists(attackerContainer, "loot")).isFalse();
+    }
+
+    /** Same for the multipart UploadPartCopy variant. */
+    @Test
+    public void testCopyPartFromSourceOnAnotherStoreIsRefused() {
+        putSecret();
+        serveAttackerFromItsOwnStore();
+
+        String uploadId = attackerClient.createMultipartUpload(
+                b -> b.bucket(attackerContainer).key("loot")).uploadId();
+        assertThat(catchErrorCode(() -> attackerClient.uploadPartCopy(
+                b -> b.sourceBucket(victimContainer).sourceKey("secret")
+                        .destinationBucket(attackerContainer)
+                        .destinationKey("loot")
+                        .uploadId(uploadId).partNumber(1))))
+                .as("UploadPartCopy from another store's bucket must fail")
+                .isEqualTo("NotImplemented");
+        assertThat(attackerClient.listParts(b -> b.bucket(attackerContainer)
+                .key("loot").uploadId(uploadId)).parts()).isEmpty();
+    }
+
+    /** Two buckets which the locator serves from one store still copy. */
+    @Test
+    public void testCopyWithinLocatedStoreSucceeds() {
+        serveAttackerFromItsOwnStore();
+        attackerClient.putObject(
+                b -> b.bucket(attackerContainer).key("mine"),
+                RequestBody.fromString("mine"));
+
+        attackerClient.copyObject(b -> b.sourceBucket(attackerContainer)
+                .sourceKey("mine").destinationBucket(attackerContainer)
+                .destinationKey("copy"));
+
+        assertThat(blobStore.blobExists(attackerContainer, "copy")).isTrue();
+    }
+
     /** A copy within the identity's own buckets still works. */
     @Test
     public void testCopyFromAuthorizedSourceSucceeds() {
@@ -180,6 +238,24 @@ public final class CopySourceAuthorizationTest {
                 .destinationKey("copy"));
 
         assertThat(blobStore.blobExists(attackerContainer, "copy")).isTrue();
+    }
+
+    /**
+     * Give the attacker a default store of its own and leave only attacker-*
+     * on the shared one, with no glob claiming the victim's bucket.
+     */
+    private void serveAttackerFromItsOwnStore() {
+        var credsMap = ImmutableMap.of(
+                VICTIM_IDENTITY,
+                new AccessGrant(VICTIM_CREDENTIAL, blobStore),
+                ATTACKER_IDENTITY,
+                new AccessGrant(ATTACKER_CREDENTIAL,
+                        TestUtils.createTransientBlobStore()));
+        var globMap = Map.of(
+                FileSystems.getDefault().getPathMatcher("glob:attacker-*"),
+                new GlobTarget(Optional.of(ATTACKER_IDENTITY), blobStore));
+        s3Proxy.setBlobStoreLocator(
+                new GlobBlobStoreLocator(credsMap, globMap));
     }
 
     private void putSecret() {

@@ -5511,16 +5511,30 @@ public class S3ProxyHandler {
      * and which a store keeping its buckets as directories may take for the
      * directory that holds them all.  Such a name is answered as doHandle
      * answers it.
+     *
+     * <p>A grant covers the bucket on the store it names, not the same name
+     * on another store.  The copy runs on the destination's store and would
+     * look the source up there, reaching a bucket of that backend which the
+     * locator does not serve to this caller and bypassing any middleware that
+     * wraps the source's own store.  Refuse a copy whose source the locator
+     * serves from a different store than its destination.
      */
     private void authorizeCopySource(HttpServletRequest request,
-            @Nullable String requestIdentity, String sourceContainerName,
-            String sourceBlobName, @Nullable String sourceVersionId) {
+            @Nullable String requestIdentity, BlobStore destBlobStore,
+            String sourceContainerName, String sourceBlobName,
+            @Nullable String sourceVersionId) {
         if (!isValidContainer(sourceContainerName)) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET);
         }
-        if (blobStoreLocator.locateBlobStore(requestIdentity,
-                sourceContainerName, sourceBlobName) == null) {
+        AccessGrant grant = blobStoreLocator.locateBlobStore(requestIdentity,
+                sourceContainerName, sourceBlobName);
+        if (grant == null) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+        }
+        if (!grant.blobStore().equals(destBlobStore)) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "Copying between buckets assigned to different backends" +
+                    " is not supported.");
         }
         // A session may write where it may not read; a copy reads the
         // source as surely as a GET would.
@@ -5559,8 +5573,8 @@ public class S3ProxyHandler {
         // The source names an object in a header rather than the URI, so it
         // has not passed the check in doHandle either.
         checkReservedBlobName(sourceBlobName);
-        authorizeCopySource(request, requestIdentity, sourceContainerName,
-                sourceBlobName, sourceVersionId);
+        authorizeCopySource(request, requestIdentity, blobStore,
+                sourceContainerName, sourceBlobName, sourceVersionId);
         boolean replaceMetadata = "REPLACE".equalsIgnoreCase(request.getHeader(
                 AwsHttpHeaders.METADATA_DIRECTIVE));
 
@@ -7547,8 +7561,8 @@ public class S3ProxyHandler {
         // The source names an object in a header rather than the URI, so it
         // has not passed the check in doHandle either.
         checkReservedBlobName(sourceBlobName);
-        authorizeCopySource(request, requestIdentity, sourceContainerName,
-                sourceBlobName, sourceVersionId);
+        authorizeCopySource(request, requestIdentity, blobStore,
+                sourceContainerName, sourceBlobName, sourceVersionId);
 
         var getRequest = GetObjectRequest.builder()
                 .bucket(sourceContainerName)

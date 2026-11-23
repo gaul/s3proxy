@@ -218,8 +218,9 @@ Some limits apply:
 
 * ListBuckets returns the buckets of the first file given for the client's
   identity, not those of every backend.
-* CopyObject and UploadPartCopy cannot copy between backends: the source
-  bucket is looked for in the destination's backend.
+* CopyObject and UploadPartCopy cannot copy between backends: they answer
+  `NotImplemented` unless the source and the destination bucket resolve to
+  the same properties file.
 * A bucket assigned to one identity's backend is refused to every other
   identity.
 * When two backends hold a bucket of the same name, the
