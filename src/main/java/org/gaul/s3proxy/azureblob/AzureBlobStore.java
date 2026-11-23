@@ -599,7 +599,9 @@ public final class AzureBlobStore implements BlobStore {
                     request.delimiter(), azureOptions, /*timeout=*/ null);
             page = firstPageWithEntries(
                     m -> pages.iterableByPage(m).iterator().next(), marker,
-                    blobs -> afterStartAfter(blobs, startAfter));
+                    blobs -> afterStartAfter(blobs, startAfter).stream()
+                            .filter(blob -> !isMultipartStub(blob))
+                            .toList());
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
@@ -653,9 +655,10 @@ public final class AzureBlobStore implements BlobStore {
                         .setRetrieveMetadata(true));
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
-            return latestPage(client.listBlobsByHierarchy(
+            return latestPage(Iterators.filter(client.listBlobsByHierarchy(
                     request.delimiter(), options, /*timeout=*/ null)
-                    .iterator(), after, maxKeys);
+                    .iterator(), blob -> !isMultipartStub(blob)),
+                    after, maxKeys);
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
@@ -731,7 +734,10 @@ public final class AzureBlobStore implements BlobStore {
      * a stub, or the common prefix a delimiter folds the stubs into.  It
      * is a blob to Azure and no object of the bucket's, and a listing
      * showed it: an upload in progress appeared as a key under
-     * ".s3proxy/", which a client emptying the bucket would delete.
+     * ".s3proxy/", which a client emptying the bucket would delete.  A
+     * client's own keys under ".s3proxy/" share that group and are hidden
+     * with it from a listing by delimiter; they are listed under its
+     * prefix, and in a listing without one.
      */
     private static boolean isMultipartInternal(String name) {
         return name.startsWith(STUB_BLOB_PREFIX) ||
@@ -918,7 +924,9 @@ public final class AzureBlobStore implements BlobStore {
             }
             for (BlobItem blob : client.listBlobs(options,
                     /*timeout=*/ null)) {
-                if (!isMultipartInternal(blob.getName())) {
+                // A blob, not a group, so only a stub is bookkeeping: a
+                // client's key ".s3proxy/" is an object like any other.
+                if (!isMultipartStub(blob)) {
                     throw S3Exceptions.bucketNotEmpty(container);
                 }
             }
@@ -934,6 +942,10 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public boolean blobExists(String container, String key) {
+        if (key.startsWith(STUB_BLOB_PREFIX)) {
+            // As a read answers: see checkNotStub.
+            return false;
+        }
         var client = blobServiceClient.getBlobContainerClient(container)
                 .getBlobClient(key);
         if (!versioning) {
@@ -941,16 +953,14 @@ public final class AzureBlobStore implements BlobStore {
         }
         // As a read answers: a key whose current version is a delete marker
         // holds no object, and one whose current version was deleted by id
-        // holds its newest remaining version, unless that is a marker.  A
-        // multipart stub is only ever its current blob; see deleteStub.
+        // holds its newest remaining version, unless that is a marker.
         try {
             return !isDeleteMarker(client.getProperties().getMetadata());
         } catch (BlobStorageException bse) {
             if (!isAbsent(bse)) {
                 throw translate(bse, container, key);
             }
-            if (BlobErrorCode.CONTAINER_NOT_FOUND.equals(bse.getErrorCode()) ||
-                    key.startsWith(STUB_BLOB_PREFIX)) {
+            if (BlobErrorCode.CONTAINER_NOT_FOUND.equals(bse.getErrorCode())) {
                 return false;
             }
         }
@@ -973,6 +983,7 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
+        checkNotStub(request.bucket(), request.key());
         try {
             return readBlob(request);
         } catch (NoSuchKeyException nske) {
@@ -1239,9 +1250,9 @@ public final class AzureBlobStore implements BlobStore {
                         .setRetrieveVersions(true)
                         .setRetrieveMetadata(true));
         try {
-            return versionsPage(client.listBlobsByHierarchy(
+            return versionsPage(Iterators.filter(client.listBlobsByHierarchy(
                     request.delimiter(), options, /*timeout=*/ null)
-                    .iterator(),
+                    .iterator(), blob -> !isMultipartStub(blob)),
                     request.keyMarker(), request.versionIdMarker(), maxKeys);
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
@@ -1491,6 +1502,7 @@ public final class AzureBlobStore implements BlobStore {
             InputStream payload) {
         String container = request.bucket();
         String key = request.key();
+        checkNotReserved(key);
         refuseUnsupportedSse(request.serverSideEncryptionAsString(),
                 request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
@@ -1674,6 +1686,7 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        checkNotReserved(request.destinationKey());
         refuseUnsupportedSse(request.serverSideEncryptionAsString(),
                 request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
@@ -1937,6 +1950,7 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        checkNotReserved(request.key());
         if (request.ifMatchSize() != null ||
                 request.ifMatchLastModifiedTime() != null) {
             // Azure conditions a delete on the blob's ETag or on a time
@@ -2180,10 +2194,13 @@ public final class AzureBlobStore implements BlobStore {
      * version is a delete marker holds no object, and one naming a marker
      * outright is refused as S3 refuses it; a source whose current version
      * was deleted by id is read from its newest remaining version.  An
-     * unversioned store copies what it is given.
+     * unversioned store copies what it is given.  On either, a source
+     * naming a multipart upload's stub holds no object: see {@link
+     * #checkNotStub}.
      */
     private CopySource copySource(BlobClient source, String container,
             String key, @Nullable String versionId) {
+        checkNotStub(container, key);
         if (!versioning) {
             return new CopySource(source, /*properties=*/ null);
         }
@@ -2450,6 +2467,12 @@ public final class AzureBlobStore implements BlobStore {
                     !object.versionId().equals(NULL_VERSION_ID)) {
                 return BlobStore.super.removeBlobs(request);
             }
+            // The batch names its blobs to Azure itself and would delete a
+            // stub.  removeBlob refuses it with the typed failure that
+            // becomes that object's error, and deletes the others.
+            if (object.key().startsWith(STUB_BLOB_PREFIX)) {
+                return BlobStore.super.removeBlobs(request);
+            }
         }
         var containerClient =
                 blobServiceClient.getBlobContainerClient(request.bucket());
@@ -2518,6 +2541,7 @@ public final class AzureBlobStore implements BlobStore {
     /** As {@link #getBlob}, for the version's properties alone. */
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        checkNotStub(request.bucket(), request.key());
         try {
             return readMetadata(request);
         } catch (NoSuchKeyException nske) {
@@ -2671,6 +2695,9 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
+        // Completing this upload writes an object under the requested key,
+        // which is the same write putBlob refuses.
+        checkNotReserved(request.key());
         refuseUnsupportedSse(request.serverSideEncryptionAsString(),
                 request.ssekmsKeyId(), request.sseCustomerAlgorithm(),
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
@@ -2723,6 +2750,58 @@ public final class AzureBlobStore implements BlobStore {
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);
 
         return new MultipartUpload(uploadKey, request);
+    }
+
+    /**
+     * Whether a listed entry is the stub of a multipart upload, or a common
+     * prefix of nothing else.  The stubs are blobs of the container under
+     * {@link #STUB_BLOB_PREFIX}, which S3 shows through ListMultipartUploads
+     * and never as keys: a client that lists a bucket to mirror or to empty
+     * it would otherwise copy or destroy them, and the listing of a
+     * public-read bucket would hand anyone their names.
+     * OpenStackSwiftBlobStore.list hides its multipart names alike.
+     *
+     * <p>Applied to the rows before a page is cut, so that a page holds as
+     * many keys as it may; {@link #isMultipartInternal} then hides the
+     * group a delimiter folds the stubs into.
+     */
+    private static boolean isMultipartStub(BlobItem blob) {
+        return blob.getName().startsWith(STUB_BLOB_PREFIX);
+    }
+
+    /**
+     * Answer a read of a client key naming a multipart upload's stub as the
+     * read of a key that holds no object.  The stub carries the user
+     * metadata, the headers and the target of an upload that has published
+     * nothing yet.  S3 gives none of that to a reader of the bucket, but the
+     * stub is a blob of the container, which is where Azure grants read:
+     * without this anyone may read it from a public-read bucket, under a
+     * name ListMultipartUploads hands out.  The store reads its stubs
+     * through its own clients, never through the methods that call this.
+     */
+    private static void checkNotStub(String container, String key) {
+        if (key.startsWith(STUB_BLOB_PREFIX)) {
+            throw S3Exceptions.noSuchKey(container, key,
+                    "reserved for multipart uploads");
+        }
+    }
+
+    /**
+     * Refuse a client's write or delete of a key naming a multipart
+     * upload's stub, as the GCS and nio2 stores refuse their bookkeeping's
+     * names.  Completion publishes what the stub says -- the target key,
+     * the headers, the user metadata -- so a client that may write the
+     * bucket, anyone in a public-read-write one, decided what another's
+     * upload published, or ended it by deleting the stub.  Accepted, the
+     * write would also be lost to its writer: reads and listings do not
+     * show these names.  The store writes and removes its stubs through
+     * its own clients, never through the methods that call this.
+     */
+    private static void checkNotReserved(String key) {
+        if (key.startsWith(STUB_BLOB_PREFIX)) {
+            throw S3Exceptions.invalidArgument("The key " + STUB_BLOB_PREFIX +
+                    "... is reserved for multipart uploads.");
+        }
     }
 
     /**
