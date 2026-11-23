@@ -177,6 +177,9 @@ jobs:
       - name: Maven Package
         run: |
           mvn package -DskipTests
+      - name: Run STS tests with the AWS CLI
+        run: |
+          ./src/test/resources/run-sts-cli-tests.sh
       - name: Install s3-tests
         run: |
           python -m pip install --upgrade pip

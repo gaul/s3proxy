@@ -1388,7 +1388,7 @@ public class S3ProxyHandler {
                     return;
                 }
                 if (request.getParameter("ownershipControls") != null) {
-                    setOperation(ctx,
+                    authorize(ctx, session, request, path,
                             S3Operation.DELETE_BUCKET_OWNERSHIP_CONTROLS);
                     var unused = blobStore.deleteBucketOwnershipControls(
                             DeleteBucketOwnershipControlsRequest.builder()
@@ -1399,7 +1399,8 @@ public class S3ProxyHandler {
                     return;
                 }
                 if (request.getParameter("publicAccessBlock") != null) {
-                    setOperation(ctx, S3Operation.DELETE_PUBLIC_ACCESS_BLOCK);
+                    authorize(ctx, session, request, path,
+                            S3Operation.DELETE_PUBLIC_ACCESS_BLOCK);
                     var unused = blobStore.deletePublicAccessBlock(
                             DeletePublicAccessBlockRequest.builder()
                                     .bucket(path[1])
@@ -1467,18 +1468,19 @@ public class S3ProxyHandler {
                             path[1]);
                     return;
                 } else if (request.getParameter("ownershipControls") != null) {
-                    setOperation(ctx,
+                    authorize(ctx, session, request, path,
                             S3Operation.GET_BUCKET_OWNERSHIP_CONTROLS);
                     handleGetBucketOwnershipControls(request, response,
                             blobStore, path[1]);
                     return;
                 } else if (request.getParameter("publicAccessBlock") != null) {
-                    setOperation(ctx, S3Operation.GET_PUBLIC_ACCESS_BLOCK);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_PUBLIC_ACCESS_BLOCK);
                     handleGetPublicAccessBlock(request, response, blobStore,
                             path[1]);
                     return;
                 } else if (request.getParameter("object-lock") != null) {
-                    setOperation(ctx,
+                    authorize(ctx, session, request, path,
                             S3Operation.GET_OBJECT_LOCK_CONFIGURATION);
                     handleGetObjectLockConfiguration(request, response,
                             blobStore, path[1]);
@@ -1525,12 +1527,14 @@ public class S3ProxyHandler {
                             path[1], path[2]);
                     return;
                 } else if (request.getParameter("legal-hold") != null) {
-                    setOperation(ctx, S3Operation.GET_OBJECT_LEGAL_HOLD);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_OBJECT_LEGAL_HOLD);
                     handleGetObjectLegalHold(request, response, blobStore,
                             path[1], path[2]);
                     return;
                 } else if (request.getParameter("retention") != null) {
-                    setOperation(ctx, S3Operation.GET_OBJECT_RETENTION);
+                    authorize(ctx, session, request, path,
+                            S3Operation.GET_OBJECT_RETENTION);
                     handleGetObjectRetention(request, response, blobStore,
                             path[1], path[2]);
                     return;
@@ -1608,20 +1612,21 @@ public class S3ProxyHandler {
                     return;
                 }
                 if (request.getParameter("ownershipControls") != null) {
-                    setOperation(ctx,
+                    authorize(ctx, session, request, path,
                             S3Operation.PUT_BUCKET_OWNERSHIP_CONTROLS);
                     handlePutBucketOwnershipControls(request, response, is,
                             blobStore, path[1]);
                     return;
                 }
                 if (request.getParameter("publicAccessBlock") != null) {
-                    setOperation(ctx, S3Operation.PUT_PUBLIC_ACCESS_BLOCK);
+                    authorize(ctx, session, request, path,
+                            S3Operation.PUT_PUBLIC_ACCESS_BLOCK);
                     handlePutPublicAccessBlock(request, response, is,
                             blobStore, path[1]);
                     return;
                 }
                 if (request.getParameter("object-lock") != null) {
-                    setOperation(ctx,
+                    authorize(ctx, session, request, path,
                             S3Operation.PUT_OBJECT_LOCK_CONFIGURATION);
                     handlePutObjectLockConfiguration(request, response, is,
                             blobStore, path[1]);
@@ -1640,12 +1645,14 @@ public class S3ProxyHandler {
                         path[1]);
                 return;
             } else if (request.getParameter("legal-hold") != null) {
-                setOperation(ctx, S3Operation.PUT_OBJECT_LEGAL_HOLD);
+                authorize(ctx, session, request, path,
+                        S3Operation.PUT_OBJECT_LEGAL_HOLD);
                 handlePutObjectLegalHold(request, response, is, blobStore,
                         path[1], path[2]);
                 return;
             } else if (request.getParameter("retention") != null) {
-                setOperation(ctx, S3Operation.PUT_OBJECT_RETENTION);
+                authorize(ctx, session, request, path,
+                        S3Operation.PUT_OBJECT_RETENTION);
                 handlePutObjectRetention(request, response, is, blobStore,
                         path[1], path[2]);
                 return;
@@ -3754,9 +3761,14 @@ public class S3ProxyHandler {
         if (session != null) {
             for (DeleteMultipleObjectsRequest.S3Object s3Object :
                     dmor.objects()) {
+                String key = Strings.nullToEmpty(s3Object.key());
                 session.authorizeObject(s3Object.versionId() != null ?
                         "s3:DeleteObjectVersion" : "s3:DeleteObject",
-                        containerName, Strings.nullToEmpty(s3Object.key()));
+                        containerName, key);
+                if (Boolean.TRUE.equals(parseBypassGovernance(request))) {
+                    session.authorizeObject("s3:BypassGovernanceRetention",
+                            containerName, key);
+                }
             }
         }
 
