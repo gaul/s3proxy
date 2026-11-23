@@ -170,12 +170,21 @@ public final class PresignedQueryHeaderTest {
         assertThat(read(DST_KEY)).isEqualTo(UPLOAD);
     }
 
-    /** A condition on a DELETE holds from the query string as well. */
+    /**
+     * A condition on a DELETE holds from the query string as well.  The
+     * nio2 stores judge it; elsewhere the store may not take the size form
+     * and the delete is refused NotImplemented, which as much as 412 shows
+     * the parameter was read rather than ignored.
+     */
     @Test
     public void testQueryIfMatchSize() throws Exception {
         HttpResponse<String> response = send("DELETE",
                 presign("DELETE", Map.of("x-amz-if-match-size", "99999")));
-        assertThat(response.statusCode()).isEqualTo(412);
+        if (Quirks.NIO2_BACKENDS.contains(TestUtils.testBlobStoreProvider())) {
+            assertThat(response.statusCode()).isEqualTo(412);
+        } else {
+            assertThat(response.statusCode()).isIn(412, 501);
+        }
         assertThat(read(DST_KEY)).isEqualTo(PLACEHOLDER);
     }
 

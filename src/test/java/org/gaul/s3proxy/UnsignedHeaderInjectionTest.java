@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -264,6 +265,8 @@ public final class UnsignedHeaderInjectionTest {
      */
     @Test
     public void testPresignedCopySourceWhitespaceRejected() throws Exception {
+        // NTFS cannot name a file with a tab in it
+        assumeTrue(!TestUtils.filesystemOnWindows());
         String source = "/" + srcContainer + "/a b";
         URI uri = presign("host;x-amz-copy-source", "host:" + host + "\n" +
                 "x-amz-copy-source:" + source + "\n");
@@ -301,8 +304,12 @@ public final class UnsignedHeaderInjectionTest {
                         "x-amz-meta-key:one two\n"),
                 "x-amz-meta-key", "one  two");
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(blobStore.blobMetadata(dstContainer, DST_KEY)
-                .metadata()).containsEntry("key", "one  two");
+        // sftp keeps no user metadata to read back
+        if (!Quirks.NO_PERSISTED_METADATA.contains(
+                TestUtils.testBlobStoreProvider())) {
+            assertThat(blobStore.blobMetadata(dstContainer, DST_KEY)
+                    .metadata()).containsEntry("key", "one  two");
+        }
     }
 
     /**

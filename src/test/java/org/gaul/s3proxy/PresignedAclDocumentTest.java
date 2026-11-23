@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -83,6 +84,7 @@ public final class PresignedAclDocumentTest {
 
         container = "container-" + new Random().nextInt(Integer.MAX_VALUE);
         blobStore.createContainer(container);
+        TestUtils.allowAcls(blobStore, container);
         TestUtils.putBlob(blobStore, container, KEY,
                 ByteSource.wrap("content".getBytes(StandardCharsets.UTF_8)));
     }
@@ -144,6 +146,7 @@ public final class PresignedAclDocumentTest {
     /** Used as signed, with no body, the same URLs set their canned ACL. */
     @Test
     public void testCannedAclAlone() throws Exception {
+        assumeKeepsObjectAcls();
         blobStore.setBlobAccess(container, KEY, ObjectCannedACL.PUBLIC_READ);
         HttpResponse<String> response = put(
                 presign("/" + container + "/" + KEY, CannedAcl.HEADER),
@@ -163,6 +166,7 @@ public final class PresignedAclDocumentTest {
     /** A URL that states no canned ACL still leaves the ACL to its body. */
     @Test
     public void testAclDocumentAlone() throws Exception {
+        assumeKeepsObjectAcls();
         HttpResponse<String> response = put(
                 presign("/" + container + "/" + KEY, CannedAcl.ABSENT),
                 PUBLIC_READ);
@@ -175,6 +179,18 @@ public final class PresignedAclDocumentTest {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(blobStore.getContainerAccess(container))
                 .isEqualTo(BucketCannedACL.PUBLIC_READ_WRITE);
+    }
+
+    /**
+     * The two tests that apply an ACL need a store that keeps one per
+     * object.  Azure and Swift grant read at the container, and NTFS has no
+     * permission bits for the filesystem store to keep one in; the tests
+     * that refuse a document pass everywhere, since nothing is applied.
+     */
+    private static void assumeKeepsObjectAcls() throws Exception {
+        assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(
+                TestUtils.testBlobStoreProvider()));
+        assumeTrue(!TestUtils.filesystemOnWindows());
     }
 
     /** The owner's full control, and the permissions given to AllUsers. */
