@@ -1552,11 +1552,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 "blob-level access unsupported in Swift");
     }
 
-    // Multipart upload maps to Swift Static Large Objects: each part is stored
-    // as a segment object under MPU_PREFIX in the same container, and
-    // completion writes an SLO manifest at the target key referencing them.  A
-    // metadata marker object holds the target content metadata between initiate
-    // and complete, since S3ProxyHandler reconstructs the upload from only the
+    // Multipart upload maps to Swift Static Large Objects: each upload of a
+    // part is stored as a segment object under MPU_PREFIX in the same
+    // container, and completion writes an SLO manifest at the target key
+    // referencing one segment for each of its parts.  A metadata marker
+    // object holds the target content metadata between initiate and
+    // complete, since S3ProxyHandler reconstructs the upload from only the
     // upload id.  All of this is hidden from list().
     @Override
     public MultipartUpload initiateMultipartUpload(
@@ -1596,16 +1597,22 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             UploadPartRequest request, InputStream is) {
         // The marker is there for as long as the upload is open.  Without
-        // it this would write a segment for an upload never created, where
-        // no completion will find it, or over one a finished object's
-        // manifest names, whose recorded ETag and size it then no longer
-        // has -- and Swift refuses to serve an object in that state.
-        // Nor is an upload begun for another key open to this request.
+        // it this would write a segment for an upload never created or
+        // already finished, where no completion will find it.  Nor is an
+        // upload begun for another key open to this request.
         if (!isOpenUpload(mpu)) {
             throw S3Exceptions.noSuchUpload(mpu.id());
         }
+        // The marker was looked for before the body is read, and the client
+        // decides when the body ends: the upload may be complete by the time
+        // the segment is written.  A finished object is its segments, which
+        // its manifest names with the ETag and size they had, and Swift
+        // refuses to serve it once one of them differs.  So no segment is
+        // ever written over: each upload of a part writes one of its own,
+        // and one that arrives late is a segment no manifest names rather
+        // than other content under a name one does.
         var segment = Blob.builder(
-                mpuSegmentKey(mpu.id(), request.partNumber()))
+                newSegmentKey(mpu.id(), request.partNumber()))
                 .payload(is)
                 .contentLength(request.contentLength())
                 .contentMD5(SdkRequests.contentMD5(request))
@@ -1625,10 +1632,40 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      */
     @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
-        return listSegments(mpu, /*requireMarker=*/ true);
+        // As in S3, a part uploaded again replaces the one before it.  The
+        // segments come by part number and oldest first, so the last of
+        // each number stays.
+        var parts = new LinkedHashMap<Integer, Part>();
+        for (var segment : listSegments(mpu, /*requireMarker=*/ true)) {
+            parts.put(segment.part().partNumber(), segment.part());
+        }
+        return new ArrayList<>(parts.values());
     }
 
-    private List<Part> listSegments(MultipartUpload mpu,
+    /**
+     * A segment of an upload: the name of its object, and the part it holds.
+     */
+    private record Segment(String name, Part part) {
+        /**
+         * By part number, and then oldest first.  That is by the time Swift
+         * gives a segment, which is what decided between two uploads of a
+         * part while they shared a name, and for segments of one time by
+         * name, in which {@code newSegmentKey} puts this proxy's time
+         * first.
+         */
+        static final Comparator<Segment> ORDER =
+                Comparator.<Segment>comparingInt(
+                        segment -> segment.part().partNumber())
+                .thenComparing(segment -> segment.part().lastModified(),
+                        Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(Segment::name);
+    }
+
+    /**
+     * Every segment of an upload, by part number and then oldest first.  A
+     * part uploaded more than once has a segment for each time.
+     */
+    private List<Segment> listSegments(MultipartUpload mpu,
             boolean requireMarker) {
         String prefix = mpuSegmentPrefix(mpu.id());
         String metaKey = mpuMetaKey(mpu.id());
@@ -1638,7 +1675,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         } catch (ResponseException re) {
             throw translate(re, mpu.containerName(), /*key=*/ null);
         }
-        var parts = new ArrayList<Part>();
+        var segments = new ArrayList<Segment>();
         boolean sawMarker = false;
         for (var object : objects) {
             String name = object.getName();
@@ -1648,13 +1685,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
             int partNumber;
             try {
-                partNumber = Integer.parseInt(name.substring(prefix.length()));
+                partNumber = segmentPartNumber(
+                        name.substring(prefix.length()));
             } catch (NumberFormatException nfe) {
                 continue;
             }
-            parts.add(SdkResponses.part(partNumber,
+            segments.add(new Segment(name, SdkResponses.part(partNumber,
                     object.getSizeInBytes(), object.getETag(),
-                    toInstant(object.getLastModified())));
+                    toInstant(object.getLastModified()))));
         }
         if (requireMarker && !sawMarker) {
             return List.of();
@@ -1663,8 +1701,26 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // the parts of an upload begun for another key
             throw S3Exceptions.noSuchUpload(mpu.id());
         }
-        parts.sort(Comparator.comparingInt(Part::partNumber));
-        return parts;
+        segments.sort(Segment.ORDER);
+        return segments;
+    }
+
+    /**
+     * The segment of {@code candidates}, which are those of one part number
+     * and oldest first, that a completion naming the part by {@code eTag}
+     * means.  That is one with that ETag rather than the newest, which may
+     * have arrived since the caller looked, and the oldest such, so that
+     * nothing arriving later changes the choice.  A caller that states no
+     * ETag, or one no segment has, means the newest.
+     */
+    private static Segment chooseSegment(List<Segment> candidates,
+            @Nullable String eTag) {
+        for (var candidate : candidates) {
+            if (eTag != null && eTag.equals(candidate.part().eTag())) {
+                return candidate;
+            }
+        }
+        return candidates.get(candidates.size() - 1);
     }
 
     /**
@@ -1750,19 +1806,22 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // manifest entry's etag and size against its segment, so resolve
         // each referenced part number against the stored segments, and
         // reject parts that were never uploaded (or whose upload was
-        // aborted) like S3's InvalidPart.
-        var segmentsByPartNumber = new HashMap<Integer, Part>();
+        // aborted) like S3's InvalidPart.  A part uploaded more than once
+        // has a segment for each time, and the one the caller means is the
+        // one whose ETag it states.
+        var segmentsByPartNumber = new HashMap<Integer, List<Segment>>();
         for (var segment : listSegments(mpu, /*requireMarker=*/ false)) {
-            segmentsByPartNumber.put(segment.partNumber(), segment);
+            segmentsByPartNumber.computeIfAbsent(
+                    segment.part().partNumber(), k -> new ArrayList<>())
+                    .add(segment);
         }
-        var resolved = new ArrayList<Part>(sorted.size());
+        var resolved = new ArrayList<Segment>(sorted.size());
         for (var part : sorted) {
-            Part segment = segmentsByPartNumber.get(
-                    part.partNumber());
-            if (segment == null) {
+            var candidates = segmentsByPartNumber.get(part.partNumber());
+            if (candidates == null) {
                 throw S3Exceptions.fromStatusCode(400);
             }
-            resolved.add(segment);
+            resolved.add(chooseSegment(candidates, part.eTag()));
         }
 
         // Build the Swift Static Large Object manifest -- a JSON array naming
@@ -1772,13 +1831,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // createStaticLargeObject extension would, but through the stock put()
         // API so the provider builds against an unmodified openstack4j.
         var manifest = new ArrayList<Map<String, Object>>(resolved.size());
-        for (var part : resolved) {
+        for (var segment : resolved) {
             var entry = new LinkedHashMap<String, Object>();
-            entry.put("path",
-                    container + "/" + mpuSegmentKey(uploadId,
-                            part.partNumber()));
-            entry.put("etag", part.eTag());
-            entry.put("size_bytes", part.size());
+            entry.put("path", container + "/" + segment.name());
+            entry.put("etag", segment.part().eTag());
+            entry.put("size_bytes", segment.part().size());
             manifest.add(entry);
         }
         byte[] manifestJson;
@@ -1789,7 +1846,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
         swiftOptions.queryParam("multipart-manifest", "put");
 
-        String mpuETag = multipartETag(resolved);
+        String mpuETag = multipartETag(
+                resolved.stream().map(Segment::part).toList());
         if (mpuETag != null) {
             manifestMetadata.put(MPU_ETAG_METADATA, mpuETag);
         }
@@ -1819,7 +1877,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
 
         // The manifest now references the segments, which must persist; only
-        // the metadata marker is no longer needed.
+        // the metadata marker is no longer needed.  The segments it does
+        // not name -- of a part left out, or uploaded again -- stay too,
+        // until deleteBucket purges them: one of them may be what a
+        // completion racing this one has named.
         removeBlobInternal(container, mpuMetaKey(uploadId));
 
         return SdkResponses.completeResponse(
@@ -1939,9 +2000,26 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return MPU_PREFIX + uploadId + MPU_META_SUFFIX;
     }
 
-    private static String mpuSegmentKey(String uploadId, int partNumber) {
-        return mpuSegmentPrefix(uploadId) +
-                String.format(Locale.ROOT, "%05d", partNumber);
+    /**
+     * A name for a segment of a part that no other segment has, so that
+     * writing it replaces nothing.  The time leads what follows the part
+     * number, for {@code Segment.ORDER} to fall back on.
+     */
+    private static String newSegmentKey(String uploadId, int partNumber) {
+        return mpuSegmentPrefix(uploadId) + String.format(Locale.ROOT,
+                "%05d/%013d-%s", partNumber, System.currentTimeMillis(),
+                UUID.randomUUID());
+    }
+
+    /**
+     * The part number of the segment named {@code name} beneath its
+     * upload's prefix, which is what precedes the slash.  A segment written
+     * before each upload of a part had a name of its own is named by the
+     * part number alone, and an upload begun then may still hold some.
+     */
+    private static int segmentPartNumber(String name) {
+        int slash = name.indexOf('/');
+        return Integer.parseInt(slash == -1 ? name : name.substring(0, slash));
     }
 
     /**
