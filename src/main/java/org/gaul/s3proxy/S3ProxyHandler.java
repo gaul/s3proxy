@@ -42,9 +42,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -87,8 +89,10 @@ import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.eclipse.jetty.http.HttpDateTime;
 import org.eclipse.jetty.http.MultiPartFormData;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.content.InputStreamContentSource;
@@ -415,6 +419,20 @@ public class S3ProxyHandler {
     /** The form S3 writes a retain-until date in: 2030-01-01T00:00:00Z. */
     private static final DateTimeFormatter RETAIN_UNTIL_FORMAT =
             DateTimeFormatter.ISO_INSTANT;
+    /**
+     * The x-amz-* query parameters that are a V4 presigned URL's signature,
+     * as opposed to a header its signer moved into the query string.
+     */
+    private static final Set<String> PRESIGNED_SIGNING_PARAMETERS = Set.of(
+            "x-amz-algorithm",
+            "x-amz-content-sha256",
+            "x-amz-credential",
+            "x-amz-date",
+            "x-amz-expires",
+            "x-amz-security-token",
+            "x-amz-signature",
+            "x-amz-signedheaders"
+    );
     /** The request family checkServerSideEncryption vets, whole. */
     private static final List<String> SERVER_SIDE_ENCRYPTION_HEADERS =
             List.of(
@@ -995,6 +1013,24 @@ public class S3ProxyHandler {
             if (haveDate) {
                 isTimeSkewed(dateSkew, presignedUrl);
             }
+        }
+
+        // A V4 signature covers the whole query string, and a presigner may
+        // put there what would otherwise be an x-amz-* header: the AWS SDK
+        // for JavaScript moves all but a few.  Everything below looks for
+        // them among the headers, so a URL signed to copy an object, its
+        // x-amz-copy-source in the query string, verified and then ran as the
+        // PutObject it is without one, storing whatever body its bearer sent.
+        // Read such parameters as the headers they stand for from here on,
+        // whenever the query string says it is signed this way -- save on a
+        // request a V2 Authorization header authenticates: that signature
+        // covers only the subresources, so it has signed none of them.  The
+        // signature itself is still checked against baseRequest, which keeps
+        // the headers and the query string apart as the signer did.
+        if (request.getParameter("X-Amz-Algorithm") != null &&
+                (authHeader == null || authHeader.getAuthenticationType() ==
+                        AuthenticationType.AWS_V4)) {
+            request = new QueryHeadersRequest(request);
         }
 
         checkSupportedParameters(request);
@@ -1949,6 +1985,91 @@ public class S3ProxyHandler {
         return lower.startsWith("x-amz-") || lower.equals("awsaccesskeyid") ||
                 lower.equals("expires") || lower.equals("signature") ||
                 lower.equals("x-id");
+    }
+
+    /**
+     * A V4 presigned request whose x-amz-* query parameters, other than those
+     * that are its signature, read as request headers too.  The signer meant
+     * each as the header of the same name, placed where signing it does not
+     * oblige the URL's bearer to send it.  A header sent alongside keeps its
+     * place and the parameter follows it, the way a repeated header would.
+     */
+    private static final class QueryHeadersRequest
+            extends HttpServletRequestWrapper {
+        /** Lower-cased header name to the values the query gives it. */
+        private final Map<String, List<String>> queryHeaders =
+                new LinkedHashMap<>();
+
+        QueryHeadersRequest(HttpServletRequest request) {
+            super(request);
+            for (var parameter : request.getParameterMap().entrySet()) {
+                String name = parameter.getKey().toLowerCase(Locale.ROOT);
+                if (!name.startsWith("x-amz-") ||
+                        PRESIGNED_SIGNING_PARAMETERS.contains(name)) {
+                    continue;
+                }
+                queryHeaders.computeIfAbsent(name, key -> new ArrayList<>())
+                        .addAll(Arrays.asList(parameter.getValue()));
+            }
+            // The handlers read one value of a header, so a parameter given
+            // twice, in any case, would leave it to them which of the two
+            // the signer meant.
+            for (var entry : queryHeaders.entrySet()) {
+                if (entry.getValue().size() != 1) {
+                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                            "The " + entry.getKey() + " parameter may be" +
+                            " specified only once.");
+                }
+            }
+        }
+
+        private List<String> queryValues(String name) {
+            return queryHeaders.getOrDefault(name.toLowerCase(Locale.ROOT),
+                    List.of());
+        }
+
+        @Override
+        @Nullable
+        public String getHeader(String name) {
+            String value = super.getHeader(name);
+            if (value != null || queryValues(name).isEmpty()) {
+                return value;
+            }
+            return queryValues(name).get(0);
+        }
+
+        @Override
+        public Enumeration<String> getHeaders(String name) {
+            List<String> values = Collections.list(super.getHeaders(name));
+            values.addAll(queryValues(name));
+            return Collections.enumeration(values);
+        }
+
+        @Override
+        public Enumeration<String> getHeaderNames() {
+            List<String> names = Collections.list(super.getHeaderNames());
+            for (String name : queryHeaders.keySet()) {
+                if (super.getHeader(name) == null) {
+                    names.add(name);
+                }
+            }
+            return Collections.enumeration(names);
+        }
+
+        @Override
+        public long getDateHeader(String name) {
+            if (super.getHeader(name) != null || queryValues(name).isEmpty()) {
+                return super.getDateHeader(name);
+            }
+            // as the servlet container answers for a header
+            String value = queryValues(name).get(0);
+            long date = HttpDateTime.parseToEpoch(value);
+            if (date == -1) {
+                throw new IllegalArgumentException("Cannot convert date: " +
+                        value);
+            }
+            return date;
+        }
     }
 
     private void doHandleAnonymous(HttpServletRequest request,
