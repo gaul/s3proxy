@@ -404,6 +404,14 @@ public final class AwsSignature {
      * signed list names it -- altering it breaks the signature -- and S3
      * accepts such a request.  A presigned URL has no such line unless it
      * signs the header, so there the rule stands.
+     *
+     * <p>Host is named with them when it is not signed.  The URI a V4
+     * request signs is the one it sent, so under s3proxy.virtual-host the
+     * bucket is named by Host alone, and left unsigned it lets the bearer
+     * send a URL signed for one bucket to another.  SigV4 requires host to
+     * be signed for that reason.  This looks at the signed list and not at
+     * whether Host was sent: a request without one is read as path-style,
+     * which moves the bucket as well.
      */
     public static List<String> unsignedRequestHeaders(
             HttpServletRequest request, boolean presignedUrl) {
@@ -415,6 +423,9 @@ public final class AwsSignature {
             }
         }
         var unsigned = new ArrayList<String>();
+        if (!signed.contains("host")) {
+            unsigned.add("host");
+        }
         for (String name : Collections.list(request.getHeaderNames())) {
             String lower = name.toLowerCase();
             if (!lower.startsWith("x-amz-") || signed.contains(lower)) {

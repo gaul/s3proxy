@@ -172,6 +172,24 @@ public final class UnsignedHeaderInjectionTest {
         assertThat(read(dstContainer, DST_KEY)).isEqualTo(UPLOAD);
     }
 
+    /**
+     * Host is to be signed as well.  Here it does not name the bucket, but
+     * under s3proxy.virtual-host it alone does, and SigV4 requires it of
+     * every request: a URL that left it out is refused however it is
+     * addressed.
+     */
+    @Test
+    public void testPresignedWithoutHostRejected() throws Exception {
+        HttpResponse<String> response = put(
+                presign("content-type", "content-type:text/csv\n"),
+                "content-type", "text/csv");
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.body()).contains("AccessDenied");
+        assertThat(response.body()).contains(
+                "<HeadersNotSigned>host</HeadersNotSigned>");
+        assertThat(read(dstContainer, DST_KEY)).isEqualTo(PLACEHOLDER);
+    }
+
     /** The same injection through an Authorization-header PUT, also refused. */
     @Test
     public void testAuthorizationHeaderCopySourceRejected() throws Exception {
@@ -247,7 +265,7 @@ public final class UnsignedHeaderInjectionTest {
     @Test
     public void testPresignedCopySourceWhitespaceRejected() throws Exception {
         String source = "/" + srcContainer + "/a b";
-        URI uri = presign("host;x-amz-copy-source",
+        URI uri = presign("host;x-amz-copy-source", "host:" + host + "\n" +
                 "x-amz-copy-source:" + source + "\n");
         String[] keys = {"a b", "a  b", "a\tb"};
         for (String key : keys) {
@@ -279,7 +297,8 @@ public final class UnsignedHeaderInjectionTest {
     public void testPresignedUserMetadataWhitespaceAccepted()
             throws Exception {
         HttpResponse<String> response = put(
-                presign("host;x-amz-meta-key", "x-amz-meta-key:one two\n"),
+                presign("host;x-amz-meta-key", "host:" + host + "\n" +
+                        "x-amz-meta-key:one two\n"),
                 "x-amz-meta-key", "one  two");
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(blobStore.blobMetadata(dstContainer, DST_KEY)
@@ -359,14 +378,14 @@ public final class UnsignedHeaderInjectionTest {
      * presigner emits and the report exercised.
      */
     private URI presign() throws Exception {
-        return presign("host", "");
+        return presign("host", "host:" + host + "\n");
     }
 
     /**
-     * A presigned PUT to dst/target that also signs x-amz-* headers:
-     * amzHeaderLines are their canonical lines, each ending in a newline.
+     * A presigned PUT to dst/target signing the headers given: headerLines
+     * are their canonical lines, each ending in a newline.
      */
-    private URI presign(String signedHeaders, String amzHeaderLines)
+    private URI presign(String signedHeaders, String headerLines)
             throws Exception {
         String timestamp = ISO8601.format(Instant.now());
         String date = timestamp.substring(0, 8);
@@ -378,8 +397,8 @@ public final class UnsignedHeaderInjectionTest {
                 "&X-Amz-SignedHeaders=" + urlEncode(signedHeaders);
         String path = "/" + dstContainer + "/" + DST_KEY;
         String canonicalRequest = String.join("\n",
-                "PUT", path, query, "host:" + host + "\n" + amzHeaderLines,
-                signedHeaders, "UNSIGNED-PAYLOAD");
+                "PUT", path, query, headerLines, signedHeaders,
+                "UNSIGNED-PAYLOAD");
         String stringToSign = String.join("\n",
                 "AWS4-HMAC-SHA256", timestamp, scope,
                 sha256(canonicalRequest));
