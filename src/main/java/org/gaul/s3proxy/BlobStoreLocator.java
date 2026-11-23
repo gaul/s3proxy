@@ -35,4 +35,18 @@ public interface BlobStoreLocator {
     default boolean scopesBuckets() {
         return true;
     }
+
+    /**
+     * The store that serves an unsigned request for the container, when the
+     * proxy authenticates the others, or null to leave it to the store the
+     * proxy was built with.  A store a container is assigned to has to serve
+     * it whoever asks: its middlewares -- a read-only one, say -- and its
+     * ACLs are how the operator meant the bucket to be reached.  The default
+     * has no opinion, which suits a locator that answers for identities
+     * alone.
+     */
+    default @Nullable AccessGrant locateAnonymousBlobStore(
+            @Nullable String container, @Nullable String blob) {
+        return null;
+    }
 }

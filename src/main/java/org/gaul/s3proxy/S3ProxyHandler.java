@@ -881,8 +881,17 @@ public class S3ProxyHandler {
                 // v2 or /v4
                 request.getParameter("X-Amz-Algorithm") == null && // v4 query
                 request.getParameter("AWSAccessKeyId") == null) {  // v2 query
+            // Which store holds a bucket is the locator's to say, for an
+            // unsigned request as for a signed one: a bucket assigned to a
+            // store is served through that store's middlewares -- a
+            // read-only one, say -- whoever is asking.
+            AccessGrant anonymousGrant =
+                    blobStoreLocator.locateAnonymousBlobStore(
+                            path.length > 1 ? path[1] : null,
+                            path.length > 2 ? path[2] : null);
             doHandleAnonymous(request, response, is, uri, path,
-                    defaultBlobStore, ctx);
+                    anonymousGrant != null ? anonymousGrant.blobStore() :
+                            defaultBlobStore, ctx);
             return;
         }
 

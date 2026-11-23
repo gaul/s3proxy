@@ -102,6 +102,10 @@ public final class Main {
         Set<String> locatorGlobs = new HashSet<>();
         Set<String> parsedIdentities = new HashSet<>();
         Map<String, String> parsedCredentials = new HashMap<>();
+        // With anonymous access, a bucket which no bucket locator matches
+        // belongs to the first file without one, i.e., the file written for
+        // such buckets, and not to a file which names the buckets it serves.
+        BlobStore anonymousBlobStore = null;
         for (var path : options.properties) {
             var properties = new Properties();
             try (var is = Files.newInputStream(path)) {
@@ -158,8 +162,10 @@ public final class Main {
                             new AccessGrant(localCredential, blobStore));
                 }
             }
+            boolean hasBucketLocator = false;
             for (String key : properties.stringPropertyNames()) {
                 if (key.startsWith(S3ProxyConstants.PROPERTY_BUCKET_LOCATOR)) {
+                    hasBucketLocator = true;
                     // GlobBlobStoreLocator matches the lower-case spelling
                     // of a bucket, so that every spelling of it has the
                     // same owner.
@@ -179,6 +185,10 @@ public final class Main {
                         System.exit(1);
                     }
                 }
+            }
+            if (localIdentity == null && !hasBucketLocator &&
+                    anonymousBlobStore == null) {
+                anonymousBlobStore = blobStore;
             }
 
             S3Proxy.Builder s3ProxyBuilder2;
@@ -217,7 +227,8 @@ public final class Main {
         var globLocator = globLocators.build();
         if (!locator.isEmpty() || !globLocator.isEmpty()) {
             s3Proxy.setBlobStoreLocator(
-                    new GlobBlobStoreLocator(locator, globLocator));
+                    new GlobBlobStoreLocator(locator, globLocator,
+                            anonymousBlobStore));
         }
 
         try {

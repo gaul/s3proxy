@@ -98,6 +98,21 @@ public final class GlobBlobStoreLocatorTest {
     }
 
     @Test
+    public void testLocateNullIdentity() {
+        // Map.of refuses a null key rather than answering that it has none
+        var locator = new GlobBlobStoreLocator(
+                Map.of("id1", new AccessGrant("one", blobStoreOne)),
+                Map.of(FileSystems.getDefault().getPathMatcher(
+                        "glob:container2"),
+                        new GlobTarget(Optional.of("id1"), blobStoreTwo)));
+
+        assertThat(locator.locateBlobStore(null, "container2", null)
+                .blobStore()).isSameAs(blobStoreTwo);
+        assertThat(locator.locateBlobStore(null, "foo", null)
+                .blobStore()).isSameAs(blobStoreOne);
+    }
+
+    @Test
     public void testLocateGlob() {
         var credsMap = ImmutableSortedMap.of(
                 "id0", new AccessGrant("zero", blobStoreOne),
@@ -191,5 +206,45 @@ public final class GlobBlobStoreLocatorTest {
                 .blobStore()).isSameAs(blobStoreTwo);
         // A presented identity must not match an anonymous glob entry
         assertThat(locator.locateBlobStore("foo", "one", null)).isNull();
+    }
+
+    @Test
+    public void testGlobLocatorAnonymousUnassigned() {
+        // Without an identity, a bucket which no glob matches belongs to the
+        // blob store given for such buckets, not to the first glob's
+        var globMap = ImmutableMap.of(
+                FileSystems.getDefault().getPathMatcher("glob:one"),
+                new GlobTarget(Optional.empty(), blobStoreOne));
+        var locator = new GlobBlobStoreLocator(
+                ImmutableMap.of(), globMap, blobStoreTwo);
+
+        assertThat(locator.locateBlobStore(null, "one", null)
+                .blobStore()).isSameAs(blobStoreOne);
+        assertThat(locator.locateBlobStore(null, "two", null)
+                .blobStore()).isSameAs(blobStoreTwo);
+        assertThat(locator.locateBlobStore(null, null, null)
+                .blobStore()).isSameAs(blobStoreTwo);
+        assertThat(locator.locateBlobStore("foo", "two", null)).isNull();
+    }
+
+    @Test
+    public void testGlobLocatorAnonymousUnassignedWithIdentity() {
+        // Without an identity, a bucket which no glob matches belongs to the
+        // blob store given for such buckets, not to the first identity's
+        var credsMap = ImmutableMap.of(
+                "id1", new AccessGrant("one", blobStoreOne));
+        var globMap = ImmutableMap.of(
+                FileSystems.getDefault().getPathMatcher("glob:one"),
+                new GlobTarget(Optional.of("id1"), blobStoreOne));
+        var locator = new GlobBlobStoreLocator(
+                credsMap, globMap, blobStoreTwo);
+
+        AccessGrant grant = locator.locateBlobStore(null, "two", null);
+        assertThat(grant.blobStore()).isSameAs(blobStoreTwo);
+        assertThat(grant.credential()).isEmpty();
+        assertThat(locator.locateBlobStore(null, "one", null)
+                .blobStore()).isSameAs(blobStoreOne);
+        assertThat(locator.locateBlobStore("id1", "two", null)
+                .blobStore()).isSameAs(blobStoreOne);
     }
 }

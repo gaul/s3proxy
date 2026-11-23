@@ -42,6 +42,7 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
 
     private final Map<String, AccessGrant> locator;
     private final Map<PathMatcher, GlobTarget> globLocator;
+    private final @Nullable BlobStore anonymousBlobStore;
 
     /**
      * Locates by identity, and by bucket where a glob names it.
@@ -54,29 +55,37 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
      */
     public GlobBlobStoreLocator(Map<String, AccessGrant> locator,
             Map<PathMatcher, GlobTarget> globLocator) {
+        this(locator, globLocator, /*anonymousBlobStore=*/ null);
+    }
+
+    /**
+     * As above, with a blob store for the buckets which no glob matches when
+     * a request has no identity: that of a configuration with anonymous
+     * access and no bucket locator, which is the one written for them.
+     * Without one, such a bucket goes to the first identity's store, or the
+     * first glob's where there is no identity either.
+     */
+    public GlobBlobStoreLocator(Map<String, AccessGrant> locator,
+            Map<PathMatcher, GlobTarget> globLocator,
+            @Nullable BlobStore anonymousBlobStore) {
         this.locator = locator;
         this.globLocator = globLocator;
+        this.anonymousBlobStore = anonymousBlobStore;
     }
 
     @Override
     public @Nullable AccessGrant locateBlobStore(@Nullable String identity,
             @Nullable String container, @Nullable String blob) {
-        AccessGrant grant = locator.get(identity);
-        GlobTarget globTarget = null;
-        if (container != null) {
-            // Match the lower-case spelling first.  A glob is
-            // case-sensitive but a store need not be: a filesystem store on
-            // a case-insensitive volume opens alice-1 for ALICE-1, which
-            // would otherwise match no glob and be served from the caller's
-            // own store instead of being refused.
-            globTarget = matchGlob(container.toLowerCase(Locale.ROOT),
-                    identity);
-            if (globTarget == null) {
-                globTarget = matchGlob(container, identity);
-            }
-        }
+        // Not every Map answers a null key: Map.of throws.
+        AccessGrant grant = identity == null ? null : locator.get(identity);
+        GlobTarget globTarget = locateGlob(container, identity);
         if (globTarget == null) {
             if (identity == null) {
+                // The store configured for the buckets which no glob names
+                // comes before any store which was configured for others.
+                if (anonymousBlobStore != null) {
+                    return AccessGrant.anonymous(anonymousBlobStore);
+                }
                 if (!locator.isEmpty()) {
                     return locator.values().iterator().next();
                 }
@@ -95,6 +104,49 @@ public final class GlobBlobStoreLocator implements BlobStoreLocator {
             return null;
         }
         return new AccessGrant(grant.credential(), globTarget.blobStore());
+    }
+
+    /**
+     * An unsigned request goes where a glob assigns its bucket, as a signed
+     * one does.  A bucket no glob names goes to the store configured for
+     * such buckets, or to the identity's where there is but one, since that
+     * is where its owner reaches it.  With several identities and no store
+     * for unassigned buckets, nothing says whose the bucket is, and the
+     * proxy's own store serves it, as before.
+     */
+    @Override
+    public @Nullable AccessGrant locateAnonymousBlobStore(
+            @Nullable String container, @Nullable String blob) {
+        GlobTarget globTarget = locateGlob(container, /*identity=*/ null);
+        if (globTarget != null) {
+            return AccessGrant.anonymous(globTarget.blobStore());
+        }
+        if (anonymousBlobStore != null) {
+            return AccessGrant.anonymous(anonymousBlobStore);
+        }
+        if (locator.size() == 1) {
+            return AccessGrant.anonymous(
+                    locator.values().iterator().next().blobStore());
+        }
+        return null;
+    }
+
+    private @Nullable GlobTarget locateGlob(@Nullable String container,
+            @Nullable String identity) {
+        if (container == null) {
+            return null;
+        }
+        // Match the lower-case spelling first.  A glob is case-sensitive but
+        // a store need not be: a filesystem store on a case-insensitive
+        // volume opens alice-1 for ALICE-1, which would otherwise match no
+        // glob and be served from the caller's own store instead of being
+        // refused.
+        GlobTarget globTarget = matchGlob(container.toLowerCase(Locale.ROOT),
+                identity);
+        if (globTarget == null) {
+            globTarget = matchGlob(container, identity);
+        }
+        return globTarget;
     }
 
     /** Without a glob the container is never consulted. */
