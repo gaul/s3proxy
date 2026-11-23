@@ -1887,9 +1887,19 @@ public class S3ProxyHandler {
         }
     }
 
-    private static boolean checkPublicAccess(BlobStore blobStore,
-            String containerName, String blobName) {
+    /**
+     * Whether anyone may read the object an unsigned GET or HEAD names.
+     * Access is kept per version, so the version asked after is the one the
+     * read that follows serves: the one handleGetBlob and handleBlobMetadata
+     * take from the versionId parameter, on the same condition.  Asking
+     * after the current version instead answered a private version to
+     * anyone who named it, once a later version of the key was public-read.
+     */
+    private static boolean checkPublicAccess(HttpServletRequest request,
+            BlobStore blobStore, String containerName, String blobName) {
         String blobStoreType = getBlobStoreType(blobStore);
+        String versionId = blobStore.supportsVersioning() ?
+                request.getParameter("versionId") : null;
         try {
             if (Quirks.NO_BLOB_ACCESS_CONTROL.contains(blobStoreType)) {
                 BucketCannedACL access = blobStore.getContainerAccess(
@@ -1897,8 +1907,10 @@ public class S3ProxyHandler {
                 return access == BucketCannedACL.PUBLIC_READ ||
                         access == BucketCannedACL.PUBLIC_READ_WRITE;
             }
-            ObjectCannedACL access = blobStore.getBlobAccess(containerName,
-                    blobName);
+            ObjectCannedACL access = versionId == null ?
+                    blobStore.getBlobAccess(containerName, blobName) :
+                    blobStore.getBlobAccess(containerName, blobName,
+                            versionId);
             return access == ObjectCannedACL.PUBLIC_READ;
         } catch (NoSuchBucketException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
@@ -1909,18 +1921,38 @@ public class S3ProxyHandler {
             // not.  An anonymous caller may list a bucket whose ACL grants
             // AllUsers READ; any other bucket answered 404 here, letting
             // anyone probe a private bucket for which keys it holds.
-            BucketCannedACL bucketAccess;
-            try {
-                bucketAccess = blobStore.getContainerAccess(containerName);
-            } catch (NoSuchBucketException nsbe) {
-                throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, nsbe);
-            }
-            if (bucketAccess == BucketCannedACL.PUBLIC_READ ||
-                    bucketAccess == BucketCannedACL.PUBLIC_READ_WRITE) {
+            if (checkPublicListAccess(blobStore, containerName)) {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_KEY, e);
             }
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, e);
+        } catch (S3Exception | UnsupportedOperationException e) {
+            // Likewise for a version that cannot be read: one the key does
+            // not have (404), one that is a delete marker (405), or any at
+            // all in a bucket that keeps none (unsupported).  The read would
+            // say which, and does to a caller who may list the versions.
+            boolean noSuchVersion = !(e instanceof S3Exception se) ||
+                    se.statusCode() == HttpServletResponse.SC_NOT_FOUND ||
+                    se.statusCode() ==
+                            HttpServletResponse.SC_METHOD_NOT_ALLOWED;
+            if (versionId == null || !noSuchVersion ||
+                    checkPublicListAccess(blobStore, containerName)) {
+                throw e;
+            }
+            throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, e);
         }
+    }
+
+    /** Whether the bucket's ACL grants AllUsers READ, which is to list it. */
+    private static boolean checkPublicListAccess(BlobStore blobStore,
+            String containerName) {
+        BucketCannedACL access;
+        try {
+            access = blobStore.getContainerAccess(containerName);
+        } catch (NoSuchBucketException e) {
+            throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
+        }
+        return access == BucketCannedACL.PUBLIC_READ ||
+                access == BucketCannedACL.PUBLIC_READ_WRITE;
     }
 
     /**
@@ -2189,7 +2221,8 @@ public class S3ProxyHandler {
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
-                if (!checkPublicAccess(blobStore, containerName, blobName)) {
+                if (!checkPublicAccess(request, blobStore, containerName,
+                        blobName)) {
                     setOperation(ctx, S3Operation.GET_OBJECT);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
@@ -2236,7 +2269,8 @@ public class S3ProxyHandler {
             } else {
                 String containerName = path[1];
                 String blobName = path[2];
-                if (!checkPublicAccess(blobStore, containerName, blobName)) {
+                if (!checkPublicAccess(request, blobStore, containerName,
+                        blobName)) {
                     setOperation(ctx, S3Operation.HEAD_OBJECT);
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
@@ -5196,6 +5230,8 @@ public class S3ProxyHandler {
                     HeadObjectRequest.builder()
                             .bucket(containerName)
                             .key(blobName)
+                            .versionId(blobStore.supportsVersioning() ?
+                                    request.getParameter("versionId") : null)
                             .sseCustomerAlgorithm(request.getHeader(
                                     AwsHttpHeaders
                                     .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
