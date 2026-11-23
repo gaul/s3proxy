@@ -476,15 +476,8 @@ public final class AwsSdkTest {
     @Test
     public void testPutObjectWithInvalidChecksumHeader() throws Exception {
         // A precomputed-checksum mismatch is detected mid-stream while the
-        // body is forwarded to the backend, so it surfaces as a clean
-        // BadDigest only on backends whose putBlob reads the payload once and
-        // propagates the error.  Skip the one that cannot:
-        // google-cloud-storage's Storage.createFrom() finalizes the
-        // resumable upload on close, leaving a 0-byte object that is
-        // indistinguishable on the wire from a legitimate empty-object PUT,
-        // so the rejected key still exists afterwards.
-        assumeTrue(!blobStoreType.equals("google-cloud-storage"));
-
+        // body is forwarded to the backend, so every store must keep nothing
+        // of a body whose read fails.
         var key = "testPutObjectInvalidChecksumHeader";
         var content = TestUtils.randomByteSource().slice(0, 1024).read();
         var crc32 = new CRC32();

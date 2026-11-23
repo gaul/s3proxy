@@ -21,6 +21,7 @@ import static java.util.Objects.requireNonNull;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.net.URI;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +52,7 @@ import com.google.cloud.storage.Acl;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSessionConfigs;
 import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.CopyWriter;
@@ -75,6 +77,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.Futures;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -220,6 +223,10 @@ public final class GCloudBlobStore implements BlobStore {
         // first request, which retries the whole operation instead.  Mirrors
         // the no-retry AwsS3SdkBlobStore and AzureBlobStore clients.
         storageBuilder.setRetrySettings(ServiceOptions.getNoRetrySettings());
+        // A write session takes its chunk from the client and cannot size
+        // it to the object being written; see upload.
+        storageBuilder.setBlobWriteSessionConfig(BlobWriteSessionConfigs
+                .getDefault().withChunkSize(MAX_UPLOAD_CHUNK_SIZE));
         if (!cred.identity().isEmpty()) {
             storageBuilder.setProjectId(cred.identity());
         }
@@ -1144,6 +1151,42 @@ public final class GCloudBlobStore implements BlobStore {
                 units * UPLOAD_CHUNK_UNIT);
     }
 
+    /**
+     * Writes a payload as an object, which comes to exist only once the
+     * payload has been read to its end.  Closing the channel is what commits
+     * a resumable upload, and Storage.createFrom closes its own whether or
+     * not the payload could be read: a body the frontend refused while
+     * streaming it -- for its digest, a chunk signature, or a client that
+     * went away -- replaced the object with as much as had been read.  A
+     * payload therefore streams through a write session, whose channel
+     * commits nothing when left unclosed; GCS expires the session.  The
+     * session's chunk is the client's whatever the object weighs, though,
+     * so a small payload is instead read to its end first and only then
+     * handed to createFrom, with the chunk sized to it.  Small means that
+     * the copy made here and the two createFrom makes fit in one full chunk.
+     */
+    private BlobInfo upload(BlobInfo blobInfo, InputStream payload,
+            @Nullable Long contentLength, BlobWriteOption... options)
+            throws IOException {
+        int chunkSize = uploadChunkSize(contentLength);
+        if (chunkSize <= MAX_UPLOAD_CHUNK_SIZE / 3) {
+            // The chunk exceeds the length declared, so only a payload that
+            // goes on past that length fills it.
+            byte[] head = payload.readNBytes(chunkSize);
+            if (head.length < chunkSize) {
+                return storage.createFrom(blobInfo,
+                        new ByteArrayInputStream(head), chunkSize, options);
+            }
+            payload = new SequenceInputStream(
+                    new ByteArrayInputStream(head), payload);
+        }
+        var session = storage.blobWriteSession(blobInfo, options);
+        var channel = session.open();
+        payload.transferTo(Channels.newOutputStream(channel));
+        channel.close();
+        return Futures.getUnchecked(session.getResult());
+    }
+
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
@@ -1230,8 +1273,8 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         try (var is = payload) {
-            Blob gcsBlob = storage.createFrom(blobInfo.build(), is,
-                    uploadChunkSize(request.contentLength()),
+            BlobInfo gcsBlob = upload(blobInfo.build(), is,
+                    request.contentLength(),
                     writeOptions.toArray(new BlobWriteOption[0]));
             return SdkResponses.putResponse(reportETag(gcsBlob),
                     isVersioned(container) ?
@@ -2133,11 +2176,9 @@ public final class GCloudBlobStore implements BlobStore {
             if (contentMD5 != null) {
                 partInfo.setMd5(Base64.getEncoder().encodeToString(
                         contentMD5.asBytes()));
-                storage.createFrom(partInfo.build(), dis,
-                        uploadChunkSize(contentLength), MD5_MATCH);
+                upload(partInfo.build(), dis, contentLength, MD5_MATCH);
             } else {
-                storage.createFrom(partInfo.build(), dis,
-                        uploadChunkSize(contentLength));
+                upload(partInfo.build(), dis, contentLength);
             }
 
             md5Hash = digest.digest();
