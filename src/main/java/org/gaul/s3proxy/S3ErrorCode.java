@@ -119,6 +119,8 @@ public enum S3ErrorCode {
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    UNEXPECTED_CONTENT(HttpServletResponse.SC_BAD_REQUEST,
+            "This request does not support content"),
     VALIDATION_ERROR(HttpServletResponse.SC_BAD_REQUEST,
             "The request did not satisfy a parameter constraint."),
     X_AMZ_CONTENT_S_H_A_256_MISMATCH(HttpServletResponse.SC_BAD_REQUEST,

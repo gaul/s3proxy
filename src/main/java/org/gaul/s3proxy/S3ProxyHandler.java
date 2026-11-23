@@ -2352,6 +2352,14 @@ public class S3ProxyHandler {
         var pis = new PushbackInputStream(is);
         int ch = pis.read();
         if (ch != -1) {
+            // A request states its ACL one way or the other, and S3
+            // refuses both.  The signature covers x-amz-acl, but neither a
+            // presigned URL nor V2 covers the body, so a document that won
+            // let the bearer of a URL signed for private publish the object
+            // or open the bucket to writes.
+            if (cannedAcl != null) {
+                throw new S3ProxyException(S3ErrorCode.UNEXPECTED_CONTENT);
+            }
             pis.unread(ch);
             AccessControlPolicy policy = readXmlBody(
                     pis, AccessControlPolicy.class);
@@ -2502,6 +2510,14 @@ public class S3ProxyHandler {
         var pis = new PushbackInputStream(is);
         int ch = pis.read();
         if (ch != -1) {
+            // A request states its ACL one way or the other, and S3
+            // refuses both.  The signature covers x-amz-acl, but neither a
+            // presigned URL nor V2 covers the body, so a document that won
+            // let the bearer of a URL signed for private publish the object
+            // or open the bucket to writes.
+            if (cannedAcl != null) {
+                throw new S3ProxyException(S3ErrorCode.UNEXPECTED_CONTENT);
+            }
             pis.unread(ch);
             AccessControlPolicy policy = readXmlBody(
                     pis, AccessControlPolicy.class);
