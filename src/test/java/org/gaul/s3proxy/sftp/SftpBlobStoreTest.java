@@ -25,10 +25,12 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.CopyOption;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.base.Suppliers;
 import com.google.common.io.ByteSource;
@@ -60,6 +62,7 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 public final class SftpBlobStoreTest {
@@ -310,6 +313,68 @@ public final class SftpBlobStoreTest {
             putBlob(blobStore, bucket, key, "old");
             putBlob(blobStore, bucket, key, "new");
             assertThat(getBlob(blobStore, bucket, key)).isEqualTo("new");
+        }
+    }
+
+    /**
+     * The server describes every entry in its answer to a directory read,
+     * and a listing goes by that: asking about each one again cost a round
+     * trip per object below the prefix, whatever max-keys said.
+     */
+    @Test
+    public void testListingDoesNotAskAboutEachEntry() throws Exception {
+        var stats = new AtomicInteger();
+        var sftp = new SftpSubsystemFactory.Builder().build();
+        sftp.addSftpEventListener(new SftpEventListener() {
+            @Override
+            public void received(ServerSession session, int type, int id) {
+                if (type == SftpConstants.SSH_FXP_STAT ||
+                        type == SftpConstants.SSH_FXP_LSTAT) {
+                    stats.incrementAndGet();
+                }
+            }
+        });
+        var hostKeyProvider = startSftpServer(SshServer.setUpDefaultServer(),
+                sftp);
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            int objects = 50;
+            blobStore.createContainer(bucket);
+            for (int i = 0; i < objects; ++i) {
+                putBlob(blobStore, bucket, "object-" + i, "value");
+            }
+            putBlob(blobStore, bucket, "dir/object", "value");
+
+            stats.set(0);
+            var page = blobStore.list(ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .maxKeys(1)
+                    .build());
+            assertThat(page.contents()).extracting(S3Object::key)
+                    .containsExactly("dir/object");
+            assertThat(stats.get()).isLessThan(objects);
+
+            // and describes each entry as the server does when asked,
+            // which for a symbolic link is what the link leads to
+            putBlob(blobStore, bucket, "object-0", "longer value");
+            var bucketPath = sftpRoot.resolve(BASEDIR.substring(1))
+                    .resolve(bucket);
+            Files.createSymbolicLink(bucketPath.resolve("link"),
+                    bucketPath.resolve("object-0"));
+            var all = blobStore.list(ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .build());
+            assertThat(all.contents()).hasSize(objects + 2);
+            for (var object : all.contents()) {
+                var head = blobStore.blobMetadata(bucket, object.key());
+                assertThat(object.size()).isEqualTo(head.contentLength());
+                assertThat(object.lastModified()).isEqualTo(
+                        head.lastModified());
+                // the same but for the quotes a HEAD puts around it
+                assertThat(head.eTag()).contains(object.eTag());
+            }
         }
     }
 

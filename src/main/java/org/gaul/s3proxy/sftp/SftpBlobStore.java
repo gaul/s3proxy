@@ -25,10 +25,14 @@ import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFileAttributes;
 import java.security.PublicKey;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,6 +45,8 @@ import org.apache.sshd.sftp.client.SftpClient;
 import org.apache.sshd.sftp.client.extensions.openssh.OpenSSHPosixRenameExtension;
 import org.apache.sshd.sftp.client.fs.SftpFileSystemProvider;
 import org.apache.sshd.sftp.client.fs.SftpPath;
+import org.apache.sshd.sftp.client.fs.SftpPosixFileAttributes;
+import org.apache.sshd.sftp.client.fs.WithFileAttributeCache;
 import org.apache.sshd.sftp.common.SftpConstants;
 import org.apache.sshd.sftp.common.SftpException;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -228,6 +234,14 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
      * delete of the target followed by a plain rename, so an object being
      * overwritten does not exist in between and is lost with the new one
      * when that rename fails.
+     *
+     * <p>It also answers for a path out of a directory listing with the
+     * attributes the listing came with.  AbstractNio2BlobStore reads the
+     * attributes of every entry of a directory it lists, which a local
+     * filesystem answers at once.  The stock provider sends an SSH_FXP_STAT
+     * for each and waits for the answer, although SSH_FXP_NAME has described
+     * the entry already: so a listing took a round trip to the server for
+     * every object below the prefix, however short the page asked for.
      */
     private static final class ReplacingMoveProvider
             extends SftpFileSystemProvider {
@@ -310,6 +324,34 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
                     return false;
                 }
             }
+        }
+
+        /**
+         * What the listing said answers once, so that a path which is kept
+         * is asked about again.  The server is still asked about a symbolic
+         * link, which the listing describes rather than what it leads to,
+         * and about an entry whose description leaves out its kind, size or
+         * time.
+         */
+        @Override
+        public <A extends BasicFileAttributes> A readAttributes(Path path,
+                Class<A> type, LinkOption... options) throws IOException {
+            if (path instanceof WithFileAttributeCache listed) {
+                var attributes = listed.getAttributes();
+                if (attributes != null) {
+                    listed.setAttributes(null);
+                    if (type.isAssignableFrom(PosixFileAttributes.class) &&
+                            (attributes.isDirectory() ||
+                            attributes.isRegularFile()) &&
+                            attributes.getFlags().containsAll(EnumSet.of(
+                                    SftpClient.Attribute.Size,
+                                    SftpClient.Attribute.ModifyTime))) {
+                        return type.cast(new SftpPosixFileAttributes(path,
+                                attributes));
+                    }
+                }
+            }
+            return super.readAttributes(path, type, options);
         }
     }
 
