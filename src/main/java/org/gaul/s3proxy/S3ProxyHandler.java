@@ -803,11 +803,29 @@ public class S3ProxyHandler {
      * -- could otherwise write.  A store over a filesystem that ignores case
      * finds the stub under {@code .S3PROXY-MPU-STUB-} as well, so the key is
      * folded first.
+     *
+     * <p>Refuse as well a key longer than S3 allows.  Only the request line
+     * bounds the key of a URI, and nothing short of the body's own limit
+     * bounds one arriving in a body -- the key field of a form POST, a key
+     * of a multi-object delete.  A store must not be left to find out what
+     * megabytes of key cost it: the nio2 stores make a directory for every
+     * slash, and the in-memory filesystem of the transient one, which has no
+     * path limit of its own, takes time quadratic in their number to do so.
      */
     private static void checkReservedBlobName(@Nullable String blobName) {
-        if (blobName != null && (ReservedNames.fold(blobName).startsWith(
-                MULTIPART_STUB_PREFIX) || blobName.toLowerCase(Locale.ROOT)
-                        .contains("/" + MULTIPART_STUB_PREFIX))) {
+        if (blobName == null) {
+            return;
+        }
+        // Every char encodes to at least one byte, so a key of more chars
+        // than this is refused without encoding all of it.
+        if (blobName.length() > MAX_BLOB_NAME_LENGTH ||
+                blobName.getBytes(StandardCharsets.UTF_8).length >
+                        MAX_BLOB_NAME_LENGTH) {
+            throw new S3ProxyException(S3ErrorCode.KEY_TOO_LONG_ERROR);
+        }
+        if (ReservedNames.fold(blobName).startsWith(MULTIPART_STUB_PREFIX) ||
+                blobName.toLowerCase(Locale.ROOT)
+                        .contains("/" + MULTIPART_STUB_PREFIX)) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The key " + MULTIPART_STUB_PREFIX +
                     "... is reserved by S3Proxy.");

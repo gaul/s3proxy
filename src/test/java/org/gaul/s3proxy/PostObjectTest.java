@@ -136,6 +136,41 @@ public final class PostObjectTest {
         assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
     }
 
+    /**
+     * A key is no longer than S3 allows, 1024 bytes of UTF-8.  The key of a
+     * form is a field of its body, so that nothing short of the body's own
+     * limit bounded it, and the store makes a directory for every slash.
+     */
+    @Test
+    public void testOverlongKeyIsRefused() throws Exception {
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        String longest = "d/".repeat(511) + "ab";
+        assertThat(postUnsigned("key", longest).statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobExists(containerName, longest)).isTrue();
+
+        HttpResponse<String> response = postUnsigned("key", longest + "c");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("KeyTooLongError");
+        assertThat(blobStore.blobExists(containerName, longest + "c"))
+                .isFalse();
+
+        // counted in bytes, not characters
+        assertThat(postUnsigned("key", "\u00e9".repeat(512)).statusCode())
+                .isEqualTo(204);
+        response = postUnsigned("key", "\u00e9".repeat(513));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("KeyTooLongError");
+
+        // and the same limit holds for a key named by the URI
+        response = httpClient.send(HttpRequest.newBuilder(
+                URI.create(bucketUri + "/" + "a".repeat(1025)))
+                .PUT(HttpRequest.BodyPublishers.ofString("bar")).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("KeyTooLongError");
+    }
+
     /** The browser has nowhere to show a body, so the form picks a status. */
     @Test
     public void testSuccessActionStatus201() throws Exception {

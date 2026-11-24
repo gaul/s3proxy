@@ -2901,6 +2901,23 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testDeleteMultipleObjectsKeyTooLong() throws Exception {
+        // These keys arrive in the body, where only the body's own limit
+        // bounds them, so each is held to the 1024 bytes S3 allows a key.
+        String blobName = "a/".repeat(512) + "b";
+        try {
+            client.deleteObjects(b -> b.bucket(containerName)
+                    .delete(d -> d.objects(
+                            ObjectIdentifier.builder().key(blobName).build())));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("KeyTooLongError");
+        }
+    }
+
+    @Test
     public void testPartNumberMarker() throws Exception {
         String blobName = "test-part-number-marker";
         CreateMultipartUploadResponse result = client.createMultipartUpload(
