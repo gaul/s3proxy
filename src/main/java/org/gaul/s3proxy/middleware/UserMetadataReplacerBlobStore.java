@@ -19,6 +19,7 @@ package org.gaul.s3proxy.middleware;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.io.InputStream;
+import java.util.Map;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -26,6 +27,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.checksum.FlexChecksum;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -65,48 +67,37 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
             InputStream payload) {
-        var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : request.metadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
-                    replaceChars(entry.getValue(), fromChars, toChars));
-        }
         return super.putBlob(request.toBuilder()
-                .metadata(metadata.buildKeepingLast())
+                .metadata(replaceMetadata(request.metadata(), fromChars,
+                        toChars))
                 .build(), payload);
     }
 
     @Override
     public boolean recordChecksumMetadata(String container, String name,
             String eTag, String metadataKey, String value) {
+        // reserved, so stored as the handler names it; see replaceMetadata
         return super.recordChecksumMetadata(container, name, eTag,
-                replaceChars(metadataKey, fromChars, toChars),
-                replaceChars(value, fromChars, toChars));
+                metadataKey, value);
     }
 
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
         var blobMetadata = super.blobMetadata(request);
-        var metadata = ImmutableMap.<String, String>builder();
-        // TODO: duplication
-        for (var entry : blobMetadata.metadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
-                    replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
-        }
-        return blobMetadata.toBuilder().metadata(metadata.buildKeepingLast()).build();
+        return blobMetadata.toBuilder()
+                .metadata(replaceMetadata(blobMetadata.metadata(),
+                        /*fromChars=*/ toChars, /*toChars=*/ fromChars))
+                .build();
     }
 
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
         var blob = super.getBlob(request);
-        var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : blob.response().metadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ toChars, /*toChars=*/ fromChars),
-                    replaceChars(entry.getValue(), /*fromChars=*/ toChars, /*toChars=*/ fromChars));
-        }
         return SdkResponses.getResponse(
                 blob.response().toBuilder()
-                        .metadata(metadata.buildKeepingLast())
+                        .metadata(replaceMetadata(blob.response().metadata(),
+                                /*fromChars=*/ toChars, /*toChars=*/ fromChars))
                         .build(),
                 blob);
     }
@@ -119,13 +110,9 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
             // mapped form and getBlob reverses it.  A copy without replacement
             // metadata carries the source's already-munged metadata forward
             // untouched.
-            var metadata = ImmutableMap.<String, String>builder();
-            for (var entry : request.metadata().entrySet()) {
-                metadata.put(replaceChars(entry.getKey(), fromChars, toChars),
-                        replaceChars(entry.getValue(), fromChars, toChars));
-            }
             request = request.toBuilder()
-                    .metadata(metadata.buildKeepingLast())
+                    .metadata(replaceMetadata(request.metadata(), fromChars,
+                            toChars))
                     .build();
         }
         return super.copyBlob(request);
@@ -134,19 +121,50 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
-        var metadata = ImmutableMap.<String, String>builder();
-        for (var entry : request.metadata().entrySet()) {
-            metadata.put(replaceChars(entry.getKey(), /*fromChars=*/ fromChars, /*toChars=*/ toChars),
-                    replaceChars(entry.getValue(), /*fromChars=*/ fromChars, /*toChars=*/ toChars));
-        }
         return super.initiateMultipartUpload(request.toBuilder()
-                .metadata(metadata.buildKeepingLast())
+                .metadata(replaceMetadata(request.metadata(), fromChars,
+                        toChars))
                 .build());
     }
 
-    // Two keys that differ only in a replaced character become one key.
-    // The maps above keep the later of the two rather than fail on the
-    // duplicate, which refused the whole request with a 400.
+    /**
+     * Maps each key and value of user metadata, but never onto or off the
+     * names S3Proxy reserves for checksums it validated itself,
+     * {@link FlexChecksum#METADATA_PREFIX}.  The handler drops those names
+     * from what a client sends and trusts what comes back under them, so a
+     * mapping that turned a client's {@code s3proxy-checksum-sha256} into
+     * {@code s3proxy_checksum_sha256} on the way back -- or on the way in,
+     * for a store read without this middleware -- reported a checksum of
+     * the client's choosing as validated.  A reserved entry passes as it
+     * is, and any other keeps its own spelling where the mapping would make
+     * it a reserved one.
+     *
+     * <p>Two keys that differ only in a replaced character become one key;
+     * the later of the two is kept rather than fail on the duplicate, which
+     * refused the whole request with a 400.
+     */
+    private static Map<String, String> replaceMetadata(
+            Map<String, String> metadata, String fromChars, String toChars) {
+        var replaced = ImmutableMap.<String, String>builder();
+        for (var entry : metadata.entrySet()) {
+            String key = entry.getKey();
+            if (isReserved(key)) {
+                replaced.put(key, entry.getValue());
+                continue;
+            }
+            String mapped = replaceChars(key, fromChars, toChars);
+            replaced.put(isReserved(mapped) ? key : mapped,
+                    replaceChars(entry.getValue(), fromChars, toChars));
+        }
+        return replaced.buildKeepingLast();
+    }
+
+    private static boolean isReserved(String key) {
+        return key.regionMatches(/*ignoreCase=*/ true, 0,
+                FlexChecksum.METADATA_PREFIX, 0,
+                FlexChecksum.METADATA_PREFIX.length());
+    }
+
     private static String replaceChars(String value, String fromChars,
             String toChars) {
         var builder = new StringBuilder(/*capacity=*/ value.length());

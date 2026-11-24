@@ -18,12 +18,22 @@ package org.gaul.s3proxy.middleware;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
+import org.gaul.s3proxy.S3Proxy;
 import org.gaul.s3proxy.TestUtils;
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
+import org.gaul.s3proxy.checksum.FlexChecksum;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -167,6 +177,152 @@ public final class UserMetadataReplacerBlobStoreTest {
         assertThat(userMetadataReplacerBlobStore.getBlob(containerName, toName)
                 .response().metadata())
                 .isEqualTo(Map.of("my-key", "my-value-"));
+    }
+
+    @Test
+    public void testChecksumMetadataIsNotMapped() throws Exception {
+        // What S3ProxyHandler records under FlexChecksum.METADATA_PREFIX is
+        // not user metadata: neither the name nor a composite's "-<parts>"
+        // may change on the way to the backend or back.
+        var blobName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        var metadata = Map.of(
+                FlexChecksum.SHA256.metadataKey(), "dmFsdWU=-2",
+                "my-key", "my-value-");
+        userMetadataReplacerBlobStore.putBlob(
+                TestUtils.putRequest(containerName, blobName, content)
+                        .toBuilder()
+                        .metadata(metadata)
+                        .build(),
+                content.openStream());
+
+        assertThat(blobStore.blobMetadata(containerName, blobName).metadata())
+                .isEqualTo(Map.of(
+                        FlexChecksum.SHA256.metadataKey(), "dmFsdWU=-2",
+                        "my_key", "my_value_"));
+        assertThat(userMetadataReplacerBlobStore.getBlob(
+                containerName, blobName).response().metadata())
+                .isEqualTo(metadata);
+        assertThat(userMetadataReplacerBlobStore.blobMetadata(
+                containerName, blobName).metadata())
+                .isEqualTo(metadata);
+    }
+
+    @Test
+    public void testUserMetadataIsNotMappedOntoChecksumMetadata()
+            throws Exception {
+        // S3ProxyHandler refuses s3proxy_checksum_* from a client and takes
+        // it from the store for a checksum it validated, so no other name
+        // may be mapped onto one in either direction.
+        String forged = FlexChecksum.SHA256.metadataKey().replace('_', '-');
+        var metadata = Map.of(forged, "dmFsdWU=");
+
+        // hyphens stored as underscores: not written under the reserved name
+        var blobName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        userMetadataReplacerBlobStore.putBlob(
+                TestUtils.putRequest(containerName, blobName, content)
+                        .toBuilder()
+                        .metadata(metadata)
+                        .build(),
+                content.openStream());
+        assertThat(blobStore.blobMetadata(containerName, blobName).metadata())
+                .isEqualTo(metadata);
+
+        var copyName = TestUtils.createRandomBlobName();
+        userMetadataReplacerBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(containerName).destinationKey(copyName)
+                .metadataDirective(MetadataDirective.REPLACE)
+                .metadata(metadata)
+                .build());
+        assertThat(blobStore.blobMetadata(containerName, copyName).metadata())
+                .isEqualTo(metadata);
+
+        var mpuName = TestUtils.createRandomBlobName();
+        var mpu = userMetadataReplacerBlobStore.initiateMultipartUpload(
+                TestUtils.createRequest(containerName, mpuName).toBuilder()
+                        .metadata(metadata)
+                        .build());
+        var part = TestUtils.uploadPart(userMetadataReplacerBlobStore,
+                mpu, 1, content.openStream(), content.size());
+        userMetadataReplacerBlobStore.completeMultipartUpload(mpu,
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part))));
+        assertThat(blobStore.blobMetadata(containerName, mpuName).metadata())
+                .isEqualTo(metadata);
+
+        // underscores stored as hyphens: not read back as the reserved name
+        var underscoreReplacerBlobStore = UserMetadataReplacerBlobStore
+                .newUserMetadataReplacerBlobStore(blobStore, "_", "-");
+        assertThat(underscoreReplacerBlobStore.getBlob(
+                containerName, blobName).response().metadata())
+                .isEqualTo(metadata);
+        assertThat(underscoreReplacerBlobStore.blobMetadata(
+                containerName, blobName).metadata())
+                .isEqualTo(metadata);
+    }
+
+    /**
+     * Through S3ProxyHandler, with underscores stored as hyphens: metadata a
+     * client names s3proxy-checksum-sha256 comes back as the metadata it is
+     * and not as the object's checksum, while a checksum the proxy compared
+     * with the body is still reported.
+     */
+    @Test
+    public void testClientMetadataIsNotReportedAsChecksum() throws Exception {
+        byte[] content = "content".getBytes(StandardCharsets.UTF_8);
+        String checksum = Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("SHA-256").digest(content));
+        String forged = Base64.getEncoder().encodeToString(new byte[32]);
+        var s3Proxy = S3Proxy.builder()
+                .stopTimeout(0)
+                .blobStore(UserMetadataReplacerBlobStore
+                        .newUserMetadataReplacerBlobStore(blobStore, "_", "-"))
+                .awsAuthentication(AuthenticationType.NONE, null, null)
+                .endpoint(URI.create("http://127.0.0.1:0"))
+                .build();
+        s3Proxy.start();
+        try {
+            while (!s3Proxy.getState().equals("STARTED")) {
+                Thread.sleep(10);
+            }
+            var httpClient = HttpClient.newHttpClient();
+            var uri = URI.create("http://127.0.0.1:" + s3Proxy.getPort() +
+                    "/" + containerName + "/" +
+                    TestUtils.createRandomBlobName());
+            var head = HttpRequest.newBuilder(uri)
+                    .header("x-amz-checksum-mode", "ENABLED")
+                    .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                    .build();
+
+            var response = httpClient.send(HttpRequest.newBuilder(uri)
+                    .header("x-amz-meta-s3proxy-checksum-sha256", forged)
+                    .PUT(HttpRequest.BodyPublishers.ofByteArray(content))
+                    .build(), HttpResponse.BodyHandlers.discarding());
+            assertThat(response.statusCode()).isEqualTo(200);
+            response = httpClient.send(head,
+                    HttpResponse.BodyHandlers.discarding());
+            assertThat(response.headers().firstValue("x-amz-checksum-sha256"))
+                    .isEmpty();
+            assertThat(response.headers().firstValue(
+                    "x-amz-meta-s3proxy-checksum-sha256")).hasValue(forged);
+
+            response = httpClient.send(HttpRequest.newBuilder(uri)
+                    .header("x-amz-checksum-sha256", checksum)
+                    .header("x-amz-meta-s3proxy-checksum-sha256", forged)
+                    .PUT(HttpRequest.BodyPublishers.ofByteArray(content))
+                    .build(), HttpResponse.BodyHandlers.discarding());
+            assertThat(response.statusCode()).isEqualTo(200);
+            response = httpClient.send(head,
+                    HttpResponse.BodyHandlers.discarding());
+            assertThat(response.headers().firstValue("x-amz-checksum-sha256"))
+                    .hasValue(checksum);
+            assertThat(response.headers().firstValue(
+                    "x-amz-meta-s3proxy-checksum-sha256")).hasValue(forged);
+        } finally {
+            s3Proxy.stop();
+        }
     }
 
     @Test
