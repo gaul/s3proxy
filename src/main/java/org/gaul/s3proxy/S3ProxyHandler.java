@@ -2026,6 +2026,21 @@ public class S3ProxyHandler {
     }
 
     /**
+     * Refuse a response-* override that no header can carry, before any
+     * header is written: the error that refuses it would otherwise go out
+     * with the object's headers already on it.
+     */
+    private static void checkResponseHeaderOverrides(
+            HttpServletRequest request) {
+        for (String parameter : RESPONSE_HEADER_OVERRIDES) {
+            String value = request.getParameter(parameter);
+            if (value != null) {
+                HeaderValues.override(value);
+            }
+        }
+    }
+
+    /**
      * Whether anyone may read the object an unsigned GET or HEAD names.
      * Access is kept per version, so the version asked after is the one the
      * read that follows serves: the one handleGetBlob and handleBlobMetadata
@@ -4409,6 +4424,7 @@ public class S3ProxyHandler {
             BlobStore blobStore, String containerName,
             String blobName, boolean onlyIfPublicRead) throws IOException {
         checkNoWriteEncryptionHeaders(request);
+        checkResponseHeaderOverrides(request);
         var headRequest = HeadObjectRequest.builder()
                 .bucket(containerName)
                 .key(blobName)
@@ -5490,6 +5506,7 @@ public class S3ProxyHandler {
             String containerName, String blobName, boolean onlyIfPublicRead)
             throws IOException {
         checkNoWriteEncryptionHeaders(request);
+        checkResponseHeaderOverrides(request);
 
         int status = HttpServletResponse.SC_OK;
         var getRequest = GetObjectRequest.builder()
@@ -8410,11 +8427,10 @@ public class S3ProxyHandler {
             String headerName, String overrideHeaderName,
             @Nullable String value) {
         String override = request.getParameter(overrideHeaderName);
-
-        override = (override != null) ? override : value;
-
         if (override != null) {
-            response.addHeader(headerName, override);
+            response.addHeader(headerName, HeaderValues.override(override));
+        } else if (value != null) {
+            response.addHeader(headerName, HeaderValues.stored(value));
         }
     }
 
@@ -8443,7 +8459,9 @@ public class S3ProxyHandler {
         String overrideContentType = request.getParameter(
                 "response-content-type");
         String contentType = overrideContentType != null ?
-                overrideContentType : metadata.contentType();
+                HeaderValues.override(overrideContentType) :
+                metadata.contentType() == null ? null :
+                        HeaderValues.stored(metadata.contentType());
         // S3 names a type for every object, so one a backend reports none for
         // -- written around S3Proxy, or by a client of a backend that does not
         // require one -- answers with the default rather than with no
@@ -8457,7 +8475,8 @@ public class S3ProxyHandler {
         }
         String overrideExpires = request.getParameter("response-expires");
         if (overrideExpires != null) {
-            response.addHeader(HttpHeaders.EXPIRES, overrideExpires);
+            response.addHeader(HttpHeaders.EXPIRES,
+                    HeaderValues.override(overrideExpires));
         } else {
             var expires = metadata.expires();
             if (expires != null) {
@@ -8513,7 +8532,8 @@ public class S3ProxyHandler {
                 // reserved internal state, never exposed as x-amz-meta-
                 continue;
             }
-            response.addHeader(USER_METADATA_PREFIX + key, entry.getValue());
+            response.addHeader(USER_METADATA_PREFIX + key,
+                    HeaderValues.userMetadata(entry.getValue()));
         }
         // A store that keeps flexible checksums itself answers for the
         // objects the metadata copy cannot describe: a multipart upload's
