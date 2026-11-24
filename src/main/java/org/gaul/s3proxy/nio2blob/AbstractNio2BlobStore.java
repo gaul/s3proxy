@@ -1051,7 +1051,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             // Evaluate conditional headers and range bounds before opening
             // the file so that failing preconditions do not leak the
-            // InputStream.
+            // InputStream.  What refuses one describes the object -- the
+            // ETag a 304 or a 412 echoes, the time the dates were compared
+            // with, the size a 416 says the range lies beyond -- so each
+            // refusal judges the read's customer key first.
+            var encryption = readEncryption(view, attributes);
             String ifMatch = options.ifMatch();
             String ifNoneMatch = options.ifNoneMatch();
             if (eTag != null) {
@@ -1064,17 +1068,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 ifMatch = null;
             }
             if ("*".equals(ifNoneMatch)) {
-                throw conditionFailed(304, eTag);
+                throw conditionFailed(304, eTag, encryption, options);
             }
             if (eTag != null) {
                 if (ifMatch != null) {
                     if (!eTag.equals(maybeQuoteETag(ifMatch))) {
-                        throw conditionFailed(412, eTag);
+                        throw conditionFailed(412, eTag, encryption, options);
                     }
                 }
                 if (ifNoneMatch != null) {
                     if (eTag.equals(maybeQuoteETag(ifNoneMatch))) {
-                        throw conditionFailed(304, eTag);
+                        throw conditionFailed(304, eTag, encryption, options);
                     }
                 }
             }
@@ -1087,7 +1091,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (options.ifModifiedSince() != null) {
                 var modifiedSince = options.ifModifiedSince();
                 if (modifiedSecond.compareTo(modifiedSince) <= 0) {
-                    throw conditionFailed(304, eTag);
+                    throw conditionFailed(304, eTag, encryption, options);
                 }
 
             }
@@ -1100,7 +1104,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     options.ifMatch() == null) {
                 var unmodifiedSince = options.ifUnmodifiedSince();
                 if (modifiedSecond.isAfter(unmodifiedSince)) {
-                    throw conditionFailed(412, eTag);
+                    throw conditionFailed(412, eTag, encryption, options);
                 }
             }
 
@@ -1147,6 +1151,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         }
 
                         if (offset >= size || offset > last) {
+                            enforceCustomerKey(encryption, options);
                             throw S3Exceptions.fromStatusCode(416);
                         }
                         if (last + 1 > size) {
@@ -1183,7 +1188,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
 
             HashCode finalHashCode = hashCode;
-            var encryption = readEncryption(view, attributes);
             Blob.Builder builder = Blob.builder(key)
                     .userMetadata(userMetadata.build())
                     .payload(inputStream)
@@ -3674,11 +3678,32 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     // A failed conditional read: 304 or 412 carrying the ETag the response
-    // must echo per RFC 7232.
+    // must echo per RFC 7232, once the read has been judged against the
+    // customer key of the object that ETag describes.
     private static S3Exception conditionFailed(int code,
-            @Nullable String eTag) {
+            @Nullable String eTag, @Nullable Encryption encryption,
+            GetObjectRequest read) {
+        enforceCustomerKey(encryption, read);
         return S3Exceptions.fromStatusCode(code, eTag, Map.of(),
                 /*cause=*/ null);
+    }
+
+    /**
+     * Judges a read this store is about to refuse -- on a condition, on a
+     * range -- against the customer key the object rests under.  A read
+     * that is answered the frontend judges, from the object returned, since
+     * only it can tell a caller's read from its own bookkeeping.  A read
+     * that is refused returns no object to judge from, and the refusal
+     * says of the object what the key was to keep: so it is judged here,
+     * as copyBlob judges its source ahead of the source's conditions, and
+     * a read without the key is told only that.
+     */
+    private static void enforceCustomerKey(@Nullable Encryption encryption,
+            GetObjectRequest read) {
+        CustomerKeys.enforce(encryption == null ? null :
+                        encryption.customerKeyMD5(),
+                read.sseCustomerAlgorithm(), read.sseCustomerKey(),
+                read.sseCustomerKeyMD5());
     }
 
     private static String maybeQuoteETag(String eTag) {

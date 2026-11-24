@@ -29,8 +29,11 @@ import org.jspecify.annotations.Nullable;
  * copy's two ends, an upload's create and parts -- and the frontend judges
  * reads, since only it can tell a caller's read from its own bookkeeping:
  * the stub consulted before a completion or the ETag before a conditional
- * write read without a key, the way S3's own internals do.  The aws-s3
- * backend forwards the triple verbatim and its service judges instead.
+ * write read without a key, the way S3's own internals do.  A read the
+ * store refuses itself, on a condition or a range, is the exception: the
+ * frontend is handed no object to judge from, so the store judges before
+ * it refuses.  The aws-s3 backend forwards the triple verbatim and its
+ * service judges instead.
  */
 public final class CustomerKeys {
     private CustomerKeys() {

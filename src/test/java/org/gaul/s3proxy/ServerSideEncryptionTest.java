@@ -25,12 +25,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Properties;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
+import org.gaul.s3proxy.middleware.Middlewares;
 import org.gaul.s3proxy.nio2blob.FilesystemNio2BlobStore;
 import org.gaul.s3proxy.nio2blob.TransientNio2BlobStore;
 import org.junit.jupiter.api.AfterEach;
@@ -501,6 +504,107 @@ public final class ServerSideEncryptionTest {
     }
 
     @Test
+    public void testCustomerKeyJudgedBeforeConditionsAndRange()
+            throws Exception {
+        startEncrypting();
+        client.putBucketVersioning(b -> b.bucket(containerName)
+                .versioningConfiguration(v -> v.status("Enabled")));
+        var put = client.putObject(b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        String eTag = put.eTag();
+
+        // What a condition or a range is refused with -- the ETag, the
+        // time, the size -- is the object's to tell, and only to its key:
+        // without it these answer what the unconditional read does.
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").ifNoneMatch("*")));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").ifNoneMatch(eTag)));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").ifMatch("other")));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .ifModifiedSince(Instant.now().plusSeconds(3600))));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .ifUnmodifiedSince(Instant.EPOCH)));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").range("bytes=7-")));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").partNumber(2)));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").ifNoneMatch("*")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_B))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B))));
+
+        // With it they answer as they always did.
+        assertStatus(304, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").ifNoneMatch(eTag)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))));
+        assertStatus(412, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").ifMatch("other")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))));
+        assertStatus(416, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").range("bytes=7-")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))));
+        assertThat(client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").partNumber(1)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))).asUtf8String())
+                .isEqualTo("payload");
+
+        // The key judged is that of the version the read names, whatever
+        // the key's current version rests under.
+        var plain = client.putObject(
+                b -> b.bucket(containerName).key("blob"),
+                RequestBody.fromString("payload"));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .versionId(put.versionId()).ifNoneMatch("*")));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .versionId(put.versionId()).partNumber(2)));
+        assertStatus(304, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .versionId(plain.versionId()).ifNoneMatch("*")));
+        assertThat(client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob")
+                        .versionId(plain.versionId()).partNumber(1))
+                .asUtf8String()).isEqualTo("payload");
+
+        // A part copied from a range the source does not have is the same
+        // question asked of the source's size.
+        var create = client.createMultipartUpload(
+                b -> b.bucket(containerName).key("mpu"));
+        assertStatus(400, () -> client.uploadPartCopy(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .sourceVersionId(put.versionId())
+                .destinationBucket(containerName).destinationKey("mpu")
+                .uploadId(create.uploadId()).partNumber(1)
+                .copySourceRange("bytes=7-8")));
+        assertStatus(416, () -> client.uploadPartCopy(b -> b
+                .sourceBucket(containerName).sourceKey("blob")
+                .sourceVersionId(put.versionId())
+                .destinationBucket(containerName).destinationKey("mpu")
+                .uploadId(create.uploadId()).partNumber(1)
+                .copySourceRange("bytes=7-8")
+                .copySourceSSECustomerAlgorithm("AES256")
+                .copySourceSSECustomerKey(encodeKey(KEY_A))
+                .copySourceSSECustomerKeyMD5(keyMD5(KEY_A))));
+    }
+
+    @Test
     public void testCustomerKeyVetted() throws Exception {
         startEncrypting();
 
@@ -826,6 +930,42 @@ public final class ServerSideEncryptionTest {
                 b -> b.bucket(containerName).key("plain"),
                 RequestBody.fromString("payload"));
         assertThat(plain.eTag()).isEqualTo(md5ETag);
+    }
+
+    /**
+     * Behind the encrypting middleware an object is stored with padding
+     * after its plaintext.  A range starting between the two was served by
+     * the store and failed in decryption, a 500 where the key's holder gets
+     * a 416, which told a caller without the key the plaintext's size.
+     */
+    @Test
+    public void testRangePastPlaintextJudgedBehindEncryption()
+            throws Exception {
+        var properties = new Properties();
+        properties.setProperty(
+                S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE, "true");
+        properties.setProperty(
+                S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_PASSWORD,
+                "password");
+        properties.setProperty(
+                S3ProxyConstants.PROPERTY_ENCRYPTED_BLOBSTORE_SALT, "salt");
+        start(Middlewares.wrap(new TransientNio2BlobStore(), properties,
+                unused -> {
+                    throw new AssertionError("no second backend");
+                }));
+        client.putObject(b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").range("bytes=8-")));
+        assertStatus(416, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").range("bytes=8-")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))));
     }
 
     @Test

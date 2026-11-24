@@ -47,7 +47,9 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -535,6 +537,21 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 Decryption decryption = new Decryption(secretKey,
                     partPaddingsOf(containerName, blobName, meta),
                     offset, length);
+
+                // A range that starts at or past the plaintext's end lies
+                // within the padding the store holds after it, so the store
+                // would serve it, and decryption fails on it.  It is refused
+                // here as S3 does, 416, once the read has been judged against
+                // the customer key: the refusal tells the plaintext's size.
+                if (decryption.isEncrypted() && range != null &&
+                        range.first() != null &&
+                        range.first() >= decryption.getUnencryptedSize()) {
+                    CustomerKeys.enforce(meta.sseCustomerKeyMD5(),
+                            request.sseCustomerAlgorithm(),
+                            request.sseCustomerKey(),
+                            request.sseCustomerKeyMD5());
+                    throw S3Exceptions.fromStatusCode(416);
+                }
 
                 var delegateRequest = request.toBuilder()
                         .key(blobName);

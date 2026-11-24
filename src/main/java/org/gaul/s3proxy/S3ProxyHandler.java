@@ -5500,26 +5500,6 @@ public class S3ProxyHandler {
             String containerName, String blobName, boolean onlyIfPublicRead)
             throws IOException {
         checkNoWriteEncryptionHeaders(request);
-        if (request.getParameter("partNumber") != null) {
-            // needs the ETag to tell a multipart object apart, and the body
-            // must not be fetched only to be thrown away on the error path
-            checkPartNumber(request, blobStore.blobMetadataIfPresent(
-                    HeadObjectRequest.builder()
-                            .bucket(containerName)
-                            .key(blobName)
-                            .versionId(blobStore.supportsVersioning() ?
-                                    request.getParameter("versionId") : null)
-                            .overrideConfiguration(onlyIfPublicRead ?
-                                    SdkRequests.ONLY_IF_PUBLIC_READ : null)
-                            .sseCustomerAlgorithm(request.getHeader(
-                                    AwsHttpHeaders
-                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
-                            .sseCustomerKey(request.getHeader(AwsHttpHeaders
-                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
-                            .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
-                                    .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5))
-                            .build()));
-        }
 
         int status = HttpServletResponse.SC_OK;
         var getRequest = GetObjectRequest.builder()
@@ -5546,6 +5526,31 @@ public class S3ProxyHandler {
                         AwsHttpHeaders.SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY))
                 .sseCustomerKeyMD5(request.getHeader(AwsHttpHeaders
                         .SERVER_SIDE_ENCRYPTION_CUSTOMER_KEY_MD5));
+
+        if (request.getParameter("partNumber") != null) {
+            // needs the ETag to tell a multipart object apart, and the body
+            // must not be fetched only to be thrown away on the error path.
+            // The customer key is judged first, against the version the
+            // read names: whether an object is multipart is no more to be
+            // had without its key than the ETag that tells.
+            GetObjectRequest read = getRequest.build();
+            HeadObjectResponse metadata = blobStore.blobMetadataIfPresent(
+                    HeadObjectRequest.builder()
+                            .bucket(read.bucket())
+                            .key(read.key())
+                            .versionId(read.versionId())
+                            // the mark of an anonymous read, see getBlob
+                            .overrideConfiguration(read.overrideConfiguration()
+                                    .orElse(null))
+                            .sseCustomerAlgorithm(read.sseCustomerAlgorithm())
+                            .sseCustomerKey(read.sseCustomerKey())
+                            .sseCustomerKeyMD5(read.sseCustomerKeyMD5())
+                            .build());
+            if (metadata != null) {
+                enforceCustomerKey(request, metadata.sseCustomerKeyMD5());
+            }
+            checkPartNumber(request, metadata);
+        }
 
         long ifModifiedSince = dateHeaderIfValid(request,
                 HttpHeaders.IF_MODIFIED_SINCE);
@@ -5603,7 +5608,10 @@ public class S3ProxyHandler {
         // frontend's own bookkeeping -- the stub before a completion, the
         // ETag before a conditional write -- which reads without a key the
         // way S3's own internals do.  The aws-s3 backend's service has
-        // already judged, and this recheck of its verdict passes.
+        // already judged, and this recheck of its verdict passes.  A read
+        // the store refuses instead -- on a condition, on a range -- never
+        // gets here, and that refusal describes the object too: the store
+        // judges the key before it refuses.
         try {
             enforceCustomerKey(request, blob.response().sseCustomerKeyMD5());
         } catch (S3Exception e) {
