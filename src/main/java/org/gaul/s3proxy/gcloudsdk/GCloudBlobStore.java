@@ -2700,12 +2700,19 @@ public final class GCloudBlobStore implements BlobStore {
             listMultipartUploads(String container) {
         var builder = ImmutableList.<software.amazon.awssdk.services.s3
                 .model.MultipartUpload>builder();
+        // An upload's parts and intermediate composes lie under its stub's
+        // name and a slash, so the delimiter folds each upload's into one
+        // common prefix.  Listed without it, every part of every upload
+        // came back, a page per thousand, on each request -- and the
+        // frontend asks for them all whatever the client's max-uploads.
         var page = storage.list(container,
-                BlobListOption.prefix(STUB_BLOB_PREFIX));
+                BlobListOption.prefix(STUB_BLOB_PREFIX),
+                BlobListOption.delimiter("/"));
         for (Blob blob : page.iterateAll()) {
             String name = blob.getName();
-            // Only look at stub blobs, not part blobs
-            if (name.contains("/part_") || name.contains("/compose_")) {
+            // the prefix a delimiter folds an upload's parts into
+            if (blob.isDirectory() || name.contains("/part_") ||
+                    name.contains("/compose_")) {
                 continue;
             }
             var metadata = blob.getMetadata();
