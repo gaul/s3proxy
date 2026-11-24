@@ -52,7 +52,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * <p>Without JAZZER_FUZZ these run the saved inputs only.  To fuzz one
  * target, which is all Jazzer fuzzes in a run:
  * {@code JAZZER_FUZZ=1 mvn test -Dtest=HandlerFuzzTest#anonymousRequest
- * -Djazzer.max_duration=10m}.  A finding is saved under
+ * -Djazzer.max_duration=10m -Dsurefire.timeout=0}; without the last,
+ * Surefire kills a run at five minutes and Jazzer saves the input it was
+ * on as though it had failed.  A finding is saved under
  * src/test/resources/.../HandlerFuzzTestInputs, where every later test run
  * replays it; Maven copies it to target/test-classes and does not remove
  * it from there when it is deleted.  The corpus grows in .cifuzz-corpus.

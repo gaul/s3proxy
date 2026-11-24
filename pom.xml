@@ -439,7 +439,7 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
         <configuration>
           <argLine>-Xmx512m</argLine>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
-          <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+          <forkedProcessTimeoutInSeconds>${surefire.timeout}</forkedProcessTimeoutInSeconds>
           <runOrder>random</runOrder>
           <trimStackTrace>false</trimStackTrace>
           <properties>
@@ -490,6 +490,9 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>17</java.version>
+    <!-- Seconds before a test JVM is killed.  A fuzzing run outlasts it,
+         so pass -Dsurefire.timeout=0 with JAZZER_FUZZ. -->
+    <surefire.timeout>300</surefire.timeout>
     <aws-sdkv2.version>2.59.4</aws-sdkv2.version>
     <errorprone.checks>-Xep:JavaUtilDate:OFF -Xep:DefaultCharset:OFF -Xep:StringCaseLocaleUsage:OFF -Xep:ProtectedMembersInFinalClass:OFF -Xep:JavaTimeDefaultTimeZone:OFF</errorprone.checks>
     <errorprone.nullchecks>-Xep:EqualsMissingNullable:ERROR -Xep:FieldMissingNullable:ERROR -Xep:JSpecifyUnrecognizedAnnotationLocation:ERROR -Xep:NullArgumentForNonNullParameter:ERROR -Xep:NullableOptional:ERROR -Xep:ParameterMissingNullable:ERROR -Xep:RedundantNullCheck:ERROR -Xep:RequireExplicitNullMarking:ERROR -Xep:ReturnMissingNullable:ERROR -Xep:VoidMissingNullable:ERROR</errorprone.nullchecks>
