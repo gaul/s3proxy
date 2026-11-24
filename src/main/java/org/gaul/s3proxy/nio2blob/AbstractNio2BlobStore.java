@@ -850,6 +850,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throw new UnsupportedOperationException(
                     "versioning not supported");
         }
+        return readBlob(container, key, path, versionId, options, openStream);
+    }
+
+    /**
+     * Reads the object of {@code key} that {@code path} holds, for a caller
+     * that has settled which file that is: the key's natural path, or the
+     * one an enumeration of its versions returned.
+     */
+    @Nullable
+    private Blob readBlob(String container, String key, Path path,
+            @Nullable String versionId, GetObjectRequest options,
+            boolean openStream) {
         logger.debug("Getting blob at: {}", path);
 
         try {
@@ -2413,13 +2425,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // A key whose newest version is a delete marker has nothing current,
         // so the marker is what is latest.
         var latestArchived = new TreeMap<String, String>();
-        for (var version : archivedVersions(containerPath, /*key=*/ null)) {
+        var archived = archivedVersions(containerPath, /*key=*/ null);
+        for (var version : archived) {
             if (!version.key().startsWith(prefix)) {
                 continue;
             }
             latestArchived.putIfAbsent(version.key(), version.versionId());
         }
-        for (var version : archivedVersions(containerPath, /*key=*/ null)) {
+        for (var version : archived) {
             String key = version.key();
             if (!key.startsWith(prefix)) {
                 continue;
@@ -2587,25 +2600,23 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return objects;
     }
 
-    /** The size and ETag a non-current version reports to a listing. */
+    /**
+     * The size and ETag a non-current version reports to a listing, or null
+     * when the version was deleted between the enumeration that named it
+     * and this read of its size: it has nothing left to report and the
+     * listing leaves it out.
+     */
     @Nullable
     private HeadObjectResponse readVersionMetadata(String container,
             String key, StoredVersion version) {
-        Blob blob;
-        try {
-            blob = getBlobInternal(container, key,
-                    GetObjectRequest.builder().bucket(container).key(key)
-                            .versionId(version.versionId()).build(),
-                    /*openStream=*/ false);
-        } catch (S3Exception se) {
-            // The version was deleted between the enumeration that named it
-            // and this read of its size, so it has nothing left to report
-            // and the listing leaves it out.
-            if (se.statusCode() == 404) {
-                return null;
-            }
-            throw se;
-        }
+        // Read through the path the enumeration returned.  Asking for the
+        // version by its id instead enumerates the whole versions directory
+        // again to find that path, once for every version listed.
+        Blob blob = readBlob(container, key, version.path(),
+                version.versionId(),
+                GetObjectRequest.builder().bucket(container).key(key)
+                        .versionId(version.versionId()).build(),
+                /*openStream=*/ false);
         if (blob == null) {
             return null;
         }
