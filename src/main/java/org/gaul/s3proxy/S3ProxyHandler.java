@@ -6370,9 +6370,22 @@ public class S3ProxyHandler {
         parser.setPartHeadersMaxLength(MAX_POST_PART_HEADERS_LENGTH);
         parser.setMaxParts(MAX_POST_PARTS);
         var futureParts = new CompletableFuture<MultiPartFormData.Parts>();
+        // The bounds above count the bytes of the body, while what the parser
+        // holds for a part is every buffer any of its bytes arrived in, whole.
+        // Jetty fills a buffer with a single read, and a read of the request
+        // returns no more than one HTTP chunk holds, so a body framed a byte
+        // to a chunk would hold a buffer for each byte.  Fill every buffer
+        // instead, so that what is held is what is counted.
         parser.parse(new InputStreamContentSource(is,
-                ByteBufferPool.SIZED_NON_POOLING),
-                Promise.Invocable.toPromise(futureParts));
+                ByteBufferPool.SIZED_NON_POOLING) {
+            @Override
+            protected int fillBufferFromInputStream(InputStream inputStream,
+                    byte[] buffer, int offset) throws IOException {
+                int read = inputStream.readNBytes(buffer, offset,
+                        buffer.length - offset);
+                return read == 0 ? -1 : read;
+            }
+        }, Promise.Invocable.toPromise(futureParts));
         MultiPartFormData.Parts parts;
         try {
             parts = futureParts.join();
