@@ -18,6 +18,7 @@ package org.gaul.s3proxy;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
@@ -153,8 +154,17 @@ public final class S3ProxyMetrics {
 
     public String scrape() throws IOException {
         var out = new ByteArrayOutputStream();
-        textFormatWriter.write(out, metricReader.collect());
+        scrape(out);
         return out.toString(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Writes the exposition as it is rendered.  It runs to megabytes on a
+     * proxy that serves many buckets, which a caller writing to a client
+     * need not hold while the client reads.
+     */
+    public void scrape(OutputStream out) throws IOException {
+        textFormatWriter.write(out, metricReader.collect());
     }
 
     public void close() {

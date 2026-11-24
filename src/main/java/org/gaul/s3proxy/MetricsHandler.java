@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import java.io.IOException;
+import java.util.concurrent.Semaphore;
 
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,7 +25,17 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /** Servlet that serves Prometheus metrics at /metrics endpoint. */
 public final class MetricsHandler extends HttpServlet {
+    /**
+     * How many scrapes may be in progress at once.  Each holds its own
+     * snapshot of every series until its client has read all of it, and
+     * /metrics asks for no credentials, so without a bound clients that stop
+     * reading could fill the heap with as many snapshots as there are request
+     * threads.
+     */
+    static final int MAX_CONCURRENT_SCRAPES = 8;
+
     private final S3ProxyMetrics metrics;
+    private final Semaphore scrapes = new Semaphore(MAX_CONCURRENT_SCRAPES);
 
     public MetricsHandler(S3ProxyMetrics metrics) {
         this.metrics = metrics;
@@ -33,8 +44,20 @@ public final class MetricsHandler extends HttpServlet {
     @Override
     protected void service(HttpServletRequest request,
             HttpServletResponse response) throws IOException {
-        response.setContentType("text/plain; version=0.0.4; charset=utf-8");
-        response.setStatus(HttpServletResponse.SC_OK);
-        response.getWriter().write(metrics.scrape());
+        if (!scrapes.tryAcquire()) {
+            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+                    "Too many concurrent scrapes");
+            return;
+        }
+        try {
+            response.setContentType(
+                    "text/plain; version=0.0.4; charset=utf-8");
+            response.setStatus(HttpServletResponse.SC_OK);
+            // Rendered into the response rather than into a string, which
+            // would be held whole, beside the snapshot, until it is read.
+            metrics.scrape(response.getOutputStream());
+        } finally {
+            scrapes.release();
+        }
     }
 }
