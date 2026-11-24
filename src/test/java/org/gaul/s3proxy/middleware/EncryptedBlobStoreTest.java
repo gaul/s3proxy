@@ -42,9 +42,11 @@ import java.util.zip.CRC32;
 
 import org.gaul.s3proxy.Quirks;
 import org.gaul.s3proxy.S3ProxyConstants;
+import org.gaul.s3proxy.S3ProxyException;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
+import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.crypto.Constants;
@@ -354,6 +356,66 @@ public final class EncryptedBlobStoreTest {
                 .singleElement()
                 .satisfies(object -> assertThat(object.size())
                         .isEqualTo(expected));
+    }
+
+    /**
+     * The Content-MD5 is dropped on the way down for the same reason, and
+     * the store was the one that compared it with the body.  It describes
+     * the plaintext, which only this layer still holds, so this layer makes
+     * the comparison: a body other than the one the digest names -- what
+     * the bearer of a presigned URL that signs Content-MD5 could send -- is
+     * refused as any store refuses it.
+     */
+    @Test
+    public void testEncryptedWriteChecksTheContentMD5() throws Exception {
+        byte[] content = filler(0, LAST_PART_SIZE);
+        byte[] other = filler(1, LAST_PART_SIZE);
+        String contentMD5 = Base64.getEncoder().encodeToString(
+            MD5.hash(content));
+
+        String blobName = TestUtils.createRandomBlobName();
+        PutObjectRequest put = makeRequest(containerName, blobName,
+            content.length).toBuilder().contentMD5(contentMD5).build();
+        assertThatThrownBy(() -> encryptedBlobStore.putBlob(put,
+                new ByteArrayInputStream(other)))
+            .hasRootCauseInstanceOf(S3ProxyException.class);
+        // google-cloud-storage finalizes what it was sent of a refused
+        // upload, as AwsSdkTest.testPutObjectWithInvalidChecksumHeader notes
+        if (!provider.equals("google-cloud-storage")) {
+            assertThat(encryptedBlobStore.blobExists(containerName,
+                blobName)).isFalse();
+        }
+
+        encryptedBlobStore.putBlob(put, new ByteArrayInputStream(content));
+        try (InputStream is = encryptedBlobStore.getBlob(containerName,
+                blobName)) {
+            assertThat(is.readAllBytes()).isEqualTo(content);
+        }
+
+        String mpuBlobName = TestUtils.createRandomBlobName();
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, mpuBlobName));
+        UploadPartRequest part = UploadPartRequest.builder()
+            .bucket(mpu.containerName())
+            .key(mpu.blobName())
+            .uploadId(mpu.id())
+            .partNumber(1)
+            .contentLength((long) content.length)
+            .contentMD5(contentMD5)
+            .build();
+        assertThatThrownBy(() -> encryptedBlobStore.uploadMultipartPart(mpu,
+                part, new ByteArrayInputStream(other)))
+            .hasRootCauseInstanceOf(S3ProxyException.class);
+
+        encryptedBlobStore.uploadMultipartPart(mpu, part,
+            new ByteArrayInputStream(content));
+        encryptedBlobStore.completeMultipartUpload(mpu,
+            TestUtils.completeRequest(mpu,
+                encryptedBlobStore.listMultipartUpload(mpu)));
+        try (InputStream is = encryptedBlobStore.getBlob(containerName,
+                mpuBlobName)) {
+            assertThat(is.readAllBytes()).isEqualTo(content);
+        }
     }
 
     /**

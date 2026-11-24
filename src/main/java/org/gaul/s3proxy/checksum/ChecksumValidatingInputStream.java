@@ -20,10 +20,13 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Base64;
 
 import org.gaul.s3proxy.S3ErrorCode;
 import org.gaul.s3proxy.S3ProxyException;
+import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.checksums.DefaultChecksumAlgorithm;
 import software.amazon.awssdk.checksums.SdkChecksum;
 
 /**
@@ -63,6 +66,24 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
         this.expected = expected.clone();
         this.contentLength = contentLength;
         this.errorCode = errorCode;
+    }
+
+    /**
+     * Validate a body against its request's Content-MD5, base64 as on the
+     * wire, or hand back {@code is} itself when the request carries none.
+     * The handler leaves this comparison to the store, so a middleware that
+     * changes the bytes on their way there -- and so has to drop the digest
+     * from the request it hands on -- makes it here instead, over the bytes
+     * the client sent.
+     */
+    public static InputStream forContentMD5(InputStream is,
+            @Nullable String contentMD5, long contentLength) {
+        if (contentMD5 == null) {
+            return is;
+        }
+        return new ChecksumValidatingInputStream(is,
+                SdkChecksum.forAlgorithm(DefaultChecksumAlgorithm.MD5),
+                Base64.getDecoder().decode(contentMD5), contentLength);
     }
 
     @Override

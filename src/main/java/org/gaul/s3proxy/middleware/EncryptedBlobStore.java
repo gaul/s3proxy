@@ -53,6 +53,7 @@ import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
+import org.gaul.s3proxy.checksum.ChecksumValidatingInputStream;
 import org.gaul.s3proxy.checksum.FlexChecksum;
 import org.gaul.s3proxy.crypto.Constants;
 import org.gaul.s3proxy.crypto.Decryption;
@@ -626,9 +627,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
         InputStream payload) {
+        long contentLength = requireNonNull(request.contentLength());
         InputStream encrypted;
         try {
-            encrypted = new Encryption(secretKey, payload, 1).openStream();
+            // the store is not handed the MD5, so judge the plaintext here
+            encrypted = new Encryption(secretKey,
+                ChecksumValidatingInputStream.forContentMD5(payload,
+                    request.contentMD5(), contentLength), 1).openStream();
         } catch (IOException | GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
@@ -638,8 +643,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         String key = request.key();
         return delegate().putBlob(FlexChecksum.clearOn(request.toBuilder()
                 .key(blobNameWithSuffix(key))
-                .contentLength(requireNonNull(request.contentLength()) +
-                        Constants.PADDING_BLOCK_SIZE)
+                .contentLength(contentLength + Constants.PADDING_BLOCK_SIZE)
                 .contentMD5(null))
                 .build(), encrypted);
     }
@@ -799,9 +803,12 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         mpu = filterMultipartUpload(mpu);
         InputStream encrypted;
         try {
-            // pass the stream through the encryption
-            encrypted = new Encryption(secretKey, is, request.partNumber())
-                .openStream();
+            // pass the stream through the encryption; the store is not
+            // handed the MD5, so judge the plaintext here
+            encrypted = new Encryption(secretKey,
+                ChecksumValidatingInputStream.forContentMD5(is,
+                    request.contentMD5(), request.contentLength()),
+                request.partNumber()).openStream();
         } catch (IOException | GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
