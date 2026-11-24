@@ -185,6 +185,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     // (the openstack4j okhttp connector deliberately avoids JAX-RS).
     // The most containers one Swift account listing returns.
     private static final int SWIFT_LIST_LIMIT = 10_000;
+    // The most keys S3 lists in one page.
+    private static final int S3_LIST_LIMIT = 1000;
     private static final int STATUS_OK = 200;
     private static final int STATUS_CREATED = 201;
     private static final int STATUS_BAD_REQUEST = 400;
@@ -523,6 +525,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         String swiftMarker = marker0;
         boolean firstRequest = true;
         boolean more = false;
+        // Fetch one extra object so truncation can be detected precisely:
+        // Swift's listing has no "truncated" flag, so a page filled exactly
+        // to the limit is otherwise indistinguishable from the last page.
+        Integer limit = maxResults == null ? null : maxResults + 1;
 
         while (true) {
             var swiftOptions = ObjectListOptions.create();
@@ -535,12 +541,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             if (swiftMarker != null) {
                 swiftOptions.marker(swiftMarker);
             }
-            if (maxResults != null) {
-                // Fetch one extra object so truncation can be detected
-                // precisely: Swift's listing has no "truncated" flag, so a
-                // page filled exactly to the limit is otherwise
-                // indistinguishable from the last page.
-                swiftOptions.limit(maxResults + 1);
+            if (limit != null) {
+                swiftOptions.limit(limit);
             }
 
             List<? extends SwiftObject> objects;
@@ -621,11 +623,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             }
             // A short page (fewer than requested) means Swift has no more
             // objects; an unbounded request is served in a single pass.
-            if (maxResults == null || rawCount <= maxResults) {
+            if (limit == null || rawCount < limit) {
                 break;
             }
             // Otherwise the page held only hidden keys or ran short of visible
-            // objects; fetch the next page from the advanced marker.
+            // objects; fetch the next page from the advanced marker.  Nothing
+            // tells how many more hidden keys follow, so the pages after the
+            // first are as long as the longest a client can ask for: at the
+            // length this one asked for, max-keys=1 cost a request to Swift
+            // for every two segments of an upload in progress.
+            limit = Math.max(limit, S3_LIST_LIMIT + 1);
         }
 
         String nextMarker = more ? lastVisible : null;

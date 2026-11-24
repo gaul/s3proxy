@@ -168,6 +168,8 @@ public final class GCloudBlobStore implements BlobStore {
     private static final int MAX_COMPOSE_PARTS = 32;
     /** How many deletes GCS accepts in one batch request. */
     private static final int MAX_BATCH_DELETES = 100;
+    /** How many entries GCS answers one listing request with at most. */
+    private static final int MAX_LIST_PAGE_SIZE = 1000;
     // The chunk an upload buffers, which the SDK defaults to 15 MiB and
     // allocates twice: once as the ByteBuffer it reads the payload into and
     // again as the write channel's own array.
@@ -419,10 +421,6 @@ public final class GCloudBlobStore implements BlobStore {
         if (request.prefix() != null) {
             gcsOptions.add(BlobListOption.prefix(request.prefix()));
         }
-        if (request.maxKeys() != null) {
-            gcsOptions.add(BlobListOption.pageSize(
-                    request.maxKeys()));
-        }
         String marker = marker0;
         if (marker != null) {
             // Begin the server-side scan at the marker rather than paging from
@@ -436,49 +434,79 @@ public final class GCloudBlobStore implements BlobStore {
             gcsOptions.add(BlobListOption.delimiter(request.delimiter()));
         }
 
-        com.google.api.gax.paging.Page<Blob> page;
-        try {
-            page = storage.list(container,
-                    gcsOptions.toArray(new BlobListOption[0]));
-        } catch (StorageException se) {
-            throw translate(se, container, null);
-        }
-
         var contents = ImmutableList.<S3Object>builder();
         var prefixes = ImmutableList.<CommonPrefix>builder();
         Integer maxResults = request.maxKeys();
         int count = 0;
         boolean hasMore = false;
         String lastName = null;
-        for (Blob blob : page.iterateAll()) {
-            // Skip blobs at or before the marker (S3 marker is exclusive)
-            if (marker != null && blob.getName().compareTo(marker) <= 0) {
-                continue;
-            }
-            if (isMultipartInternal(blob.getName())) {
-                continue;
-            }
-            // A key whose current version is a delete marker holds nothing
-            // an unversioned listing shows.
-            if (!blob.isDirectory() && isDeleteMarker(blob)) {
-                continue;
-            }
-            if (maxResults != null && count >= maxResults) {
-                hasMore = true;
-                break;
-            }
-            if (blob.isDirectory()) {
-                prefixes.add(SdkResponses.commonPrefix(blob.getName()));
-            } else {
-                contents.add(SdkResponses.objectEntry(blob.getName(),
-                        reportETag(blob),
-                        toInstant(blob.getUpdateTimeOffsetDateTime()),
-                        blob.getSize(),
-                        fromGcsStorageClass(blob.getStorageClass())));
-            }
-            lastName = blob.getName();
-            count++;
+        // The first page is as long as the answer can need: the keys asked
+        // for, the entry after them that tells there is more, and the marker,
+        // which startOffset includes.  The entries the loop passes over take
+        // their places in a page all the same, and nothing tells how many
+        // more of them follow, so the pages after the first are as long as
+        // GCS makes them: at the length the client asks for, max-keys=1 cost
+        // a request to GCS for every delete marker in a row.
+        int pageSize = MAX_LIST_PAGE_SIZE;
+        if (maxResults != null && maxResults < MAX_LIST_PAGE_SIZE) {
+            pageSize = Math.min(maxResults + (marker == null ? 1 : 2),
+                    MAX_LIST_PAGE_SIZE);
         }
+        String pageToken = null;
+        do {
+            var pageOptions = new ArrayList<>(gcsOptions);
+            pageOptions.add(BlobListOption.pageSize(pageSize));
+            if (pageToken != null) {
+                pageOptions.add(BlobListOption.pageToken(pageToken));
+            }
+            Page<Blob> page;
+            try {
+                page = storage.list(container,
+                        pageOptions.toArray(new BlobListOption[0]));
+            } catch (StorageException se) {
+                throw translate(se, container, null);
+            }
+            // GCS names the common prefixes of a page after its objects, and
+            // the listing can end within a page, so put the page in the order
+            // of the names first: the marker handed out has to be the last
+            // name before everything still to come.
+            var blobs = Lists.newArrayList(page.getValues());
+            blobs.sort(Comparator.comparing(Blob::getName));
+            for (Blob blob : blobs) {
+                // Skip blobs at or before the marker (S3 marker is
+                // exclusive)
+                if (marker != null && blob.getName().compareTo(marker) <= 0) {
+                    continue;
+                }
+                if (isMultipartInternal(blob.getName())) {
+                    continue;
+                }
+                // A key whose current version is a delete marker holds
+                // nothing an unversioned listing shows.
+                if (!blob.isDirectory() && isDeleteMarker(blob)) {
+                    continue;
+                }
+                if (maxResults != null && count >= maxResults) {
+                    hasMore = true;
+                    break;
+                }
+                if (blob.isDirectory()) {
+                    prefixes.add(SdkResponses.commonPrefix(blob.getName()));
+                } else {
+                    contents.add(SdkResponses.objectEntry(blob.getName(),
+                            reportETag(blob),
+                            toInstant(blob.getUpdateTimeOffsetDateTime()),
+                            blob.getSize(),
+                            fromGcsStorageClass(blob.getStorageClass())));
+                }
+                lastName = blob.getName();
+                count++;
+            }
+            // An exhausted listing can end on an empty cursor rather than
+            // none, which the SDK's own hasNextPage reads alike.
+            pageToken = Strings.emptyToNull(page.getNextPageToken());
+            pageSize = MAX_LIST_PAGE_SIZE;
+        } while (!hasMore && pageToken != null);
 
         // Synthesize a next marker if we truncated results
         String nextMarker = hasMore ? lastName : null;

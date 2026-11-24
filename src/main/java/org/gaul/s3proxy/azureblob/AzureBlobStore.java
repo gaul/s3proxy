@@ -31,6 +31,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
@@ -53,6 +54,7 @@ import com.azure.core.http.HttpPipelineCallContext;
 import com.azure.core.http.HttpPipelinePosition;
 import com.azure.core.http.policy.AddHeadersFromContextPolicy;
 import com.azure.core.http.policy.HttpPipelineSyncPolicy;
+import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.Response;
 import com.azure.core.util.Context;
@@ -95,6 +97,7 @@ import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
+import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
@@ -233,6 +236,11 @@ public final class AzureBlobStore implements BlobStore {
     // Azure refuses maxresults past 5000 where S3's max-buckets reaches
     // 10000; a shorter page with a continuation token still answers.
     private static final int MAX_CONTAINER_RESULTS = 5_000;
+    /**
+     * The rows a versioned listing asks Azure for at a time after its first
+     * page: as many as the first page of the longest listing S3 makes.
+     */
+    private static final int LATER_ROWS_PAGE_SIZE = 1001;
     // Disable retries since client should retry on errors.
     private static final RequestRetryOptions NO_RETRY_OPTIONS = new RequestRetryOptions(
             RetryPolicyType.FIXED, /*maxTries=*/ 1,
@@ -655,9 +663,9 @@ public final class AzureBlobStore implements BlobStore {
                         .setRetrieveMetadata(true));
         var client = blobServiceClient.getBlobContainerClient(container);
         try {
-            return latestPage(Iterators.filter(client.listBlobsByHierarchy(
-                    request.delimiter(), options, /*timeout=*/ null)
-                    .iterator(), blob -> !isMultipartStub(blob)),
+            return latestPage(Iterators.filter(rows(client.listBlobsByHierarchy(
+                    request.delimiter(), options, /*timeout=*/ null)),
+                    blob -> !isMultipartStub(blob)),
                     after, maxKeys);
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
@@ -742,6 +750,46 @@ public final class AzureBlobStore implements BlobStore {
     private static boolean isMultipartInternal(String name) {
         return name.startsWith(STUB_BLOB_PREFIX) ||
                 (!name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
+    }
+
+    /**
+     * The rows of a versioned listing, fetched a page at a time as they are
+     * read.  The first page is as long as the listing was set up with, which
+     * is what the answer needs when every row is part of it.  The rows a
+     * listing passes over -- all but one version of a key, delete markers --
+     * take their places in it all the same, and nothing tells how many more
+     * of them follow, so the pages after it are {@link
+     * #LATER_ROWS_PAGE_SIZE} rows: at the length the client's max-keys asks
+     * for, max-keys=1 cost a request to Azure for every two versions of a
+     * key.
+     */
+    static Iterator<BlobItem> rows(PagedIterable<BlobItem> listing) {
+        return new AbstractIterator<BlobItem>() {
+            private boolean first = true;
+            private @Nullable String marker;
+            private Iterator<BlobItem> page = Collections.emptyIterator();
+
+            @Override
+            protected @Nullable BlobItem computeNext() {
+                while (!page.hasNext()) {
+                    PagedResponse<BlobItem> response;
+                    if (first) {
+                        first = false;
+                        response = listing.iterableByPage().iterator()
+                                .next();
+                    } else if (marker != null) {
+                        response = listing.iterableByPage(marker,
+                                LATER_ROWS_PAGE_SIZE).iterator().next();
+                    } else {
+                        return endOfData();
+                    }
+                    page = response.getValue().iterator();
+                    marker = Strings.emptyToNull(
+                            response.getContinuationToken());
+                }
+                return page.next();
+            }
+        };
     }
 
     /** The continuation token naming where a listing resumes: after name. */
@@ -1250,9 +1298,9 @@ public final class AzureBlobStore implements BlobStore {
                         .setRetrieveVersions(true)
                         .setRetrieveMetadata(true));
         try {
-            return versionsPage(Iterators.filter(client.listBlobsByHierarchy(
-                    request.delimiter(), options, /*timeout=*/ null)
-                    .iterator(), blob -> !isMultipartStub(blob)),
+            return versionsPage(Iterators.filter(rows(client.listBlobsByHierarchy(
+                    request.delimiter(), options, /*timeout=*/ null)),
+                    blob -> !isMultipartStub(blob)),
                     request.keyMarker(), request.versionIdMarker(), maxKeys);
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);

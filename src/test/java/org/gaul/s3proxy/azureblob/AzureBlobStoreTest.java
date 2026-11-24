@@ -37,6 +37,7 @@ import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpHeaders;
 import com.azure.core.http.HttpMethod;
 import com.azure.core.http.HttpRequest;
+import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.http.rest.PagedResponseBase;
 import com.azure.storage.blob.models.BlobItem;
@@ -174,6 +175,39 @@ public final class AzureBlobStoreTest {
         assertThat(names(page)).containsExactly("cquux/");
         assertThat(page.continuationToken()).isNull();
         assertThat(requested).containsExactly(null, "one");
+    }
+
+    /**
+     * What a versioned listing passes over -- all but one version of a key,
+     * delete markers -- fills Azure's pages, and must not be read in pages
+     * as short as the client's max-keys: only the first is as long as the
+     * listing was set up with, and none is fetched before it is read.
+     */
+    @Test
+    public void testRowsAsksForLaterPagesInFull() {
+        pages.add(page(List.of(blob("a")), "one"));
+        pages.add(page(List.of(), "two"));
+        pages.add(page(List.of(blob("b"), blob("c")), null));
+        var sizes = new ArrayList<Integer>();
+
+        var rows = AzureBlobStore.rows(new PagedIterable<BlobItem>(
+                size -> {
+                    sizes.add(size);
+                    return next(null);
+                },
+                (marker, size) -> {
+                    sizes.add(size);
+                    return next(marker);
+                }));
+
+        assertThat(requested).isEmpty();
+        assertThat(rows.next().getName()).isEqualTo("a");
+        assertThat(requested).containsExactly((String) null);
+        assertThat(rows.next().getName()).isEqualTo("b");
+        assertThat(rows.next().getName()).isEqualTo("c");
+        assertThat(rows.hasNext()).isFalse();
+        assertThat(requested).containsExactly(null, "one", "two");
+        assertThat(sizes).containsExactly(null, 1001, 1001);
     }
 
     /**
