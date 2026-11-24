@@ -280,6 +280,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * first's -- losing a version the caller was told had been stored.
      * Within one process this closes it; across processes nothing here
      * could, which is why only the transient store offers versioning.
+     *
+     * <p>An ACL request that names a version holds it as well, from finding
+     * the version's file to reading or changing it: the current version's
+     * file is the key's own path, which that rename gives to the successor.
      */
     private final Object versionLock = new Object();
     /**
@@ -2644,6 +2648,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final ObjectCannedACL getBlobAccess(String container, String key,
             @Nullable String versionId) {
         var containerPath = requireContainerPath(container);
+        if (versionId == null) {
+            return currentBlobAccess(container, containerPath, key,
+                    /*versionId=*/ null);
+        }
+        // As setBlobAccess: the answer is for the version that was asked
+        // after, not for one published over it since.
+        synchronized (versionLock) {
+            return currentBlobAccess(container, containerPath, key,
+                    versionId);
+        }
+    }
+
+    /** The access of the file the key or the version names now. */
+    private ObjectCannedACL currentBlobAccess(String container,
+            Path containerPath, String key, @Nullable String versionId) {
         Path path;
         NoSuchKeyException missing = null;
         try {
@@ -2692,8 +2711,23 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             ObjectCannedACL access, @Nullable String versionId) {
         checkNotReserved(key);
         var containerPath = requireContainerPath(container);
-        setBlobAccessHelper(
-                aclPath(container, containerPath, key, versionId), access);
+        if (versionId == null) {
+            // Whatever lies at the key's path is the current version, which
+            // is the one such a request means.
+            setBlobAccessHelper(aclPath(container, containerPath, key,
+                    /*versionId=*/ null), access);
+            return;
+        }
+        // A version named while it is current resolves to the key's path
+        // too, and that path names its successor as soon as a write
+        // publishes one.  Held from finding the version to changing its
+        // file, versionLock keeps the two the same file; without it the
+        // access asked for one version lands on the next, and public-read on
+        // a version stored private.
+        synchronized (versionLock) {
+            setBlobAccessHelper(
+                    aclPath(container, containerPath, key, versionId), access);
+        }
     }
 
     /**
