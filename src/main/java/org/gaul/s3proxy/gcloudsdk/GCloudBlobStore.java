@@ -38,7 +38,6 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeSet;
 
 import com.google.api.gax.paging.Page;
 import com.google.auth.oauth2.AccessToken;
@@ -1025,34 +1024,81 @@ public final class GCloudBlobStore implements BlobStore {
             gcsOptions.add(BlobListOption.startOffset(keyMarker));
         }
 
-        com.google.api.gax.paging.Page<Blob> page;
-        try {
-            page = storage.list(container,
-                    gcsOptions.toArray(new BlobListOption[0]));
-        } catch (StorageException se) {
-            throw translate(se, container, /*key=*/ null);
+        Long parsedGeneration = null;
+        if (keyMarker != null && request.versionIdMarker() != null) {
+            try {
+                parsedGeneration = Long.parseLong(request.versionIdMarker());
+            } catch (NumberFormatException nfe) {
+                // no generation of the key: resume at the next key
+            }
         }
+        Long markerGeneration = parsedGeneration;
 
-        // Flatten every generation into S3's order -- keys ascending,
-        // newest first -- and slice one page out of it.  GCS orders the
-        // listing by name but says nothing about the versions within one,
-        // so the sort does not lean on it.
+        // Flatten every generation, and every common prefix, into S3's
+        // order -- names ascending, a key's newest generation first -- and
+        // slice one page out of it.  GCS lists by name, a page of its
+        // listing the names after the page before, but says nothing about
+        // the generations within one name, so a name is settled only once
+        // GCS has listed a name after it.  The listing stops once the
+        // settled entries past the marker fill the page and one more, which
+        // tells that the page is truncated: reading every generation to the
+        // end of the bucket made paging through V versions cost O(V^2).
         var rows = new ArrayList<VersionRow>();
-        var commonPrefixes = new TreeSet<String>();
-        for (Blob blob : page.iterateAll()) {
-            if (isMultipartInternal(blob)) {
-                continue;
+        // The first GCS page is as long as a page of keys with a version
+        // each needs, as list() asks; a key's other generations, and the
+        // marker key's newer ones, take the pages after it.
+        int pageSize = Math.min(maxKeys + (keyMarker == null ? 1 : 2),
+                MAX_LIST_PAGE_SIZE);
+        String pageToken = null;
+        do {
+            var pageOptions = new ArrayList<>(gcsOptions);
+            pageOptions.add(BlobListOption.pageSize(pageSize));
+            if (pageToken != null) {
+                pageOptions.add(BlobListOption.pageToken(pageToken));
             }
-            if (blob.isDirectory()) {
-                commonPrefixes.add(blob.getName());
-                continue;
+            Page<Blob> page;
+            try {
+                page = storage.list(container,
+                        pageOptions.toArray(new BlobListOption[0]));
+            } catch (StorageException se) {
+                throw translate(se, container, /*key=*/ null);
             }
-            rows.add(new VersionRow(blob.getName(), blob.getGeneration(),
-                    isDeleteMarker(blob), reportETag(blob),
-                    toInstant(blob.getUpdateTimeOffsetDateTime()),
-                    blob.getSize(),
-                    fromGcsStorageClass(blob.getStorageClass())));
-        }
+            String frontier = null;
+            for (Blob blob : page.getValues()) {
+                String name = blob.getName();
+                if (frontier == null || name.compareTo(frontier) > 0) {
+                    frontier = name;
+                }
+                if (isMultipartInternal(blob)) {
+                    continue;
+                }
+                if (blob.isDirectory()) {
+                    rows.add(VersionRow.prefix(blob.getName()));
+                    continue;
+                }
+                rows.add(new VersionRow(blob.getName(), blob.getGeneration(),
+                        /*prefix=*/ false, isDeleteMarker(blob),
+                        reportETag(blob),
+                        toInstant(blob.getUpdateTimeOffsetDateTime()),
+                        blob.getSize(),
+                        fromGcsStorageClass(blob.getStorageClass())));
+            }
+            pageToken = Strings.emptyToNull(page.getNextPageToken());
+            pageSize = MAX_LIST_PAGE_SIZE;
+            if (pageToken != null && frontier != null) {
+                String settledBefore = frontier;
+                long settled = rows.stream()
+                        .filter(row -> row.key().compareTo(settledBefore) < 0)
+                        .filter(row -> row.after(keyMarker,
+                                markerGeneration))
+                        .count();
+                if (settled > maxKeys) {
+                    break;
+                }
+            }
+        } while (pageToken != null);
+        // A prefix shares its name with no key: a delimiter folds the keys
+        // that would into it.
         rows.sort(Comparator.comparing(VersionRow::key)
                 .thenComparing(Comparator
                         .comparingLong(VersionRow::generation).reversed()));
@@ -1062,26 +1108,11 @@ public final class GCloudBlobStore implements BlobStore {
         // deletes what it listed, as emptying a versioned bucket does, comes
         // back with a marker naming a row no longer there, and looking for
         // that row found nothing and ended the listing with versions left.
-        int start = 0;
-        if (keyMarker != null) {
-            start = rows.size();
-            Long markerGeneration = null;
-            if (request.versionIdMarker() != null) {
-                try {
-                    markerGeneration = Long.parseLong(
-                            request.versionIdMarker());
-                } catch (NumberFormatException nfe) {
-                    // no generation of the key: resume at the next key
-                }
-            }
-            for (int i = 0; i < rows.size(); i++) {
-                var candidate = rows.get(i);
-                int order = candidate.key().compareTo(keyMarker);
-                if (order > 0 || (order == 0 && markerGeneration != null &&
-                        candidate.generation() < markerGeneration)) {
-                    start = i;
-                    break;
-                }
+        int start = rows.size();
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).after(keyMarker, markerGeneration)) {
+                start = i;
+                break;
             }
         }
         int end = Math.min(rows.size(), start + maxKeys);
@@ -1091,16 +1122,23 @@ public final class GCloudBlobStore implements BlobStore {
         if (end < rows.size() && !pageRows.isEmpty()) {
             var last = pageRows.get(pageRows.size() - 1);
             nextKeyMarker = last.key();
-            nextVersionIdMarker = last.versionId();
+            nextVersionIdMarker = last.prefix() ? null : last.versionId();
         }
 
         var versions = new ArrayList<ObjectVersion>();
         var markers = new ArrayList<DeleteMarkerEntry>();
+        var commonPrefixes = new ArrayList<CommonPrefix>();
         for (int i = start; i < end; i++) {
             var row = rows.get(i);
+            if (row.prefix()) {
+                commonPrefixes.add(SdkResponses.commonPrefix(row.key()));
+                continue;
+            }
             // The newest generation of a key is its latest, marker or not;
             // the row before it in the flattened order belongs to another
-            // key exactly then.
+            // name exactly then.  Every generation of a name the page
+            // reaches was listed, the marker's own included, as startOffset
+            // includes it.
             boolean latest = i == 0 ||
                     !rows.get(i - 1).key().equals(row.key());
             if (row.deleteMarker()) {
@@ -1118,29 +1156,54 @@ public final class GCloudBlobStore implements BlobStore {
                         .eTag(row.eTag())
                         .lastModified(row.lastModified())
                         .size(row.size())
-                        .storageClass(row.storageClass().toString())
+                        .storageClass(requireNonNull(row.storageClass())
+                                .toString())
                         .build());
             }
         }
         return ListObjectVersionsResponse.builder()
                 .versions(versions)
                 .deleteMarkers(markers)
-                .commonPrefixes(commonPrefixes.stream()
-                        .map(SdkResponses::commonPrefix)
-                        .toList())
+                .commonPrefixes(commonPrefixes)
                 .nextKeyMarker(nextKeyMarker)
                 .nextVersionIdMarker(nextVersionIdMarker)
                 .isTruncated(nextKeyMarker != null)
                 .build();
     }
 
-    /** One row of the flattened versions listing. */
-    private record VersionRow(String key, long generation,
+    /**
+     * One row of the flattened versions listing: a generation of a key, or
+     * a common prefix, which takes a place in the page as a key does.
+     */
+    private record VersionRow(String key, long generation, boolean prefix,
             boolean deleteMarker, @Nullable String eTag,
             @Nullable Instant lastModified, @Nullable Long size,
-            StorageClass storageClass) {
+            @Nullable StorageClass storageClass) {
+        static VersionRow prefix(String name) {
+            return new VersionRow(name, /*generation=*/ 0, /*prefix=*/ true,
+                    /*deleteMarker=*/ false, /*eTag=*/ null,
+                    /*lastModified=*/ null, /*size=*/ null,
+                    /*storageClass=*/ null);
+        }
+
         String versionId() {
             return Long.toString(generation);
+        }
+
+        /**
+         * Whether the row comes after the markers: a later name, or an
+         * older generation of the marker's key.  A prefix named by the
+         * marker was the last entry of the page before.
+         */
+        boolean after(@Nullable String keyMarker,
+                @Nullable Long markerGeneration) {
+            if (keyMarker == null) {
+                return true;
+            }
+            int order = key.compareTo(keyMarker);
+            return order > 0 || (order == 0 && !prefix &&
+                    markerGeneration != null &&
+                    generation < markerGeneration);
         }
     }
 
