@@ -77,6 +77,7 @@ import com.google.common.base.Supplier;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
@@ -626,15 +627,30 @@ public final class GCloudBlobStore implements BlobStore {
     /**
      * Deletes each listed blob by the generation its blobId carries,
      * removing that version outright where a nameless delete would
-     * archive it.
+     * archive it.  The deletes go in batches, as many as GCS takes in one,
+     * since this is how an upload's parts are removed when it completes or
+     * is aborted: one request apiece made a 10,000-part completion wait on
+     * 10,000 sequential deletes.
      */
     private void deleteGenerations(Page<Blob> page) {
-        for (Blob blob : page.iterateAll()) {
-            try {
-                storage.delete(blob.getBlobId());
-            } catch (StorageException se) {
-                if (se.getCode() != 404) {
-                    throw se;
+        for (List<Blob> chunk : Iterables.partition(page.iterateAll(),
+                MAX_BATCH_DELETES)) {
+            var batch = storage.batch();
+            var results = new ArrayList<StorageBatchResult<Boolean>>(
+                    chunk.size());
+            for (Blob blob : chunk) {
+                results.add(batch.delete(blob.getBlobId()));
+            }
+            batch.submit();
+            for (StorageBatchResult<Boolean> result : results) {
+                try {
+                    // whether it was still there does not matter, only a
+                    // failure to remove it
+                    result.get();
+                } catch (StorageException se) {
+                    if (se.getCode() != 404) {
+                        throw se;
+                    }
                 }
             }
         }
