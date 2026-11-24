@@ -104,6 +104,7 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.PeekingIterator;
 
+import org.eclipse.jetty.util.VirtualThreads;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -119,6 +120,7 @@ import org.slf4j.LoggerFactory;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.Bucket;
@@ -248,6 +250,29 @@ public final class AzureBlobStore implements BlobStore {
             /*tryTimeoutInSeconds=*/ (Integer) null,
             /*retryDelayInMs=*/ null, /*maxRetryDelayInMs=*/ null,
             /*secondaryHost=*/ null);
+    /**
+     * Where the body of an upload is read from its client.  A read blocks
+     * for as long as the client takes to send, so each upload in flight
+     * needs a thread of its own.  Schedulers.boundedElastic() is one pool for
+     * the whole process, capped at ten threads per CPU, and past that cap it
+     * queues a new upload behind a thread that may be blocked in another
+     * client's read: that many slow uploads stalled every other one,
+     * whatever the bucket, until the write timeout failed it.  Each read
+     * runs on a virtual thread of its own where the runtime has them, as
+     * the request waiting for it does; elsewhere a pool that grows with the
+     * uploads, which the frontend's request threads bound since each waits
+     * for its own.
+     */
+    private static final Scheduler UPLOAD_SCHEDULER =
+            VirtualThreads.areSupported() ?
+                    Schedulers.fromExecutor(
+                            VirtualThreads.getNamedVirtualThreadsExecutor(
+                                    "s3proxy-azure-upload-")) :
+                    Schedulers.newBoundedElastic(
+                            /*threadCap=*/ Integer.MAX_VALUE,
+                            /*queuedTaskCap=*/ Integer.MAX_VALUE,
+                            "s3proxy-azure-upload", /*ttlSeconds=*/ 60,
+                            /*daemon=*/ true);
 
     /** What Azure allows a storage account to be named. */
     private static final Pattern ACCOUNT_NAME =
@@ -1705,7 +1730,8 @@ public final class AzureBlobStore implements BlobStore {
      * blocking, and when the source is another Azure blob (UploadPartCopy)
      * its read() even calls block() internally, so emit from a scheduler
      * that permits blocking; subscribeOn also forwards downstream requests
-     * onto that scheduler.
+     * onto that scheduler.  It is {@link #UPLOAD_SCHEDULER} rather than a
+     * shared one because the read waits on the client.
      *
      * The chunk size alone does not bound heap use: reactor-netty demands
      * reactor.netty.send.maxPrefetchSize chunks, 128 by default, before it
@@ -1769,7 +1795,7 @@ public final class AzureBlobStore implements BlobStore {
             position -> {
                 // Stream is closed by try-with-resources
             }
-        ).subscribeOn(Schedulers.boundedElastic());
+        ).subscribeOn(UPLOAD_SCHEDULER);
     }
 
     /**
