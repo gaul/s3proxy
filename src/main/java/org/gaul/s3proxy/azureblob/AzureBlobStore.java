@@ -33,11 +33,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -103,6 +103,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.PeekingIterator;
+import com.google.common.collect.Streams;
 
 import org.eclipse.jetty.util.VirtualThreads;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -113,6 +114,8 @@ import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
+import org.gaul.s3proxy.blobstore.UploadListings;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -152,6 +155,8 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -179,7 +184,25 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 public final class AzureBlobStore implements BlobStore {
     private static final Logger logger = LoggerFactory.getLogger(
             AzureBlobStore.class);
+    /**
+     * Where the store keeps its multipart stubs, reserved from client keys
+     * and hidden from listings.  An upload's parts are uncommitted blocks
+     * of the key's own blob, named by the upload ID; its stub is named by
+     * its key and upload ID under {@link #UPLOADS_PREFIX}, so that Azure
+     * lists the uploads in S3's order and ListMultipartUploads reads one
+     * page of them -- see {@link UploadNames}.  A stub whose key is too
+     * long for that name is kept under {@link #LONG_UPLOADS_PREFIX} by its
+     * upload ID alone.  Stubs of uploads begun before this layout lie
+     * directly under the prefix and are no longer found; they stay hidden
+     * and are removed with the container.
+     */
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
+    private static final String UPLOADS_PREFIX = STUB_BLOB_PREFIX + "u/";
+    private static final String LONG_UPLOADS_PREFIX = STUB_BLOB_PREFIX + "l/";
+    /** Azure's longest blob name, in characters. */
+    private static final int MAX_NAME_LENGTH = 1024;
+    /** The most '/'-separated segments Azure allows a blob name. */
+    private static final int MAX_NAME_SEGMENTS = 254;
     private static final long MAXIMUM_MULTIPART_PART_SIZE =
             4000L * 1024 * 1024;
     /**
@@ -2872,9 +2895,10 @@ public final class AzureBlobStore implements BlobStore {
             }
         }
 
-        String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
         String targetBlobName = request.key();
-        var stubBlobClient = containerClient.getBlobClient(uploadKey).getBlockBlobClient();
+        String uploadId = UploadNames.newUploadId(targetBlobName);
+        var stubBlobClient = containerClient.getBlobClient(
+                stubName(targetBlobName, uploadId)).getBlockBlobClient();
 
         BlobHttpHeaders headers = new BlobHttpHeaders();
         headers.setContentType(request.contentType());
@@ -2902,7 +2926,49 @@ public final class AzureBlobStore implements BlobStore {
         // unknown -- one that listMultipartUploads skips and no abort reaches.
         stubBlobClient.uploadWithResponse(uploadOptions, null, null);
 
-        return new MultipartUpload(uploadKey, request);
+        return new MultipartUpload(uploadId, request);
+    }
+
+    /** The name of an upload's stub, from its key and upload ID. */
+    static String stubName(String key, String uploadId) {
+        String name = UPLOADS_PREFIX + UploadNames.escapeKey(key) +
+                UploadNames.SEPARATOR + uploadId;
+        if (name.length() <= MAX_NAME_LENGTH && name.chars()
+                .filter(c -> c == '/').count() < MAX_NAME_SEGMENTS) {
+            return name;
+        }
+        return LONG_UPLOADS_PREFIX + uploadId;
+    }
+
+    private BlobClient stubClient(MultipartUpload mpu) {
+        return blobServiceClient.getBlobContainerClient(mpu.containerName())
+                .getBlobClient(stubName(mpu.blobName(), mpu.id()));
+    }
+
+    /**
+     * The properties of the stub of the upload the request names, by its
+     * key and upload ID both, or null.  An upload ID names the key it was
+     * issued for, so one sent with another key is no upload at all, as on
+     * S3; a long key's stub is named by its ID alone and keeps the key in
+     * its metadata, which is compared too.
+     */
+    private @Nullable BlobProperties findStub(MultipartUpload mpu) {
+        if (!UploadNames.namesKey(mpu.id(), mpu.blobName())) {
+            return null;
+        }
+        try {
+            var properties = stubClient(mpu).getProperties();
+            if (!mpu.blobName().equals(decodeTargetBlobName(
+                    properties.getMetadata()))) {
+                return null;
+            }
+            return properties;
+        } catch (BlobStorageException bse) {
+            if (isAbsent(bse)) {
+                return null;
+            }
+            throw translate(bse, mpu.containerName(), mpu.blobName());
+        }
     }
 
     /**
@@ -3136,24 +3202,10 @@ public final class AzureBlobStore implements BlobStore {
      * to the ID of an upload begun for another key than the request's.
      */
     private String openUploadNonce(MultipartUpload mpu) {
-        String uploadKey = mpu.id();
-        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
+        if (findStub(mpu) == null) {
+            throw S3Exceptions.noSuchUpload(mpu.id());
         }
-        try {
-            if (!mpu.blobName().equals(decodeTargetBlobName(blobServiceClient
-                    .getBlobContainerClient(mpu.containerName())
-                    .getBlobClient(uploadKey).getProperties()
-                    .getMetadata()))) {
-                throw S3Exceptions.noSuchUpload(uploadKey);
-            }
-        } catch (BlobStorageException bse) {
-            if (isAbsent(bse)) {
-                throw S3Exceptions.noSuchUpload(uploadKey);
-            }
-            throw translate(bse, mpu.containerName(), mpu.blobName());
-        }
-        return uploadKey.substring(STUB_BLOB_PREFIX.length());
+        return mpu.id();
     }
 
     /**
@@ -3170,22 +3222,17 @@ public final class AzureBlobStore implements BlobStore {
     public void abortMultipartUpload(MultipartUpload mpu) {
         // Delete the stub blob to remove the upload from listMultipartUploads
         // Note: Uncommitted blocks are automatically removed by Azure after 7 days
-        String uploadKey = mpu.id();
-        var stub = blobServiceClient
-                .getBlobContainerClient(mpu.containerName())
-                .getBlobClient(uploadKey);
+        String uploadId = mpu.id();
         try {
-            if (!uploadKey.startsWith(STUB_BLOB_PREFIX) ||
-                    !mpu.blobName().equals(decodeTargetBlobName(
-                            stub.getProperties().getMetadata()))) {
-                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                        "Multipart upload not found: " + uploadKey);
+            if (findStub(mpu) == null) {
+                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadId,
+                        "Multipart upload not found: " + uploadId);
             }
-            deleteStub(stub);
+            deleteStub(stubClient(mpu));
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() == 404) {
-                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                        "Multipart upload not found: " + uploadKey);
+                throw S3Exceptions.noSuchKey(mpu.containerName(), uploadId,
+                        "Multipart upload not found: " + uploadId);
             }
             throw bse;
         }
@@ -3198,36 +3245,19 @@ public final class AzureBlobStore implements BlobStore {
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
         List<CompletedPart> parts = request.multipartUpload() == null ?
                 List.of() : request.multipartUpload().parts();
-        String uploadKey = mpu.id();
-        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
-        }
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String nonce = mpu.id();
 
         var containerClient = blobServiceClient.getBlobContainerClient(mpu.containerName());
-        var stubBlobClient = containerClient.getBlobClient(uploadKey);
+        var stubBlobClient = stubClient(mpu);
 
-        BlobProperties stubProperties;
-        try {
-            stubProperties = stubBlobClient.getProperties();
-        } catch (BlobStorageException bse) {
-            if (bse.getErrorCode().equals(BlobErrorCode.BLOB_NOT_FOUND)) {
-                throw new IllegalArgumentException(
-                        "Upload not found: uploadId=" + uploadKey);
-            }
-            throw bse;
+        // an upload of another key, which this request does not name, has
+        // a stub of another name
+        BlobProperties stubProperties = findStub(mpu);
+        if (stubProperties == null) {
+            throw S3Exceptions.noSuchUpload(nonce);
         }
-
         var stubMetadata = stubProperties.getMetadata();
-        String targetBlobName = decodeTargetBlobName(stubMetadata);
-        if (targetBlobName == null) {
-            throw new IllegalArgumentException(
-                    "Stub blob missing target name: uploadId=" + uploadKey);
-        }
-        if (!targetBlobName.equals(mpu.blobName())) {
-            // an upload of another key, which this request does not name
-            throw S3Exceptions.noSuchUpload(uploadKey);
-        }
+        String targetBlobName = mpu.blobName();
 
         var userMetadata = withoutTargetBlobName(stubMetadata);
         var contentMetadata = toContentMetadata(stubProperties);
@@ -3596,33 +3626,17 @@ public final class AzureBlobStore implements BlobStore {
 
     @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
-        String uploadKey = mpu.id();
+        String nonce = mpu.id();
         // An upload that is not there is NoSuchUpload, here as on every
         // other multipart request; NoSuchKey says the object is missing,
-        // which a ListParts never asked about.
-        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
+        // which a ListParts never asked about.  No stub at all, or an
+        // upload begun for another key.
+        if (findStub(mpu) == null) {
+            throw S3Exceptions.noSuchUpload(nonce);
         }
-
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
-
-        var containerClient = blobServiceClient.getBlobContainerClient(mpu.containerName());
-        var stubBlobClient = containerClient.getBlobClient(uploadKey);
-
-        String targetBlobName;
-        try {
-            targetBlobName = decodeTargetBlobName(
-                    stubBlobClient.getProperties().getMetadata());
-        } catch (BlobStorageException bse) {
-            if (BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
-                throw S3Exceptions.noSuchUpload(uploadKey);
-            }
-            throw translate(bse, mpu.containerName(), /*key=*/ null);
-        }
-        // no stub at all, or the stub of an upload begun for another key
-        if (!mpu.blobName().equals(targetBlobName)) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
-        }
+        var containerClient = blobServiceClient.getBlobContainerClient(
+                mpu.containerName());
+        String targetBlobName = mpu.blobName();
 
         var client = containerClient
                 .getBlobClient(targetBlobName)
@@ -3688,38 +3702,140 @@ public final class AzureBlobStore implements BlobStore {
     @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
-        var containerClient = blobServiceClient.getBlobContainerClient(container);
-
-        var builder = ImmutableList.<software.amazon.awssdk.services.s3
-                .model.MultipartUpload>builder();
-
-        var options = new ListBlobsOptions();
-        options.setPrefix(STUB_BLOB_PREFIX);
-        var details = new BlobListDetails();
-        details.setRetrieveMetadata(true);
-        options.setDetails(details);
-
-        for (var blobItem : containerClient.listBlobs(options, null, null)) {
-            // e.g., ".s3proxy/stubs/<uuid>"
-            String uploadKey = blobItem.getName();
-
-            String targetBlobName = decodeTargetBlobName(
-                    blobItem.getMetadata());
-            if (targetBlobName == null) {
-                continue;
+        var uploads = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
+        var options = new ListBlobsOptions().setPrefix(UPLOADS_PREFIX);
+        for (var blobItem : blobServiceClient.getBlobContainerClient(container)
+                .listBlobs(options, null, null)) {
+            var upload = keyedUpload(blobItem);
+            if (upload != null) {
+                uploads.add(upload);
             }
-
-            // The stub is written when the upload is created; prefer the
-            // time it was created over the time it was last written, which
-            // are the same until something rewrites it.
-            var properties = blobItem.getProperties();
-            var initiated = properties.getCreationTime() != null ?
-                    properties.getCreationTime() : properties.getLastModified();
-            builder.add(SdkResponses.upload(targetBlobName, uploadKey,
-                    initiated == null ? null : initiated.toInstant()));
         }
+        uploads.addAll(longUploads(container));
+        return uploads;
+    }
 
-        return builder.build();
+    /**
+     * One page of uploads, read from Azure a page at a time.  The stubs
+     * sort as S3 lists the uploads, so the listing starts where the
+     * markers point and stops once it holds the page and the entry that
+     * tells there is more; a slash delimiter is Azure's own, which folds a
+     * group of keys into one entry however many uploads it holds.  The few
+     * stubs of keys too long to be named by them are read whole and merged
+     * in.
+     */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        String container = request.bucket();
+        String prefix = Strings.nullToEmpty(request.prefix());
+        String delimiter = Strings.emptyToNull(request.delimiter());
+        String keyMarker = Strings.emptyToNull(request.keyMarker());
+        var options = new ListBlobsOptions()
+                .setPrefix(UPLOADS_PREFIX + UploadNames.escapeKey(prefix))
+                .setMaxResultsPerPage(Math.min(
+                        UploadListings.maxUploads(request) + 2, 5000));
+        String start = UploadNames.startName(prefix, delimiter, keyMarker,
+                keyMarker == null ? null :
+                        Strings.emptyToNull(request.uploadIdMarker()));
+        if (start != null) {
+            options.setStartFrom(UPLOADS_PREFIX + start);
+        }
+        var client = blobServiceClient.getBlobContainerClient(container);
+        String azureDelimiter = "/".equals(delimiter) ? "/" : null;
+        Iterable<software.amazon.awssdk.services.s3.model.MultipartUpload>
+                ordered = () -> Streams.stream(inNameOrder(
+                        client.listBlobsByHierarchy(azureDelimiter, options,
+                                /*timeout=*/ null).iterableByPage()))
+                .map(AzureBlobStore::listedUpload)
+                .filter(java.util.Objects::nonNull)
+                .iterator();
+        try {
+            return UploadListings.pageFromOrdered(ordered,
+                    longUploads(container), request);
+        } catch (BlobStorageException bse) {
+            throw translate(bse, container, /*key=*/ null);
+        }
+    }
+
+    /**
+     * A listing's entries in the order of their names, a page at a time,
+     * each page sorted as it arrives; the pages themselves follow in order.
+     */
+    private static Iterable<BlobItem> inNameOrder(
+            Iterable<PagedResponse<BlobItem>> pages) {
+        return () -> Streams.stream(pages)
+                .flatMap(page -> page.getValue().stream()
+                        .sorted(Comparator.comparing(BlobItem::getName)))
+                .iterator();
+    }
+
+    /**
+     * An entry of a listing of the uploads area: an upload, or a group of
+     * keys Azure folded, which the page reports as the common prefix an
+     * upload of that name folds into.
+     */
+    private static software.amazon.awssdk.services.s3.model.@Nullable
+            MultipartUpload listedUpload(BlobItem blob) {
+        if (Boolean.TRUE.equals(blob.isPrefix())) {
+            return software.amazon.awssdk.services.s3.model.MultipartUpload
+                    .builder()
+                    .key(UploadNames.unescapeKey(blob.getName().substring(
+                            UPLOADS_PREFIX.length())))
+                    .uploadId("")
+                    .build();
+        }
+        return keyedUpload(blob);
+    }
+
+    /** The upload a stub named by its key records, or null for another. */
+    private static software.amazon.awssdk.services.s3.model.@Nullable
+            MultipartUpload keyedUpload(BlobItem blob) {
+        String name = blob.getName();
+        if (Boolean.TRUE.equals(blob.isPrefix()) ||
+                !name.startsWith(UPLOADS_PREFIX)) {
+            return null;
+        }
+        return UploadNames.parseStubName(
+                name.substring(UPLOADS_PREFIX.length()), initiated(blob));
+    }
+
+    /** The uploads of keys too long for a stub to be named by them. */
+    private List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            longUploads(String container) {
+        var uploads = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
+        var options = new ListBlobsOptions()
+                .setPrefix(LONG_UPLOADS_PREFIX)
+                .setDetails(new BlobListDetails().setRetrieveMetadata(true));
+        for (var blobItem : blobServiceClient.getBlobContainerClient(container)
+                .listBlobs(options, null, null)) {
+            String uploadId = blobItem.getName().substring(
+                    LONG_UPLOADS_PREFIX.length());
+            String key = decodeTargetBlobName(blobItem.getMetadata());
+            if (key != null && UploadNames.isUploadId(uploadId)) {
+                uploads.add(SdkResponses.upload(key, uploadId,
+                        initiated(blobItem)));
+            }
+        }
+        return uploads;
+    }
+
+    /**
+     * When the upload a stub records began.  The stub is written when the
+     * upload is created; the time it was created is preferred over the
+     * time it was last written, which are the same until something
+     * rewrites it.
+     */
+    private static @Nullable Instant initiated(BlobItem blob) {
+        var properties = blob.getProperties();
+        if (properties == null) {
+            return null;
+        }
+        var initiated = properties.getCreationTime() != null ?
+                properties.getCreationTime() : properties.getLastModified();
+        return initiated == null ? null : initiated.toInstant();
     }
 
     @Override

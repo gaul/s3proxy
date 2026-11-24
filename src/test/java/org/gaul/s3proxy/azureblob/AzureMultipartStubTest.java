@@ -39,6 +39,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -71,6 +73,10 @@ public final class AzureMultipartStubTest {
     private final TreeSet<String> names = new TreeSet<>();
     private final List<String> blobRequests =
             Collections.synchronizedList(new ArrayList<String>());
+
+    /** The blobs and prefixes List Blobs was made to send. */
+    private final java.util.concurrent.atomic.AtomicInteger listed =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     private HttpServer server;
 
@@ -298,6 +304,54 @@ public final class AzureMultipartStubTest {
         }
     }
 
+    /**
+     * A stub is named by its upload's key, so List Blobs returns the
+     * uploads in S3's order and a page of them costs about the page: Azure
+     * folds a slash delimiter itself, and the page after a common prefix
+     * starts past it.  The stub of an upload begun before this layout is
+     * no upload any more.
+     */
+    @Test
+    public void testListMultipartUploadsPagesFromAzure() {
+        var keys = new java.util.ArrayList<String>(List.of("a", "e", "e"));
+        for (int i = 0; i < 50; ++i) {
+            keys.add("dir/%02d".formatted(i));
+        }
+        for (String key : keys) {
+            names.add(AzureBlobStore.stubName(key,
+                    UploadNames.newUploadId(key)));
+        }
+        try (BlobStore blobStore = store(/*versioning=*/ false)) {
+            var request = ListMultipartUploadsRequest.builder()
+                    .bucket("container").delimiter("/").maxUploads(2);
+            var first = blobStore.listMultipartUploads(request.build());
+            assertThat(first.uploads())
+                    .extracting(software.amazon.awssdk.services.s3.model
+                            .MultipartUpload::key)
+                    .containsExactly("a");
+            assertThat(first.commonPrefixes()).extracting(
+                    software.amazon.awssdk.services.s3.model
+                            .CommonPrefix::prefix)
+                    .containsExactly("dir/");
+            assertThat(first.nextKeyMarker()).isEqualTo("dir/");
+            // the page, one past it, and the long keys' area
+            assertThat(listed.get()).isLessThanOrEqualTo(4);
+
+            listed.set(0);
+            var second = blobStore.listMultipartUploads(request
+                    .keyMarker(first.nextKeyMarker()).build());
+            assertThat(second.uploads())
+                    .extracting(software.amazon.awssdk.services.s3.model
+                            .MultipartUpload::key)
+                    .containsExactly("e", "e");
+            assertThat(second.isTruncated()).isFalse();
+            assertThat(listed.get()).isLessThanOrEqualTo(4);
+
+            assertThat(blobStore.listMultipartUploads("container"))
+                    .hasSize(keys.size());
+        }
+    }
+
     @Test
     public void testListVersionsHidesStubs() {
         try (BlobStore blobStore = store(/*versioning=*/ true)) {
@@ -430,6 +484,7 @@ public final class AzureMultipartStubTest {
                     "<Etag>0x1</Etag><Content-Length>0</Content-Length>" +
                     "<BlobType>BlockBlob</BlobType></Properties></Blob>");
         }
+        listed.addAndGet(count);
         return "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
                 "<EnumerationResults ContainerName=\"container\"><Blobs>" +
                 entries + "</Blobs><NextMarker>" + nextMarker +

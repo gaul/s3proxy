@@ -18,10 +18,15 @@ package org.gaul.s3proxy.blobstore;
 
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.regex.Pattern;
 
 import com.google.common.hash.Hashing;
+
+import org.jspecify.annotations.Nullable;
+
+import software.amazon.awssdk.services.s3.model.MultipartUpload;
 
 /**
  * Names for the stores that keep a multipart upload's stub as an object of
@@ -102,6 +107,56 @@ public final class UploadNames {
             }
         }
         return escaped.toString();
+    }
+
+    /**
+     * Where a listing of stub names -- each the store's prefix, then the
+     * escaped key, {@link #SEPARATOR} and the upload ID -- starts for a
+     * page, as the part after the store's prefix: after every upload of
+     * the key marker when it names no upload ID, after every key folded
+     * into it when it is a common prefix, and at the marked upload
+     * otherwise, which the page then passes over.  Null where the listing
+     * starts at the beginning.
+     */
+    public static @Nullable String startName(String prefix,
+            @Nullable String delimiter, @Nullable String keyMarker,
+            @Nullable String uploadIdMarker) {
+        if (keyMarker == null) {
+            return null;
+        }
+        String escaped = escapeKey(keyMarker);
+        if (delimiter != null && keyMarker.equals(
+                UploadListings.rollUp(keyMarker, prefix, delimiter))) {
+            // the first name after all those beginning with the prefix
+            char last = escaped.charAt(escaped.length() - 1);
+            return escaped.substring(0, escaped.length() - 1) +
+                    (char) (last + 1);
+        }
+        if (uploadIdMarker == null) {
+            return escaped + SEPARATOR + AFTER_EVERY_UPLOAD_ID;
+        }
+        return escaped + SEPARATOR + uploadIdMarker;
+    }
+
+    /**
+     * The upload a stub records, from the part of its name after the
+     * store's prefix, or null for a name that is no stub's.
+     */
+    public static @Nullable MultipartUpload parseStubName(String name,
+            @Nullable Instant initiated) {
+        int separator = name.lastIndexOf(SEPARATOR);
+        if (separator < 0) {
+            return null;
+        }
+        String uploadId = name.substring(separator + SEPARATOR.length());
+        if (!isUploadId(uploadId)) {
+            return null;
+        }
+        return MultipartUpload.builder()
+                .key(unescapeKey(name.substring(0, separator)))
+                .uploadId(uploadId)
+                .initiated(initiated)
+                .build();
     }
 
     public static String unescapeKey(String escaped) {

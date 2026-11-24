@@ -37,6 +37,7 @@ import com.google.common.base.Throwables;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.Test;
 
@@ -102,7 +103,7 @@ public final class AzureCopySourceSignatureTest {
     /** Put Block From URL, which is how a part is copied. */
     @Test
     public void testRefusedPartCopy() {
-        var mpu = new MultipartUpload(".s3proxy/stubs/nonce",
+        var mpu = new MultipartUpload(UploadNames.newUploadId("blob"),
                 CreateMultipartUploadRequest.builder()
                         .bucket("to").key("blob")
                         .build());

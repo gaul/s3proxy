@@ -70,8 +70,7 @@ public final class UploadListings {
         // S3 ignores the upload-id-marker without a key-marker
         String uploadIdMarker = keyMarker == null ? null :
                 Strings.emptyToNull(request.uploadIdMarker());
-        int maxUploads = request.maxUploads() == null ? MAX_UPLOADS :
-                Math.min(request.maxUploads(), MAX_UPLOADS);
+        int maxUploads = maxUploads(request);
 
         var selected = uploads.stream()
                 .filter(upload -> upload.key().startsWith(prefix))
@@ -127,6 +126,52 @@ public final class UploadListings {
                     .nextUploadIdMarker(nextUploadIdMarker);
         }
         return response.build();
+    }
+
+    /**
+     * One page cut from a store's listing of its uploads in S3's order,
+     * started where the request's markers point -- see
+     * {@link UploadNames#startName} -- and read no further than the page
+     * and the entry after it.  A group of keys the backend folded itself
+     * comes as one upload whose key is the group's common prefix.  The
+     * uploads the backend cannot list in order, the few whose keys are too
+     * long to name a stub by, are added whole.
+     */
+    public static ListMultipartUploadsResponse pageFromOrdered(
+            Iterable<MultipartUpload> ordered,
+            Collection<MultipartUpload> unordered,
+            ListMultipartUploadsRequest request) {
+        String prefix = Strings.nullToEmpty(request.prefix());
+        String delimiter = Strings.emptyToNull(request.delimiter());
+        // the page, the entry after it, and one the markers pass over
+        int wanted = maxUploads(request) + 2;
+        var candidates = new ArrayList<MultipartUpload>(unordered);
+        int entries = 0;
+        String lastEntry = null;
+        for (var upload : ordered) {
+            candidates.add(upload);
+            String rolled = rollUp(upload.key(), prefix, delimiter);
+            String entry = rolled != null ? rolled :
+                    upload.key() + UploadNames.SEPARATOR + upload.uploadId();
+            if (!entry.equals(lastEntry)) {
+                ++entries;
+                lastEntry = entry;
+            }
+            // Stopped here rather than on asking for the next, which could
+            // have the backend send a page more only to be looked at.  The
+            // last entry only tells there is more, so a group of keys it
+            // starts need not be read through.
+            if (entries == wanted) {
+                break;
+            }
+        }
+        return page(candidates, request);
+    }
+
+    /** The page length a request asks for, no more than S3 answers. */
+    public static int maxUploads(ListMultipartUploadsRequest request) {
+        return request.maxUploads() == null ? MAX_UPLOADS :
+                Math.min(request.maxUploads(), MAX_UPLOADS);
     }
 
     /**

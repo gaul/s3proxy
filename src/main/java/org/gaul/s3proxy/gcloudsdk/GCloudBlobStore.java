@@ -2756,75 +2756,50 @@ public final class GCloudBlobStore implements BlobStore {
         String prefix = Strings.nullToEmpty(request.prefix());
         String delimiter = Strings.emptyToNull(request.delimiter());
         String keyMarker = Strings.emptyToNull(request.keyMarker());
-        String uploadIdMarker = keyMarker == null ? null :
-                Strings.emptyToNull(request.uploadIdMarker());
-        int maxUploads = request.maxUploads() == null ?
-                UploadListings.MAX_UPLOADS :
-                Math.min(request.maxUploads(), UploadListings.MAX_UPLOADS);
-        // the page, the entry after it, and one the markers pass over
-        int wanted = maxUploads + 2;
-
         var options = new ArrayList<BlobListOption>();
         options.add(BlobListOption.prefix(UPLOADS_PREFIX +
                 UploadNames.escapeKey(prefix)));
-        options.add(BlobListOption.pageSize(Math.min(wanted,
-                MAX_LIST_PAGE_SIZE)));
-        boolean gcsFolds = "/".equals(delimiter);
-        if (gcsFolds) {
+        options.add(BlobListOption.pageSize(Math.min(
+                UploadListings.maxUploads(request) + 2, MAX_LIST_PAGE_SIZE)));
+        if ("/".equals(delimiter)) {
             options.add(BlobListOption.delimiter("/"));
         }
-        String start = startName(prefix, delimiter, keyMarker,
-                uploadIdMarker);
+        String start = UploadNames.startName(prefix, delimiter, keyMarker,
+                keyMarker == null ? null :
+                        Strings.emptyToNull(request.uploadIdMarker()));
         if (start != null) {
-            options.add(BlobListOption.startOffset(start));
+            options.add(BlobListOption.startOffset(UPLOADS_PREFIX + start));
         }
-
-        var candidates = new ArrayList<
-                software.amazon.awssdk.services.s3.model.MultipartUpload>();
-        int entries = 0;
-        String lastEntry = null;
+        Iterable<software.amazon.awssdk.services.s3.model.MultipartUpload>
+                ordered = () -> Streams.stream(inNameOrder(storage.list(
+                        container, options.toArray(new BlobListOption[0]))))
+                .map(GCloudBlobStore::listedUpload)
+                .filter(java.util.Objects::nonNull)
+                .iterator();
         try {
-            for (Blob blob : inNameOrder(storage.list(container,
-                    options.toArray(new BlobListOption[0])))) {
-                String entry;
-                if (blob.isDirectory()) {
-                    // A group GCS folded, which the page reports as the
-                    // common prefix an upload of that name folds into.
-                    String folded = UploadNames.unescapeKey(
-                            blob.getName().substring(UPLOADS_PREFIX.length()));
-                    candidates.add(software.amazon.awssdk.services.s3.model
-                            .MultipartUpload.builder()
-                            .key(folded).uploadId("").build());
-                    entry = folded;
-                } else {
-                    var upload = keyedUpload(blob);
-                    if (upload == null) {
-                        continue;
-                    }
-                    candidates.add(upload);
-                    String rolled = UploadListings.rollUp(upload.key(),
-                            prefix, delimiter);
-                    entry = rolled != null ? rolled :
-                            upload.key() + UploadNames.SEPARATOR +
-                            upload.uploadId();
-                }
-                if (!entry.equals(lastEntry)) {
-                    ++entries;
-                    lastEntry = entry;
-                }
-                // Stopped here rather than on asking for the next entry,
-                // which could have GCS send a page more only to be looked
-                // at.  The last entry only tells there is more, so a group
-                // of keys it starts need not be read through.
-                if (entries == wanted) {
-                    break;
-                }
-            }
-            candidates.addAll(longUploads(container));
+            return UploadListings.pageFromOrdered(ordered,
+                    longUploads(container), request);
         } catch (StorageException se) {
             throw translate(se, container, /*key=*/ null);
         }
-        return UploadListings.page(candidates, request);
+    }
+
+    /**
+     * An entry of a listing of the uploads area: an upload, or a group of
+     * keys GCS folded, which the page reports as the common prefix an
+     * upload of that name folds into.
+     */
+    private static software.amazon.awssdk.services.s3.model.@Nullable
+            MultipartUpload listedUpload(Blob blob) {
+        if (blob.isDirectory()) {
+            return software.amazon.awssdk.services.s3.model.MultipartUpload
+                    .builder()
+                    .key(UploadNames.unescapeKey(blob.getName().substring(
+                            UPLOADS_PREFIX.length())))
+                    .uploadId("")
+                    .build();
+        }
+        return keyedUpload(blob);
     }
 
     /**
@@ -2860,52 +2835,17 @@ public final class GCloudBlobStore implements BlobStore {
         };
     }
 
-    /**
-     * The first stub name a page can start at: after every upload of the
-     * key marker when it names no upload ID, after every key folded into
-     * it when it is a common prefix, and at the marked upload otherwise,
-     * which the page then passes over.
-     */
-    private static @Nullable String startName(String prefix,
-            @Nullable String delimiter, @Nullable String keyMarker,
-            @Nullable String uploadIdMarker) {
-        if (keyMarker == null) {
-            return null;
-        }
-        String escaped = UploadNames.escapeKey(keyMarker);
-        if (delimiter != null && keyMarker.equals(
-                UploadListings.rollUp(keyMarker, prefix, delimiter))) {
-            // the first name after all those beginning with the prefix
-            char last = escaped.charAt(escaped.length() - 1);
-            return UPLOADS_PREFIX + escaped.substring(0,
-                    escaped.length() - 1) + (char) (last + 1);
-        }
-        if (uploadIdMarker == null) {
-            return UPLOADS_PREFIX + escaped + UploadNames.SEPARATOR +
-                    UploadNames.AFTER_EVERY_UPLOAD_ID;
-        }
-        return UPLOADS_PREFIX + escaped + UploadNames.SEPARATOR +
-                uploadIdMarker;
-    }
-
     /** The upload a stub named by its key records, or null for another. */
     private static software.amazon.awssdk.services.s3.model.@Nullable
             MultipartUpload keyedUpload(Blob blob) {
         String name = blob.getName();
-        int separator = name.lastIndexOf(UploadNames.SEPARATOR);
-        if (blob.isDirectory() || !name.startsWith(UPLOADS_PREFIX) ||
-                separator < UPLOADS_PREFIX.length()) {
-            return null;
-        }
-        String uploadId = name.substring(
-                separator + UploadNames.SEPARATOR.length());
-        if (!UploadNames.isUploadId(uploadId)) {
+        if (blob.isDirectory() || !name.startsWith(UPLOADS_PREFIX)) {
             return null;
         }
         // The stub is written when the upload is created and never again,
         // so its time is the upload's.
-        return SdkResponses.upload(UploadNames.unescapeKey(name.substring(
-                UPLOADS_PREFIX.length(), separator)), uploadId,
+        return UploadNames.parseStubName(
+                name.substring(UPLOADS_PREFIX.length()),
                 toInstant(blob.getCreateTimeOffsetDateTime()));
     }
 
