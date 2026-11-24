@@ -1383,19 +1383,33 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 try {
                     logger.debug("Creating directory blob: {}", path);
                     Files.createDirectories(path);
-                } catch (FileAlreadyExistsException faee) {
+                } catch (IOException ioe) {
+                    // A file in the way is the client's to correct, as it is
+                    // for a write of an object, however the filesystem words
+                    // it.  A file above the directory is "Not a directory"
+                    // on Linux and NoSuchFileException on the transient
+                    // store's in-memory filesystem, and either answered 500;
+                    // only the key's own path being a file is
+                    // FileAlreadyExistsException.
+                    if (hasFileAncestor(requireNonNull(path.getParent()))) {
+                        throw S3Exceptions.invalidArgument("The key lies" +
+                                " beneath the name of an object that already" +
+                                " exists, which this filesystem cannot" +
+                                " store.");
+                    }
                     if (!Files.isDirectory(path)) {
-                        // "key/" resolves to the file that is the object "key",
-                        // or lies under one.  Carrying on would write this
-                        // marker's ETag and metadata onto that object.
+                        if (!(ioe instanceof FileAlreadyExistsException)) {
+                            throw new RuntimeException(ioe);
+                        }
+                        // "key/" resolves to the file that is the object
+                        // "key".  Carrying on would write this marker's ETag
+                        // and metadata onto that object.
                         throw S3Exceptions.invalidArgument("The key names a" +
                                 " directory where an object already has that" +
                                 " name without the trailing slash, which this" +
                                 " filesystem cannot store.");
                     }
                     logger.debug("Parent directories already exist: {}", path.getParent());
-                } catch (IOException ioe) {
-                    throw new RuntimeException(ioe);
                 }
 
                 // The directory is the object and its mode is the object's ACL,
