@@ -29,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,7 +45,9 @@ import org.apache.sshd.server.session.ServerSession;
 import org.apache.sshd.sftp.SftpModuleProperties;
 import org.apache.sshd.sftp.common.SftpConstants;
 import org.apache.sshd.sftp.server.SftpEventListener;
+import org.apache.sshd.sftp.server.SftpFileSystemAccessor;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
+import org.apache.sshd.sftp.server.SftpSubsystemProxy;
 import org.assertj.core.api.Assertions;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -60,6 +63,7 @@ import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -179,6 +183,80 @@ public final class SftpBlobStoreTest {
             assertThat(sftpRoot.resolve(BASEDIR.substring(1)).resolve(source))
                     .doesNotExist();
         }
+    }
+
+    /**
+     * The SFTP filesystem takes a NUL into a path, where a local one refuses
+     * it, and sends it to the server.  OpenSSH's sftp-server exits on such a
+     * path and the channel every client's requests share closes with it, so
+     * a prefix, key or bucket holding one is refused before the server is
+     * asked about it.
+     */
+    @Test
+    public void testNulIsRefusedBeforeItReachesTheServer() throws Exception {
+        var nulPaths = new CopyOnWriteArrayList<String>();
+        var accessor = new SftpFileSystemAccessor() {
+            @Override
+            public Path resolveLocalFilePath(SftpSubsystemProxy subsystem,
+                    Path rootDir, String remotePath) throws IOException {
+                if (remotePath.indexOf('\0') != -1) {
+                    nulPaths.add(remotePath);
+                }
+                return SftpFileSystemAccessor.super.resolveLocalFilePath(
+                        subsystem, rootDir, remotePath);
+            }
+        };
+        var hostKeyProvider = startSftpServer(SshServer.setUpDefaultServer(),
+                new SftpSubsystemFactory.Builder()
+                        .withFileSystemAccessor(accessor).build());
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            var nul = "a" + (char) 0 + "b";
+            var key = nul + "/object.txt";
+            blobStore.createContainer(bucket);
+            var payload = ByteSource.wrap("value".getBytes(
+                    StandardCharsets.UTF_8));
+
+            assertNulRefused(() -> blobStore.list(
+                    ListObjectsV2Request.builder()
+                            .bucket(bucket)
+                            .prefix(nul + "/")
+                            .build()));
+            assertNulRefused(() -> blobStore.putBlob(
+                    PutObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .contentLength(payload.size())
+                            .build(), payload.openStream()));
+            assertNulRefused(() -> blobStore.getBlob(bucket, key));
+            assertNulRefused(() -> blobStore.copyBlob(
+                    CopyObjectRequest.builder()
+                            .sourceBucket(bucket)
+                            .sourceKey(key)
+                            .destinationBucket(bucket)
+                            .destinationKey("copy.txt")
+                            .build()));
+            Assertions.assertThatThrownBy(() -> blobStore.copyBlob(
+                    CopyObjectRequest.builder()
+                            .sourceBucket(nul)
+                            .sourceKey("object.txt")
+                            .destinationBucket(bucket)
+                            .destinationKey("copy.txt")
+                            .build()))
+                    .isInstanceOf(NoSuchBucketException.class);
+
+            assertThat(nulPaths).isEmpty();
+        }
+    }
+
+    private static void assertNulRefused(ThrowingCallable callable) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(S3Exception.class)
+                .matches(e -> S3Exceptions.errorCode((S3Exception) e)
+                        .equals("InvalidArgument"))
+                .hasMessageContaining("NUL");
     }
 
     private static void assertRefused(ThrowingCallable callable) {

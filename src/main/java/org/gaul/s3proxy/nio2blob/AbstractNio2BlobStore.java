@@ -4908,10 +4908,22 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * 500, which says the fault is S3Proxy's and invites a retry that can
      * never succeed.  The refusal is the caller's answer instead, in the
      * same 400 a key holding the separator earns.  See issue #818.
+     *
+     * <p>The NUL is refused here and not left to Path.resolve, since not
+     * every filesystem refuses it there: the SFTP filesystem takes any
+     * character into a path and sends it to the server, which is the one
+     * that cannot store it.  OpenSSH's sftp-server exits on a path holding a
+     * NUL, and with it goes the one channel that carries the requests of
+     * every client.
      */
     private Path resolveName(Path containerPath, String value,
             String noun) {
         checkNoNativeSeparator(value, noun);
+        if (value.indexOf('\0') != -1) {
+            throw S3Exceptions.invalidArgument("The " + noun +
+                    " names something this filesystem cannot store: a NUL" +
+                    " character.");
+        }
         try {
             return containerPath.resolve(value);
         } catch (InvalidPathException ipe) {
@@ -4925,8 +4937,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      *  normalize to a path outside root (e.g. "..", "../foo", "/abs").
      *  A name that normalizes to root itself (e.g. "", ".") is no container
      *  either: root is where the containers are, so that as one of them it
-     *  would hold every other's objects under the key "container/key". */
+     *  would hold every other's objects under the key "container/key".  A
+     *  name holding a NUL is no bucket's, and is answered so before it
+     *  becomes a path; see {@link #resolveName}. */
     private Path resolveContainer(String container) {
+        if (container.indexOf('\0') != -1) {
+            throw S3Exceptions.noSuchBucket(container, "");
+        }
         checkNoNativeSeparator(container, "bucket");
         var path = root.resolve(container);
         checkValidPath(root, path);
