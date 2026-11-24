@@ -73,6 +73,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -565,6 +566,33 @@ public final class EncryptedBlobStoreTest {
         assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
     }
 
+    /**
+     * A copy of a plaintext object onto its own key, as a client does to
+     * change its metadata or its ACL, leaves only the encrypted form: the
+     * plaintext neither stays on the store nor comes back once the copy is
+     * deleted, which a copy that left it behind let a DELETE do.
+     */
+    @Test
+    public void testCopyBlobNotEncryptedInPlace() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        byte[] content = filler(0, LAST_PART_SIZE);
+        putUnencrypted(blobName, content);
+
+        encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(containerName).destinationKey(blobName)
+                .metadataDirective(MetadataDirective.REPLACE)
+                .build());
+        assertThat(blobStore.blobExists(containerName, blobName)).isFalse();
+        try (var is = encryptedBlobStore.getBlob(containerName, blobName)) {
+            assertThat(is.readAllBytes()).isEqualTo(content);
+        }
+
+        encryptedBlobStore.removeBlob(containerName, blobName);
+        assertThat(encryptedBlobStore.blobExists(containerName, blobName))
+                .isFalse();
+    }
+
     /** Stores an object the way it was before encryption was turned on. */
     private void putUnencrypted(String blobName, byte[] content) {
         blobStore.putBlob(
@@ -751,6 +779,149 @@ public final class EncryptedBlobStoreTest {
             new ByteArrayInputStream(replacement));
         try (var is = encryptedBlobStore.getBlob(containerName, created)) {
             assertThat(is.readAllBytes()).isEqualTo(replacement);
+        }
+    }
+
+    /**
+     * A copy is a write like any other, so the copy of an object that rests
+     * in plaintext -- one written before encryption was turned on -- is
+     * stored encrypted and under the suffixed name, where the backend's own
+     * copy would leave a second plaintext object under the key itself.
+     */
+    @Test
+    public void testCopyBlobNotEncrypted() throws Exception {
+        String fromName = TestUtils.createRandomBlobName();
+        String toName = TestUtils.createRandomBlobName();
+        String content = "written before encryption was turned on";
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        String contentType = "plain/text; charset=utf-8";
+        // around the encrypted store, as an object that predates it
+        blobStore.putBlob(makeRequest(containerName, fromName, bytes.length)
+                .toBuilder()
+                .contentType(contentType)
+                .metadata(Map.of("color", "blue"))
+                .build(), new ByteArrayInputStream(bytes));
+        // an encrypted object for the copy to replace
+        encryptedBlobStore.putBlob(makeRequest(containerName, toName, 3),
+                new ByteArrayInputStream(new byte[] {1, 2, 3}));
+
+        encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(fromName)
+                .destinationBucket(containerName).destinationKey(toName)
+                .build());
+
+        assertThat(blobStore.blobExists(containerName, toName)).isFalse();
+        try (var is = blobStore.getBlob(containerName,
+                toName + Constants.S3_ENC_SUFFIX)) {
+            assertThat(new String(is.readAllBytes(),
+                    StandardCharsets.ISO_8859_1)).doesNotContain(content);
+        }
+        try (var is = encryptedBlobStore.getBlob(containerName, toName)) {
+            assertThat(is.readAllBytes()).isEqualTo(bytes);
+            assertThat(is.response().contentType()).isEqualTo(contentType);
+            assertThat(is.response().metadata())
+                    .containsEntry("color", "blue");
+        }
+        assertThat(encryptedBlobStore.blobMetadata(containerName, toName)
+                .contentLength()).isEqualTo(bytes.length);
+    }
+
+    /**
+     * Copying a plaintext object onto itself with new metadata stores it
+     * again, so it is encrypted from then on and carries the metadata of the
+     * request rather than the source's.
+     */
+    @Test
+    public void testCopyBlobNotEncryptedReplacesMetadata() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        String content = "written before encryption was turned on";
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        blobStore.putBlob(makeRequest(containerName, blobName, bytes.length)
+                .toBuilder()
+                .contentType("text/plain")
+                .metadata(Map.of("color", "blue"))
+                .build(), new ByteArrayInputStream(bytes));
+
+        encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(containerName).destinationKey(blobName)
+                .metadataDirective(MetadataDirective.REPLACE)
+                .contentType("text/csv")
+                .metadata(Map.of("shape", "round"))
+                .build());
+
+        try (var is = blobStore.getBlob(containerName,
+                blobName + Constants.S3_ENC_SUFFIX)) {
+            assertThat(new String(is.readAllBytes(),
+                    StandardCharsets.ISO_8859_1)).doesNotContain(content);
+        }
+        try (var is = encryptedBlobStore.getBlob(containerName, blobName)) {
+            assertThat(is.readAllBytes()).isEqualTo(bytes);
+            assertThat(is.response().contentType()).isEqualTo("text/csv");
+            assertThat(is.response().metadata())
+                    .containsEntry("shape", "round")
+                    .doesNotContainKey("color");
+        }
+    }
+
+    /**
+     * A destination ending in the suffix is a key of its own.  Copied by the
+     * backend under the name the client gave, it landed on the stored form
+     * of the key a suffix shorter.
+     */
+    @Test
+    public void testCopyBlobNotEncryptedToSuffixedKey() throws Exception {
+        String fromName = TestUtils.createRandomBlobName();
+        String otherName = TestUtils.createRandomBlobName();
+        String toName = otherName + Constants.S3_ENC_SUFFIX;
+        byte[] bytes = "written before encryption was turned on".getBytes(
+                StandardCharsets.UTF_8);
+        byte[] other = "another object".getBytes(StandardCharsets.UTF_8);
+        blobStore.putBlob(makeRequest(containerName, fromName, bytes.length),
+                new ByteArrayInputStream(bytes));
+        encryptedBlobStore.putBlob(makeRequest(containerName, otherName,
+                other.length), new ByteArrayInputStream(other));
+
+        encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(fromName)
+                .destinationBucket(containerName).destinationKey(toName)
+                .build());
+
+        try (var is = encryptedBlobStore.getBlob(containerName, otherName)) {
+            assertThat(is.readAllBytes()).isEqualTo(other);
+        }
+        try (var is = encryptedBlobStore.getBlob(containerName, toName)) {
+            assertThat(is.readAllBytes()).isEqualTo(bytes);
+        }
+    }
+
+    /**
+     * The copy-source conditions still guard a plaintext source, and an
+     * unmet one answers 412 as a copy does, not the 304 a read gives.
+     */
+    @Test
+    public void testCopyBlobNotEncryptedConditional() throws Exception {
+        String fromName = TestUtils.createRandomBlobName();
+        String toName = TestUtils.createRandomBlobName();
+        byte[] bytes = "written before encryption was turned on".getBytes(
+                StandardCharsets.UTF_8);
+        String eTag = blobStore.putBlob(makeRequest(containerName, fromName,
+                bytes.length), new ByteArrayInputStream(bytes)).eTag();
+        var request = CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(fromName)
+                .destinationBucket(containerName).destinationKey(toName);
+
+        var e = Assertions.assertThrows(AwsServiceException.class,
+                () -> encryptedBlobStore.copyBlob(request
+                        .copySourceIfNoneMatch(eTag).build()));
+        assertThat(e.statusCode()).isEqualTo(412);
+        assertThat(encryptedBlobStore.blobExists(containerName, toName))
+                .isFalse();
+
+        encryptedBlobStore.copyBlob(request.copySourceIfNoneMatch(null)
+                .copySourceIfMatch(eTag).build());
+        try (var is = encryptedBlobStore.getBlob(containerName, toName)) {
+            assertThat(is.readAllBytes()).isEqualTo(bytes);
         }
     }
 

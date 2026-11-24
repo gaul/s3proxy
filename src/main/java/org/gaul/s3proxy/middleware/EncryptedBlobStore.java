@@ -70,6 +70,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectResult;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -82,6 +83,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -751,7 +753,105 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             return response;
         }
 
-        return delegate().copyBlob(request);
+        return copyPlaintextBlob(request);
+    }
+
+    /**
+     * Copies a source that rests in plaintext, one written before encryption
+     * was turned on or by a store that does not encrypt.  The backend's own
+     * copy would write the destination in plaintext too, and under the key
+     * itself rather than its suffixed name, so the source is read and stored
+     * again through {@link #putBlob}, as any other write is.
+     */
+    @SuppressWarnings("deprecation")
+    private CopyObjectResponse copyPlaintextBlob(CopyObjectRequest request) {
+        try (var source = getCopySource(request)) {
+            GetObjectResponse metadata = source.response();
+            // The source answers only to the key the copy-source fields
+            // present, which the backend's own copy would have judged; the
+            // aws-s3 backend's service judged the read already.
+            CustomerKeys.enforce(metadata.sseCustomerKeyMD5(),
+                    request.copySourceSSECustomerAlgorithm(),
+                    request.copySourceSSECustomerKey(),
+                    request.copySourceSSECustomerKeyMD5());
+
+            var putRequest = PutObjectRequest.builder()
+                    .bucket(request.destinationBucket())
+                    .key(request.destinationKey())
+                    .contentLength(requireNonNull(metadata.contentLength()))
+                    .acl(request.acl())
+                    .storageClass(request.storageClassAsString())
+                    .serverSideEncryption(
+                            request.serverSideEncryptionAsString())
+                    .ssekmsKeyId(request.ssekmsKeyId())
+                    .ssekmsEncryptionContext(
+                            request.ssekmsEncryptionContext())
+                    .bucketKeyEnabled(request.bucketKeyEnabled())
+                    .sseCustomerAlgorithm(request.sseCustomerAlgorithm())
+                    .sseCustomerKey(request.sseCustomerKey())
+                    .sseCustomerKeyMD5(request.sseCustomerKeyMD5());
+            if (request.metadataDirective() == MetadataDirective.REPLACE) {
+                putRequest.metadata(request.metadata())
+                        .cacheControl(request.cacheControl())
+                        .contentDisposition(request.contentDisposition())
+                        .contentEncoding(request.contentEncoding())
+                        .contentLanguage(request.contentLanguage())
+                        .contentType(request.contentType())
+                        .expires(request.expires());
+            } else {
+                putRequest.metadata(metadata.metadata())
+                        .cacheControl(metadata.cacheControl())
+                        .contentDisposition(metadata.contentDisposition())
+                        .contentEncoding(metadata.contentEncoding())
+                        .contentLanguage(metadata.contentLanguage())
+                        .contentType(metadata.contentType())
+                        .expires(metadata.expires());
+            }
+
+            PutObjectResponse result = putBlob(putRequest.build(), source);
+            return CopyObjectResponse.builder()
+                    .copyObjectResult(CopyObjectResult.builder()
+                            .eTag(result.eTag())
+                            .build())
+                    .versionId(result.versionId())
+                    .serverSideEncryption(
+                            result.serverSideEncryptionAsString())
+                    .ssekmsKeyId(result.ssekmsKeyId())
+                    .ssekmsEncryptionContext(result.ssekmsEncryptionContext())
+                    .bucketKeyEnabled(result.bucketKeyEnabled())
+                    .sseCustomerAlgorithm(result.sseCustomerAlgorithm())
+                    .sseCustomerKeyMD5(result.sseCustomerKeyMD5())
+                    .build();
+        } catch (IOException ioe) {
+            throw new UncheckedIOException(ioe);
+        }
+    }
+
+    /** Opens a copy's source, subject to the copy-source conditions. */
+    private ResponseInputStream<GetObjectResponse> getCopySource(
+            CopyObjectRequest request) {
+        try {
+            return delegate().getBlob(GetObjectRequest.builder()
+                    .bucket(request.sourceBucket())
+                    .key(request.sourceKey())
+                    .versionId(request.sourceVersionId())
+                    .ifMatch(request.copySourceIfMatch())
+                    .ifNoneMatch(request.copySourceIfNoneMatch())
+                    .ifModifiedSince(request.copySourceIfModifiedSince())
+                    .ifUnmodifiedSince(request.copySourceIfUnmodifiedSince())
+                    .sseCustomerAlgorithm(
+                            request.copySourceSSECustomerAlgorithm())
+                    .sseCustomerKey(request.copySourceSSECustomerKey())
+                    .sseCustomerKeyMD5(request.copySourceSSECustomerKeyMD5())
+                    .build());
+        } catch (S3Exception se) {
+            // A read answers an unmet If-None-Match or If-Modified-Since
+            // with 304, where a copy answers every unmet condition with 412.
+            if (se.statusCode() == 304) {
+                throw S3Exceptions.preconditionFailed(se);
+            }
+            throw se;
+        }
     }
 
     @Override

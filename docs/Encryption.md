@@ -62,6 +62,8 @@ Each stored ```Blob``` will get a suffix named ```.s3enc``` this helps to determ
 
 Exactly one suffix is added to a key on the way in and exactly one is removed on the way out, so the two invert for every key. A key that itself ends in ```.s3enc``` is an ordinary key and is stored with two of them: ```report``` is stored as ```report.s3enc``` and ```report.s3enc``` as ```report.s3enc.s3enc```, and the two name different objects. Uploads returned by ```CreateMultipartUpload``` and ```ListMultipartUploads``` likewise carry the key the client named, not the name the parts are stored beneath.
 
+A ```Blob``` written before encryption was turned on has no suffix and is read as it is. A copy of one is a write like any other: the proxy reads the source and stores the copy encrypted under the suffixed name, where a ```Blob``` that is already encrypted is copied by the backend.
+
 ## Tested storage backends
 - S3
     - Minio
