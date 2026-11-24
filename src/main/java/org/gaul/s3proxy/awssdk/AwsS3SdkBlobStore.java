@@ -43,6 +43,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.retries.DefaultRetryStrategy;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -381,7 +382,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .build();
         }
         try {
-            return s3Client.getObject(request);
+            return abandonable(s3Client.getObject(request));
         } catch (S3Exception e) {
             // 304, 405 on a delete marker read, NoSuchVersion and the rest
             // pass through verbatim; the response headers, e.g. ETag and
@@ -542,7 +543,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 pinned.ifMatch(eTag);
             }
             try {
-                return s3Client.getObject(pinned.build());
+                return abandonable(s3Client.getObject(pinned.build()));
             } catch (S3Exception e) {
                 if (versionId == null && e.statusCode() == 412) {
                     if (attempt < PUBLIC_READ_ATTEMPTS) {
@@ -558,6 +559,18 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 throw propagate(e, request.bucket(), request.key());
             }
         }
+    }
+
+    /**
+     * The SDK's stream of an object, closable early.  Closing it as it comes
+     * reads the rest of the object to keep its connection; a reader that
+     * gives up must not cost the whole transfer.
+     */
+    private static ResponseInputStream<GetObjectResponse> abandonable(
+            ResponseInputStream<GetObjectResponse> blob) {
+        return new ResponseInputStream<>(blob.response(),
+                AbortableInputStream.create(
+                        new AbandonableInputStream(blob), blob));
     }
 
     /** As {@link #getPublicRead}, for the metadata alone. */
