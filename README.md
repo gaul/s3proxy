@@ -306,6 +306,22 @@ one built through `S3Proxy.Builder` without `corsRules`, shares nothing.
 Responses that depend on the request `Origin` carry `Vary: Origin` so that
 shared caches do not serve one origin's response to another.
 
+A web page can also point its own DNS name at a proxy that only its visitor
+reaches (DNS rebinding), which makes its requests same-origin and exempt from
+CORS.  A proxy with `s3proxy.authorization=none` whose endpoints are all
+loopback addresses therefore answers 403 to a request whose `Host` is not a
+name it goes by: an IP address, `localhost` and names under it, the hosts of
+`s3proxy.endpoint` and `s3proxy.secure-endpoint`, `s3proxy.virtual-host` and
+names under it, and the space-separated names in `s3proxy.allowed-hosts`:
+
+```
+s3proxy.allowed-hosts=s3.example.com storage.internal
+```
+
+Setting that property makes any other proxy check `Host` as well, e.g., one
+without credentials on a private network or in a container.  List the names
+that a reverse proxy in front of S3Proxy forwards, or `*` to allow every name.
+
 ## Limitations
 
 S3Proxy has broad compatibility with the S3 API, however, it does not support:

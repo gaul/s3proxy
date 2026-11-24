@@ -107,6 +107,7 @@ final class S3ErrorHandler extends ErrorHandler {
             return S3ErrorCode.INVALID_U_R_I;
         }
         return switch (code) {
+        case HttpServletResponse.SC_FORBIDDEN -> S3ErrorCode.ACCESS_DENIED;
         case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
             S3ErrorCode.METHOD_NOT_ALLOWED;
         case HttpServletResponse.SC_LENGTH_REQUIRED ->

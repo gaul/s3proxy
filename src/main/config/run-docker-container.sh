@@ -42,6 +42,7 @@ BEGIN {
     prop("s3proxy.endpoint", "S3PROXY_ENDPOINT")
     prop("s3proxy.secure-endpoint", "S3PROXY_SECURE_ENDPOINT")
     prop("s3proxy.virtual-host", "S3PROXY_VIRTUALHOST")
+    prop("s3proxy.allowed-hosts", "S3PROXY_ALLOWED_HOSTS")
     prop("s3proxy.keystore-path", "S3PROXY_KEYSTORE_PATH")
     prop("s3proxy.keystore-password", "S3PROXY_KEYSTORE_PASSWORD")
     prop("s3proxy.authorization", "S3PROXY_AUTHORIZATION")

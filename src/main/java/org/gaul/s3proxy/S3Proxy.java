@@ -19,8 +19,10 @@ package org.gaul.s3proxy;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,6 +42,7 @@ import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.server.CustomRequestLog;
+import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.RequestLog;
@@ -77,6 +80,8 @@ public final class S3Proxy {
      */
     private static final String ACCESS_LOG_FORMAT =
             "%{client}a \"%m %U %H\" %s %I %O %{ms}T \"%{User-Agent}i\"";
+    // An entry of Builder.allowedHosts that allows every Host.
+    private static final String ANY_HOST = "*";
 
     private final Server server;
     // Non-null only when metrics are served on a dedicated port instead of
@@ -254,9 +259,31 @@ public final class S3Proxy {
             }
         }
         context.addServlet(new ServletHolder(handler), "/*");
+        Handler handlers = context;
+        // A proxy that asks for no credentials and listens only on loopback
+        // relies on the browser's same-origin policy to keep web pages out.
+        // A page that points its own DNS name at the proxy (DNS rebinding)
+        // gets past that, and only its Host tells it from the owner, so
+        // such a proxy checks Host unasked.  Elsewhere other names are
+        // legitimate, e.g., the one a load balancer goes by, and only the
+        // operator knows them.
+        List<String> allowedHosts = builder.allowedHosts;
+        if (allowedHosts == null &&
+                builder.authenticationType == AuthenticationType.NONE &&
+                isLoopback(builder.endpoint) &&
+                isLoopback(builder.secureEndpoint)) {
+            allowedHosts = List.of();
+        }
+        if (allowedHosts != null && !allowedHosts.contains(ANY_HOST)) {
+            var hosts = new ArrayList<String>(allowedHosts);
+            addHost(hosts, builder.endpoint);
+            addHost(hosts, builder.secureEndpoint);
+            handlers = new AllowedHostsHandler(handlers, hosts,
+                    builder.virtualHost);
+        }
         // Reject new requests during stop and let server.stop() wait for
         // in-flight ones, so SIGTERM drains rather than dropping transfers.
-        server.setHandler(new GracefulHandler(context));
+        server.setHandler(new GracefulHandler(handlers));
         // Answer the requests Jetty rejects on its own -- a URI or header the
         // parser refuses never reaches S3ProxyHandler -- with an S3 error
         // document instead of Jetty's HTML page.
@@ -274,6 +301,30 @@ public final class S3Proxy {
                     ACCESS_LOG_FORMAT));
         }
         server.setStopTimeout(builder.stopTimeout);
+    }
+
+    /** Adds the name a listener is configured with, when it has one. */
+    private static void addHost(Collection<String> hosts,
+            @Nullable URI endpoint) {
+        if (endpoint != null && endpoint.getHost() != null) {
+            hosts.add(endpoint.getHost());
+        }
+    }
+
+    /** Whether a listener is absent or bound to a loopback address. */
+    private static boolean isLoopback(@Nullable URI endpoint) {
+        if (endpoint == null) {
+            return true;
+        } else if (endpoint.getHost() == null) {
+            // binds every address
+            return false;
+        }
+        try {
+            return InetAddress.getByName(endpoint.getHost())
+                    .isLoopbackAddress();
+        } catch (UnknownHostException uhe) {
+            return false;
+        }
     }
 
     public static final class Builder {
@@ -295,6 +346,7 @@ public final class S3Proxy {
         @Nullable private String keyStorePath;
         @Nullable private String keyStorePassword;
         @Nullable private String virtualHost;
+        @Nullable private List<String> allowedHosts;
         private long maxSinglePartObjectSize = 5L * 1024 * 1024 * 1024;
         private long v4MaxNonChunkedRequestSize = 128 * 1024 * 1024;
         private int v4MaxChunkSize = 16 * 1024 * 1024;
@@ -415,6 +467,13 @@ public final class S3Proxy {
                     S3ProxyConstants.PROPERTY_VIRTUAL_HOST);
             if (!Strings.isNullOrEmpty(virtualHost)) {
                 builder.virtualHost(virtualHost);
+            }
+
+            String allowedHosts = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_ALLOWED_HOSTS);
+            if (!Strings.isNullOrEmpty(allowedHosts)) {
+                builder.allowedHosts(Splitter.on(" ").trimResults()
+                        .omitEmptyStrings().splitToList(allowedHosts));
             }
 
             String maxSinglePartObjectSize = properties.getProperty(
@@ -596,6 +655,18 @@ public final class S3Proxy {
 
         public Builder virtualHost(String virtualHost) {
             this.virtualHost = requireNonNull(virtualHost);
+            return this;
+        }
+
+        /**
+         * The names, besides those of the endpoints and the virtual host,
+         * that a request's Host may give; any other is refused.  IP
+         * addresses and localhost are always allowed and {@code *} allows
+         * every name.  A proxy without authentication that listens only on
+         * loopback checks Host even when this is not called.
+         */
+        public Builder allowedHosts(Collection<String> allowedHosts) {
+            this.allowedHosts = List.copyOf(allowedHosts);
             return this;
         }
 
@@ -822,6 +893,9 @@ public final class S3Proxy {
                 differences.add(
                         S3ProxyConstants.PROPERTY_PRE_AUTH_BODY_BUDGET);
             }
+            if (!Objects.equals(this.allowedHosts, that.allowedHosts)) {
+                differences.add(S3ProxyConstants.PROPERTY_ALLOWED_HOSTS);
+            }
             if (this.maximumTimeSkew != that.maximumTimeSkew) {
                 differences.add(S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
             }
@@ -865,7 +939,8 @@ public final class S3Proxy {
                     maximumTimeSkew, accessLog, metricsEnabled, metricsPort,
                     metricsHost,
                     endpoint, secureEndpoint, sslContext,
-                    keyStorePath, keyStorePassword, virtualHost, servicePath,
+                    keyStorePath, keyStorePassword, virtualHost, allowedHosts,
+                    servicePath,
                     maxSinglePartObjectSize, v4MaxNonChunkedRequestSize,
                     v4MaxChunkSize, ignoreUnknownHeaders, corsRules,
                     stsEnabled, stsMaxDuration);

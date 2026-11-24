@@ -82,6 +82,17 @@ public final class S3ProxyConstants {
      */
     public static final String PROPERTY_VIRTUAL_HOST =
             "s3proxy.virtual-host";
+    /**
+     * Space-separated host names, besides those of the endpoints and the
+     * virtual host, that the Host of a request may give; S3Proxy answers any
+     * other 403.  IP addresses and localhost are always allowed and * allows
+     * every name.  When unset, only a proxy with s3proxy.authorization=none
+     * whose endpoints are all loopback addresses checks Host, since a web
+     * page that points its own DNS name at such a proxy otherwise reads and
+     * writes it through a browser.
+     */
+    public static final String PROPERTY_ALLOWED_HOSTS =
+            "s3proxy.allowed-hosts";
     public static final String PROPERTY_MAX_SINGLE_PART_OBJECT_SIZE =
             "s3proxy.max-single-part-object-size";
     public static final String PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE =
