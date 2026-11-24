@@ -2854,30 +2854,36 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final boolean recordChecksumMetadata(String container, String name,
             String eTag, String metadataKey, String value) {
         checkNotReserved(name);
-        var containerPath = requireContainerPath(container);
-        Path path;
-        try {
-            path = aclPath(container, containerPath, name, /*versionId=*/ null);
-        } catch (S3Exception se) {
-            return false;
-        }
-        var current = blobMetadataIfPresent(container, name);
-        if (current == null || current.eTag() == null ||
-                !maybeQuoteETag(eTag).equals(
-                        maybeQuoteETag(current.eTag()))) {
-            return false;
-        }
-        var view = getXattrView(path);
-        if (view == null) {
-            return false;
-        }
-        try {
-            writeStringAttributeIfPresent(view,
-                    XATTR_USER_METADATA_PREFIX + metadataKey, value);
-            return true;
-        } catch (IOException | UnsupportedOperationException e) {
-            logger.debug("xattrs not supported on {}", path);
-            return false;
+        // Every write that publishes a file under a key holds versionLock,
+        // so holding it from the ETag check to the attribute write keeps
+        // them on one object.  Without it a write landing in between was
+        // labelled with this checksum, for bytes it does not describe.
+        synchronized (versionLock) {
+            var containerPath = requireContainerPath(container);
+            Path path;
+            try {
+                path = aclPath(container, containerPath, name, /*versionId=*/ null);
+            } catch (S3Exception se) {
+                return false;
+            }
+            var current = blobMetadataIfPresent(container, name);
+            if (current == null || current.eTag() == null ||
+                    !maybeQuoteETag(eTag).equals(
+                            maybeQuoteETag(current.eTag()))) {
+                return false;
+            }
+            var view = getXattrView(path);
+            if (view == null) {
+                return false;
+            }
+            try {
+                writeStringAttributeIfPresent(view,
+                        XATTR_USER_METADATA_PREFIX + metadataKey, value);
+                return true;
+            } catch (IOException | UnsupportedOperationException e) {
+                logger.debug("xattrs not supported on {}", path);
+                return false;
+            }
         }
     }
 
