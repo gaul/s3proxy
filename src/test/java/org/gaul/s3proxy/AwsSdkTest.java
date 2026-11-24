@@ -3548,6 +3548,56 @@ public final class AwsSdkTest {
                 .key(key)).asUtf8String()).isEqualTo("content");
     }
 
+    /**
+     * The other way about: whatever a store does with "key" must leave the
+     * object "key/" alone.  The nio2 stores keep "key/" as a directory and
+     * publish "key" by renaming a file onto that path, which rename(2)
+     * refuses but REPLACE_EXISTING may carry out by deleting an empty
+     * directory: on the transient store a PUT of "key" deleted "key/".
+     */
+    @Test
+    public void testObjectIsNotTheTrailingSlashKey() throws Exception {
+        // a directory marker is a directory plus an xattr, which sftp
+        // cannot keep
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String key = "object-is-not-the-slash-key";
+        String slashKey = key + "/";
+        client.putObject(b -> b.bucket(containerName).key(slashKey)
+                .metadata(Map.of("department", "finance")),
+                RequestBody.empty());
+
+        boolean stored;
+        try {
+            client.putObject(b -> b.bucket(containerName).key(key),
+                    RequestBody.fromString("content"));
+            stored = true;
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            stored = false;
+        }
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(slashKey)).metadata())
+                .containsEntry("department", "finance");
+
+        if (stored) {
+            assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                    .key(key)).asUtf8String()).isEqualTo("content");
+        } else {
+            try {
+                client.getObjectAsBytes(b -> b.bucket(containerName)
+                        .key(key));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(404);
+            }
+            // nor is the directory lost to the keys below it
+            client.putObject(b -> b.bucket(containerName)
+                    .key(slashKey + "below"),
+                    RequestBody.fromString("content"));
+        }
+    }
+
     @Test
     public void testDirectoryMarkerWithoutTrailingSlash() throws Exception {
         // Real S3 distinguishes "foo" from "foo/" as literal keys. The

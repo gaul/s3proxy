@@ -573,4 +573,35 @@ public final class VersioningTest {
             assertThat(e.statusCode()).isEqualTo(501);
         }
     }
+
+    /**
+     * A directory marker is not versioned, so a write of "key" archives
+     * nothing of "key/" before it renames a file onto the directory, which
+     * the transient store's filesystem carries out by deleting one that is
+     * empty.  Nothing would be left to restore the marker from.
+     */
+    @Test
+    public void testWriteLeavesDirectoryMarker() throws Exception {
+        enableVersioning();
+        var key = "key";
+        var marker = key + "/";
+        client.putObject(b -> b.bucket(containerName).key(marker),
+                RequestBody.empty());
+
+        try {
+            client.putObject(b -> b.bucket(containerName).key(key),
+                    RequestBody.fromString("content"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "InvalidArgument");
+        }
+
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(marker))).isNotNull();
+        assertThat(client.listObjectVersions(b -> b.bucket(containerName))
+                .versions()).extracting(ObjectVersion::key)
+                .containsExactly(marker);
+    }
 }
