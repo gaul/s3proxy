@@ -1239,6 +1239,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
             }
 
+            // There is no temporary file to carry the access into place, so
+            // it goes on the marker directly.
+            setBlobAccessHelper(path, access);
+
             // A directory marker is the directory itself, which the versions
             // of the keys below it live in; it is not versioned.
             return new PutResult(HexFormat.of().formatHex(DIRECTORY_MD5),
@@ -2848,6 +2852,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Override
     public final CompleteMultipartUploadResponse completeMultipartUpload(
             MultipartUpload mpu, CompleteMultipartUploadRequest request) {
+        // The write under the upload's key happens here, so refuse the key
+        // here, as putBlob does, and before anything is published.
+        checkNotReserved(mpu.blobName());
         List<CompletedPart> parts = request.multipartUpload() == null ?
                 List.of() : request.multipartUpload().parts();
         var partNames = ImmutableList.<String>builder();
@@ -2941,9 +2948,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             partPaths.add(resolveBlobPath(containerPath, multipartPartName(
                     mpu.id(), mpu.blobName(), part.partNumber())));
         }
+        // The upload's access goes on with the object, as for any other
+        // write.  Set by key afterwards it would land on whatever another
+        // write had published there since.
         var result = putBlob(mpu.containerName(), blobBuilder.build(),
-                ObjectCannedACL.PRIVATE, request.ifNoneMatch(),
-                partPaths.build());
+                SdkRequests.aclOrPrivate(mpuRequest.acl()),
+                request.ifNoneMatch(), partPaths.build());
 
         // Remove every uploaded part, not just the ones referenced by the
         // manifest, so parts excluded from the final object do not leak.
@@ -2951,9 +2961,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             removeBlobInternal(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
         }
         removeBlobInternal(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
-
-        setBlobAccess(mpu.containerName(), mpu.blobName(),
-                SdkRequests.aclOrPrivate(mpuRequest.acl()));
 
         return CompleteMultipartUploadResponse.builder()
                 .eTag(result.eTag())
