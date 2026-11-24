@@ -7051,6 +7051,30 @@ public class S3ProxyHandler {
         final MultipartUpload mpu = new MultipartUpload(uploadId,
                 carrierRequest);
 
+        // The parts are judged below, by their ETags and where a checksum
+        // is asserted by their content, and only then assembled by the
+        // store.  Both have to see the same parts, so none may be replaced
+        // from here until the completion has been answered.
+        var hold = blobStore.holdMultipartParts(uploadId);
+        try {
+            completeHeldMultipartUpload(request, response, blobStore,
+                    containerName, blobName, uploadId, cmu, carrierRequest,
+                    mpu, blobStoreType, requiresStub, headerAlgorithm,
+                    stubName);
+        } finally {
+            hold.close();
+        }
+    }
+
+    /** Completes an upload whose parts the caller holds as they are. */
+    private void completeHeldMultipartUpload(HttpServletRequest request,
+            HttpServletResponse response, final BlobStore blobStore,
+            String containerName, String blobName, String uploadId,
+            CompleteMultipartUploadRequest cmu,
+            CreateMultipartUploadRequest carrierRequest,
+            final MultipartUpload mpu, String blobStoreType,
+            boolean requiresStub, @Nullable FlexChecksum headerAlgorithm,
+            @Nullable String stubName) throws IOException {
         final List<CompletedPart> parts = new ArrayList<>();
         var listedPartSizes = new HashMap<Integer, Long>();
         if (blobStoreType.equals("azureblob") ||
@@ -7241,9 +7265,8 @@ public class S3ProxyHandler {
         final String completeIfNoneMatch = ifNoneMatch;
 
         MpuChecksums.Result mpuChecksum = null;
-        FlexChecksum mpuAlgorithm =
-                cmu == null ? null : MpuChecksums.algorithm(request, cmu);
-        if (cmu != null && mpuAlgorithm != null) {
+        FlexChecksum mpuAlgorithm = MpuChecksums.algorithm(request, cmu);
+        if (mpuAlgorithm != null) {
             // S3 computes the checksum from the values recorded when the
             // parts were uploaded, and holds the ones the completion request
             // asserts to them.  Stub backends store parts as hidden blobs, so

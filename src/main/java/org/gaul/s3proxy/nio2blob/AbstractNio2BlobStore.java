@@ -18,6 +18,7 @@ package org.gaul.s3proxy.nio2blob;
 
 import static java.util.Objects.requireNonNull;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -60,14 +61,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.MapMaker;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
@@ -309,6 +314,19 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * within one process and nothing here could across several.
      */
     private final ReadWriteLock publishLock = new ReentrantReadWriteLock();
+
+    /**
+     * Keeps an upload's parts as they are while a completion judges and
+     * then assembles them: held by the completion throughout, and by a part
+     * for the rename that publishes it.  The assembly opens the parts by
+     * name, so without this a part renamed into place after the completion
+     * compared its ETag or hashed its content is published in place of the
+     * one that was approved.  One lock per upload ID, kept for as long as
+     * something holds or awaits it, so that uploads never wait for each
+     * other.  Like versionLock it binds this process alone.
+     */
+    private final ConcurrentMap<String, Lock> partLocks =
+            new MapMaker().weakValues().makeMap();
 
     protected AbstractNio2BlobStore(Path root) {
         this.root = root;
@@ -1140,7 +1158,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         .build(),
                 SdkRequests.aclOrPrivate(request.acl()),
                 request.ifNoneMatch(),
-                /*parts=*/ null);
+                /*parts=*/ null, /*partOf=*/ null);
         return PutObjectResponse.builder()
                 .eTag(result.eTag())
                 .versionId(result.reportedVersionId())
@@ -1165,11 +1183,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * a copy-on-write filesystem serves by sharing extents rather than
      * copying bytes, and which a network filesystem can serve on the server.
      * Reading the payload instead would cost a full read and write of an
-     * object that has already been written once as parts.
+     * object that has already been written once as parts.  A blob that is
+     * itself the part of an upload names it as {@code partOf}.
      */
     private PutResult putBlob(String container, Blob blob,
             ObjectCannedACL access, @Nullable String ifNoneMatch,
-            @Nullable List<Path> parts) {
+            @Nullable List<Path> parts, @Nullable MultipartUpload partOf) {
         var containerPath = requireContainerPath(container);
         var path = resolveBlobPath(containerPath, blob.getMetadata().name());
         logger.debug("Creating blob at: {}", path);
@@ -1483,6 +1502,29 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         }
                         throw e;
                     }
+                }
+                published = true;
+                return new PutResult(storedETag, versionId);
+            }
+            if (partOf != null) {
+                // A part waits out a completion of its upload, which has
+                // judged the parts it is about to assemble.  One that ended
+                // the upload has removed its parts and its stub, and a part
+                // published after that would stay behind where nothing
+                // removes it.
+                Lock partLock = partLock(partOf.id());
+                partLock.lock();
+                try {
+                    if (!Files.exists(resolveBlobPath(containerPath,
+                            MULTIPART_PREFIX + partOf.id() + "-" +
+                            partOf.blobName() + "-stub"))) {
+                        throw S3Exceptions.noSuchUpload(partOf.id());
+                    }
+                    intoParent(tmpPath, path, () -> publish(tmpPath, path,
+                            StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING));
+                } finally {
+                    partLock.unlock();
                 }
                 published = true;
                 return new PutResult(storedETag, versionId);
@@ -1843,7 +1885,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     builder.encryption(encryption).build(),
                     SdkRequests.aclOrPrivate(request.acl()),
                     /*ifNoneMatch=*/ null,
-                    /*parts=*/ null);
+                    /*parts=*/ null, /*partOf=*/ null);
             return CopyObjectResponse.builder()
                     .copyObjectResult(CopyObjectResult.builder()
                             .eTag(result.eTag())
@@ -2852,6 +2894,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     @Override
+    public final Closeable holdMultipartParts(String uploadId) {
+        Lock partLock = partLock(uploadId);
+        partLock.lock();
+        return partLock::unlock;
+    }
+
+    private Lock partLock(String uploadId) {
+        return partLocks.computeIfAbsent(uploadId, id -> new ReentrantLock());
+    }
+
+    @Override
     public final MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
         // Completing this upload writes an object under the requested key,
@@ -2869,7 +2922,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // create a stub blob
         var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).encryption(encryption).build();
         putBlob(request.bucket(), blob, ObjectCannedACL.PRIVATE,
-                /*ifNoneMatch=*/ null, /*parts=*/ null);
+                /*ifNoneMatch=*/ null, /*parts=*/ null, /*partOf=*/ null);
         return new MultipartUpload(uploadId, request,
                 encryption == null ? null :
                         CreateMultipartUploadResponse.builder()
@@ -3021,7 +3074,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // write had published there since.
         var result = putBlob(mpu.containerName(), blobBuilder.build(),
                 SdkRequests.aclOrPrivate(mpuRequest.acl()),
-                request.ifNoneMatch(), partPaths.build());
+                request.ifNoneMatch(), partPaths.build(),
+                /*partOf=*/ null);
 
         // Remove every uploaded part, not just the ones referenced by the
         // manifest, so parts excluded from the final object do not leak.
@@ -3055,7 +3109,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentMD5(SdkRequests.contentMD5(request))
                 .build();
         var partETag = putBlob(mpu.containerName(), blob,
-                ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null)
+                ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null,
+                mpu)
                 .eTag();
         if (encryption == null) {
             return SdkResponses.uploadedPart(partETag);

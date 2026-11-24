@@ -17,6 +17,7 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.io.Closeable;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Objects;
@@ -425,6 +426,11 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     @Override
     public boolean judgesCompletionChecksum() {
         return delegate().judgesCompletionChecksum();
+    }
+
+    @Override
+    public Closeable holdMultipartParts(String uploadId) {
+        return delegate().holdMultipartParts(uploadId);
     }
 
     @Override

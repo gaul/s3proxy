@@ -17,6 +17,7 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.io.Closeable;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -1046,6 +1047,20 @@ public interface BlobStore extends AutoCloseable {
      */
     default boolean judgesCompletionChecksum() {
         return false;
+    }
+
+    /**
+     * Keeps the parts of an upload as they are until the returned hold is
+     * closed, by the thread that took it: an {@link #uploadMultipartPart}
+     * that would replace one waits.  A completion judges the parts before
+     * {@link #completeMultipartUpload} assembles them -- their ETags and,
+     * where it asserts a checksum, their content -- and a part replaced in
+     * between is published under a verdict reached on another.  The upload
+     * is named by its ID alone, which no wrapper rewrites.  A store that
+     * cannot hold its parts returns a hold that does nothing.
+     */
+    default Closeable holdMultipartParts(String uploadId) {
+        return () -> { };
     }
 
     /**
