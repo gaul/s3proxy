@@ -1269,6 +1269,14 @@ public class S3ProxyHandler {
                         if (declaredLength >= 0 &&
                                 declaredLength <= MAX_BUFFERED_PAYLOAD) {
                             payload = is.readNBytes((int) declaredLength);
+                            // On to the end, which Jetty has already found:
+                            // a body read only to its length is not finished
+                            // in its eyes, and the drain after the response
+                            // then waited a second for more of it, delaying
+                            // the next request on the connection.
+                            if (payload.length == declaredLength) {
+                                is.read();
+                            }
                         } else {
                             // A body of unannounced length, e.g. one framed
                             // by Transfer-Encoding: chunked.
