@@ -418,6 +418,16 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
+    public boolean keepsMultipartPartContent() {
+        return delegate().keepsMultipartPartContent();
+    }
+
+    @Override
+    public boolean judgesCompletionChecksum() {
+        return delegate().judgesCompletionChecksum();
+    }
+
+    @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
         return delegate().listMultipartUpload(mpu);
     }

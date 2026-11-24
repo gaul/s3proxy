@@ -129,11 +129,55 @@ public final class CompositeChecksumCompletionTest {
     }
 
     /**
+     * The value is asserted for the object whatever the parts say of
+     * themselves, so leaving their checksums out does not leave it
+     * uncompared: S3 refuses a composite completion that omits them.
+     */
+    @Test
+    public void testCompletionRefusesAssertionWithoutPartChecksums()
+            throws Exception {
+        HttpResponse<String> response = complete("object",
+                "x-amz-checksum-crc32c", "AAAAAA==-2",
+                /*partChecksums=*/ false);
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("InvalidRequest");
+        assertThat(send(HttpRequest.newBuilder(URI.create(baseUri +
+                "/object")).GET()).statusCode()).isEqualTo(404);
+    }
+
+    /** Nor do parts that name another algorithm than the asserted one. */
+    @Test
+    public void testCompletionRefusesAssertionOfAnotherAlgorithm()
+            throws Exception {
+        HttpResponse<String> response = complete("object",
+                "x-amz-checksum-sha256",
+                Base64.getEncoder().encodeToString(new byte[32]) + "-2",
+                /*partChecksums=*/ true);
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("InvalidRequest");
+        assertThat(send(HttpRequest.newBuilder(URI.create(baseUri +
+                "/object")).GET()).statusCode()).isEqualTo(404);
+    }
+
+    /**
      * Runs an upload of two parts through to completion, asserting {@code
      * assertedValue} on the completion request when it is not null.
      */
     private HttpResponse<String> complete(String key,
             @Nullable String assertedValue)
+            throws Exception {
+        return complete(key, "x-amz-checksum-crc32c", assertedValue,
+                /*partChecksums=*/ true);
+    }
+
+    /**
+     * As above, asserting the value as {@code assertedHeader} and naming
+     * each part's checksum in the request only when {@code partChecksums}.
+     */
+    private HttpResponse<String> complete(String key, String assertedHeader,
+            @Nullable String assertedValue, boolean partChecksums)
             throws Exception {
         var initiate = send(HttpRequest.newBuilder(
                 URI.create(baseUri + "/" + key + "?uploads"))
@@ -157,8 +201,12 @@ public final class CompositeChecksumCompletionTest {
             xml.append("<Part><PartNumber>").append(partNumber)
                     .append("</PartNumber><ETag>")
                     .append(part.headers().firstValue("ETag").orElseThrow())
-                    .append("</ETag><ChecksumCRC32C>").append(digest(parts[i]))
-                    .append("</ChecksumCRC32C></Part>");
+                    .append("</ETag>");
+            if (partChecksums) {
+                xml.append("<ChecksumCRC32C>").append(digest(parts[i]))
+                        .append("</ChecksumCRC32C>");
+            }
+            xml.append("</Part>");
         }
         xml.append("</CompleteMultipartUpload>");
 
@@ -167,7 +215,7 @@ public final class CompositeChecksumCompletionTest {
                 .header("Content-Type", "application/xml")
                 .POST(HttpRequest.BodyPublishers.ofString(xml.toString()));
         if (assertedValue != null) {
-            builder.header("x-amz-checksum-crc32c", assertedValue);
+            builder.header(assertedHeader, assertedValue);
         }
         return send(builder);
     }

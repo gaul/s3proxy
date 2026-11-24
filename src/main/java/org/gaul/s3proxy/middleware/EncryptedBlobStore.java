@@ -886,6 +886,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
     // Disable versioning: versioned reads would return ciphertext and
     // suffixed names.
+    // The store beneath records checksums of ciphertext, not of what the
+    // client sent.
+    @Override
+    public boolean judgesCompletionChecksum() {
+        return false;
+    }
+
     @Override
     public boolean supportsVersioning() {
         return false;

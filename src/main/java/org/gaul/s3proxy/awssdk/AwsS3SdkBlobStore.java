@@ -883,6 +883,12 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         }
     }
 
+    // S3 holds the completion to its x-amz-checksum-* header itself.
+    @Override
+    public boolean judgesCompletionChecksum() {
+        return true;
+    }
+
     @Override
     public CompleteMultipartUploadResponse completeMultipartUpload(
             MultipartUpload mpu, CompleteMultipartUploadRequest request) {

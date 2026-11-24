@@ -1025,6 +1025,27 @@ public interface BlobStore extends AutoCloseable {
             UploadPartRequest request, InputStream is);
 
     /**
+     * Whether a part stored by {@link #uploadMultipartPart} reads back as
+     * the bytes the client sent, so that a checksum the client names for
+     * the part can be held to them.  A wrapper that discards its payloads
+     * and reads back stand-in content must report false.
+     */
+    default boolean keepsMultipartPartContent() {
+        return true;
+    }
+
+    /**
+     * Whether {@link #completeMultipartUpload} holds the finished object to
+     * the checksum the request carries, from part checksums it recorded
+     * itself.  S3Proxy cannot vouch for that checksum on a store that keeps
+     * none and cannot show it its parts, so a completion stating one is
+     * refused there rather than accepted unverified.
+     */
+    default boolean judgesCompletionChecksum() {
+        return false;
+    }
+
+    /**
      * Whether {@link #copyMultipartPart} copies server-side on the backend.
      * Wrappers that transform payloads, e.g. encryption, must not report
      * true since a backend copy would bypass the transformation.

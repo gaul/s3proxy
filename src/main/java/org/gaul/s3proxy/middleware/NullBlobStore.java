@@ -230,6 +230,19 @@ final class NullBlobStore extends ForwardingBlobStore {
                 new ByteArrayInputStream(array));
     }
 
+    // Zeros are not what the client sent, so no checksum it names for a
+    // part can be held to them.
+    @Override
+    public boolean keepsMultipartPartContent() {
+        return false;
+    }
+
+    // nor can the store beneath judge a checksum of content it never got
+    @Override
+    public boolean judgesCompletionChecksum() {
+        return false;
+    }
+
     @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
         var builder = ImmutableList.<Part>builder();

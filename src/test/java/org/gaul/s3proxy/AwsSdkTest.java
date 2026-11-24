@@ -819,6 +819,143 @@ public final class AwsSdkTest {
                 wholeChecksum);
     }
 
+    /**
+     * The x-amz-checksum-* header of a completion states the finished
+     * object's checksum.  Where S3Proxy can hold the object to it -- the
+     * stores whose parts it reads back, and aws-s3, which judges it itself --
+     * the truth completes and anything else is refused.  A store that keeps
+     * no part checksums and cannot show S3Proxy its parts would only compare
+     * it with the request's own XML, so it refuses the header instead.
+     */
+    @Test
+    public void testMultipartUploadObjectChecksumHeader() throws Exception {
+        var key = "testMultipartUploadObjectChecksumHeader";
+        var content = "multipart object checksum header"
+                .getBytes(StandardCharsets.UTF_8);
+        byte[] partDigest = Hashing.sha256().hashBytes(content).asBytes();
+        String partChecksum = Base64.getEncoder().encodeToString(partDigest);
+        String objectChecksum = Base64.getEncoder().encodeToString(
+                Hashing.sha256().hashBytes(partDigest).asBytes()) + "-1";
+        String otherChecksum = Base64.getEncoder().encodeToString(
+                Hashing.sha256().hashBytes(new byte[32]).asBytes()) + "-1";
+
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(key)
+                .checksumAlgorithm(ChecksumAlgorithm.SHA256)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1).checksumSHA256(partChecksum),
+                RequestBody.fromBytes(content));
+        var parts = CompletedMultipartUpload.builder()
+                .parts(CompletedPart.builder().partNumber(1)
+                        .eTag(part.eTag()).checksumSHA256(partChecksum)
+                        .build())
+                .build();
+
+        boolean verifies = Quirks.MULTIPART_REQUIRES_STUB.contains(
+                blobStoreType) || blobStoreType.equals("aws-s3");
+        if (!verifies) {
+            try {
+                client.completeMultipartUpload(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .checksumSHA256(objectChecksum)
+                        .multipartUpload(parts));
+                Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+            } catch (S3Exception e) {
+                assertThat(e.statusCode()).isEqualTo(501);
+                assertThat(e.awsErrorDetails().errorCode())
+                        .isEqualTo("NotImplemented");
+            }
+            // without the header the upload completes as before
+            client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .multipartUpload(parts));
+            return;
+        }
+
+        try {
+            client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .checksumSHA256(otherChecksum)
+                    .multipartUpload(parts));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+        }
+
+        CompleteMultipartUploadResponse response =
+                client.completeMultipartUpload(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .checksumSHA256(objectChecksum)
+                        .multipartUpload(parts));
+        assertThat(response.checksumSHA256()).isEqualTo(objectChecksum);
+    }
+
+    @Test
+    public void testMultipartUploadFullObjectChecksumWithoutPartChecksums()
+            throws Exception {
+        // S3 does not ask a full-object completion for the parts' checksums,
+        // so the value asserted for the object has to be held against the
+        // parts' content when the request names none -- not go uncompared.
+        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        var key = "testMultipartUploadFullObjectChecksumWithoutPartChecksums";
+        var part1 = TestUtils.randomByteSource().slice(0, 5 * 1024 * 1024)
+                .read();
+        var part2 = TestUtils.randomByteSource()
+                .slice(5 * 1024 * 1024, 1024).read();
+        var whole = new byte[part1.length + part2.length];
+        System.arraycopy(part1, 0, whole, 0, part1.length);
+        System.arraycopy(part2, 0, whole, part1.length, part2.length);
+        var wholeChecksum = crc32cWireForm(whole);
+
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(key)
+                .checksumAlgorithm(ChecksumAlgorithm.CRC32_C)
+                .checksumType(ChecksumType.FULL_OBJECT)).uploadId();
+        UploadPartResponse partResponse1 = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(1),
+                RequestBody.fromBytes(part1));
+        UploadPartResponse partResponse2 = client.uploadPart(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .partNumber(2),
+                RequestBody.fromBytes(part2));
+        var parts = CompletedMultipartUpload.builder()
+                .parts(
+                        CompletedPart.builder().partNumber(1)
+                                .eTag(partResponse1.eTag()).build(),
+                        CompletedPart.builder().partNumber(2)
+                                .eTag(partResponse2.eTag()).build())
+                .build();
+
+        try {
+            client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .checksumType(ChecksumType.FULL_OBJECT)
+                    .checksumCRC32C(crc32cWireForm(part1))
+                    .multipartUpload(parts));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "BadDigest");
+        }
+
+        CompleteMultipartUploadResponse completeResponse =
+                client.completeMultipartUpload(b -> b
+                        .bucket(containerName).key(key).uploadId(uploadId)
+                        .checksumType(ChecksumType.FULL_OBJECT)
+                        .checksumCRC32C(wholeChecksum)
+                        .multipartUpload(parts));
+        assertThat(completeResponse.checksumCRC32C()).isEqualTo(wholeChecksum);
+
+        HeadObjectResponse headResponse = client.headObject(
+                b -> b.bucket(containerName).key(key)
+                        .checksumMode(ChecksumMode.ENABLED));
+        assertThat(headResponse.checksumCRC32C()).isEqualTo(wholeChecksum);
+    }
+
     private static String crc32cWireForm(byte[] content) {
         return Base64.getEncoder().encodeToString(ByteBuffer.allocate(
                 Integer.BYTES).putInt(
@@ -2241,6 +2378,39 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {
             assertThat(e.statusCode()).isEqualTo(400);
+        }
+    }
+
+    @Test
+    public void testMultipartUploadWrongPartChecksum() throws Exception {
+        // the backends whose parts S3Proxy reads back to compare
+        assumeTrue(Quirks.MULTIPART_REQUIRES_STUB.contains(blobStoreType));
+        String key = "multipart-upload-wrong-checksum";
+        String uploadId = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(key)).uploadId();
+        UploadPartResponse part = client.uploadPart(b -> b
+                .bucket(containerName).key(key).uploadId(uploadId)
+                .partNumber(1),
+                RequestBody.fromBytes("uploaded".getBytes(
+                        StandardCharsets.UTF_8)));
+
+        // The checksum is that of other content than the part's, so S3
+        // rejects the completion as it does one naming another ETag.
+        String checksum = Base64.getEncoder().encodeToString(sha256(
+                "expected".getBytes(StandardCharsets.UTF_8)));
+        try {
+            client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(CompletedPart.builder().partNumber(1)
+                                    .eTag(part.eTag())
+                                    .checksumSHA256(checksum).build())
+                            .build()));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo(
+                    "InvalidPart");
         }
     }
 

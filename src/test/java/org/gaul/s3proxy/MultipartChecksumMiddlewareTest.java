@@ -151,18 +151,18 @@ public final class MultipartChecksumMiddlewareTest {
         assertThat(response.body()).contains("<ChecksumSHA256>" +
                 composite(UPLOADED) + "</ChecksumSHA256>");
 
-        // A claim about the part does not change what the object reports.
+        // A claim about the part that is not the part's is refused, as a
+        // wrong ETag is, rather than reported or ignored.
         response = uploadAndComplete(uri, digest(CLAIMED),
                 /*objectChecksum=*/ null);
-        assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("<ChecksumSHA256>" +
-                composite(UPLOADED) + "</ChecksumSHA256>");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("InvalidPart");
 
-        // Nor does it vouch for the object checksum that goes with it.
+        // So is one that comes with the object checksum to match it.
         response = uploadAndComplete(uri, digest(CLAIMED),
                 composite(CLAIMED));
         assertThat(response.statusCode()).isEqualTo(400);
-        assertThat(response.body()).contains("BadDigest");
+        assertThat(response.body()).contains("InvalidPart");
     }
 
     /**

@@ -265,6 +265,26 @@ public enum FlexChecksum {
     }
 
     /**
+     * Carry the finished object's checksum on the completion request, for a
+     * store that judges it itself.
+     */
+    public software.amazon.awssdk.services.s3.model
+            .CompleteMultipartUploadRequest.Builder setOn(
+            software.amazon.awssdk.services.s3.model
+                    .CompleteMultipartUploadRequest.Builder builder,
+            String value) {
+        return switch (this) {
+        case CRC32 -> builder.checksumCRC32(value);
+        case CRC32C -> builder.checksumCRC32C(value);
+        case CRC64NVME -> builder.checksumCRC64NVME(value);
+        case SHA1 -> builder.checksumSHA1(value);
+        case SHA256 -> builder.checksumSHA256(value);
+        case SHA512 -> builder.checksumSHA512(value);
+        case MD5 -> builder.checksumMD5(value);
+        };
+    }
+
+    /**
      * Drop every flexible checksum from a write whose bytes change on the
      * way to the store -- encryption, or a store that keeps the length in
      * place of the content.  The value describes what the client sent, so a

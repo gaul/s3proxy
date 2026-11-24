@@ -20,11 +20,11 @@ import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -110,6 +110,47 @@ public final class MpuChecksums {
     }
 
     /**
+     * The algorithm of the x-amz-checksum-* header a CompleteMultipartUpload
+     * carries, which states the finished object's checksum, or null when it
+     * carries none.  More than one is refused, as S3 does.
+     */
+    @Nullable
+    public static FlexChecksum headerAlgorithm(HttpServletRequest request) {
+        FlexChecksum found = null;
+        for (FlexChecksum checksum : FlexChecksum.values()) {
+            if (request.getHeader(checksum.header()) != null) {
+                if (found != null) {
+                    throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                            "Expecting a single x-amz-checksum- header." +
+                            " Multiple checksum Types are not allowed.");
+                }
+                found = checksum;
+            }
+        }
+        return found;
+    }
+
+    /**
+     * The algorithm a CompleteMultipartUpload is held to.  The header leads:
+     * it is the part of a presigned completion the signature covers, while
+     * the XML is whatever the holder of the URL sends, so the XML naming no
+     * checksum, or another algorithm's, must not let the header go unread.
+     * Parts that name another algorithm than the header are refused.
+     */
+    @Nullable
+    public static FlexChecksum algorithm(HttpServletRequest request,
+            CompleteMultipartUploadRequest cmu) {
+        FlexChecksum header = headerAlgorithm(request);
+        FlexChecksum parts = algorithm(cmu);
+        if (header != null && parts != null && header != parts) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                    "The " + header.header() + " header does not match" +
+                    " the " + parts.lower() + " checksums of the parts.");
+        }
+        return header != null ? header : parts;
+    }
+
+    /**
      * The single checksum algorithm the CompleteMultipartUpload request's
      * parts declare, null when no part carries a checksum, rejecting a mix
      * of algorithms.
@@ -138,9 +179,11 @@ public final class MpuChecksums {
     /**
      * Compute each referenced part's true checksum by re-reading the hidden
      * part blobs that MULTIPART_REQUIRES_STUB backends store, so the result
-     * matches the uploaded content no matter what per-part values the
-     * completion request asserts (S3 ignores those beyond presence).  The
-     * length comes back too, since combining CRCs into a full-object
+     * matches the uploaded content rather than the per-part values the
+     * completion request asserts.  S3 holds a part to the value asserted for
+     * it as it does to the ETag, so one that is not the part's own is 400
+     * InvalidPart, unless the store keeps other bytes than the client sent.
+     * The length comes back too, since combining CRCs into a full-object
      * checksum needs it.  The parts are read through the upload, as they
      * were written, so that every middleware in between finds them where it
      * put them; every referenced part has a digest in the result.
@@ -149,12 +192,19 @@ public final class MpuChecksums {
             BlobStore blobStore, MultipartUpload mpu, FlexChecksum algorithm,
             CompleteMultipartUploadRequest cmu) throws IOException {
         var digests = new HashMap<Integer, PartChecksum>();
-        var partNumbers = new TreeSet<Integer>();
+        // deduplicate by part number (last wins), as compute does
+        SortedMap<Integer, CompleteMultipartUploadRequest.Part> sorted =
+                new TreeMap<>();
         for (CompleteMultipartUploadRequest.Part part :
                 requireNonNull(cmu.parts())) {
-            partNumbers.add(part.partNumber());
+            sorted.put(part.partNumber(), part);
         }
-        for (int partNumber : partNumbers) {
+        boolean asUploaded = blobStore.keepsMultipartPartContent();
+        for (var entry : sorted.entrySet()) {
+            int partNumber = entry.getKey();
+            String value = algorithm.value(entry.getValue());
+            byte[] asserted = value == null ? null :
+                    algorithm.decodeValue(value);
             ResponseInputStream<GetObjectResponse> blob;
             try {
                 blob = blobStore.getMultipartPart(mpu, partNumber);
@@ -177,8 +227,12 @@ public final class MpuChecksums {
                     length += count;
                 }
             }
-            digests.put(partNumber, new PartChecksum(
-                    digest.getChecksumBytes(), length));
+            byte[] actual = digest.getChecksumBytes();
+            if (asUploaded && asserted != null &&
+                    !MessageDigest.isEqual(asserted, actual)) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_PART);
+            }
+            digests.put(partNumber, new PartChecksum(actual, length));
         }
         return digests;
     }
@@ -243,17 +297,25 @@ public final class MpuChecksums {
         byte[] combined = null;
         for (var entry : sorted.entrySet()) {
             String value = algorithm.value(entry.getValue());
-            if (value == null) {
+            PartChecksum part = partChecksums != null ?
+                    partChecksums.get(entry.getKey()) : null;
+            if (value == null && fullObject) {
+                // S3 asks no part checksums of a full-object upload.  The
+                // parts as stored still give the whole object's; a store
+                // that cannot show them gives none here, and is either
+                // judging the header itself or was refused it.
+                if (part == null) {
+                    return null;
+                }
+            } else if (value == null) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                         "The upload was created using a " + algorithm.lower() +
                         " checksum. The complete request must include the" +
                         " checksum for each part. It was missing for part " +
                         entry.getKey() + " in the request.");
             }
-            PartChecksum part = partChecksums != null ?
-                    partChecksums.get(entry.getKey()) : null;
             byte[] digest = part != null ? part.digest() :
-                    algorithm.decodeValue(value);
+                    algorithm.decodeValue(requireNonNull(value));
             if (!fullObject) {
                 composite.update(digest);
                 continue;

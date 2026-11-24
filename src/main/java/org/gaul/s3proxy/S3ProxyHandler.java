@@ -6947,6 +6947,26 @@ public class S3ProxyHandler {
         // meaning, even when the completion would fail for other reasons.
         MpuChecksums.validateHeaderValues(request);
 
+        // The header states the finished object's checksum, and may be all
+        // of a presigned completion that its signer pinned.  A store that
+        // keeps no part checksums and cannot show S3Proxy its parts -- azure,
+        // google-cloud-storage, openstack-swift -- could only be compared
+        // with the digests the request's own XML names, which hold the object
+        // to nothing, so the header is refused there rather than accepted
+        // unverified.
+        String blobStoreType = getBlobStoreType(blobStore);
+        boolean requiresStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
+                blobStoreType);
+        FlexChecksum headerAlgorithm = MpuChecksums.headerAlgorithm(request);
+        if (headerAlgorithm != null &&
+                !(requiresStub && blobStore.keepsMultipartPartContent()) &&
+                !blobStore.judgesCompletionChecksum()) {
+            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED,
+                    "This storage backend cannot verify " +
+                    headerAlgorithm.header() + " on" +
+                    " CompleteMultipartUpload.");
+        }
+
         // Its x-amz-checksum-* headers describe the object, not this body,
         // so only Content-MD5 is held to it.
         byte[] body = readBoundedBody(is);
@@ -6996,7 +7016,6 @@ public class S3ProxyHandler {
 
         final List<CompletedPart> parts = new ArrayList<>();
         var listedPartSizes = new HashMap<Integer, Long>();
-        String blobStoreType = getBlobStoreType(blobStore);
         if (blobStoreType.equals("azureblob") ||
                 blobStoreType.equals("google-cloud-storage")) {
             Map<Integer, Part> partsByListing;
@@ -7184,18 +7203,17 @@ public class S3ProxyHandler {
         final String completeIfMatch = ifMatch;
         final String completeIfNoneMatch = ifNoneMatch;
 
-        boolean requiresStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
-                blobStoreType);
         MpuChecksums.Result mpuChecksum = null;
         FlexChecksum mpuAlgorithm =
-                cmu == null ? null : MpuChecksums.algorithm(cmu);
+                cmu == null ? null : MpuChecksums.algorithm(request, cmu);
         if (cmu != null && mpuAlgorithm != null) {
             // S3 computes the checksum from the values recorded when the
-            // parts were uploaded, ignoring the ones the completion request
-            // asserts beyond their presence.  Stub backends store parts as
-            // hidden blobs, so recover the true per-part checksums from the
-            // part content; other backends fall back to the asserted values
-            // and to the part sizes the backend reports.
+            // parts were uploaded, and holds the ones the completion request
+            // asserts to them.  Stub backends store parts as hidden blobs, so
+            // recover the true per-part checksums from the part content;
+            // other backends fall back to the asserted values and to the
+            // part sizes the backend reports, and a header is only taken
+            // where the store judges it too.
             Map<Integer, MpuChecksums.PartChecksum> partChecksums =
                     requiresStub ?
                     MpuChecksums.hashPartContents(blobStore, mpu,
@@ -7235,6 +7253,15 @@ public class S3ProxyHandler {
                         .parts(parts)
                         .build())
                 .mpuObjectSize(mpuObjectSize)
+                .applyMutation(builder -> {
+                    // for a store that judges the object's checksum itself
+                    if (headerAlgorithm != null) {
+                        headerAlgorithm.setOn(builder, requireNonNull(
+                                request.getHeader(headerAlgorithm.header())));
+                        builder.checksumType(request.getHeader(
+                                AwsHttpHeaders.CHECKSUM_TYPE));
+                    }
+                })
                 .ifMatch(completeIfMatch)
                 .ifNoneMatch(completeIfNoneMatch)
                 // The completion must present the create-time customer key
@@ -7486,9 +7513,9 @@ public class S3ProxyHandler {
             return false;
         }
 
-        // Prefer the composite persisted at completion; backends that
-        // cannot store it keep no record, so fall back to echoing the
-        // request's own value the way the first completion did.
+        // Report the checksum persisted at completion, and hold a header to
+        // it.  A store that keeps no record reports none: echoing the
+        // request's own value back would vouch for whatever it named.
         FlexChecksum checksum = null;
         String checksumValue = null;
         for (var entry : metadata.metadata().entrySet()) {
@@ -7502,14 +7529,17 @@ public class S3ProxyHandler {
                 }
             }
         }
-        if (checksum == null) {
-            for (FlexChecksum candidate : FlexChecksum.values()) {
-                String value = request.getHeader(candidate.header());
-                if (value != null) {
-                    checksum = candidate;
-                    checksumValue = value;
-                    break;
-                }
+        FlexChecksum headerAlgorithm = MpuChecksums.headerAlgorithm(request);
+        if (headerAlgorithm != null && checksum != null &&
+                checksumValue != null) {
+            String provided = requireNonNull(
+                    request.getHeader(headerAlgorithm.header()));
+            int dash = checksumValue.lastIndexOf('-');
+            if (headerAlgorithm != checksum ||
+                    !(provided.equals(checksumValue) || (dash >= 0 &&
+                            provided.equals(
+                                    checksumValue.substring(0, dash))))) {
+                throw new S3ProxyException(S3ErrorCode.BAD_DIGEST);
             }
         }
 
@@ -7517,7 +7547,8 @@ public class S3ProxyHandler {
         response.setCharacterEncoding(UTF_8);
         response.setContentType(XML_CONTENT_TYPE);
         if (checksum != null && checksumValue != null) {
-            response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE, "COMPOSITE");
+            response.addHeader(AwsHttpHeaders.CHECKSUM_TYPE,
+                    MpuChecksums.checksumType(checksumValue));
             response.addHeader(checksum.header(), checksumValue);
         }
         try (PrintWriter writer = response.getWriter()) {
