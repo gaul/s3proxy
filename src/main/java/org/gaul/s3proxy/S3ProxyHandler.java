@@ -8867,8 +8867,14 @@ public class S3ProxyHandler {
         // origin.  handleOptionsBlob sets the same header for preflights.
         response.addHeader(HttpHeaders.VARY, HttpHeaders.ORIGIN);
         String corsOrigin = request.getHeader(HttpHeaders.ORIGIN);
+        // A browser sends no preflight for a simple GET, HEAD or POST and
+        // reads only Access-Control-Allow-Origin from the response, so the
+        // configured methods must be enforced here as well as in
+        // handleOptionsBlob.  As on S3, a rule applies only when both the
+        // origin and the method match.
         if (!Strings.isNullOrEmpty(corsOrigin) &&
-                corsRules.isOriginAllowed(corsOrigin)) {
+                corsRules.isOriginAllowed(corsOrigin) &&
+                corsRules.isMethodAllowed(request.getMethod())) {
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
                     corsRules.getAllowedOrigin(corsOrigin));
             response.addHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,

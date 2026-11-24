@@ -298,6 +298,9 @@ must be doubled there, e.g., `\\d`.
 
 CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
 Actual CORS requests are supported for GET, PUT, POST, HEAD and DELETE methods.
+`s3proxy.cors-allow-methods` applies to actual requests as well as preflights:
+a response carries CORS headers only when both the origin and the request
+method are allowed.
 Cross-origin sharing is opt-in: a proxy with no CORS configuration, including
 one built through `S3Proxy.Builder` without `corsRules`, shares nothing.
 Responses that depend on the request `Origin` carry `Vary: Origin` so that

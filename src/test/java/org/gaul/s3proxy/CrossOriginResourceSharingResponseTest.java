@@ -35,6 +35,7 @@ import com.google.common.net.HttpHeaders;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.methods.HttpOptions;
 import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
@@ -78,6 +79,7 @@ public final class CrossOriginResourceSharingResponseTest {
     private String servicePath;
     private CloseableHttpClient httpClient;
     private URI presignedGET;
+    private URI presignedHEAD;
     private URI publicGET;
 
     @BeforeEach
@@ -134,6 +136,10 @@ public final class CrossOriginResourceSharingResponseTest {
                             .getObjectRequest(b -> b.bucket(containerName)
                                     .key(blobName))
                             .build()).url().toURI();
+            presignedHEAD = presigner.presignHeadObject(b -> b
+                    .signatureDuration(Duration.ofHours(1))
+                    .headObjectRequest(h -> h.bucket(containerName)
+                            .key(blobName))).url().toURI();
         }
 
         publicGET = URI.create(s3EndpointUri + "/" + containerName + "/" +
@@ -339,6 +345,41 @@ public final class CrossOriginResourceSharingResponseTest {
                 HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS).getValue())
                 .isEqualTo("ETag");
         // A cache must not serve this origin's response to another one
+        assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
+                .isEqualTo(HttpHeaders.ORIGIN);
+    }
+
+    /**
+     * The configured methods bind the actual request, not only the
+     * preflight: a browser sends no preflight for a simple GET, HEAD or POST
+     * and reads Access-Control-Allow-Origin alone.  The rules here allow GET
+     * and PUT, so a HEAD from an allowed origin is answered but not shared.
+     */
+    @Test
+    public void testCorsActualDisallowedMethod() throws Exception {
+        var request = new HttpHead(presignedHEAD);
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_OK);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS)).isFalse();
+        assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
+                .isEqualTo(HttpHeaders.ORIGIN);
+    }
+
+    /** Nor does an error to a method the rules do not allow name it. */
+    @Test
+    public void testCorsActualErrorDisallowedMethod() throws Exception {
+        var request = new HttpHead(URI.create(publicGET + "-missing"));
+        request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
+        HttpResponse response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_NOT_FOUND);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
         assertThat(response.getFirstHeader(HttpHeaders.VARY).getValue())
                 .isEqualTo(HttpHeaders.ORIGIN);
     }
