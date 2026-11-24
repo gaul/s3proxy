@@ -18,7 +18,6 @@ package org.gaul.s3proxy.checksum;
 
 import static java.util.Objects.requireNonNull;
 
-import java.io.EOFException;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,13 +25,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-
-import com.google.common.io.ByteStreams;
 
 import org.gaul.s3proxy.S3ErrorCode;
 import org.gaul.s3proxy.S3ProxyException;
@@ -47,6 +45,9 @@ import software.amazon.awssdk.checksums.SdkChecksum;
 public final class ChunkedInputStream extends FilterInputStream {
     private static final int MAX_LINE_LENGTH = 4096;
     private static final String TRAILER_SIGNATURE = "x-amz-trailer-signature";
+    /** The most the chunk buffer grows to before any of a chunk has arrived,
+     * however large a chunk its header announces. */
+    private static final int INITIAL_CHUNK_BUFFER_SIZE = 64 * 1024;
     private static final String EMPTY_SHA256 =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     /** Grow-only scratch holding the current chunk's first currentLength
@@ -212,17 +213,14 @@ public final class ChunkedInputStream extends FilterInputStream {
             } else {
                 currentSignature = null;
             }
-            if (chunk.length < currentLength) {
-                chunk = new byte[currentLength];
-            }
+            // Nothing of the chunk is readable until all of it is here, so
+            // a read that follows a failed one does not take the buffer to
+            // hold the bytes the header announced.
+            int length = currentLength;
             currentIndex = 0;
-            try {
-                ByteStreams.readFully(delegate, chunk, 0, currentLength);
-            } catch (EOFException eofe) {
-                // The chunk header promised bytes the body does not carry.
-                throw new IOException(new S3ProxyException(
-                        S3ErrorCode.INCOMPLETE_BODY, eofe));
-            }
+            currentLength = 0;
+            readChunk(length);
+            currentLength = length;
             if (checksum != null) {
                 checksum.update(chunk, 0, currentLength);
             }
@@ -300,6 +298,33 @@ public final class ChunkedInputStream extends FilterInputStream {
             total += n;
         }
         return total;
+    }
+
+    /**
+     * Read the next chunk's bytes into the buffer.  The header that
+     * announced them is a promise that costs its sender a few bytes, and a
+     * body is decoded before anything has authorized the request -- a form
+     * POST carries its policy inside it -- so the buffer is not sized from
+     * the header.  It grows as the bytes arrive, and a request holds memory
+     * in proportion to what it has sent rather than to what it says it will.
+     */
+    private void readChunk(int length) throws IOException {
+        int filled = 0;
+        while (filled < length) {
+            if (filled == chunk.length) {
+                chunk = Arrays.copyOf(chunk, (int) Math.min(length,
+                        Math.max(INITIAL_CHUNK_BUFFER_SIZE,
+                                2L * chunk.length)));
+            }
+            int count = delegate.read(chunk, filled,
+                    Math.min(chunk.length, length) - filled);
+            if (count == -1) {
+                // The chunk header promised bytes the body does not carry.
+                throw new IOException(new S3ProxyException(
+                        S3ErrorCode.INCOMPLETE_BODY));
+            }
+            filled += count;
+        }
     }
 
     private void verifyChunkSignature(byte[] data, int len,

@@ -28,6 +28,8 @@ import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
 import javax.crypto.Mac;
@@ -172,6 +174,69 @@ public final class ChunkedInputStreamTest {
                     .cause()
                     .extracting(c -> ((S3ProxyException) c).getError())
                     .isEqualTo(S3ErrorCode.INCOMPLETE_BODY);
+        }
+    }
+
+    /**
+     * A chunk header is a few bytes that anyone may send, and the body is
+     * decoded before the request is authorized, so announcing a chunk must
+     * not reserve the memory for one: the buffer grows with what arrives.
+     */
+    @Test
+    public void chunkBufferIsNotSizedFromItsHeader() throws IOException {
+        int maxChunkSize = 16 * 1024 * 1024;
+        var largestBuffer = new AtomicInteger();
+        var body = new ByteArrayInputStream((Integer.toHexString(
+                maxChunkSize) + "\r\nhello").getBytes(StandardCharsets.UTF_8)) {
+            @Override
+            public synchronized int read(byte[] b, int off, int len) {
+                largestBuffer.accumulateAndGet(b.length, Math::max);
+                return super.read(b, off, len);
+            }
+        };
+
+        try (var in = new ChunkedInputStream(body, maxChunkSize)) {
+            assertThatThrownBy(in::read)
+                    .isInstanceOf(IOException.class)
+                    .hasCauseInstanceOf(S3ProxyException.class)
+                    .cause()
+                    .extracting(c -> ((S3ProxyException) c).getError())
+                    .isEqualTo(S3ErrorCode.INCOMPLETE_BODY);
+            assertThat(largestBuffer.get()).isLessThanOrEqualTo(64 * 1024);
+            // The chunk never arrived, so nothing of it is there to read.
+            assertThatThrownBy(in::read).isInstanceOf(IOException.class);
+        }
+    }
+
+    /**
+     * Chunks larger than the buffer starts out, from a stream that hands
+     * them over a little at a time, with a smaller one between them that
+     * reuses the buffer.
+     */
+    @Test
+    public void chunksLargerThanTheInitialBufferRoundTrip()
+            throws IOException {
+        byte[] one = new byte[200_000];
+        byte[] two = new byte[1_000];
+        byte[] three = new byte[1024 * 1024];
+        var random = new Random(0);
+        random.nextBytes(one);
+        random.nextBytes(two);
+        random.nextBytes(three);
+        var expected = new ByteArrayOutputStream();
+        expected.write(one);
+        expected.write(two);
+        expected.write(three);
+        var body = new ByteArrayInputStream(
+                unsignedChunked(new byte[][] {one, two, three})) {
+            @Override
+            public synchronized int read(byte[] b, int off, int len) {
+                return super.read(b, off, Math.min(len, 10_007));
+            }
+        };
+
+        try (var in = new ChunkedInputStream(body, three.length)) {
+            assertThat(in.readAllBytes()).isEqualTo(expected.toByteArray());
         }
     }
 
