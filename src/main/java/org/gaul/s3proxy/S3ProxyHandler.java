@@ -1985,6 +1985,16 @@ public class S3ProxyHandler {
             }
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED, e);
         } catch (S3Exception | UnsupportedOperationException e) {
+            // The backend holds the store's own credentials to the same
+            // rule: where they may not list the bucket, S3 refuses them the
+            // ACL of a missing key and shows them that of a present one.  The
+            // refusal is addressed to the store, naming its identity and its
+            // bucket, and relaying it told the missing key from the private
+            // one.  An ACL the store is not shown makes nothing public.
+            if (e instanceof S3Exception se &&
+                    se.statusCode() == HttpServletResponse.SC_FORBIDDEN) {
+                return false;
+            }
             // Likewise for a version that cannot be read: one the key does
             // not have (404), one that is a delete marker (405), or any at
             // all in a bucket that keeps none (unsupported).  The read would
@@ -2009,6 +2019,13 @@ public class S3ProxyHandler {
             access = blobStore.getContainerAccess(containerName);
         } catch (NoSuchBucketException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
+        } catch (S3Exception e) {
+            // As in checkPublicAccess: asked about a missing key, relaying
+            // the store's refusal would set it apart from a private one.
+            if (e.statusCode() != HttpServletResponse.SC_FORBIDDEN) {
+                throw e;
+            }
+            return false;
         }
         return access == BucketCannedACL.PUBLIC_READ ||
                 access == BucketCannedACL.PUBLIC_READ_WRITE;
