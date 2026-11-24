@@ -23,9 +23,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -37,6 +39,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
@@ -48,6 +52,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.SdkRequests;
+import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.crypto.Constants;
 import org.junit.jupiter.api.AfterAll;
@@ -1694,5 +1699,119 @@ public final class EncryptedBlobStoreTest {
 
         assertThat(result.response().contentRange())
             .isEqualTo("bytes 0-0/" + content.length());
+    }
+
+    /**
+     * A range that starts at or past the end of the plaintext selects no
+     * bytes and is answered 416.  The store below cannot refuse it, since
+     * the padded ciphertext still holds bytes where the plaintext has
+     * ended.  Nor may a read that fails while it is being set up leave the
+     * store's response open: on a store that pools connections each one
+     * left behind is a connection lost.
+     */
+    @Test
+    public void testReadRangePastTheEnd() throws Exception {
+        var open = new AtomicInteger();
+        var truncated = new AtomicBoolean();
+        BlobStore counting = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ResponseInputStream<GetObjectResponse> getBlob(
+                GetObjectRequest request) {
+
+                var blob = super.getBlob(request);
+                open.incrementAndGet();
+                return SdkResponses.getResponse(blob.response(),
+                    new FilterInputStream(blob) {
+                        private boolean closed;
+
+                        @Override
+                        public int read(byte[] b, int off, int len)
+                                throws IOException {
+                            return truncated.get() ? -1 :
+                                    super.read(b, off, len);
+                        }
+
+                        @Override
+                        public void close() throws IOException {
+                            if (!closed) {
+                                closed = true;
+                                open.decrementAndGet();
+                            }
+                            super.close();
+                        }
+                    });
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            counting, encryptionProperties);
+
+        var lengths = new HashMap<String, Integer>();
+        for (int length : new int[] {0, 5, LAST_PART_SIZE}) {
+            String blobName = TestUtils.createRandomBlobName();
+            encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, length),
+                new ByteArrayInputStream(filler(0, length)));
+            lengths.put(blobName, length);
+        }
+        var multipart = uploadMultipartContent();
+        lengths.put(multipart.blobName, multipart.content.length);
+
+        for (var entry : lengths.entrySet()) {
+            String blobName = entry.getKey();
+            int length = entry.getValue();
+            var ranges = new String[] {
+                "bytes=" + length + "-",
+                "bytes=" + length + "-" + length,
+                "bytes=" + (length + 1) + "-",
+                "bytes=" + (length + 1) + "-" + (length + 1),
+                "bytes=" + (length + 17) + "-" + (length + 40),
+                "bytes=" + (length + 1000) + "-",
+                "bytes=-0"
+            };
+            for (String range : ranges) {
+                assertThatThrownBy(() -> encrypted.getBlob(rangeRequest(
+                        containerName, blobName, range)))
+                    .as("%s of %s bytes", range, length)
+                    .isInstanceOfSatisfying(AwsServiceException.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(416));
+                assertThat(open).as("%s of %s bytes", range, length)
+                    .hasValue(0);
+            }
+
+            // The request's conditions are judged before its range, as the
+            // stores themselves judge them.
+            String eTag;
+            try (var blob = encrypted.getBlob(containerName, blobName)) {
+                eTag = blob.response().eTag();
+            }
+            assertThatThrownBy(() -> encrypted.getBlob(
+                    GetObjectRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .ifNoneMatch(eTag)
+                        .range("bytes=" + (length + 1) + "-")
+                        .build()))
+                .isInstanceOfSatisfying(AwsServiceException.class,
+                    e -> assertThat(e.statusCode()).isIn(304, 412));
+            assertThat(open).hasValue(0);
+
+            if (length > 0) {
+                String lastByte = "bytes=" + (length - 1) + "-";
+                try (var blob = encrypted.getBlob(rangeRequest(
+                        containerName, blobName, lastByte))) {
+                    assertThat(blob.readAllBytes()).hasSize(1);
+                }
+                assertThat(open).hasValue(0);
+
+                // the same read of an answer that ends before the bytes
+                // decryption has to skip
+                truncated.set(true);
+                assertThatThrownBy(() -> encrypted.getBlob(rangeRequest(
+                        containerName, blobName, lastByte)))
+                    .isInstanceOf(UncheckedIOException.class);
+                truncated.set(false);
+                assertThat(open).hasValue(0);
+            }
+        }
     }
 }

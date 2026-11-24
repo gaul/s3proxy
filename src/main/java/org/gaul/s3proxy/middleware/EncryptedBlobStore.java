@@ -572,24 +572,20 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     partPaddingsOf(containerName, blobName, meta),
                     offset, length);
 
-                // A range that starts at or past the plaintext's end lies
-                // within the padding the store holds after it, so the store
-                // would serve it, and decryption fails on it.  It is refused
-                // here as S3 does, 416, once the read has been judged against
-                // the customer key: the refusal tells the plaintext's size.
-                if (decryption.isEncrypted() && range != null &&
-                        range.first() != null &&
-                        range.first() >= decryption.getUnencryptedSize()) {
-                    CustomerKeys.enforce(meta.sseCustomerKeyMD5(),
-                            request.sseCustomerAlgorithm(),
-                            request.sseCustomerKey(),
-                            request.sseCustomerKeyMD5());
-                    throw S3Exceptions.fromStatusCode(416);
-                }
-
                 var delegateRequest = request.toBuilder()
                         .key(blobName);
+                boolean unsatisfiable = false;
                 if (decryption.isEncrypted() && range != null) {
+                    // A range that starts at or past the end of the plaintext
+                    // selects no bytes, which S3 answers 416.  The backend
+                    // cannot say so for us: it compares the range computed
+                    // below with the padded ciphertext, which still holds
+                    // bytes there, and decrypting those fails.
+                    long decryptedSize = decryption.getUnencryptedSize();
+                    long first = range.first() != null ? offset :
+                            Math.max(0, decryptedSize - end);
+                    unsatisfiable = first >= decryptedSize;
+
                     long startAt = decryption.getStartAt();
                     long endAt = decryption.getEncryptedSize();
 
@@ -601,14 +597,44 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                         endAt = decryption.calculateEndAt(end);
                     }
 
-                    // replace the caller's range with our single computed one
-                    delegateRequest.range(SdkRequests.range(startAt, endAt));
+                    // replace the caller's range with our single computed one.
+                    // An unsatisfiable one still asks the backend, so that
+                    // the request's conditions are judged before its range,
+                    // but for a single byte: none of the answer is used, and
+                    // closing it may read all that was asked for.
+                    delegateRequest.range(unsatisfiable ?
+                            SdkRequests.range(0, 0) :
+                            SdkRequests.range(startAt, endAt));
                 }
 
                 var blob = delegate().getBlob(delegateRequest.build());
 
-                // open the streams and pass them through the decryption
-                InputStream is = decryption.openStream(blob);
+                InputStream is;
+                try {
+                    if (unsatisfiable) {
+                        // The refusal tells the plaintext's size, so the read
+                        // is judged against the customer key first: a read
+                        // the store answered was not refused for it there.
+                        CustomerKeys.enforce(meta.sseCustomerKeyMD5(),
+                                request.sseCustomerAlgorithm(),
+                                request.sseCustomerKey(),
+                                request.sseCustomerKeyMD5());
+                        throw S3Exceptions.fromStatusCode(416);
+                    }
+
+                    // open the streams and pass them through the decryption
+                    is = decryption.openStream(blob);
+                } catch (IOException | RuntimeException e) {
+                    // Nothing else closes the backend's response, and on a
+                    // store that pools connections the one it holds is lost.
+                    try {
+                        blob.close();
+                    } catch (IOException ioe) {
+                        // The stream is being abandoned; ignore close
+                        // failures.
+                    }
+                    throw e;
+                }
 
                 // adjust the content length if the blob is encrypted
                 long contentLength = requireNonNull(
