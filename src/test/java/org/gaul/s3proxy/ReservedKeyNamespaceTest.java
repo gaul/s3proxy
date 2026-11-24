@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -175,6 +176,28 @@ public final class ReservedKeyNamespaceTest {
                 b -> b.bucket(containerName).key(partKey())));
         assertRefused(() -> client.deleteObject(
                 b -> b.bucket(containerName).key(stubKey())));
+    }
+
+    /**
+     * A filesystem that ignores case finds the part and the stub under
+     * these names as well, and one that folds case may skip a soft hyphen
+     * and read a ligature as its letters.  Which the store's filesystem
+     * does is not the handler's to know, so they are refused on all.
+     */
+    @Test
+    public void testReservedKeyInAnotherSpellingIsRefused() {
+        for (String key : List.of(
+                partKey().toUpperCase(Locale.ROOT),
+                stubKey().toUpperCase(Locale.ROOT),
+                partKey().replace(".mpus", ".mp\u00adus"),
+                partKey().replace(".mpus", ".mpu\u017f"),
+                stubKey().replace("stub", "\ufb06ub"))) {
+            assertRefused(() -> client.putObject(
+                    b -> b.bucket(containerName).key(key),
+                    RequestBody.fromString("attacker")));
+            assertRefused(() -> client.deleteObject(
+                    b -> b.bucket(containerName).key(key)));
+        }
     }
 
     /** The keys arrive in the body here rather than the URI. */

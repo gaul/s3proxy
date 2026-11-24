@@ -75,6 +75,7 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.MD5;
+import org.gaul.s3proxy.blobstore.ReservedNames;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
@@ -3762,10 +3763,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * touch the container directory (which represents the bucket).
      *
      * <p>To keep that reserved namespace private, any other key that would
-     * resolve to the slash blob or a descendant of it is rejected with 400.
-     * So is one that would resolve into {@link #TEMPORARY_DIR}: what lies
-     * there is a write still being assembled, which is not an object under
-     * any key, and the store itself never reaches it through one.
+     * resolve to the slash blob or a descendant of it is rejected with 400,
+     * in whatever spelling the filesystem might take for that name.  So is
+     * one that would resolve into {@link #TEMPORARY_DIR}: what lies there is
+     * a write still being assembled, which is not an object under any key,
+     * and the store itself never reaches it through one.
      *
      * <p>A key holding a "." or ".." segment is refused before it is
      * resolved; see {@link #checkNoDotSegment}.
@@ -3779,10 +3781,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } else {
             checkNoDotSegment(key);
             path = resolveName(containerPath, key, "key").normalize();
-            if (path.startsWith(slashBlob)) {
+            String name = ReservedNames.fold(key);
+            if (path.startsWith(slashBlob) ||
+                    name.equals(SLASH_BLOB_NAME) ||
+                    name.startsWith(SLASH_BLOB_NAME + "/")) {
                 throw returnResponseException(400);
             }
-            if (path.startsWith(containerPath.resolve(TEMPORARY_DIR))) {
+            if (path.startsWith(containerPath.resolve(TEMPORARY_DIR)) ||
+                    name.equals(TEMPORARY_DIR) ||
+                    name.startsWith(TEMPORARY_DIR + "/")) {
                 throw S3Exceptions.invalidArgument("The key " +
                         TEMPORARY_DIR + " is reserved for writes in" +
                         " progress.");
@@ -4206,6 +4213,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * The store reaches those names through its own internal overloads,
      * which do not call this; nothing arriving as an S3 key gets past it.
      *
+     * <p>The key is compared as the filesystem might match it rather than
+     * as it is spelled: where names are found in any case,
+     * {@code .S3PROXY-TMP/x} is the file {@code .s3proxy-tmp/x}.  See
+     * {@link ReservedNames#fold}.
+     *
      * <p>Reads are deliberately not refused: CompleteMultipartUpload hashes
      * each part by reading it back through {@link #getBlob}, and there is no
      * separate way in to say so.  Reading a part exposes no more than
@@ -4213,16 +4225,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private static void checkNotReserved(String key) {
         checkNoDotSegment(key);
-        if (key.startsWith(MULTIPART_PREFIX)) {
+        String name = ReservedNames.fold(key);
+        if (name.startsWith(MULTIPART_PREFIX)) {
             throw S3Exceptions.invalidArgument("The key " + MULTIPART_PREFIX +
                     "... is reserved for multipart uploads.");
         }
-        if (key.equals(VERSIONS_DIR) || key.startsWith(VERSIONS_DIR + "/")) {
+        if (name.equals(VERSIONS_DIR) ||
+                name.startsWith(VERSIONS_DIR + "/")) {
             throw S3Exceptions.invalidArgument("The key " + VERSIONS_DIR +
                     " is reserved for object versions.");
         }
-        if (key.equals(TEMPORARY_DIR) ||
-                key.startsWith(TEMPORARY_DIR + "/")) {
+        if (name.equals(TEMPORARY_DIR) ||
+                name.startsWith(TEMPORARY_DIR + "/")) {
             throw S3Exceptions.invalidArgument("The key " + TEMPORARY_DIR +
                     " is reserved for writes in progress.");
         }

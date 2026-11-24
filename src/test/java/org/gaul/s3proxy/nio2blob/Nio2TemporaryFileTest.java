@@ -118,7 +118,10 @@ public final class Nio2TemporaryFileTest {
 
     @Test
     public void testTemporaryDirectoryIsNotAKey() {
-        for (String key : List.of(".s3proxy-tmp", ".s3proxy-tmp/blob")) {
+        // nor in a spelling a filesystem may take for the same name
+        for (String key : List.of(".s3proxy-tmp", ".s3proxy-tmp/blob",
+                ".S3PROXY-TMP", ".S3PROXY-TMP/blob",
+                ".s3proxy-\u00adtmp/blob", ".\u017f3proxy-tmp/blob")) {
             assertThatThrownBy(() -> put(key,
                     new ByteArrayInputStream(CONTENT)))
                     .isInstanceOfSatisfying(S3Exception.class, e ->

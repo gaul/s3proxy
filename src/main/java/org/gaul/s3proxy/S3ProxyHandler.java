@@ -106,6 +106,7 @@ import org.gaul.s3proxy.blobstore.ContentMetadata;
 import org.gaul.s3proxy.blobstore.CustomerKeys;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
+import org.gaul.s3proxy.blobstore.ReservedNames;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -759,11 +760,14 @@ public class S3ProxyHandler {
      * puts its own in front of the stub's, so a prefixed bucket's stubs rest
      * at "&lt;prefix&gt;.s3proxy-mpu-stub-...", which a client of the
      * backend bucket reached through another configuration -- an alias, say
-     * -- could otherwise write.
+     * -- could otherwise write.  A store over a filesystem that ignores case
+     * finds the stub under {@code .S3PROXY-MPU-STUB-} as well, so the key is
+     * folded first.
      */
     private static void checkReservedBlobName(@Nullable String blobName) {
-        if (blobName != null && (blobName.startsWith(MULTIPART_STUB_PREFIX) ||
-                blobName.contains("/" + MULTIPART_STUB_PREFIX))) {
+        if (blobName != null && (ReservedNames.fold(blobName).startsWith(
+                MULTIPART_STUB_PREFIX) || blobName.toLowerCase(Locale.ROOT)
+                        .contains("/" + MULTIPART_STUB_PREFIX))) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "The key " + MULTIPART_STUB_PREFIX +
                     "... is reserved by S3Proxy.");
