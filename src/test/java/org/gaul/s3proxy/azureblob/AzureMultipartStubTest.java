@@ -190,6 +190,29 @@ public final class AzureMultipartStubTest {
         }
     }
 
+    /**
+     * Nor is a page that holds only the group a delimiter folds the stubs
+     * into, ".s3proxy/", which sorts ahead of most keys.  Handed on, it was
+     * a page with neither Contents nor CommonPrefixes and a continuation
+     * token, which a client that takes its next marker from the last key it
+     * saw reads as the end of the bucket (#329).
+     */
+    @Test
+    public void testListDoesNotCountAGroupOfStubs() {
+        for (boolean versioning : new boolean[] {false, true}) {
+            try (BlobStore blobStore = store(versioning)) {
+                var response = blobStore.list(ListObjectsV2Request.builder()
+                        .bucket("container").delimiter("/").maxKeys(1)
+                        .build());
+
+                assertThat(response.contents()).as("versioning %s", versioning)
+                        .extracting(S3Object::key).containsExactly("key");
+                assertThat(response.commonPrefixes()).isEmpty();
+                assertThat(response.isTruncated()).isFalse();
+            }
+        }
+    }
+
     @Test
     public void testListHidesStubsByPrefix() {
         for (boolean versioning : new boolean[] {false, true}) {

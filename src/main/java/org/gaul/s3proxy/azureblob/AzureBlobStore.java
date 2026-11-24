@@ -631,10 +631,14 @@ public final class AzureBlobStore implements BlobStore {
         try {
             var pages = client.listBlobsByHierarchy(
                     request.delimiter(), azureOptions, /*timeout=*/ null);
+            // A page is empty when nothing on it is shown, so it is judged
+            // by what the loop below hides: the stubs, and the group a
+            // delimiter folds them into, which can be all a page holds.
             page = firstPageWithEntries(
                     m -> pages.iterableByPage(m).iterator().next(), marker,
                     blobs -> afterStartAfter(blobs, startAfter).stream()
-                            .filter(blob -> !isMultipartStub(blob))
+                            .filter(blob ->
+                                    !isMultipartInternal(blob.getName()))
                             .toList());
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
