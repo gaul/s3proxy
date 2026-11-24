@@ -65,6 +65,40 @@ public final class ChecksumValidatingInputStreamTest {
         }
     }
 
+    /**
+     * A stream beneath may answer a read with no bytes, as the aws-chunked
+     * decoder does at its final chunk, after the declared length was read
+     * and the checksum finished.  That read is passed on without touching
+     * the finished checksum, which refused it: an upload read ahead by more
+     * than its length failed with a 400.
+     */
+    @Test
+    public void testEmptyReadAfterTheLength() throws Exception {
+        byte[] body = BODY;
+        var source = new java.io.FilterInputStream(
+                new ByteArrayInputStream(body)) {
+            private boolean answeredEmpty;
+
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                int count = super.read(b, off, len);
+                if (count == -1 && !answeredEmpty) {
+                    answeredEmpty = true;
+                    return 0;
+                }
+                return count;
+            }
+        };
+        // a digest, which unlike a CRC refuses an update once finished
+        var sha256 = SdkChecksum.forAlgorithm(DefaultChecksumAlgorithm.SHA256);
+        sha256.update(body, 0, body.length);
+        try (var is = new ChecksumValidatingInputStream(source,
+                SdkChecksum.forAlgorithm(DefaultChecksumAlgorithm.SHA256),
+                sha256.getChecksumBytes(), body.length)) {
+            assertThat(is.readNBytes(body.length + 1)).isEqualTo(body);
+        }
+    }
+
     private static InputStream validating(byte[] body, byte[] expected,
             long contentLength) {
         return new ChecksumValidatingInputStream(

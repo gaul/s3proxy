@@ -85,7 +85,11 @@ public final class ChecksumValidatingInputStream extends FilterInputStream {
         int count = delegate.read(b, off, len);
         if (count == -1) {
             validate();
-        } else {
+        } else if (count > 0) {
+            // A read of no bytes -- InputStream.readNBytes asks for none
+            // once its buffer is full -- may come after the declared length
+            // was reached and the checksum finished, which then refuses an
+            // update.
             checksum.update(b, off, count);
             bytesRead += count;
             if (lengthReached()) {

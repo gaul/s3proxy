@@ -1365,8 +1365,15 @@ public final class GCloudBlobStore implements BlobStore {
      */
     private static InputStream receiveFirstChunk(InputStream is,
             int chunkSize) throws IOException {
+        byte[] head = is.readNBytes(chunkSize);
+        if (head.length < chunkSize) {
+            // The payload ended within the chunk: it is not read again,
+            // since a stream that checks a digest at its end refuses a read
+            // after it.
+            return new ByteArrayInputStream(head);
+        }
         var streams = new ArrayDeque<InputStream>(2);
-        streams.add(new ByteArrayInputStream(is.readNBytes(chunkSize)));
+        streams.add(new ByteArrayInputStream(head));
         streams.add(is);
         // Consumed, so that the chunk is let go of once the SDK has read it.
         // SequenceInputStream keeps the two streams it is constructed with
