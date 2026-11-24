@@ -355,6 +355,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
      * listing it again costs nothing, and listings of the same object that
      * arrive together wait on the one read rather than each making their
      * own.
+     *
+     * <p>That read is made for one object on behalf of a page of them, so
+     * a read the store refuses must not become the listing's answer: one
+     * object deleted since the page was drawn up, or resting under a
+     * customer key this store has no way to present, would take the whole
+     * bucket's listing with it, and whoever may write to the bucket could
+     * put it there.  Such an object is listed at the size of one written in
+     * a single piece.
      */
     private long plaintextSize(String container, S3Object object) {
         long blobSize = requireNonNull(object.size());
@@ -363,6 +371,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         if (matcher.find()) {
             int parts = Integer.parseInt(requireNonNull(matcher.group(1)));
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
+        }
+        // Smaller than one padding it cannot be encrypted, which is how
+        // PartPaddings.read serves it, and there is no padding to range for.
+        if (blobSize < Constants.PADDING_BLOCK_SIZE) {
+            return blobSize;
         }
         // NUL-joined for the reason partPaddingsOf gives.
         String identity = String.join("\0", container, object.key(),
@@ -393,6 +406,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             });
         } catch (ExecutionException | UncheckedExecutionException e) {
             Throwable cause = requireNonNull(e.getCause());
+            // A 4xx is the store's answer about this one object, and is not
+            // remembered; anything else is the store failing, which still
+            // fails the listing.
+            if (cause instanceof S3Exception se &&
+                    se.statusCode() / 100 == 4) {
+                return blobSize - Constants.PADDING_BLOCK_SIZE;
+            }
             Throwables.throwIfUnchecked(cause);
             throw new RuntimeException(cause);
         }
@@ -557,6 +577,22 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             if (se.statusCode() != 400) {
                 throw se;
             }
+        }
+    }
+
+    /**
+     * Refuse a write that would rest an object under a customer key.  This
+     * store reads what it wrote with no caller's key to present -- the
+     * padding behind a listed size, the stored name behind a delete, the
+     * metadata before a read -- and a backend that performs SSE-C answers
+     * none of those without the key.  Such an object could not be listed,
+     * read back or deleted through this store, so it is not written.
+     */
+    private static void checkNoCustomerKey(@Nullable String algorithm,
+            @Nullable String key, @Nullable String keyMD5) {
+        if (algorithm != null || key != null || keyMD5 != null) {
+            throw S3Exceptions.notImplemented("Server-side encryption" +
+                    " with customer-provided keys is not supported.");
         }
     }
 
@@ -753,6 +789,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
         InputStream payload) {
+        checkNoCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         checkIfNoneMatch(request.bucket(), request.key(),
                 request.ifNoneMatch());
         long contentLength = requireNonNull(request.contentLength());
@@ -792,6 +830,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
+        checkNoCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
 
         // if we copy an encrypted blob
         // make sure to add suffix to the destination blob name
@@ -985,6 +1025,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
         CreateMultipartUploadRequest request) {
+        checkNoCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         String key = request.key();
         MultipartUpload created = delegate().initiateMultipartUpload(
             request.toBuilder()
@@ -1044,6 +1086,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
         UploadPartRequest request, InputStream is) {
 
+        checkNoCustomerKey(request.sseCustomerAlgorithm(),
+                request.sseCustomerKey(), request.sseCustomerKeyMD5());
         mpu = filterMultipartUpload(mpu);
         InputStream encrypted;
         try {

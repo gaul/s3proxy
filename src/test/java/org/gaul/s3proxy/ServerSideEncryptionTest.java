@@ -935,11 +935,13 @@ public final class ServerSideEncryptionTest {
     /**
      * Behind the encrypting middleware an object is stored with padding
      * after its plaintext.  A range starting between the two was served by
-     * the store and failed in decryption, a 500 where the key's holder gets
-     * a 416, which told a caller without the key the plaintext's size.
+     * the store and failed in decryption, a 500 where S3 answers 416.  An
+     * object under a customer key is not written there at all: the
+     * middleware reads its own objects with no key to present, so it could
+     * neither list, read nor delete one.
      */
     @Test
-    public void testRangePastPlaintextJudgedBehindEncryption()
+    public void testRangePastPlaintextBehindEncryption()
             throws Exception {
         var properties = new Properties();
         properties.setProperty(
@@ -953,19 +955,20 @@ public final class ServerSideEncryptionTest {
                 unused -> {
                     throw new AssertionError("no second backend");
                 }));
-        client.putObject(b -> b.bucket(containerName).key("blob")
+        assertStatus(501, () -> client.putObject(
+                b -> b.bucket(containerName).key("keyed")
                         .sseCustomerAlgorithm("AES256")
                         .sseCustomerKey(encodeKey(KEY_A))
                         .sseCustomerKeyMD5(keyMD5(KEY_A)),
-                RequestBody.fromString("payload"));
+                RequestBody.fromString("payload")));
 
-        assertStatus(400, () -> client.getObjectAsBytes(
-                b -> b.bucket(containerName).key("blob").range("bytes=8-")));
+        client.putObject(b -> b.bucket(containerName).key("blob"),
+                RequestBody.fromString("payload"));
         assertStatus(416, () -> client.getObjectAsBytes(
-                b -> b.bucket(containerName).key("blob").range("bytes=8-")
-                        .sseCustomerAlgorithm("AES256")
-                        .sseCustomerKey(encodeKey(KEY_A))
-                        .sseCustomerKeyMD5(keyMD5(KEY_A))));
+                b -> b.bucket(containerName).key("blob").range("bytes=8-")));
+        assertThat(client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("blob").range("bytes=6-"))
+                .asUtf8String()).isEqualTo("d");
     }
 
     @Test

@@ -78,3 +78,4 @@ A ```Blob``` written before encryption was turned on has no suffix and is read a
 - No support for re-encryption
 - Returned eTag always differs therefore clients should not verify it
 - Decryption of a ```Blob``` will always result in multiple calls against the backend for instance a GET will result in a HEAD + GET because the size of the blob needs to be determined 
+- Server-side encryption with customer-provided keys (SSE-C) is refused with 501 Not Implemented: the proxy reads its own objects without a key to present, so it could not list, read or delete one; SSE-S3 and SSE-KMS pass through to the backend

@@ -45,6 +45,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.Quirks;
 import org.gaul.s3proxy.S3ProxyConstants;
 import org.gaul.s3proxy.S3ProxyException;
@@ -52,6 +53,7 @@ import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
@@ -1113,6 +1115,166 @@ public final class EncryptedBlobStoreTest {
         assertThat(page.commonPrefixes()).extracting(
                 software.amazon.awssdk.services.s3.model.CommonPrefix::prefix)
                 .containsExactly("a.b/");
+    }
+
+    /**
+     * A listed size is read from each object's own padding, and a read the
+     * backend refuses describes that one object: S3 answers 400 for one
+     * resting under a customer key and 404 for one deleted since the page
+     * was drawn up.  Either took the listing of every other object with it.
+     */
+    @Test
+    public void testListSurvivesUnreadablePadding() throws Exception {
+        String readable = TestUtils.createRandomBlobName() + "-readable";
+        String refused = TestUtils.createRandomBlobName() + "-refused";
+        String deleted = TestUtils.createRandomBlobName() + "-deleted";
+        encryptedBlobStore.putBlob(makeRequest(containerName, readable, 10),
+            new ByteArrayInputStream(new byte[10]));
+        encryptedBlobStore.putBlob(makeRequest(containerName, refused, 20),
+            new ByteArrayInputStream(new byte[20]));
+        encryptedBlobStore.putBlob(makeRequest(containerName, deleted, 30),
+            new ByteArrayInputStream(new byte[30]));
+
+        BlobStore refusing = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ResponseInputStream<GetObjectResponse> getBlob(
+                GetObjectRequest request) {
+
+                if (request.key().startsWith(refused)) {
+                    throw S3Exceptions.invalidRequest("The object was" +
+                        " stored using a form of Server Side Encryption.");
+                } else if (request.key().startsWith(deleted)) {
+                    throw S3Exceptions.noSuchKey(request.bucket(),
+                        request.key(), /*message=*/ null);
+                }
+                return super.getBlob(request);
+            }
+        };
+        var blobs = EncryptedBlobStore.newEncryptedBlobStore(refusing,
+            encryptionProperties).list(containerName);
+
+        Map<String, Long> sizes = new HashMap<>();
+        for (S3Object blob : blobs.contents()) {
+            sizes.put(blob.key(), blob.size());
+        }
+        assertThat(sizes).isEqualTo(
+            Map.of(readable, 10L, refused, 20L, deleted, 30L));
+    }
+
+    /**
+     * What the listing forgives is the backend's answer about one object.
+     * A backend that is failing has said nothing about the object, and a
+     * size made up for it would hide the failure from the caller.
+     */
+    @Test
+    public void testListFailsWithTheBackend() throws Exception {
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, TestUtils.createRandomBlobName(), 10),
+            new ByteArrayInputStream(new byte[10]));
+
+        BlobStore failing = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ResponseInputStream<GetObjectResponse> getBlob(
+                GetObjectRequest request) {
+
+                throw S3Exceptions.fromStatusCode(503);
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            failing, encryptionProperties);
+
+        assertThatThrownBy(() -> encrypted.list(containerName))
+            .isInstanceOfSatisfying(S3Exception.class,
+                e -> assertThat(e.statusCode()).isEqualTo(503));
+    }
+
+    /**
+     * An object under a stored name yet shorter than one padding was not
+     * written by this store and has no padding to read.  Ranging for one
+     * anyway asked the backend for a negative offset.
+     */
+    @Test
+    public void testListObjectShorterThanPadding() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        blobStore.putBlob(
+            makeRequest(containerName, blobName + Constants.S3_ENC_SUFFIX,
+                Constants.PADDING_BLOCK_SIZE - 1),
+            new ByteArrayInputStream(
+                new byte[Constants.PADDING_BLOCK_SIZE - 1]));
+
+        var blobs = encryptedBlobStore.list(containerName);
+
+        assertThat(blobs.contents()).hasSize(1);
+        assertThat(blobs.contents().get(0).key()).isEqualTo(blobName);
+        assertThat(blobs.contents().get(0).size()).isEqualTo(
+            Constants.PADDING_BLOCK_SIZE - 1);
+    }
+
+    /**
+     * The store reads its own objects with no caller's key to present, so
+     * one written under a customer key could not be listed, read or deleted
+     * through it again.  Such a write is refused rather than lost.
+     */
+    @Test
+    public void testRefusesCustomerKey() throws Exception {
+        byte[] customerKey = filler(0, 32);
+        String key = Base64.getEncoder().encodeToString(customerKey);
+        String keyMD5 = Base64.getEncoder().encodeToString(
+            MD5.hash(customerKey));
+        String blobName = TestUtils.createRandomBlobName();
+        encryptedBlobStore.putBlob(makeRequest(containerName, blobName, 1),
+            new ByteArrayInputStream(new byte[1]));
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName + "-upload"));
+
+        assertNotImplemented(() -> encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName + "-put", 1).toBuilder()
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(key)
+                .sseCustomerKeyMD5(keyMD5)
+                .build(),
+            new ByteArrayInputStream(new byte[1])));
+        assertNotImplemented(() -> encryptedBlobStore.copyBlob(
+            CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(blobName)
+                .destinationBucket(containerName)
+                .destinationKey(blobName + "-copy")
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(key)
+                .sseCustomerKeyMD5(keyMD5)
+                .build()));
+        assertNotImplemented(() -> encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName + "-initiate")
+                .toBuilder()
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(key)
+                .sseCustomerKeyMD5(keyMD5)
+                .build()));
+        assertNotImplemented(() -> encryptedBlobStore.uploadMultipartPart(mpu,
+            UploadPartRequest.builder()
+                .bucket(mpu.containerName())
+                .key(mpu.blobName())
+                .uploadId(mpu.id())
+                .partNumber(1)
+                .contentLength(1L)
+                .sseCustomerAlgorithm("AES256")
+                .sseCustomerKey(key)
+                .sseCustomerKeyMD5(keyMD5)
+                .build(),
+            new ByteArrayInputStream(new byte[1])));
+
+        assertThat(encryptedBlobStore.listMultipartUpload(mpu)).isEmpty();
+        encryptedBlobStore.abortMultipartUpload(mpu);
+        assertThat(blobStore.listMultipartUploads(containerName)).isEmpty();
+        assertThat(blobStore.list(containerName).contents())
+            .extracting(S3Object::key)
+            .containsExactly(blobName + Constants.S3_ENC_SUFFIX);
+    }
+
+    private static void assertNotImplemented(ThrowingCallable callable) {
+        assertThatThrownBy(callable)
+            .isInstanceOfSatisfying(S3Exception.class,
+                e -> assertThat(e.statusCode()).isEqualTo(501));
     }
 
     @Test
