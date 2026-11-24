@@ -268,7 +268,8 @@ public interface BlobStore extends AutoCloseable {
      * CreateBucket: creates the bucket, throwing the wire's
      * BucketAlreadyOwnedByYou when the caller already has it -- a store
      * with one namespace answers for all of it, since every bucket it
-     * sees is the caller's own.
+     * sees is the caller's own -- and BucketAlreadyExists when the name is
+     * taken by another account of a backend that shares names among them.
      */
     CreateBucketResponse createContainer(CreateBucketRequest request);
 

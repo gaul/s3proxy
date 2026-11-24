@@ -535,10 +535,38 @@ public final class GCloudBlobStore implements BlobStore {
             return CreateBucketResponse.builder().build();
         } catch (StorageException se) {
             if (se.getCode() == 409) {
-                throw S3Exceptions.bucketAlreadyOwnedByYou(container);
+                throw ownsBucket(container) ?
+                        S3Exceptions.bucketAlreadyOwnedByYou(container) :
+                        S3Exceptions.bucketAlreadyExists(container);
             }
             throw se;
         }
+    }
+
+    /**
+     * Whether the bucket is one of the project's own.  Bucket names are one
+     * namespace for all of Google Cloud Storage, and a create is refused
+     * with the same 409 whether the name is the project's or another's,
+     * which S3 tells apart: a client goes on to use a bucket it is told it
+     * owns.  Listing the project's buckets names only its own.
+     */
+    private boolean ownsBucket(String container) {
+        try {
+            for (Bucket bucket : storage.list(
+                    BucketListOption.prefix(container),
+                    BucketListOption.fields(BucketField.NAME)).iterateAll()) {
+                if (bucket.getName().equals(container)) {
+                    return true;
+                }
+            }
+        } catch (StorageException se) {
+            // An account that may not list the project's buckets cannot
+            // tell, and must not be told it owns one that may be another's.
+            if (se.getCode() != 403) {
+                throw se;
+            }
+        }
+        return false;
     }
 
     /**

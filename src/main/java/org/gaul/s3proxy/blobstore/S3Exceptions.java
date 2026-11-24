@@ -23,6 +23,7 @@ import org.jspecify.annotations.Nullable;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.http.SdkHttpResponse;
+import software.amazon.awssdk.services.s3.model.BucketAlreadyExistsException;
 import software.amazon.awssdk.services.s3.model.BucketAlreadyOwnedByYouException;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -73,6 +74,25 @@ public final class S3Exceptions {
                 .awsErrorDetails(details(409, "BucketAlreadyOwnedByYou",
                         "Your previous request to create the named bucket" +
                                 " succeeded and you already own it.",
+                        Map.of()))
+                .build();
+    }
+
+    /**
+     * The 409 CreateBucket answers when the name is taken by someone other
+     * than the caller, on a store whose bucket names are shared by all of
+     * its accounts.
+     */
+    public static BucketAlreadyExistsException bucketAlreadyExists(
+            String container) {
+        return BucketAlreadyExistsException.builder()
+                .message("bucket %s already exists".formatted(container))
+                .statusCode(409)
+                .awsErrorDetails(details(409, "BucketAlreadyExists",
+                        "The requested bucket name is not available." +
+                                " The bucket namespace is shared by all" +
+                                " users of the system. Please select a" +
+                                " different name and try again.",
                         Map.of()))
                 .build();
     }
