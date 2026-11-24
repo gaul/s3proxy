@@ -377,6 +377,7 @@ public class S3ProxyHandler {
             AwsHttpHeaders.IF_MATCH_SIZE,
             AwsHttpHeaders.METADATA_DIRECTIVE,
             AwsHttpHeaders.MFA,
+            AwsHttpHeaders.MP_OBJECT_SIZE,
             AwsHttpHeaders.OBJECT_ATTRIBUTES,
             AwsHttpHeaders.OBJECT_LOCK_LEGAL_HOLD,
             AwsHttpHeaders.OBJECT_LOCK_MODE,
@@ -7129,6 +7130,32 @@ public class S3ProxyHandler {
             throw new S3ProxyException(S3ErrorCode.MALFORMED_X_M_L);
         }
 
+        // The size the caller expects the object to have, which the CRT
+        // behind aws s3 cp states on every completion; refused as an unknown
+        // header, every upload it made failed.  As on S3, a completion whose
+        // parts come to another size is refused.  A store that reports no
+        // size for some part cannot be held to it here, and aws-s3 is handed
+        // it to judge as well.
+        Long mpuObjectSize = parseMpuObjectSize(request);
+        if (mpuObjectSize != null) {
+            long total = 0;
+            boolean known = true;
+            for (CompletedPart part : parts) {
+                Long size = listedPartSizes.get(part.partNumber());
+                if (size == null || size < 0) {
+                    known = false;
+                    break;
+                }
+                total += size;
+            }
+            if (known && total != mpuObjectSize) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                        "The provided 'x-amz-mp-object-size' header value " +
+                        mpuObjectSize + " does not match what was" +
+                        " computed: " + total);
+            }
+        }
+
         // Hand the condition to the store, which resolves it as it publishes
         // the object.  Checking it here instead would only hold while nothing
         // else writes the same key, which is what the caller is guarding
@@ -7207,6 +7234,7 @@ public class S3ProxyHandler {
                 .multipartUpload(CompletedMultipartUpload.builder()
                         .parts(parts)
                         .build())
+                .mpuObjectSize(mpuObjectSize)
                 .ifMatch(completeIfMatch)
                 .ifNoneMatch(completeIfNoneMatch)
                 // The completion must present the create-time customer key
@@ -8863,6 +8891,31 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED);
             }
         }
+    }
+
+    /**
+     * The x-amz-mp-object-size header as a number, or null when absent.  A
+     * value that is not a size is InvalidArgument, naming the header.
+     */
+    @Nullable
+    private static Long parseMpuObjectSize(HttpServletRequest request) {
+        String value = request.getHeader(AwsHttpHeaders.MP_OBJECT_SIZE);
+        if (value == null) {
+            return null;
+        }
+        long size;
+        try {
+            size = Long.parseLong(value);
+        } catch (NumberFormatException nfe) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "Invalid value for x-amz-mp-object-size: " + value, nfe,
+                    Map.of());
+        }
+        if (size < 0) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "Invalid value for x-amz-mp-object-size: " + value);
+        }
+        return size;
     }
 
     /** The x-amz-if-match-size header as a number, or null when absent. */

@@ -64,6 +64,7 @@ public final class AwsHttpHeaders {
     public static final String IF_MATCH_SIZE = "x-amz-if-match-size";
     public static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
     public static final String MFA = "x-amz-mfa";
+    public static final String MP_OBJECT_SIZE = "x-amz-mp-object-size";
     public static final String OBJECT_ATTRIBUTES = "x-amz-object-attributes";
     public static final String OBJECT_OWNERSHIP = "x-amz-object-ownership";
     public static final String OBJECT_LOCK_LEGAL_HOLD =

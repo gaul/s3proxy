@@ -4023,6 +4023,60 @@ public final class AwsSdkTest {
                 .contentEncoding()).isNull();
     }
 
+    /**
+     * The CRT behind aws s3 cp states the object's size on every completion,
+     * which was refused NotImplemented as an unknown header.  A size the
+     * parts come to completes; another is refused, as on S3.
+     */
+    @Test
+    public void testMultipartUploadObjectSize() throws Exception {
+        String blobName = "multipart-upload-object-size";
+        CreateMultipartUploadResponse result = client.createMultipartUpload(
+                b -> b.bucket(containerName).key(blobName));
+        ByteSource byteSource = TestUtils.randomByteSource().slice(
+                0, MINIMUM_MULTIPART_SIZE + 1);
+        ByteSource byteSource1 = byteSource.slice(0, MINIMUM_MULTIPART_SIZE);
+        ByteSource byteSource2 = byteSource.slice(MINIMUM_MULTIPART_SIZE, 1);
+        long size = byteSource.size();
+        UploadPartResponse part1 = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName)
+                .uploadId(result.uploadId()).partNumber(1),
+                RequestBody.fromInputStream(byteSource1.openStream(),
+                        byteSource1.size()));
+        UploadPartResponse part2 = client.uploadPart(b -> b
+                .bucket(containerName).key(blobName)
+                .uploadId(result.uploadId()).partNumber(2),
+                RequestBody.fromInputStream(byteSource2.openStream(),
+                        byteSource2.size()));
+        var completed = CompletedMultipartUpload.builder()
+                .parts(CompletedPart.builder().partNumber(1)
+                                .eTag(part1.eTag()).build(),
+                        CompletedPart.builder().partNumber(2)
+                                .eTag(part2.eTag()).build())
+                .build();
+
+        try {
+            client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(blobName)
+                    .uploadId(result.uploadId())
+                    .mpuObjectSize(size + 1)
+                    .multipartUpload(completed));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("InvalidRequest");
+        }
+
+        client.completeMultipartUpload(b -> b
+                .bucket(containerName).key(blobName)
+                .uploadId(result.uploadId())
+                .mpuObjectSize(size)
+                .multipartUpload(completed));
+        assertThat(client.headObject(b -> b.bucket(containerName)
+                .key(blobName)).contentLength()).isEqualTo(size);
+    }
+
     @Test
     public void testMultipartUpload() throws Exception {
         String blobName = "multipart-upload";
