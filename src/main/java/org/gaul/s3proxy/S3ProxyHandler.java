@@ -8387,6 +8387,22 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * Reads and discards a request body that the operation answered without
+     * reading, once the response is written.  A copy names its source in a
+     * header and takes nothing from a body a client sends it all the same;
+     * left unread, a body still in flight when the response completed made
+     * Jetty close the connection after a 200 that had not said so, and a
+     * client that pooled it wrote its next request into the closing socket.
+     * The same bounded wait as for a refused request's body.
+     */
+    final void drainUnreadBodyAfterResponse(HttpServletRequest request)
+            throws IOException {
+        if (hasUnreadBody(request)) {
+            drainUnreadBody(request);
+        }
+    }
+
     static String generateRequestId() {
         return "%016X".formatted(ThreadLocalRandom.current().nextLong());
     }

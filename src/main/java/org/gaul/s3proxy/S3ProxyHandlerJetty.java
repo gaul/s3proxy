@@ -84,6 +84,7 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         try (InputStream is = request.getInputStream()) {
 
             handler.doHandle(request, request, response, is, ctx);
+            handler.drainUnreadBodyAfterResponse(request);
         } catch (IllegalArgumentException iae) {
             logger.debug("IllegalArgumentException:", iae);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
