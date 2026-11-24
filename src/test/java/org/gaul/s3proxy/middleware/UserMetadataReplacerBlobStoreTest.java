@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -33,6 +34,7 @@ import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.SdkRequests;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.checksum.FlexChecksum;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -363,5 +365,104 @@ public final class UserMetadataReplacerBlobStoreTest {
         entry = userMetadata.entrySet().iterator().next();
         assertThat(entry.getKey()).isEqualTo("my-key");
         assertThat(entry.getValue()).isEqualTo("my-value-");
+    }
+
+    /**
+     * S3ProxyHandler completes an upload on a store that assembles the
+     * object itself with the metadata it read back, which is unmunged,
+     * rather than with the upload initiateMultipartUpload returned.
+     */
+    @Test
+    public void testCompleteMultipartUploadMungesMetadata() throws Exception {
+        var blobName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        var createRequest = TestUtils.createRequest(containerName, blobName)
+                .toBuilder()
+                .metadata(Map.of("my-key", "my-value-"))
+                .build();
+        var mpu = userMetadataReplacerBlobStore.initiateMultipartUpload(
+                createRequest);
+        assertThat(mpu.request().metadata())
+                .isEqualTo(Map.of("my-key", "my-value-"));
+        var part = TestUtils.uploadPart(userMetadataReplacerBlobStore,
+                mpu, 1, content.openStream(), content.size());
+        userMetadataReplacerBlobStore.completeMultipartUpload(
+                new MultipartUpload(mpu.id(), createRequest),
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part))));
+
+        // check underlying blobStore
+        assertThat(blobStore.blobMetadata(containerName, blobName)
+                .metadata()).isEqualTo(Map.of("my_key", "my_value_"));
+
+        // check blobMetadata
+        assertThat(userMetadataReplacerBlobStore.blobMetadata(
+                containerName, blobName).metadata())
+                .isEqualTo(Map.of("my-key", "my-value-"));
+    }
+
+    /**
+     * The key S3ProxyHandler adds at completion, after the user's, is the
+     * one stored when a user key munges to the same.
+     */
+    @Test
+    public void testCompleteMultipartUploadCollidingMetadata()
+            throws Exception {
+        var blobName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        var createRequest = TestUtils.createRequest(containerName, blobName);
+        var mpu = userMetadataReplacerBlobStore.initiateMultipartUpload(
+                createRequest);
+        var part = TestUtils.uploadPart(userMetadataReplacerBlobStore,
+                mpu, 1, content.openStream(), content.size());
+        var metadata = new LinkedHashMap<String, String>();
+        metadata.put("my-key", "user");
+        metadata.put("my_key", "handler");
+        userMetadataReplacerBlobStore.completeMultipartUpload(
+                new MultipartUpload(mpu.id(), createRequest.toBuilder()
+                        .metadata(metadata)
+                        .build()),
+                SdkRequests.completeRequest(mpu,
+                        List.of(TestUtils.completedPart(1, part))));
+
+        // check underlying blobStore
+        assertThat(blobStore.blobMetadata(containerName, blobName)
+                .metadata()).isEqualTo(Map.of("my_key", "handler"));
+
+        // check getBlob
+        try (var blob = userMetadataReplacerBlobStore.getBlob(
+                containerName, blobName)) {
+            assertThat(blob.response().metadata())
+                    .isEqualTo(Map.of("my-key", "handler"));
+        }
+    }
+
+    /**
+     * Stored keys that collide once unmunged must not fail the read, which
+     * left the blob that getBlob had already opened unclosed.
+     */
+    @Test
+    public void testGetBlobCollidingMetadata() throws Exception {
+        var blobName = TestUtils.createRandomBlobName();
+        var content = TestUtils.randomByteSource().slice(0, 1024);
+        // as on an object not written through this middleware
+        blobStore.putBlob(
+                TestUtils.putRequest(containerName, blobName, content)
+                        .toBuilder()
+                        .metadata(Map.of("my-key", "one", "my_key", "two"))
+                        .build(),
+                content.openStream());
+
+        // check getBlob
+        try (var blob = userMetadataReplacerBlobStore.getBlob(
+                containerName, blobName)) {
+            assertThat(blob.response().metadata()).containsOnlyKeys("my-key");
+            assertThat(blob.readAllBytes()).isEqualTo(content.read());
+        }
+
+        // check blobMetadata
+        assertThat(userMetadataReplacerBlobStore.blobMetadata(
+                containerName, blobName).metadata())
+                .containsOnlyKeys("my-key");
     }
 }

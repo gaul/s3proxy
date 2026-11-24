@@ -30,6 +30,8 @@ import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.checksum.FlexChecksum;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
@@ -93,6 +95,9 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
+        // Nothing may throw between opening the blob and returning it: the
+        // caller can only close a stream that it was handed, and one left
+        // open holds the backend's file or connection.
         var blob = super.getBlob(request);
         return SdkResponses.getResponse(
                 blob.response().toBuilder()
@@ -121,10 +126,36 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     @Override
     public MultipartUpload initiateMultipartUpload(
             CreateMultipartUploadRequest request) {
-        return super.initiateMultipartUpload(request.toBuilder()
+        var mpu = super.initiateMultipartUpload(request.toBuilder()
                 .metadata(replaceMetadata(request.metadata(), fromChars,
                         toChars))
                 .build());
+        // Answer with the metadata the caller named rather than the stored
+        // form: a caller may hand this upload straight back to
+        // completeMultipartUpload, which munges it.
+        return new MultipartUpload(mpu.id(),
+                mpu.request().toBuilder()
+                        .metadata(request.metadata())
+                        .build(),
+                mpu.response());
+    }
+
+    @Override
+    public CompleteMultipartUploadResponse completeMultipartUpload(
+            MultipartUpload mpu, CompleteMultipartUploadRequest request) {
+        // A store that assembles the object itself writes the metadata of
+        // the upload it is handed here, so munge it the same way putBlob
+        // does.  S3ProxyHandler rebuilds that upload from metadata it read
+        // back through blobMetadata, i.e., unmunged, and may add a checksum
+        // under a key of its own.  That key comes last and prevails over a
+        // user key which munges to the same one; reserved names pass as
+        // they are, see replaceMetadata.
+        return super.completeMultipartUpload(new MultipartUpload(mpu.id(),
+                mpu.request().toBuilder()
+                        .metadata(replaceMetadata(mpu.request().metadata(),
+                                fromChars, toChars))
+                        .build(),
+                mpu.response()), request);
     }
 
     /**
