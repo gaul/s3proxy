@@ -98,6 +98,9 @@ public enum S3ErrorCode {
             " against our published schema."),
     MAX_MESSAGE_LENGTH_EXCEEDED(HttpServletResponse.SC_BAD_REQUEST,
             "Your request was too big."),
+    MAX_POST_PRE_DATA_LENGTH_EXCEEDED_ERROR(HttpServletResponse.SC_BAD_REQUEST,
+            "Your POST request fields preceding the upload file were too" +
+            " large."),
     METHOD_NOT_ALLOWED(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
             "Method Not Allowed"),
     MISSING_ACTION(HttpServletResponse.SC_BAD_REQUEST,

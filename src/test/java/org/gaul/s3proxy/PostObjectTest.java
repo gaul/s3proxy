@@ -56,7 +56,7 @@ public final class PostObjectTest {
     private static final String IDENTITY = "identity";
     private static final String CREDENTIAL = "credential";
     private static final String BOUNDARY = "----------s3proxytest";
-    private static final int MAX_REQUEST_SIZE = 16 * 1024;
+    private static final int MAX_REQUEST_SIZE = 32 * 1024;
 
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
@@ -236,6 +236,70 @@ public final class PostObjectTest {
         assertThat(response.statusCode()).isEqualTo(204);
         assertThat(blobStore.blobMetadata(containerName, "foo")
                 .contentType()).isEqualTo("binary/octet-stream");
+    }
+
+    /**
+     * S3 takes 20 KB of fields beside the file.  Without that bound the
+     * metadata of a form is as large as the form may be, where the metadata
+     * of a PUT has to fit its headers, and everything that reads or lists the
+     * object afterwards holds all of it.
+     */
+    @Test
+    public void testOversizedFieldsAreRefused() throws Exception {
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        HttpResponse<String> response = postUnsigned(
+                "key", "foo.txt", "x-amz-meta-foo", "x".repeat(19 * 1024));
+        assertThat(response.statusCode()).isEqualTo(204);
+
+        for (String field : List.of(
+                "x-amz-meta-foo", "Content-Type", "key")) {
+            response = postUnsigned(
+                    "key", "bar.txt", field, "x".repeat(20 * 1024));
+            assertThat(response.statusCode()).isEqualTo(400);
+            assertThat(response.body()).contains(
+                    "<Code>MaxPostPreDataLengthExceededError</Code>");
+        }
+
+        // counted together, and by name as well as by value
+        response = postUnsigned(
+                "key", "bar.txt", "x-amz-meta-foo", "x".repeat(10 * 1024),
+                "x-amz-meta-" + "y".repeat(1024), "",
+                "Content-Type", "x".repeat(9 * 1024));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains(
+                "<Code>MaxPostPreDataLengthExceededError</Code>");
+        assertThat(blobStore.blobExists(containerName, "bar.txt")).isFalse();
+        assertThat(blobStore.list(containerName).contents()).hasSize(1);
+    }
+
+    /**
+     * The file's name is a field in all but form, since the key may ask for
+     * it, and ask more than once.
+     */
+    @Test
+    public void testOversizedFileNameIsRefused() throws Exception {
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        HttpResponse<String> response = postFile("payload.txt",
+                "key", "${filename}/${filename}");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(body("payload.txt/payload.txt")).isEqualTo("bar");
+
+        // under the bound on a part's headers, which carry the name, but
+        // over the bound on the fields once counted with them
+        response = postFile("x".repeat(7 * 1024), "key", "${filename}",
+                "x-amz-meta-foo", "x".repeat(14 * 1024));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains(
+                "<Code>MaxPostPreDataLengthExceededError</Code>");
+
+        response = postFile("x".repeat(1024),
+                "key", "${filename}".repeat(32));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains(
+                "<Code>MaxPostPreDataLengthExceededError</Code>");
+        assertThat(blobStore.list(containerName).contents()).hasSize(1);
     }
 
     /**
@@ -625,6 +689,12 @@ public final class PostObjectTest {
     /** The same, sending exactly the fields given and nothing else. */
     private HttpResponse<String> postUnsigned(String... fields)
             throws Exception {
+        return postFile("payload.txt", fields);
+    }
+
+    /** ... with the file part carrying the given name. */
+    private HttpResponse<String> postFile(String fileName, String... fields)
+            throws Exception {
         var out = new ByteArrayOutputStream();
         List<String> pairs = new ArrayList<>(List.of(fields));
         for (int i = 0; i < pairs.size(); i += 2) {
@@ -634,7 +704,8 @@ public final class PostObjectTest {
                     .getBytes(StandardCharsets.UTF_8));
         }
         out.write(("--" + BOUNDARY + "\r\nContent-Disposition: form-data;" +
-                " name=\"file\"; filename=\"payload.txt\"\r\n\r\nbar\r\n")
+                " name=\"file\"; filename=\"" + fileName +
+                "\"\r\n\r\nbar\r\n")
                 .getBytes(StandardCharsets.UTF_8));
         out.write(("--" + BOUNDARY + "--\r\n")
                 .getBytes(StandardCharsets.UTF_8));

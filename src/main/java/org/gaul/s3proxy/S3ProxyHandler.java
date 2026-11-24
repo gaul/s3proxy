@@ -298,6 +298,13 @@ public class S3ProxyHandler {
     /** The session of a request made with temporary credentials. */
     private static final String SESSION_ATTRIBUTE =
             S3ProxyHandler.class.getName() + ".session";
+    /**
+     * The most S3 accepts in the fields of a form other than its file.  Some
+     * of them are stored with the object -- its key, its user metadata, its
+     * content type -- and what a PUT stores there has to fit the request's
+     * headers.
+     */
+    private static final long MAX_FORM_FIELDS_LENGTH = 20 * 1024;
     /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
     private static final int MAX_BUCKETS = 10_000;
     /** A SHA-256 as x-amz-content-sha256 spells it. */
@@ -6323,6 +6330,7 @@ public class S3ProxyHandler {
         var fields = new LinkedHashMap<String, String>();
         String fileName = null;
         byte[] payload = null;
+        long fieldsLength = 0;
         FlexChecksum checksum = null;
         String checksumValue = null;
         var parser = new MultiPartFormData.Parser(boundary);
@@ -6377,8 +6385,19 @@ public class S3ProxyHandler {
                             StandardCharsets.ISO_8859_1)
                             .getBytes(StandardCharsets.ISO_8859_1);
                     fileName = part.getFileName();
+                    // Counted with the fields below, since the key may ask
+                    // for the name.
+                    fieldsLength += Strings.nullToEmpty(fileName).length();
+                    checkFormFieldsLength(fieldsLength);
                     continue;
                 }
+                // The bound on the body is the bound on the file.  A field
+                // is a string: held, matched against the policy, and for the
+                // key, the metadata and the content type stored with the
+                // object, to be read again by whatever reads or lists it.
+                // Jetty bounds neither a part's name nor its value.
+                fieldsLength += name.length() + part.getLength();
+                checkFormFieldsLength(fieldsLength);
                 String value = part.getContentAsString(StandardCharsets.UTF_8);
                 fields.put(name, value);
                 FlexChecksum candidate = FlexChecksum.fromHeaderName(name);
@@ -6403,6 +6422,9 @@ public class S3ProxyHandler {
         if (blobName != null && blobName.contains("${filename}")) {
             blobName = blobName.replace("${filename}",
                     Strings.nullToEmpty(fileName));
+            // A key may name the file any number of times, and must not
+            // come out longer than one the form could have spelled out.
+            checkFormFieldsLength(blobName.length());
             fields.put("key", blobName);
         }
         // The bucket a condition is matched against is the one being written
@@ -6582,6 +6604,14 @@ public class S3ProxyHandler {
         finishPostBlob(request, response, grant.blobStore(), containerName,
                 blobName, contentType, fields, payload, checksum,
                 checksumValue);
+    }
+
+    /** Refuse a form whose fields outgrew what S3 accepts of them. */
+    private static void checkFormFieldsLength(long fieldsLength) {
+        if (fieldsLength > MAX_FORM_FIELDS_LENGTH) {
+            throw new S3ProxyException(
+                    S3ErrorCode.MAX_POST_PRE_DATA_LENGTH_EXCEEDED_ERROR);
+        }
     }
 
     /**
