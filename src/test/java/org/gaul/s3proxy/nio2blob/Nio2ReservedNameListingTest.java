@@ -34,6 +34,7 @@ import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
@@ -106,7 +107,8 @@ public final class Nio2ReservedNameListingTest {
                 "dir/../../" + CONTAINER,
                 root.resolve(CONTAINER).toAbsolutePath().toString())) {
             assertThatThrownBy(() -> keys(prefix, null)).as(prefix)
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOfSatisfying(S3Exception.class, e ->
+                            assertThat(e.statusCode()).isEqualTo(400));
         }
     }
 

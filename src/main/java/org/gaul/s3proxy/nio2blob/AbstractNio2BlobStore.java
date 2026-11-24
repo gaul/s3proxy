@@ -3595,9 +3595,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
+    /**
+     * Refuse a name that resolves outside the directory it belongs in.  The
+     * answer is S3's 400 InvalidArgument, and names neither path: the
+     * message reaches the client, and the store's directories are no
+     * business of it.  Thrown as an IllegalArgumentException, it reached
+     * the client as the servlet container's error page, paths and all.
+     */
     private static void checkValidPath(Path container, Path path) {
         if (!path.normalize().startsWith(container)) {
-            throw new IllegalArgumentException("Path traversal attempt detected: " + container + " " + path);
+            logger.debug("refusing {}, outside {}", path, container);
+            throw S3Exceptions.invalidArgument(
+                    "The name leads outside the directory it belongs in.");
         }
     }
 
