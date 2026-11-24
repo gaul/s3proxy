@@ -37,16 +37,32 @@ import org.gaul.s3proxy.S3ProxyException;
  * instead sent more body than it declared, which is refused here rather than
  * stored as though the declaration had been true.  A stream that ends before
  * the count runs out sent less, and is refused likewise.
+ *
+ * <p>That one more read is made here, by the read that takes the last
+ * declared byte and before the byte is handed over, rather than left to the
+ * consumer.  A store told the length may read that much and never ask for
+ * the end of stream -- aws-s3 and azureblob do -- and would by then hold
+ * every byte of a body that was longer than it declared, or that a stream
+ * underneath refuses only at its own end: a trailer that does not match, or
+ * the payload hash a presigned URL pins, which is compared where the body
+ * the client sent ends and not where the part of it that was declared does.
  */
 public final class BodyLimitInputStream extends FilterInputStream {
     // FilterInputStream declares in as nullable
     private final InputStream delegate;
     private long remaining;
+    private boolean ended;
 
-    public BodyLimitInputStream(InputStream is, long limit) {
+    public BodyLimitInputStream(InputStream is, long limit)
+            throws IOException {
         super(is);
         this.delegate = is;
         this.remaining = limit;
+        if (limit == 0) {
+            // No declared byte for a read to take, so none to look for the
+            // end along with: a store told the length is zero reads nothing.
+            finish();
+        }
     }
 
     @Override
@@ -59,6 +75,9 @@ public final class BodyLimitInputStream extends FilterInputStream {
             throw shorterThanDeclared();
         }
         --remaining;
+        if (remaining == 0) {
+            finish();
+        }
         return result;
     }
 
@@ -72,6 +91,9 @@ public final class BodyLimitInputStream extends FilterInputStream {
             throw shorterThanDeclared();
         }
         remaining -= result;
+        if (remaining == 0) {
+            finish();
+        }
         return result;
     }
 
@@ -93,14 +115,20 @@ public final class BodyLimitInputStream extends FilterInputStream {
 
     /**
      * Read past the last declared byte so the stream underneath reaches its
-     * end, which is where an aws-chunked trailer is read and checked.
+     * end, which is where an aws-chunked trailer is read and checked.  The
+     * end is looked for once: a consumer's own read past the last declared
+     * byte, if it makes one, is answered from here.
      */
     private int finish() throws IOException {
+        if (ended) {
+            return -1;
+        }
         if (delegate.read() != -1) {
             throw new IOException(new S3ProxyException(
                     S3ErrorCode.INVALID_REQUEST,
                     "The request body is longer than the length it declared."));
         }
+        ended = true;
         return -1;
     }
 }
