@@ -3250,6 +3250,7 @@ public class S3ProxyHandler {
 
         ListObjectVersionsResponse page = blobStore.listVersions(
                 versionsRequest.build());
+        checkMarkerEncodable(encodingType, page.nextKeyMarker());
 
         // The multipart stub is hidden from ListObjects, so it has to be
         // hidden here too: a client that empties a bucket by listing it and
@@ -3458,6 +3459,10 @@ public class S3ProxyHandler {
         var page = isTruncated ?
                 filtered.subList(0, maxUploads) :
                 filtered;
+        if (isTruncated && !page.isEmpty()) {
+            checkMarkerEncodable(encodingType,
+                    page.get(page.size() - 1).key());
+        }
 
         response.setCharacterEncoding(UTF_8);
         addCorsResponseHeader(request, response);
@@ -3692,8 +3697,18 @@ public class S3ProxyHandler {
             // Refusing it turned an ordinary paging loop -- a client that
             // names start-after once and then adds the token for each page
             // after -- into a 400 on the second request.
-            marker = continuationToken != null ? continuationToken :
-                    startAfter;
+            if (continuationToken != null) {
+                // the mirror of how NextContinuationToken is written below
+                try {
+                    marker = percentDecode(continuationToken);
+                } catch (IllegalArgumentException iae) {
+                    throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                            "The continuation token provided is incorrect",
+                            iae);
+                }
+            } else {
+                marker = startAfter;
+            }
         } else {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         }
@@ -3755,6 +3770,7 @@ public class S3ProxyHandler {
                     !contents.isEmpty()) {
                 nextToken = contents.get(contents.size() - 1).key();
             }
+            checkMarkerEncodable(encodingType, nextToken);
         }
 
         boolean filterStub = Quirks.MULTIPART_REQUIRES_STUB.contains(
@@ -3832,9 +3848,14 @@ public class S3ProxyHandler {
                 writeSimpleElement(xml, "IsTruncated", "true");
                 if (isListV2) {
                     // opaque, so never encoding-type encoded: a client sends
-                    // it back exactly as written
+                    // it back exactly as written.  That leaves it without the
+                    // means a key has of crossing XML intact, and a store
+                    // without tokens of its own hands out the last key, so
+                    // escape it always: a token that came back changed would
+                    // resume the listing somewhere else, skipping keys or
+                    // serving the same page again.
                     writeSimpleElement(xml, "NextContinuationToken",
-                            nextMarker);
+                            urlEscaper.escape(nextMarker));
                 } else {
                     writeSimpleElement(xml, "NextMarker",
                             encodeBlob(encodingType, nextMarker));
@@ -8721,10 +8742,20 @@ public class S3ProxyHandler {
         xml.writeEndElement();
     }
 
+    /**
+     * Write an element holding only text.  The text is often the client's
+     * own -- a key, a prefix, a header echoed in an error -- and may hold
+     * characters XML cannot carry, which the writer refuses by throwing.  By
+     * then the status and half of the document have been sent, so the client
+     * would get a 200 whose body stops inside the element: one object named
+     * U+0001 would cut every listing of its bucket short.  Replace them
+     * instead, as nothing can spell them in XML 1.0; a client that needs such
+     * a key exactly asks for encoding-type=url, see {@link #encodeBlob}.
+     */
     private static void writeSimpleElement(XMLStreamWriter xml,
             String elementName, String characters) throws XMLStreamException {
         xml.writeStartElement(elementName);
-        xml.writeCharacters(characters);
+        xml.writeCharacters(xmlSafe(characters));
         xml.writeEndElement();
     }
 
@@ -9175,6 +9206,23 @@ public class S3ProxyHandler {
         }
     }
 
+    /**
+     * A marker is the key a client sends back to resume a listing, so unlike
+     * the keys a page shows it cannot be written approximately: resuming
+     * after a key that {@link #xmlSafe} changed skips the keys between the
+     * two, or serves the same ones again.  Refuse such a page before any of
+     * it is written, naming what carries the key intact.
+     */
+    private static void checkMarkerEncodable(@Nullable String encodingType,
+            @Nullable String nextMarker) {
+        if (nextMarker != null && !"url".equals(encodingType) &&
+                !nextMarker.equals(xmlSafe(nextMarker))) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "The listing continues after a key that XML 1.0 cannot" +
+                    " carry. Repeat the request with encoding-type=url.");
+        }
+    }
+
     public final BlobStoreLocator getBlobStoreLocator() {
         return blobStoreLocator;
     }
@@ -9307,14 +9355,14 @@ public class S3ProxyHandler {
         String identity = authHeader.getIdentity();
         elements.put("AWSAccessKeyId", identity);
         if (detail != null) {
-            elements.put("StringToSign", xmlSafe(detail.stringToSign()));
+            elements.put("StringToSign", detail.stringToSign());
         }
         String provided = authHeader.getSignature();
         elements.put("SignatureProvided", provided);
         if (detail != null) {
             String canonicalRequest = detail.canonicalRequest();
             if (canonicalRequest != null) {
-                elements.put("CanonicalRequest", xmlSafe(canonicalRequest));
+                elements.put("CanonicalRequest", canonicalRequest);
             }
         }
 
@@ -9335,16 +9383,19 @@ public class S3ProxyHandler {
     }
 
     /**
-     * Drop what XML cannot carry, so echoing a request back to its sender
-     * cannot turn a 403 into an unserializable response.
+     * Replace what XML 1.0 cannot carry: the control characters other than
+     * tab, line feed and carriage return, U+FFFE, U+FFFF and a surrogate
+     * without its pair.
      */
     private static String xmlSafe(String s) {
         var builder = new StringBuilder(s.length());
-        for (int i = 0; i < s.length(); ++i) {
-            char c = s.charAt(i);
-            builder.append(c == 0x9 || c == 0xa || c == 0xd ||
+        int c;
+        for (int i = 0; i < s.length(); i += Character.charCount(c)) {
+            c = s.codePointAt(i);
+            builder.appendCodePoint(c == 0x9 || c == 0xa || c == 0xd ||
                     (c >= 0x20 && c <= 0xd7ff) ||
-                    (c >= 0xe000 && c <= 0xfffd) ? c : '�');
+                    (c >= 0xe000 && c <= 0xfffd) ||
+                    c >= 0x10000 ? c : '�');
         }
         return builder.toString();
     }
