@@ -18,8 +18,10 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.StringReader;
 import java.util.List;
 import java.util.Properties;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -320,6 +322,35 @@ public final class CrossOriginResourceSharingRuleTest {
         assertThat(Main.multipleConfigurationsError(differenceNames))
                 .contains(S3ProxyConstants.PROPERTY_AUTHORIZATION,
                         S3ProxyConstants.PROPERTY_METRICS_ENABLED);
+    }
+
+    /**
+     * Properties.load drops the backslash of "\.", so the origins of a
+     * properties file arrive with bare dots.  Those must still match only a
+     * dot, while quantified dots and quotations keep their meaning.
+     */
+    @Test
+    public void testBuilderEscapesBareDotsInOrigins() throws Exception {
+        Properties properties = backendProperties("identity", "credential");
+        properties.load(new StringReader(
+                "s3proxy.cors-allow-origins=https://example\\.com" +
+                " https://.+\\.example\\.com https://app.{2}.example.net" +
+                " \\\\Qhttps://quoted.example.org\\\\E\n"));
+        assertThat(properties.getProperty(
+                S3ProxyConstants.PROPERTY_CORS_ALLOW_ORIGINS))
+                .startsWith("https://example.com https://.+.example.com ");
+
+        S3Proxy.Builder expected = S3Proxy.Builder.fromProperties(
+                backendProperties("identity", "credential"))
+                .corsRules(new CrossOriginResourceSharing(
+                        List.of("https://example\\.com",
+                                "https://.+\\.example\\.com",
+                                "https://app.{2}\\.example\\.net",
+                                Pattern.quote("https://quoted.example.org")),
+                        List.of("GET", "HEAD", "PUT", "POST"), List.of("*"),
+                        List.of("ETag"), ""));
+        assertThat(S3Proxy.Builder.fromProperties(properties))
+                .isEqualTo(expected);
     }
 
     private static Properties backendProperties(String identity,

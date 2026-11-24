@@ -27,6 +27,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.net.ssl.SSLContext;
 
@@ -275,6 +277,12 @@ public final class S3Proxy {
     }
 
     public static final class Builder {
+        // A dot that no quantifier follows.  The first two alternatives
+        // consume \Q...\E quotations and escaped characters, whose dots are
+        // not bare.
+        private static final Pattern CORS_ORIGIN_BARE_DOT = Pattern.compile(
+                "\\\\Q.*?(?:\\\\E|$)|\\\\.|\\.(?![*+?{])", Pattern.DOTALL);
+
         @Nullable private BlobStore blobStore;
         @Nullable private URI endpoint;
         @Nullable private URI secureEndpoint;
@@ -311,6 +319,20 @@ public final class S3Proxy {
 
         public S3Proxy build() {
             return new S3Proxy(this);
+        }
+
+        /**
+         * Make the dots of a configured host name match only a dot.  CORS
+         * origins are regular expressions, but Properties.load drops the
+         * backslash of "\." before they arrive, and https://.+.example.com
+         * would allow https://attackerexample.com.  No origin needs one
+         * arbitrary character, so only a quantified dot such as ".+" or ".*"
+         * remains a wildcard.
+         */
+        private static String escapeBareDots(String origin) {
+            return CORS_ORIGIN_BARE_DOT.matcher(origin).replaceAll(match ->
+                    Matcher.quoteReplacement(match.group().equals(".") ?
+                            "\\." : match.group()));
         }
 
         public static Builder fromProperties(Properties properties)
@@ -460,7 +482,8 @@ public final class S3Proxy {
                 }
 
                 builder.corsRules(new CrossOriginResourceSharing(
-                        splitter.splitToList(corsAllowOrigins),
+                        splitter.splitToStream(corsAllowOrigins)
+                                .map(Builder::escapeBareDots).toList(),
                         splitter.splitToList(corsAllowMethods),
                         splitter.splitToList(corsAllowHeaders),
                         splitter.splitToList(corsExposedHeaders),

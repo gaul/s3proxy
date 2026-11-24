@@ -291,6 +291,11 @@ s3proxy.cors-allow-headers=Accept Content-Type
 s3proxy.cors-allow-credential=true
 ```
 
+Each origin is a regular expression that must match the whole `Origin` header.
+A dot matches only a dot, escaped or not, unless a quantifier follows it as in
+`.+` or `.*`.  A properties file drops a single backslash, so any other escape
+must be doubled there, e.g., `\\d`.
+
 CORS cannot be configured per bucket. `s3proxy.cors-allow-all=true` will accept any origin and header.
 Actual CORS requests are supported for GET, PUT, POST, HEAD and DELETE methods.
 Cross-origin sharing is opt-in: a proxy with no CORS configuration, including

@@ -403,6 +403,32 @@ public final class CrossOriginResourceSharingResponseTest {
     }
 
     /**
+     * s3proxy-cors.conf escapes the dots of its origins with one backslash,
+     * which the properties format drops.  They must still match only a dot,
+     * or https://.+\.example\.com allows a domain of its own.
+     */
+    @Test
+    public void testCorsLookAlikeOrigin() throws Exception {
+        var preflight = new HttpOptions(presignedGET);
+        preflight.setHeader(HttpHeaders.ORIGIN, "https://attackerexample.com");
+        preflight.setHeader(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
+        HttpResponse response = httpClient.execute(preflight);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_FORBIDDEN);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
+        preflight.reset();
+
+        var request = new HttpGet(presignedGET);
+        request.setHeader(HttpHeaders.ORIGIN, "https://attackerexample.com");
+        response = httpClient.execute(request);
+        assertThat(response.getStatusLine().getStatusCode())
+                .isEqualTo(HttpStatus.SC_OK);
+        assertThat(response.containsHeader(
+                HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isFalse();
+    }
+
+    /**
      * A refused preflight keeps answering bare: that refusal is how the
      * browser learns the real request may not proceed.
      */
