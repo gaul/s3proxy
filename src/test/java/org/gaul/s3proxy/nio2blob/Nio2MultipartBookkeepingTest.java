@@ -18,16 +18,21 @@ package org.gaul.s3proxy.nio2blob;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.ByteArrayInputStream;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 /**
  * The store reads an upload id and a blob name back out of each stub's file
@@ -74,14 +79,53 @@ public final class Nio2MultipartBookkeepingTest {
         assertThat(Files.readAllBytes(joined)).containsExactly(1, 2, 3, 4, 5);
     }
 
+    /**
+     * An upload's stub and parts lie in a directory of the store's own,
+     * not among the bucket's objects, so that listing them reads that
+     * directory rather than every entry of the container -- and the
+     * directory goes once nothing is in flight.
+     */
+    @Test
+    public void testBookkeepingIsKeptOutOfTheContainer() throws Exception {
+        var container = root.resolve(CONTAINER);
+        for (String key : List.of("blob", "dir/blob")) {
+            var mpu = blobStore.initiateMultipartUpload(
+                    CreateMultipartUploadRequest.builder()
+                            .bucket(CONTAINER).key(key).build());
+            var etag = blobStore.uploadMultipartPart(mpu,
+                    UploadPartRequest.builder().bucket(CONTAINER).key(key)
+                            .uploadId(mpu.id()).partNumber(1)
+                            .contentLength(4L).build(),
+                    new ByteArrayInputStream(new byte[4])).eTag();
+            try (var entries = Files.list(container)) {
+                assertThat(entries.map(p -> p.getFileName().toString()))
+                        .as(key).containsExactly(".s3proxy-mpus");
+            }
+            assertThat(blobStore.listMultipartUploads(CONTAINER))
+                    .extracting(u -> u.key()).containsExactly(key);
+            assertThat(blobStore.listMultipartUpload(mpu)).hasSize(1);
+
+            blobStore.completeMultipartUpload(mpu,
+                    CompleteMultipartUploadRequest.builder()
+                            .bucket(CONTAINER).key(key).uploadId(mpu.id())
+                            .multipartUpload(m -> m.parts(CompletedPart
+                                    .builder().partNumber(1).eTag(etag)
+                                    .build()))
+                            .build());
+            assertThat(container.resolve(".s3proxy-mpus")).doesNotExist();
+            blobStore.removeBlob(CONTAINER, key);
+        }
+    }
+
     @Test
     public void testUnparsableStubNamesAreIgnored() throws Exception {
-        var container = root.resolve(CONTAINER);
+        var bookkeeping = Files.createDirectories(
+                root.resolve(CONTAINER).resolve(".s3proxy-mpus"));
         // Too short to hold an upload id at all.
-        Files.createFile(container.resolve(".mpus-short-stub"));
+        Files.createFile(bookkeeping.resolve("short-stub"));
         // Long enough, but naming no blob: the id runs into the suffix.
-        Files.createFile(container.resolve(
-                ".mpus-00000000-0000-0000-0000-000000000000-stub"));
+        Files.createFile(bookkeeping.resolve(
+                "00000000-0000-0000-0000-000000000000-stub"));
 
         assertThat(blobStore.listMultipartUploads(CONTAINER)).isEmpty();
     }
@@ -92,7 +136,8 @@ public final class Nio2MultipartBookkeepingTest {
         var mpu = blobStore.initiateMultipartUpload(
                 CreateMultipartUploadRequest.builder()
                         .bucket(CONTAINER).key("blob").build());
-        Files.createFile(root.resolve(CONTAINER).resolve(".mpus-short-stub"));
+        Files.createFile(root.resolve(CONTAINER).resolve(".s3proxy-mpus")
+                .resolve("short-stub"));
 
         var uploads = blobStore.listMultipartUploads(CONTAINER);
         assertThat(uploads).hasSize(1);

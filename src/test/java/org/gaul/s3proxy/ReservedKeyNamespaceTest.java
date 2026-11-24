@@ -57,6 +57,8 @@ import software.amazon.awssdk.utils.AttributeMap;
  */
 public final class ReservedKeyNamespaceTest {
     private static final String MULTIPART_PREFIX = ".mpus-";
+    /** Where the nio2 stores keep an upload's stub and parts. */
+    private static final String MULTIPART_DIR = ".s3proxy-mpus/";
     private static final String STUB_PREFIX = ".s3proxy-mpu-stub-";
     private static final byte[] CONTENT =
             "victim content".getBytes(StandardCharsets.UTF_8);
@@ -124,7 +126,7 @@ public final class ReservedKeyNamespaceTest {
 
     /** The name of the file holding part one of the upload in flight. */
     private String partKey() {
-        return MULTIPART_PREFIX + uploadId + "-victim-1";
+        return MULTIPART_DIR + uploadId + "-victim-1";
     }
 
     private String stubKey() {
@@ -243,6 +245,8 @@ public final class ReservedKeyNamespaceTest {
         assertRefused(() -> client.createMultipartUpload(b -> b
                 .bucket(containerName).key(MULTIPART_PREFIX + "sneaky")));
         assertRefused(() -> client.createMultipartUpload(b -> b
+                .bucket(containerName).key(MULTIPART_DIR + "sneaky")));
+        assertRefused(() -> client.createMultipartUpload(b -> b
                 .bucket(containerName).key(STUB_PREFIX + "sneaky")));
     }
 
@@ -258,6 +262,8 @@ public final class ReservedKeyNamespaceTest {
 
         assertThat(client.listObjectsV2(b -> b.bucket(containerName)
                 .prefix(MULTIPART_PREFIX)).contents()).isEmpty();
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName)
+                .prefix(MULTIPART_DIR)).contents()).isEmpty();
         assertThat(client.listObjectsV2(b -> b.bucket(containerName)
                 .prefix(STUB_PREFIX)).contents()).isEmpty();
         assertThat(client.listObjectsV2(b -> b.bucket(containerName))
@@ -280,8 +286,10 @@ public final class ReservedKeyNamespaceTest {
                 .uploadId(id).partNumber(1),
                 RequestBody.fromBytes(CONTENT));
 
-        for (String prefix : List.of(MULTIPART_PREFIX + id + "-dir/",
-                MULTIPART_PREFIX + id + "-dir/victim-", "./", "dir/../")) {
+        for (String prefix : List.of(MULTIPART_DIR,
+                MULTIPART_DIR + id + "-dir/",
+                MULTIPART_DIR + id + "-dir/victim-",
+                MULTIPART_PREFIX + id + "-dir/", "./", "dir/../")) {
             for (String delimiter : List.of("", "/")) {
                 var listing = client.listObjectsV2(b -> b
                         .bucket(containerName).prefix(prefix)

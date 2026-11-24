@@ -121,8 +121,8 @@ public final class MultipartChecksumMiddlewareTest {
         String uploadId = initiate(uri);
         String eTag = uploadPart(uri, uploadId);
 
-        send(HttpRequest.newBuilder(URI.create(bucketUri + "/.mpus-" +
-                uploadId + "-object-" + PART_NUMBER))
+        send(HttpRequest.newBuilder(URI.create(bucketUri +
+                "/.s3proxy-mpus/" + uploadId + "-object-" + PART_NUMBER))
                 .header("Content-Type", "application/octet-stream")
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(CLAIMED)));
 

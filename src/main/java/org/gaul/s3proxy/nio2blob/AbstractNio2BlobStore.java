@@ -202,6 +202,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // delete, and these names decide what another client's in-flight upload
     // publishes. Reserved from client keys; see checkNotReserved.
     private static final String MULTIPART_PREFIX = ".mpus-";
+    // Reserved container-level directory holding that bookkeeping: an
+    // upload's stub is "<uploadId>-<key>-stub" in it and each part
+    // "<uploadId>-<key>-<partNumber>".  Kept apart from the bucket's
+    // objects so that listing an upload's parts, or the bucket's uploads,
+    // reads this directory rather than every entry of the container's
+    // own; the key stays in the names because SFTP keeps no attributes to
+    // hold it in.  Uploads begun before it lay under MULTIPART_PREFIX at
+    // the top of the container, which is still hidden and reserved.
+    private static final String MULTIPART_DIR = ".s3proxy-mpus";
     // Reserved in-container name that backs the object whose S3 key is exactly
     // "/". Path.resolve("/") yields the filesystem root, so this key cannot be
     // stored at its literal path; it previously had to be munged onto the
@@ -733,7 +742,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private static boolean isReservedName(String name,
             boolean filterMultipart) {
-        if (filterMultipart && name.startsWith(MULTIPART_PREFIX)) {
+        if (filterMultipart && (name.startsWith(MULTIPART_PREFIX) ||
+                name.equals(MULTIPART_DIR))) {
             return true;
         }
         // The reserved backing store for the "/" key is not listed under
@@ -1498,8 +1508,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         writeStringAttributeIfPresent(view, XATTR_USER_METADATA_PREFIX + entry.getKey(), entry.getValue());
                     }
                     writeEncryptionAttr(view, blob);
-                    if (holes > 0 && blob.getMetadata().name().startsWith(
-                            MULTIPART_PREFIX)) {
+                    if (holes > 0 &&
+                            isMultipartName(blob.getMetadata().name())) {
                         view.write(XATTR_SPARSE,
                                 ByteBuffer.wrap(new byte[] {1}));
                     }
@@ -1521,7 +1531,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // rather than through anything that understands versions.
             String versionId = null;
             if (supportsVersioning() &&
-                    !blob.getMetadata().name().startsWith(MULTIPART_PREFIX)) {
+                    !isMultipartName(blob.getMetadata().name())) {
                 var status = readContainerStatus(containerPath);
                 if (status != null) {
                     versionId = mintVersionId(status);
@@ -1653,8 +1663,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 partLock.lock();
                 try {
                     if (!Files.exists(resolveBlobPath(containerPath,
-                            MULTIPART_PREFIX + partOf.id() + "-" +
-                            partOf.blobName() + "-stub"))) {
+                            multipartStubName(partOf.id(),
+                                    partOf.blobName())))) {
                         throw S3Exceptions.noSuchUpload(partOf.id());
                     }
                     intoParent(tmpPath, path, () -> publish(tmpPath, path,
@@ -3182,8 +3192,24 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private static String multipartPartName(String uploadId, String blobName,
             int partNumber) {
-        return MULTIPART_PREFIX + uploadId + "-" + blobName + "-" +
-                partNumber;
+        return multipartPrefix(uploadId, blobName) + partNumber;
+    }
+
+    /** Name of the hidden blob recording that an upload is open. */
+    private static String multipartStubName(String uploadId,
+            String blobName) {
+        return multipartPrefix(uploadId, blobName) + "stub";
+    }
+
+    /** What the names of an upload's stub and parts begin with. */
+    private static String multipartPrefix(String uploadId, String blobName) {
+        return MULTIPART_DIR + "/" + uploadId + "-" + blobName + "-";
+    }
+
+    /** Whether a blob's name is one of this store's multipart records. */
+    private static boolean isMultipartName(String name) {
+        return name.startsWith(MULTIPART_DIR + "/") ||
+                name.startsWith(MULTIPART_PREFIX);
     }
 
     @Override
@@ -3213,7 +3239,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 request.sseCustomerAlgorithm(), request.sseCustomerKey(),
                 request.sseCustomerKeyMD5());
         // create a stub blob
-        var blob = Blob.builder(MULTIPART_PREFIX + uploadId + "-" + request.key() + "-stub").payload(ByteSource.empty()).encryption(encryption).build();
+        var blob = Blob.builder(multipartStubName(uploadId, request.key()))
+                .payload(ByteSource.empty()).encryption(encryption).build();
         putBlob(request.bucket(), blob, ObjectCannedACL.PRIVATE,
                 /*ifNoneMatch=*/ null, /*parts=*/ null, /*partOf=*/ null);
         return new MultipartUpload(uploadId, request,
@@ -3242,8 +3269,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         // The domain metadata rather than a HEAD response, which has no
         // field for the KMS context the upload may have named.
-        String stubName = MULTIPART_PREFIX + mpu.id() + "-" +
-                mpu.blobName() + "-stub";
+        String stubName = multipartStubName(mpu.id(), mpu.blobName());
         var stub = getBlobInternal(mpu.containerName(), stubName,
                 GetObjectRequest.builder()
                         .bucket(mpu.containerName())
@@ -3260,7 +3286,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         for (var part : parts) {
             removeBlobInternal(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
         }
-        removeBlobInternal(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
+        removeBlobInternal(mpu.containerName(),
+                multipartStubName(mpu.id(), mpu.blobName()));
     }
 
     @Override
@@ -3375,7 +3402,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         for (var part : listMultipartUpload(mpu)) {
             removeBlobInternal(mpu.containerName(), multipartPartName(mpu.id(), mpu.blobName(), part.partNumber()));
         }
-        removeBlobInternal(mpu.containerName(), MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-stub");
+        removeBlobInternal(mpu.containerName(),
+                multipartStubName(mpu.id(), mpu.blobName()));
 
         return CompleteMultipartUploadResponse.builder()
                 .eTag(result.eTag())
@@ -3428,7 +3456,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     @Override
     public final List<Part> listMultipartUpload(MultipartUpload mpu) {
         var parts = ImmutableList.<Part>builder();
-        var partPrefix = MULTIPART_PREFIX + mpu.id() + "-" + mpu.blobName() + "-";
+        var partPrefix = multipartPrefix(mpu.id(), mpu.blobName());
         var options = ListObjectsV2Request.builder()
                 .bucket(mpu.containerName())
                 .prefix(partPrefix).build();
@@ -3482,7 +3510,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var stubs = new TreeMap<String, S3Object>();
         walk(ListObjectsV2Request.builder()
                 .bucket(container)
-                .prefix(MULTIPART_PREFIX).build(),
+                .prefix(MULTIPART_DIR + "/").build(),
                 /*includeMultipart=*/ true, new ListSink() {
                     @Override
                     public boolean wants(String name) {
@@ -3503,14 +3531,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // was writable -- must not decide whether the bucket's real
             // uploads can be listed at all, which is what letting the
             // arithmetic below run off the end of it did.
-            if (sm.key().length() <=
-                    MULTIPART_PREFIX.length() + UUID_STRING_LENGTH) {
+            int start = MULTIPART_DIR.length() + 1;
+            if (sm.key().length() <= start + UUID_STRING_LENGTH) {
                 logger.warn("ignoring multipart stub too short to name an" +
                         " upload: {}", sm.key());
                 continue;
             }
-            var uploadId = sm.key().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
-            var blobName = sm.key().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
+            var uploadId = sm.key().substring(start,
+                    start + UUID_STRING_LENGTH);
+            var blobName = sm.key().substring(
+                    start + UUID_STRING_LENGTH + 1);
             int index = blobName.lastIndexOf('-');
             if (index < 0) {
                 logger.warn("ignoring multipart stub without a blob name:" +
@@ -5003,6 +5033,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (name.startsWith(MULTIPART_PREFIX)) {
             throw S3Exceptions.invalidArgument("The key " + MULTIPART_PREFIX +
                     "... is reserved for multipart uploads.");
+        }
+        if (name.equals(MULTIPART_DIR) ||
+                name.startsWith(MULTIPART_DIR + "/")) {
+            throw S3Exceptions.invalidArgument("The key " + MULTIPART_DIR +
+                    " is reserved for multipart uploads.");
         }
         if (name.equals(VERSIONS_DIR) ||
                 name.startsWith(VERSIONS_DIR + "/")) {

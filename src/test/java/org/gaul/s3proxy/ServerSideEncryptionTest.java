@@ -851,7 +851,7 @@ public final class ServerSideEncryptionTest {
         // hands out everything the name is made of.  The bytes are the ones
         // the finished object will hold, and answer to the same key.
         // as the nio2 stores name a part
-        var partKey = ".mpus-" + create.uploadId() + "-mpu-1";
+        var partKey = ".s3proxy-mpus/" + create.uploadId() + "-mpu-1";
         assertStatus(400, () -> client.getObjectAsBytes(
                 b -> b.bucket(containerName).key(partKey)));
         assertStatus(400, () -> client.getObjectAsBytes(

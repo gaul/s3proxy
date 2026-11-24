@@ -76,8 +76,11 @@ public final class Nio2ReservedNameListingTest {
 
     @Test
     public void testPrefixInsideReservedDirectoryListsNothing() {
-        for (String prefix : List.of(".mpus-" + mpu.id() + "-dir/",
-                ".mpus-" + mpu.id() + "-dir/upload-",
+        // and where uploads begun before it kept theirs
+        for (String prefix : List.of(".s3proxy-mpus/",
+                ".s3proxy-mpus/" + mpu.id() + "-dir/",
+                ".s3proxy-mpus/" + mpu.id() + "-dir/upload-",
+                ".mpus-" + mpu.id() + "-dir/",
                 ".s3proxy-tmp/", ".s3proxy-versions/", ".s3proxy-slash/")) {
             assertThat(keys(prefix, null)).as(prefix).isEmpty();
             assertThat(keys(prefix, "/")).as(prefix).isEmpty();
@@ -89,7 +92,8 @@ public final class Nio2ReservedNameListingTest {
     /** No key holds a dot segment, so no key begins with one. */
     @Test
     public void testPrefixWithDotSegmentListsNothing() {
-        for (String prefix : List.of("./", "./.mpus-", "dir/../", "dir/./",
+        for (String prefix : List.of("./", "./.mpus-", "./.s3proxy-mpus/",
+                "dir/../", "dir/./",
                 "./dir/", "dir/../.s3proxy-tmp/")) {
             assertThat(keys(prefix, null)).as(prefix).isEmpty();
             assertThat(keys(prefix, "/")).as(prefix).isEmpty();
