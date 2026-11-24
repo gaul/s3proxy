@@ -142,6 +142,21 @@ public final class PartPaddingsMalformedTest {
                 .hasMessageContaining("bytes left to hold it");
     }
 
+    /**
+     * A single part claiming less than the object holds.  Ranges are placed
+     * by the object's size and counted down from the padding's, so a read
+     * starting past the end the padding claimed never ended.
+     */
+    @Test
+    public void testSinglePartSmallerThanTheObjectIsRefused() {
+        var store = new PaddingStore(padding(/*part=*/ 1, 100));
+        assertThatThrownBy(() -> PartPaddings.read(store, head(1024),
+                CONTAINER, BLOB))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("a single part of length 100");
+        assertThat(store.calls).isEqualTo(1);
+    }
+
     /** A padding shorter than the fields it is read for. */
     @Test
     public void testShortPaddingIsRefused() {

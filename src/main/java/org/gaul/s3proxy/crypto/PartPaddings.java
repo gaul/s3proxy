@@ -185,11 +185,23 @@ public final class PartPaddings {
                 unencryptedSize = unencryptedSize + partPadding.getSize();
             }
         } else {
+            // The single part is all the object holds besides its padding.
+            // Ranges are placed by that size while DecryptionInputStream
+            // counts the part down from the one its padding claims, and
+            // unlike the walk above, which ends only where its parts add up
+            // to the object, nothing else holds the two together.  A part
+            // claiming less would leave a read starting past its claimed end
+            // with a negative count of bytes remaining, which never reaches
+            // zero.
+            unencryptedSize = metaSize - Constants.PADDING_BLOCK_SIZE;
+            if (lastPartPadding.getSize() != unencryptedSize) {
+                throw malformed(blobName, "a single part of length " +
+                        lastPartPadding.getSize() + " in an object holding " +
+                        unencryptedSize + " bytes");
+            }
+
             // add the single part to the list
             partList.put(1, lastPartPadding);
-
-            // update the unencrypted size
-            unencryptedSize = metaSize - Constants.PADDING_BLOCK_SIZE;
 
             // update the encrypted size
             encryptedSize = metaSize;
