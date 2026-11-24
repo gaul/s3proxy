@@ -585,11 +585,23 @@ public final class EncryptedBlobStoreTest {
             TestUtils.completeRequest(replacement,
                 encrypted.listMultipartUpload(replacement)));
 
+        // Where the backend's ETag does not state the part count, the size
+        // is found by reading the last padding and walking the parts'
+        // paddings, since a part's number is not how many there are.
+        reads.set(0);
         assertThat(encrypted.list(request).contents())
             .extracting(S3Object::size)
             .containsExactly((long) partSize + LAST_PART_SIZE,
                 10L, 10L, 10L, 10L);
-        assertThat(reads.get()).isLessThanOrEqualTo(1);
+        assertThat(reads.get()).isLessThanOrEqualTo(1 + partSizes.length);
+
+        // and once found it is remembered as well
+        reads.set(0);
+        assertThat(encrypted.list(request).contents())
+            .extracting(S3Object::size)
+            .containsExactly((long) partSize + LAST_PART_SIZE,
+                10L, 10L, 10L, 10L);
+        assertThat(reads.get()).isZero();
     }
 
     @Test
