@@ -373,6 +373,9 @@ public final class CrossOriginResourceSharingResponseTest {
     /** Nor does an error to a method the rules do not allow name it. */
     @Test
     public void testCorsActualErrorDisallowedMethod() throws Exception {
+        // The bucket must be public for an anonymous read to get as far as
+        // the missing key, and NTFS has nowhere to keep that.
+        assumeTrue(!TestUtils.filesystemOnWindows());
         var request = new HttpHead(URI.create(publicGET + "-missing"));
         request.setHeader(HttpHeaders.ORIGIN, "https://example.com");
         HttpResponse response = httpClient.execute(request);
