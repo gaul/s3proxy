@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
@@ -603,6 +604,23 @@ public final class AwsSignature {
         List<String> signedHeaders = signedHeaderNames(request, presignedUrl);
         if (signedHeaders == null) {
             throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
+        }
+        // A signer names each header once.  The canonical request repeats a
+        // header's values for every mention of its name, so a name given
+        // many times would make a string far larger than the request that
+        // asked for it -- megabytes from a few kilobytes of headers -- and a
+        // failed signature echoes that string, all before the signature says
+        // who is asking.  Compare the names as the lookup in
+        // buildCanonicalHeaders does: lower-cased and then without regard to
+        // case, since the container matches header names with
+        // String.equalsIgnoreCase, which also folds the likes of U+017F onto
+        // "s".
+        var uniqueHeaders = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        for (String header : signedHeaders) {
+            if (!uniqueHeaders.add(header.toLowerCase())) {
+                throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED,
+                        "SignedHeaders names a header more than once");
+            }
         }
 
         /*
