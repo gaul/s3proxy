@@ -58,6 +58,7 @@ import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
+import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
@@ -69,6 +70,8 @@ import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
+import org.gaul.s3proxy.blobstore.UploadListings;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.Blob;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
@@ -118,6 +121,8 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
@@ -222,8 +227,25 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     // Keys under this prefix are hidden from list() so an in-progress or
     // completed multipart upload does not expose its segments, and reserved
     // from client keys; see isReserved.
+    /**
+     * Where the store keeps its multipart bookkeeping, reserved from client
+     * keys and hidden from listings.  An open upload's marker is named by
+     * its key and upload ID under {@link #MPU_UPLOADS_PREFIX}, so that Swift
+     * lists the uploads in S3's order and ListMultipartUploads reads one page
+     * of them -- see {@link UploadNames}; a marker whose key is too long for
+     * that name is kept under {@link #MPU_LONG_UPLOADS_PREFIX} by its upload
+     * ID alone.  The segments lie apart under {@link #MPU_PARTS_PREFIX}, and
+     * a finished object's manifest goes on naming them.  An upload begun
+     * before this layout kept its segments and its ".meta" marker under
+     * MPU_PREFIX + uploadId; finished objects still name such segments,
+     * and the markers are those of uploads no request can find any more.
+     */
     private static final String MPU_PREFIX = ".s3proxy-mpu/";
-    private static final String MPU_META_SUFFIX = "/.meta";
+    private static final String MPU_UPLOADS_PREFIX = MPU_PREFIX + "u/";
+    private static final String MPU_LONG_UPLOADS_PREFIX = MPU_PREFIX + "l/";
+    private static final String MPU_PARTS_PREFIX = MPU_PREFIX + "p/";
+    /** Swift's longest object name unless the operator raised it, in bytes. */
+    private static final int MAX_OBJECT_NAME_BYTES = 1024;
     // User-metadata key on the marker object recording the target object name.
     private static final String MPU_KEY_METADATA = "s3proxy-mpu-key";
     // A completed multipart object's S3 composite ETag.  Swift cannot compute
@@ -810,8 +832,12 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     continue;
                 }
                 if (!name.startsWith(MPU_PREFIX) ||
-                        name.endsWith(MPU_META_SUFFIX)) {
-                    // a client-visible object, or an in-progress upload marker
+                        name.startsWith(MPU_UPLOADS_PREFIX) ||
+                        name.startsWith(MPU_LONG_UPLOADS_PREFIX)) {
+                    // A client-visible object, or the marker of an upload in
+                    // progress.  The ".meta" marker of an upload begun
+                    // before the present layout is no such thing: no
+                    // request can find that upload to complete or abort it.
                     return false;
                 }
                 sawSegment = true;
@@ -1611,7 +1637,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // Completing this upload writes an object under the requested key,
         // which is the same write putBlob refuses.
         checkNotReserved(request.key());
-        String uploadId = UUID.randomUUID().toString();
+        String uploadId = UploadNames.newUploadId(request.key());
 
         var userMetadata = new HashMap<String, String>(request.metadata());
         // Record the target key so listMultipartUploads can recover it,
@@ -1620,7 +1646,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         userMetadata.put(MPU_KEY_METADATA,
                 encodeMetadataValue(request.key()));
 
-        var markerBuilder = Blob.builder(mpuMetaKey(uploadId))
+        var markerBuilder = Blob.builder(mpuMetaKey(request.key(), uploadId))
                 .payload(new ByteArrayInputStream(new byte[0]))
                 .contentLength(0)
                 .userMetadata(userMetadata);
@@ -1713,8 +1739,15 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      */
     private List<Segment> listSegments(MultipartUpload mpu,
             boolean requireMarker) {
+        // An upload ID names the key it was issued for, so one sent with
+        // another key is no upload at all, as on S3.
+        if (!UploadNames.namesKey(mpu.id(), mpu.blobName())) {
+            throw S3Exceptions.noSuchUpload(mpu.id());
+        }
+        if (requireMarker && !isOpenUpload(mpu)) {
+            return List.of();
+        }
         String prefix = mpuSegmentPrefix(mpu.id());
-        String metaKey = mpuMetaKey(mpu.id());
         List<? extends SwiftObject> objects;
         try {
             objects = listAll(mpu.containerName(), prefix);
@@ -1722,11 +1755,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             throw translate(re, mpu.containerName(), /*key=*/ null);
         }
         var segments = new ArrayList<Segment>();
-        boolean sawMarker = false;
         for (var object : objects) {
             String name = object.getName();
-            if (name == null || name.equals(metaKey)) {
-                sawMarker |= name != null;
+            if (name == null) {
                 continue;
             }
             int partNumber;
@@ -1739,13 +1770,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             segments.add(new Segment(name, SdkResponses.part(partNumber,
                     object.getSizeInBytes(), object.getETag(),
                     toInstant(object.getLastModified()))));
-        }
-        if (requireMarker && !sawMarker) {
-            return List.of();
-        }
-        if (requireMarker && !isOpenUpload(mpu)) {
-            // the parts of an upload begun for another key
-            throw S3Exceptions.noSuchUpload(mpu.id());
         }
         segments.sort(Segment.ORDER);
         return segments;
@@ -1778,11 +1802,15 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * and answers to any.
      */
     private boolean isOpenUpload(MultipartUpload mpu) {
+        if (!UploadNames.namesKey(mpu.id(), mpu.blobName())) {
+            return false;
+        }
         // Read past the reserved-name check, which the marker's name is
         // subject to as a client's key.
         Blob marker;
         try {
-            marker = headBlob(mpu.containerName(), mpuMetaKey(mpu.id()));
+            marker = headBlob(mpu.containerName(),
+                    mpuMetaKey(mpu.blobName(), mpu.id()));
         } catch (NoSuchBucketException nsbe) {
             return false;
         }
@@ -1810,11 +1838,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // Restore the target metadata saved by initiateMultipartUpload.
         var swiftOptions = ObjectPutOptions.create();
         var manifestMetadata = new HashMap<String, String>();
-        var marker = getBlobCarrier(container, mpuMetaKey(uploadId),
-                GetObjectRequest.builder()
-                        .bucket(container)
-                        .key(mpuMetaKey(uploadId))
-                        .build());
+        String markerName = mpuMetaKey(mpu.blobName(), uploadId);
+        var marker = !UploadNames.namesKey(uploadId, mpu.blobName()) ? null :
+                getBlobCarrier(container, markerName,
+                        GetObjectRequest.builder()
+                                .bucket(container)
+                                .key(markerName)
+                                .build());
         if (marker == null) {
             // Already completed, aborted, or never created.  Carrying on
             // would write the manifest again without the metadata only the
@@ -1927,7 +1957,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         // not name -- of a part left out, or uploaded again -- stay too,
         // until deleteBucket purges them: one of them may be what a
         // completion racing this one has named.
-        removeBlobInternal(container, mpuMetaKey(uploadId));
+        removeBlobInternal(container, markerName);
 
         return SdkResponses.completeResponse(
                 mpuETag != null ? mpuETag : sloETag);
@@ -1948,8 +1978,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                     "no such multipart upload: " + mpu.id());
         }
 
-        // The marker sorts under the segment prefix, so this removes the
-        // segments together with the marker.
+        // the segments, and then the marker that says the upload is open
         List<? extends SwiftObject> objects;
         try {
             objects = listAll(container, mpuSegmentPrefix(mpu.id()));
@@ -1959,19 +1988,166 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         for (var object : objects) {
             removeBlobInternal(container, object.getName());
         }
+        removeBlobInternal(container, mpuMetaKey(mpu.blobName(), mpu.id()));
     }
 
     @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
-        // Only the markers are kept.  They lie among the segments, those of
-        // finished objects included, and a list of all those names held one
-        // for every part in the bucket, on a request that a public-read
-        // bucket answers unsigned.
+        // Only the markers: the segments, those of finished objects
+        // included, lie apart, and the key is in a marker's name.
         List<? extends SwiftObject> objects;
         try {
-            objects = listAll(container, MPU_PREFIX,
-                    name -> name.endsWith(MPU_META_SUFFIX));
+            objects = listAll(container, MPU_UPLOADS_PREFIX);
+        } catch (ResponseException re) {
+            throw translate(re, container, /*key=*/ null);
+        }
+        var uploads = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
+        for (var object : objects) {
+            var upload = keyedUpload(object);
+            if (upload != null) {
+                uploads.add(upload);
+            }
+        }
+        uploads.addAll(longUploads(container));
+        return uploads;
+    }
+
+    /**
+     * One page of uploads, read from Swift a page at a time.  The markers
+     * sort as S3 lists the uploads, so the listing starts where the request's
+     * markers point and stops once it holds the page and the entry that
+     * tells there is more; a slash delimiter is Swift's own, which folds a
+     * group of keys into one entry however many uploads it holds.  The few
+     * markers of keys too long to be named by them are read whole and
+     * merged in.
+     */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        String container = request.bucket();
+        String prefix = Strings.nullToEmpty(request.prefix());
+        String delimiter = Strings.emptyToNull(request.delimiter());
+        String keyMarker = Strings.emptyToNull(request.keyMarker());
+        String listPrefix = MPU_UPLOADS_PREFIX + UploadNames.escapeKey(prefix);
+        int limit = Math.min(UploadListings.maxUploads(request) + 2,
+                LIST_PAGE_SIZE);
+        // Swift lists names strictly after its marker, and the page passes
+        // over the one upload a start name can be.
+        String start = UploadNames.startName(prefix, delimiter, keyMarker,
+                keyMarker == null ? null :
+                        Strings.emptyToNull(request.uploadIdMarker()));
+        String first = start == null ? null : MPU_UPLOADS_PREFIX + start;
+        var swift = objectStorage();
+        Iterable<software.amazon.awssdk.services.s3.model.MultipartUpload>
+                ordered = () -> new AbstractIterator<software.amazon.awssdk
+                        .services.s3.model.MultipartUpload>() {
+                    private @Nullable String marker = first;
+                    private java.util.Iterator<? extends SwiftObject> page =
+                            java.util.Collections.emptyIterator();
+                    private boolean exhausted;
+
+                    @Override
+                    protected software.amazon.awssdk.services.s3.model
+                            .@Nullable MultipartUpload computeNext() {
+                        while (true) {
+                            while (page.hasNext()) {
+                                var object = page.next();
+                                String name = listedName(object);
+                                if (name == null) {
+                                    continue;
+                                }
+                                marker = name;
+                                var upload = listedUpload(object, name);
+                                if (upload != null) {
+                                    return upload;
+                                }
+                            }
+                            if (exhausted) {
+                                return endOfData();
+                            }
+                            var options = ObjectListOptions.create()
+                                    .startsWith(listPrefix).limit(limit);
+                            if ("/".equals(delimiter)) {
+                                options.delimiter('/');
+                            }
+                            if (marker != null) {
+                                options.marker(marker);
+                            }
+                            String before = marker;
+                            var objects = swift.objects().list(container,
+                                    options);
+                            // an empty page ends the listing, and so does
+                            // one a backend ignoring markers repeats
+                            exhausted = objects.isEmpty();
+                            page = objects.iterator();
+                            if (!exhausted && before != null &&
+                                    before.equals(listedName(objects.get(
+                                            objects.size() - 1)))) {
+                                return endOfData();
+                            }
+                        }
+                    }
+                };
+        try {
+            return UploadListings.pageFromOrdered(ordered,
+                    longUploads(container), request);
+        } catch (ResponseException re) {
+            throw translate(re, container, /*key=*/ null);
+        }
+    }
+
+    /** The name of a listed object, or of the subdir a delimiter made. */
+    private static @Nullable String listedName(SwiftObject object) {
+        // openstack4j maps a "subdir" to getDirectoryName(); see list()
+        var directoryName = object.getDirectoryName();
+        return directoryName != null && !directoryName.isEmpty() ?
+                directoryName : object.getName();
+    }
+
+    /**
+     * An entry of a listing of the uploads' markers: an upload, or a group
+     * of keys Swift folded, which the page reports as the common prefix an
+     * upload of that name folds into.
+     */
+    private static software.amazon.awssdk.services.s3.model.@Nullable
+            MultipartUpload listedUpload(SwiftObject object, String name) {
+        var directoryName = object.getDirectoryName();
+        if (directoryName != null && !directoryName.isEmpty()) {
+            return software.amazon.awssdk.services.s3.model.MultipartUpload
+                    .builder()
+                    .key(UploadNames.unescapeKey(name.substring(
+                            MPU_UPLOADS_PREFIX.length())))
+                    .uploadId("")
+                    .build();
+        }
+        return keyedUpload(object);
+    }
+
+    /** The upload a marker named by its key records, or null for another. */
+    private static software.amazon.awssdk.services.s3.model.@Nullable
+            MultipartUpload keyedUpload(SwiftObject object) {
+        String name = object.getName();
+        if (name == null || !name.startsWith(MPU_UPLOADS_PREFIX)) {
+            return null;
+        }
+        // The marker is written when the upload is created and never
+        // again, so its time is the upload's.
+        return UploadNames.parseStubName(
+                name.substring(MPU_UPLOADS_PREFIX.length()),
+                toInstant(object.getLastModified()));
+    }
+
+    /**
+     * The uploads of keys too long for a marker to be named by them, whose
+     * key each marker keeps in its metadata.
+     */
+    private List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            longUploads(String container) {
+        List<? extends SwiftObject> objects;
+        try {
+            objects = listAll(container, MPU_LONG_UPLOADS_PREFIX);
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
         }
@@ -1979,29 +2155,25 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                 software.amazon.awssdk.services.s3.model.MultipartUpload>();
         for (var object : objects) {
             String name = object.getName();
-            if (name == null || !name.endsWith(MPU_META_SUFFIX)) {
+            if (name == null) {
                 continue;
             }
-            String uploadId = name.substring(MPU_PREFIX.length(),
-                    name.length() - MPU_META_SUFFIX.length());
+            String uploadId = name.substring(
+                    MPU_LONG_UPLOADS_PREFIX.length());
+            if (!UploadNames.isUploadId(uploadId)) {
+                continue;
+            }
             var marker = getBlobCarrier(container, name,
                     GetObjectRequest.builder()
                             .bucket(container)
                             .key(name)
                             .build());
-            String blobName = null;
-            if (marker != null) {
-                String encoded = marker.getMetadata().userMetadata()
-                        .get(MPU_KEY_METADATA);
-                blobName = encoded == null ? null :
-                        decodeMetadataValue(encoded);
+            String encoded = marker == null ? null :
+                    marker.getMetadata().userMetadata().get(MPU_KEY_METADATA);
+            if (encoded != null) {
+                uploads.add(SdkResponses.upload(decodeMetadataValue(encoded),
+                        uploadId, toInstant(object.getLastModified())));
             }
-            // A marker missing its key metadata yields an empty Key.  The
-            // marker is written when the upload is created and never again,
-            // so its time is the upload's.
-            uploads.add(SdkResponses.upload(
-                    blobName != null ? blobName : "", uploadId,
-                    toInstant(object.getLastModified())));
         }
         return uploads;
     }
@@ -2044,11 +2216,18 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     }
 
     private static String mpuSegmentPrefix(String uploadId) {
-        return MPU_PREFIX + uploadId + "/";
+        return MPU_PARTS_PREFIX + uploadId + "/";
     }
 
-    private static String mpuMetaKey(String uploadId) {
-        return MPU_PREFIX + uploadId + MPU_META_SUFFIX;
+    /** The name of an open upload's marker, from its key and upload ID. */
+    static String mpuMetaKey(String key, String uploadId) {
+        String name = MPU_UPLOADS_PREFIX + UploadNames.escapeKey(key) +
+                UploadNames.SEPARATOR + uploadId;
+        if (name.getBytes(StandardCharsets.UTF_8).length <=
+                MAX_OBJECT_NAME_BYTES) {
+            return name;
+        }
+        return MPU_LONG_UPLOADS_PREFIX + uploadId;
     }
 
     /**

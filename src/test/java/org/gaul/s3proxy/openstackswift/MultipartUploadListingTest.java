@@ -44,13 +44,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 
 /**
- * The uploads of a bucket are found by their markers, which lie among the
+ * The uploads of a bucket are found by their markers, which lay among the
  * segments: one for every part of every open upload and of every object
- * finished.  A listing of the uploads that held all those names at once held
- * as many for each request, which an anonymous client of a public-read
- * bucket may send.
+ * finished.  A listing of the uploads read all those names for each request,
+ * which an anonymous client of a public-read bucket may send.  The markers
+ * now lie apart, named by their upload's key, so that Swift lists them in
+ * S3's order and a page of uploads is a page of Swift's listing.
  */
 public final class MultipartUploadListingTest {
     private static final String CONTAINER = "container";
@@ -90,12 +92,12 @@ public final class MultipartUploadListingTest {
     }
 
     @Test
-    public void testListingUploadsHoldsNoMoreThanAPageOfSegments() {
-        // the segments of two uploads since finished, one sorting ahead of
-        // every open upload and one behind them all
+    public void testListingUploadsReadsNoSegments() {
+        // the segments of uploads since finished, in the old layout and in
+        // the present one, sorting ahead of every open upload and behind
         int segments = 2 * OpenStackSwiftBlobStore.LIST_PAGE_SIZE + 500;
         for (int part = 1; part <= segments; ++part) {
-            for (String finished : List.of("!", "~")) {
+            for (String finished : List.of("!", "~", "p/!", "p/~")) {
                 objects.put(String.format(Locale.ROOT,
                         ".s3proxy-mpu/%s/%05d", finished, part), Map.of());
             }
@@ -110,8 +112,51 @@ public final class MultipartUploadListingTest {
                 upload.uploadId()).containsExactlyInAnyOrder(
                         "first.mp4 " + first.id(),
                         "second.mp4 " + second.id());
-        assertThat(pageSizes).hasSizeGreaterThan(4).allMatch(
-                size -> size <= OpenStackSwiftBlobStore.LIST_PAGE_SIZE);
+        assertThat(pageSizes.stream().mapToInt(Integer::intValue).sum())
+                .isEqualTo(2);
+    }
+
+    /**
+     * A page costs about the page, and a slash delimiter is folded by Swift
+     * however many uploads its group holds; the page after a common prefix
+     * starts past it.
+     */
+    @Test
+    public void testPageOfUploadsReadsAboutThePage() {
+        initiate("a");
+        for (int i = 0; i < 50; ++i) {
+            initiate("dir/%02d".formatted(i));
+        }
+        initiate("e");
+        initiate("e");
+
+        pageSizes.clear();
+        var request = ListMultipartUploadsRequest.builder()
+                .bucket(CONTAINER).delimiter("/").maxUploads(2);
+        var first = blobStore.listMultipartUploads(request.build());
+        assertThat(first.uploads()).extracting(u -> u.key())
+                .containsExactly("a");
+        assertThat(first.commonPrefixes()).extracting(p -> p.prefix())
+                .containsExactly("dir/");
+        assertThat(first.nextKeyMarker()).isEqualTo("dir/");
+        // the page, one past it, and the long keys' markers
+        assertThat(pageSizes.stream().mapToInt(Integer::intValue).sum())
+                .isLessThanOrEqualTo(4);
+
+        pageSizes.clear();
+        var second = blobStore.listMultipartUploads(request
+                .keyMarker(first.nextKeyMarker()).build());
+        assertThat(second.uploads()).extracting(u -> u.key())
+                .containsExactly("e", "e");
+        assertThat(second.isTruncated()).isFalse();
+        assertThat(pageSizes.stream().mapToInt(Integer::intValue).sum())
+                .isLessThanOrEqualTo(4);
+
+        var below = blobStore.listMultipartUploads(ListMultipartUploadsRequest
+                .builder().bucket(CONTAINER).prefix("dir/").maxUploads(3)
+                .build());
+        assertThat(below.uploads()).extracting(u -> u.key())
+                .containsExactly("dir/00", "dir/01", "dir/02");
     }
 
     private MultipartUpload initiate(String key) {
@@ -178,6 +223,7 @@ public final class MultipartUploadListingTest {
     private void list(HttpExchange exchange) throws IOException {
         String prefix = "";
         String marker = "";
+        String delimiter = null;
         int limit = SWIFT_PAGE_SIZE;
         for (String parameter : Splitter.on('&').split(
                 exchange.getRequestURI().getRawQuery())) {
@@ -190,19 +236,35 @@ public final class MultipartUploadListingTest {
                 marker = value;
             } else if (parameter.startsWith("limit=")) {
                 limit = Math.min(limit, Integer.parseInt(value));
+            } else if (parameter.startsWith("delimiter=")) {
+                delimiter = value;
             }
         }
         var entries = new ArrayList<String>();
+        String lastSubdir = null;
         for (String name : objects.keySet()) {
             if (entries.size() == limit) {
                 break;
             }
-            if (name.startsWith(prefix) && name.compareTo(marker) > 0) {
-                entries.add("{\"name\": \"" + name + "\", \"bytes\": 0," +
-                        " \"hash\": \"" + ETAG + "\"," +
-                        " \"content_type\": \"application/octet-stream\"," +
-                        " \"last_modified\": \"2026-01-01T00:00:00.000000\"}");
+            if (!name.startsWith(prefix) || name.compareTo(marker) <= 0) {
+                continue;
             }
+            int at = delimiter == null ? -1 :
+                    name.indexOf(delimiter, prefix.length());
+            if (at >= 0) {
+                String subdir = name.substring(0, at + delimiter.length());
+                // a subdir only once, and only past the marker, as Swift
+                if (!subdir.equals(lastSubdir) &&
+                        subdir.compareTo(marker) > 0) {
+                    entries.add("{\"subdir\": \"" + subdir + "\"}");
+                }
+                lastSubdir = subdir;
+                continue;
+            }
+            entries.add("{\"name\": \"" + name + "\", \"bytes\": 0," +
+                    " \"hash\": \"" + ETAG + "\"," +
+                    " \"content_type\": \"application/octet-stream\"," +
+                    " \"last_modified\": \"2026-01-01T00:00:00.000000\"}");
         }
         pageSizes.add(entries.size());
         byte[] json = ("[" + String.join(",", entries) + "]")

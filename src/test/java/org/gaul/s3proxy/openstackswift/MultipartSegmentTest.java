@@ -193,7 +193,7 @@ public final class MultipartSegmentTest {
     @Test
     public void testSegmentNamedByPartNumberAlone() throws Exception {
         MultipartUpload mpu = initiate();
-        String prefix = CONTAINER + "/.s3proxy-mpu/" + mpu.id() + "/";
+        String prefix = CONTAINER + "/.s3proxy-mpu/p/" + mpu.id() + "/";
         Stored old = stored("old".getBytes(StandardCharsets.UTF_8),
                 /*isManifest=*/ false, Map.of());
         objects.put(prefix + "00001", old);
@@ -209,7 +209,7 @@ public final class MultipartSegmentTest {
 
         // and a part uploaded again replaces such a segment too
         MultipartUpload again = initiate();
-        prefix = CONTAINER + "/.s3proxy-mpu/" + again.id() + "/";
+        prefix = CONTAINER + "/.s3proxy-mpu/p/" + again.id() + "/";
         objects.put(prefix + "00001", stored(
                 "old".getBytes(StandardCharsets.UTF_8),
                 /*isManifest=*/ false, Map.of()));
