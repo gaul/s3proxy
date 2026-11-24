@@ -41,6 +41,8 @@ import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
+import software.amazon.awssdk.services.s3.model.S3Exception;
+
 /**
  * The filesystem store keeps everything about an object but its bytes in
  * user extended attributes, which some filesystems do not have: NFSv3, vfat,
@@ -320,6 +322,47 @@ public final class Nio2UserAttributesTest {
     private static UserDefinedFileAttributeView rawView(Path path) {
         return Files.getFileAttributeView(path,
                 UserDefinedFileAttributeView.class);
+    }
+
+    /**
+     * Without attributes nothing marks a file as an object, so a write to
+     * "key/name" must not get as far as failing and cleaning up after
+     * itself, which took the object "key" for an empty directory the write
+     * had made and removed it.
+     */
+    @Test
+    public void testKeyUnderAnObjectIsRefusedAndTheObjectKept()
+            throws IOException {
+        TestUtils.putBlob(store, CONTAINER, "key", CONTENT);
+
+        assertThatThrownBy(() -> TestUtils.putBlob(store, CONTAINER,
+                "key/name", CONTENT))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(400));
+
+        assertThat(Files.readAllBytes(without.getPath("/", CONTAINER, "key")))
+                .isEqualTo(CONTENT.read());
+        assertThat(store.blobExists(CONTAINER, "key/name")).isFalse();
+    }
+
+    /**
+     * Nor does a file written around S3Proxy carry an ETag attribute, on
+     * any filesystem.
+     */
+    @Test
+    public void testKeyUnderAFileWrittenAroundS3ProxyIsRefused(
+            @TempDir Path temp) throws IOException {
+        var real = new FilesystemNio2BlobStore(temp.toString());
+        real.createContainer(CONTAINER);
+        var outside = temp.resolve(CONTAINER).resolve("outside");
+        Files.write(outside, CONTENT.read());
+
+        assertThatThrownBy(() -> TestUtils.putBlob(real, CONTAINER,
+                "outside/name", CONTENT))
+                .isInstanceOfSatisfying(S3Exception.class, e ->
+                        assertThat(e.statusCode()).isEqualTo(400));
+
+        assertThat(Files.readAllBytes(outside)).isEqualTo(CONTENT.read());
     }
 
     private static String unquote(String eTag) {

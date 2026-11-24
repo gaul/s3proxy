@@ -3240,6 +3240,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static void removeEmptyParentDirectories(Path containerPath, @Nullable Path path) throws IOException {
         logger.debug("removing empty parents: {}", path);
         while (path != null && !path.equals(containerPath)) {
+            // Only a directory is a parent to clean up.  Anything else here
+            // is an object -- the "key" of a write to "key/name" that failed
+            // -- and where the filesystem keeps no attributes, or the file
+            // was not written through this store, no ETag marks it as one.
+            // A parent that is gone is passed over, as the delete below
+            // would pass over it.
+            if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) &&
+                    !Files.notExists(path, LinkOption.NOFOLLOW_LINKS)) {
+                break;
+            }
             if (safeGetXattrs(path).attributes().contains(XATTR_CONTENT_MD5)) {
                 break;
             }

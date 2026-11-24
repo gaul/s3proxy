@@ -3524,6 +3524,30 @@ public final class AwsSdkTest {
                 .key(key)).asUtf8String()).isEqualTo("content");
     }
 
+    /**
+     * "key" and "key/name" are two keys as well.  A store on a filesystem
+     * may refuse the second, which needs a directory where the object is,
+     * but must leave the object "key" alone: where the filesystem keeps no
+     * extended attributes, as behind sftp, the nio2 stores failed the PUT
+     * and then removed the object as an empty directory the PUT had made.
+     */
+    @Test
+    public void testKeyUnderAnObjectIsNotTheObject() throws Exception {
+        String key = "object-is-not-a-prefix";
+        client.putObject(b -> b.bucket(containerName).key(key),
+                RequestBody.fromString("content"));
+
+        try {
+            client.putObject(b -> b.bucket(containerName).key(key + "/name"),
+                    RequestBody.fromString("below"));
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+        }
+
+        assertThat(client.getObjectAsBytes(b -> b.bucket(containerName)
+                .key(key)).asUtf8String()).isEqualTo("content");
+    }
+
     @Test
     public void testDirectoryMarkerWithoutTrailingSlash() throws Exception {
         // Real S3 distinguishes "foo" from "foo/" as literal keys. The
