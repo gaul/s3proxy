@@ -36,6 +36,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -57,8 +58,11 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
  * behind is checked here.
  */
 public final class GCloudRefusedPayloadTest {
-    private static final String UPLOAD_ID = ".s3proxy/stubs/nonce";
-    private static final String PART = UPLOAD_ID + "/part_00001";
+    private static final String UPLOAD_ID =
+            UploadNames.newUploadId("key");
+    private static final String STUB =
+            GCloudBlobStore.stubName("key", UPLOAD_ID);
+    private static final String PART = GCloudBlobStore.partName(UPLOAD_ID, 1);
     private static final String OBJECT = """
             {"kind":"storage#object","bucket":"bucket","name":"%s",\
             "generation":"1","metageneration":"1","size":"%d",\
@@ -335,7 +339,7 @@ public final class GCloudRefusedPayloadTest {
             }
             response = OBJECT.formatted(name, received.size());
         } else if (path.contains("/o/")) {
-            response = OBJECT.formatted(UPLOAD_ID, 0);
+            response = OBJECT.formatted(STUB, 0);
         } else {
             response = "{\"kind\":\"storage#bucket\",\"name\":\"bucket\"}";
         }

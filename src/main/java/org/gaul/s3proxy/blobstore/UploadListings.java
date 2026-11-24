@@ -134,7 +134,7 @@ public final class UploadListings {
      * first delimiter after the request's prefix, or null for a key the
      * delimiter leaves alone.
      */
-    private static @Nullable String rollUp(String key, String prefix,
+    public static @Nullable String rollUp(String key, String prefix,
             @Nullable String delimiter) {
         if (delimiter == null) {
             return null;

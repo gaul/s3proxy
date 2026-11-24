@@ -39,7 +39,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
-import java.util.UUID;
 
 import com.google.api.gax.paging.Page;
 import com.google.auth.oauth2.AccessToken;
@@ -76,10 +75,12 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Streams;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
@@ -89,6 +90,8 @@ import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
+import org.gaul.s3proxy.blobstore.UploadListings;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
@@ -123,6 +126,8 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -147,9 +152,25 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class GCloudBlobStore implements BlobStore {
+    /**
+     * Where the store keeps its multipart bookkeeping, reserved from
+     * client keys and hidden from listings.  Within it, an upload's stub is
+     * named by its key and upload ID under {@link #UPLOADS_PREFIX}, so that
+     * GCS lists the uploads in S3's order and ListMultipartUploads reads one
+     * page of them; its parts lie apart under {@link #PARTS_PREFIX}.  A
+     * stub whose key is too long for that name is kept under
+     * {@link #LONG_UPLOADS_PREFIX} by its upload ID alone.  Uploads begun
+     * before this layout lie directly under the prefix and are no longer
+     * found; they stay hidden, and deleting the bucket removes them.
+     */
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
     /** The first name that sorts after everything under the prefix. */
     private static final String STUB_BLOB_PREFIX_END = ".s3proxy/stubs0";
+    private static final String UPLOADS_PREFIX = STUB_BLOB_PREFIX + "u/";
+    private static final String LONG_UPLOADS_PREFIX = STUB_BLOB_PREFIX + "l/";
+    private static final String PARTS_PREFIX = STUB_BLOB_PREFIX + "p/";
+    /** GCS's longest object name, in bytes of UTF-8. */
+    private static final int MAX_NAME_BYTES = 1024;
     private static final String TARGET_BLOB_NAME_KEY =
             "s3proxy_target_blob_name";
     private static final String BLOB_ACCESS_KEY = "s3proxy_blob_access";
@@ -481,7 +502,7 @@ public final class GCloudBlobStore implements BlobStore {
                 if (marker != null && blob.getName().compareTo(marker) <= 0) {
                     continue;
                 }
-                if (isMultipartInternal(blob.getName())) {
+                if (isMultipartInternal(blob)) {
                     continue;
                 }
                 // A key whose current version is a delete marker holds
@@ -518,15 +539,18 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     /**
-     * Whether a listed name is this store's record of a multipart upload:
+     * Whether a listed entry is this store's record of a multipart upload:
      * a stub, a part, or the common prefix a delimiter folds them into.
      * They are objects to GCS and no objects of the bucket's, and a listing
      * showed them: an upload in progress appeared as keys under
-     * ".s3proxy/", which a client emptying the bucket would delete.
+     * ".s3proxy/", which a client emptying the bucket would delete.  Only a
+     * common prefix is that group: a client's object named ".s3proxy", or
+     * ".", holds no stub and is listed like any other.
      */
-    private static boolean isMultipartInternal(String name) {
-        return name.startsWith(STUB_BLOB_PREFIX) ||
-                (!name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
+    private static boolean isMultipartInternal(Blob blob) {
+        String name = blob.getName();
+        return name.startsWith(STUB_BLOB_PREFIX) || (blob.isDirectory() &&
+                !name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
     }
 
     @Override
@@ -633,7 +657,11 @@ public final class GCloudBlobStore implements BlobStore {
      * 10,000 sequential deletes.
      */
     private void deleteGenerations(Page<Blob> page) {
-        for (List<Blob> chunk : Iterables.partition(page.iterateAll(),
+        deleteGenerations(page.iterateAll());
+    }
+
+    private void deleteGenerations(Iterable<Blob> blobs) {
+        for (List<Blob> chunk : Iterables.partition(blobs,
                 MAX_BATCH_DELETES)) {
             var batch = storage.batch();
             var results = new ArrayList<StorageBatchResult<Boolean>>(
@@ -1012,7 +1040,7 @@ public final class GCloudBlobStore implements BlobStore {
         var rows = new ArrayList<VersionRow>();
         var commonPrefixes = new TreeSet<String>();
         for (Blob blob : page.iterateAll()) {
-            if (isMultipartInternal(blob.getName())) {
+            if (isMultipartInternal(blob)) {
                 continue;
             }
             if (blob.isDirectory()) {
@@ -2140,7 +2168,7 @@ public final class GCloudBlobStore implements BlobStore {
             throw S3Exceptions.noSuchBucket(container, "");
         }
 
-        String uploadKey = STUB_BLOB_PREFIX + UUID.randomUUID().toString();
+        String uploadId = UploadNames.newUploadId(request.key());
         String targetBlobName = request.key();
 
         // Store stub blob with metadata for later use during complete
@@ -2187,49 +2215,81 @@ public final class GCloudBlobStore implements BlobStore {
         }
 
         var stubInfo = BlobInfo.newBuilder(
-                BlobId.of(container, uploadKey))
+                BlobId.of(container, stubName(targetBlobName, uploadId)))
                 .setMetadata(stubMetadata)
                 .build();
         storage.create(stubInfo, new byte[0],
                 bookkeepingTargetOptions(container));
 
-        return new MultipartUpload(uploadKey, request);
+        return new MultipartUpload(uploadId, request);
+    }
+
+    /** The name of an upload's stub, from its key and upload ID. */
+    static String stubName(String key, String uploadId) {
+        String name = UPLOADS_PREFIX + UploadNames.escapeKey(key) +
+                UploadNames.SEPARATOR + uploadId;
+        if (name.getBytes(StandardCharsets.UTF_8).length <= MAX_NAME_BYTES) {
+            return name;
+        }
+        return LONG_UPLOADS_PREFIX + uploadId;
+    }
+
+    static String partName(String uploadId, int partNumber) {
+        return PARTS_PREFIX + uploadId + "/part_%05d".formatted(partNumber);
+    }
+
+    /**
+     * The stub of the upload the request names, by its key and upload ID
+     * both, or null.  Another key's upload of the same ID has another stub,
+     * so a part, completion, listing or abort naming the wrong key finds
+     * none, as on S3; a long key's stub is named by its ID alone and keeps
+     * the key in its metadata, which is compared instead.
+     */
+    private @Nullable Blob findStub(MultipartUpload mpu, boolean full) {
+        if (!UploadNames.namesKey(mpu.id(), mpu.blobName())) {
+            return null;
+        }
+        String name = stubName(mpu.blobName(), mpu.id());
+        Blob stub = full ?
+                storage.get(BlobId.of(mpu.containerName(), name)) :
+                storage.get(BlobId.of(mpu.containerName(), name),
+                        BlobGetOption.fields(BlobField.NAME,
+                                BlobField.METADATA));
+        if (stub == null || stub.getMetadata() == null ||
+                !mpu.blobName().equals(
+                        stub.getMetadata().get(TARGET_BLOB_NAME_KEY))) {
+            return null;
+        }
+        return stub;
     }
 
     @Override
     public void abortMultipartUpload(MultipartUpload mpu) {
-        String uploadKey = mpu.id();
-
-        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                    "Multipart upload not found: " + uploadKey);
-        }
-
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
-
         // the stub of another key's upload is not this request's to remove
-        Blob stub = storage.get(BlobId.of(mpu.containerName(), uploadKey),
-                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
-        if (stub == null || stub.getMetadata() == null ||
-                !mpu.blobName().equals(
-                        stub.getMetadata().get(TARGET_BLOB_NAME_KEY))) {
-            throw S3Exceptions.noSuchKey(mpu.containerName(), uploadKey,
-                    "Multipart upload not found: " + uploadKey);
+        if (findStub(mpu, /*full=*/ false) == null) {
+            throw S3Exceptions.noSuchKey(mpu.containerName(), mpu.id(),
+                    "Multipart upload not found: " + mpu.id());
         }
-        removeStubGenerations(mpu.containerName(), nonce);
+        removeUpload(mpu);
     }
 
     /**
      * Removes every generation of the upload's bookkeeping -- parts,
-     * intermediate composes and the stub.  On a versioning-enabled
-     * container a plain delete would archive them instead, and the hidden
-     * versions would outlive every upload and hold the bucket undeletable
-     * on the real service.
+     * intermediate composes and the stub, the stub listed last.  On a
+     * versioning-enabled container a plain delete would archive them
+     * instead, and the hidden versions would outlive every upload and hold
+     * the bucket undeletable on the real service.
      */
-    private void removeStubGenerations(String container, String nonce) {
-        deleteGenerations(storage.list(container,
-                BlobListOption.prefix(STUB_BLOB_PREFIX + nonce),
-                BlobListOption.versions(true)));
+    private void removeUpload(MultipartUpload mpu) {
+        String container = mpu.containerName();
+        var parts = storage.list(container,
+                BlobListOption.prefix(PARTS_PREFIX + mpu.id() + "/"),
+                BlobListOption.versions(true)).iterateAll();
+        var stub = storage.list(container,
+                BlobListOption.prefix(stubName(mpu.blobName(), mpu.id())),
+                BlobListOption.versions(true)).iterateAll();
+        deleteGenerations(() -> java.util.stream.Stream.concat(
+                Streams.stream(parts), Streams.stream(stub)).iterator());
     }
 
     @Override
@@ -2237,30 +2297,16 @@ public final class GCloudBlobStore implements BlobStore {
             CompleteMultipartUploadRequest request) {
         List<CompletedPart> parts = request.multipartUpload() == null ?
                 List.of() : request.multipartUpload().parts();
-        String uploadKey = mpu.id();
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
+        String uploadId = mpu.id();
 
-        Blob stubBlob = storage.get(
-                BlobId.of(mpu.containerName(), uploadKey));
+        // an upload of another key, which this request does not name, has
+        // a stub of another name
+        Blob stubBlob = findStub(mpu, /*full=*/ true);
         if (stubBlob == null) {
-            throw new IllegalArgumentException(
-                    "Upload not found: uploadId=" + uploadKey);
+            throw S3Exceptions.noSuchUpload(uploadId);
         }
-
-        var stubMetadata = stubBlob.getMetadata();
-        if (stubMetadata == null) {
-            throw new IllegalArgumentException(
-                    "Stub blob missing target name: uploadId=" + uploadKey);
-        }
-        String targetBlobName = stubMetadata.get(TARGET_BLOB_NAME_KEY);
-        if (targetBlobName == null) {
-            throw new IllegalArgumentException(
-                    "Stub blob missing target name: uploadId=" + uploadKey);
-        }
-        if (!targetBlobName.equals(mpu.blobName())) {
-            // an upload of another key, which this request does not name
-            throw S3Exceptions.noSuchUpload(uploadKey);
-        }
+        var stubMetadata = requireNonNull(stubBlob.getMetadata());
+        String targetBlobName = mpu.blobName();
 
         if (parts == null || parts.isEmpty()) {
             throw new IllegalArgumentException("Parts list cannot be empty");
@@ -2337,7 +2383,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         // If single part, just copy it to the target
         if (parts.size() == 1) {
-            String partBlobName = makePartBlobName(nonce,
+            String partBlobName = partName(uploadId,
                     parts.get(0).partNumber());
             var source = BlobId.of(mpu.containerName(), partBlobName);
             var copyRequest = CopyRequest.newBuilder()
@@ -2351,7 +2397,7 @@ public final class GCloudBlobStore implements BlobStore {
                 throw translate(se, mpu.containerName(), targetBlobName);
             }
             var result = copyWriter.getResult();
-            removeStubGenerations(mpu.containerName(), nonce);
+            removeUpload(mpu);
             return SdkResponses.completeResponse(reportETag(result),
                     isVersioned(mpu.containerName()) ?
                             Long.toString(result.getGeneration()) : null);
@@ -2361,12 +2407,12 @@ public final class GCloudBlobStore implements BlobStore {
         // For more parts, compose recursively.
         var sourceBlobIds = new java.util.ArrayList<BlobId>();
         for (var part : parts) {
-            String partBlobName = makePartBlobName(nonce, part.partNumber());
+            String partBlobName = partName(uploadId, part.partNumber());
             sourceBlobIds.add(BlobId.of(mpu.containerName(), partBlobName));
         }
 
         Blob composed = composeRecursive(mpu.containerName(),
-                targetBuilder.build(), sourceBlobIds, nonce,
+                targetBuilder.build(), sourceBlobIds, uploadId,
                 conditionOptions);
 
         // objects.compose accepts destinationPredefinedAcl, but the SDK drops
@@ -2406,7 +2452,7 @@ public final class GCloudBlobStore implements BlobStore {
             }
         }
 
-        removeStubGenerations(mpu.containerName(), nonce);
+        removeUpload(mpu);
 
         return SdkResponses.completeResponse(reportETag(composed),
                 isVersioned(mpu.containerName()) ?
@@ -2419,7 +2465,7 @@ public final class GCloudBlobStore implements BlobStore {
      * compose in groups of 32, then compose those results.
      */
     private Blob composeRecursive(String container, BlobInfo target,
-            List<BlobId> sources, String nonce,
+            List<BlobId> sources, String uploadId,
             List<BlobTargetOption> conditionOptions) {
         if (sources.size() <= MAX_COMPOSE_PARTS) {
             var composeBuilder = ComposeRequest.newBuilder();
@@ -2444,7 +2490,7 @@ public final class GCloudBlobStore implements BlobStore {
                 i += MAX_COMPOSE_PARTS) {
             int end = Math.min(i + MAX_COMPOSE_PARTS, sources.size());
             var group = sources.subList(i, end);
-            String intermediateName = STUB_BLOB_PREFIX + nonce +
+            String intermediateName = PARTS_PREFIX + uploadId +
                     "/compose_" + groupIndex;
             var intermediateInfo = BlobInfo.newBuilder(
                     BlobId.of(container, intermediateName)).build();
@@ -2468,7 +2514,7 @@ public final class GCloudBlobStore implements BlobStore {
 
         // Recursively compose intermediates
         return composeRecursive(container, target, intermediateIds,
-                nonce, conditionOptions);
+                uploadId, conditionOptions);
     }
 
     @Override
@@ -2483,8 +2529,7 @@ public final class GCloudBlobStore implements BlobStore {
                     partNumber);
         }
 
-        String partBlobName = makePartBlobName(openUploadNonce(mpu),
-                partNumber);
+        String partBlobName = partName(openUploadId(mpu), partNumber);
 
         byte[] md5Hash;
         var digest = MD5.newDigest();
@@ -2531,28 +2576,18 @@ public final class GCloudBlobStore implements BlobStore {
     }
 
     /**
-     * The nonce of an upload that is open, which is one whose stub exists.
-     * A part's name is built from the upload ID, so an ID that was never
+     * The ID of an upload that is open, which is one whose stub exists.  A
+     * part's name is built from the upload ID, so an ID that was never
      * issued, or whose upload has since been completed or aborted, must not
      * get as far as a write: the part would be kept where no completion
      * and no abort will ever find it.  An upload begun for another key than
      * the request names is no more open to it, as on S3.
      */
-    private String openUploadNonce(MultipartUpload mpu) {
-        String uploadKey = mpu.id();
-        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
+    private String openUploadId(MultipartUpload mpu) {
+        if (findStub(mpu, /*full=*/ false) == null) {
+            throw S3Exceptions.noSuchUpload(mpu.id());
         }
-        Blob stub = storage.get(BlobId.of(mpu.containerName(), uploadKey),
-                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
-        // A part or an intermediate compose lies under the same prefix but
-        // carries no target name, so its name is no upload ID either.
-        if (stub == null || stub.getMetadata() == null ||
-                !mpu.blobName().equals(
-                        stub.getMetadata().get(TARGET_BLOB_NAME_KEY))) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
-        }
-        return uploadKey.substring(STUB_BLOB_PREFIX.length());
+        return mpu.id();
     }
 
     @Override
@@ -2606,8 +2641,7 @@ public final class GCloudBlobStore implements BlobStore {
                 request.copySourceIfModifiedSince(),
                 request.copySourceIfUnmodifiedSince());
 
-        String partBlobName = makePartBlobName(openUploadNonce(mpu),
-                partNumber);
+        String partBlobName = partName(openUploadId(mpu), partNumber);
 
         try {
             var copyRequest = CopyRequest.newBuilder()
@@ -2649,26 +2683,19 @@ public final class GCloudBlobStore implements BlobStore {
 
     @Override
     public List<Part> listMultipartUpload(MultipartUpload mpu) {
-        String uploadKey = mpu.id();
-        if (!uploadKey.startsWith(STUB_BLOB_PREFIX)) {
-            throw S3Exceptions.noSuchUpload(uploadKey);
+        String uploadId = mpu.id();
+        // an upload begun for another key, or none at all
+        if (!UploadNames.namesKey(uploadId, mpu.blobName())) {
+            throw S3Exceptions.noSuchUpload(uploadId);
         }
+        String prefix = PARTS_PREFIX + uploadId + "/part_";
 
-        String nonce = uploadKey.substring(STUB_BLOB_PREFIX.length());
-        String prefix = STUB_BLOB_PREFIX + nonce + "/part_";
-
-        // The parts of an upload begun for another key are not this
-        // request's to see.  A stub that is gone is left to the listing,
-        // which then finds no parts: that is how the frontend knows to look
-        // for the finished object.
-        Blob stub = storage.get(BlobId.of(mpu.containerName(), uploadKey),
-                BlobGetOption.fields(BlobField.NAME, BlobField.METADATA));
-        if (stub != null && stub.getMetadata() != null) {
-            String target = stub.getMetadata().get(TARGET_BLOB_NAME_KEY);
-            if (target != null && !target.equals(mpu.blobName())) {
-                throw S3Exceptions.noSuchUpload(uploadKey);
-            }
-        }
+        // A stub that is gone is left to the listing, which then finds no
+        // parts: that is how the frontend knows to look for the finished
+        // object, whose parts went before its stub.  Parts without the
+        // stub this request names are another key's upload's, which are
+        // not this request's to see.
+        boolean open = findStub(mpu, /*full=*/ false) != null;
 
         var parts = ImmutableList.<Part>builder();
         var page = storage.list(mpu.containerName(),
@@ -2686,6 +2713,9 @@ public final class GCloudBlobStore implements BlobStore {
             // Report the part's hex MD5 as its ETag (matching
             // uploadMultipartPart) so CompleteMultipartUpload can validate the
             // client-supplied part ETags.
+            if (!open) {
+                throw S3Exceptions.noSuchUpload(uploadId);
+            }
             parts.add(SdkResponses.part(partNumber, blob.getSize(),
                     blob.getMd5ToHexString(), null));
         }
@@ -2698,37 +2728,204 @@ public final class GCloudBlobStore implements BlobStore {
     @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
-        var builder = ImmutableList.<software.amazon.awssdk.services.s3
-                .model.MultipartUpload>builder();
-        // An upload's parts and intermediate composes lie under its stub's
-        // name and a slash, so the delimiter folds each upload's into one
-        // common prefix.  Listed without it, every part of every upload
-        // came back, a page per thousand, on each request -- and the
-        // frontend asks for them all whatever the client's max-uploads.
-        var page = storage.list(container,
-                BlobListOption.prefix(STUB_BLOB_PREFIX),
-                BlobListOption.delimiter("/"));
-        for (Blob blob : page.iterateAll()) {
-            String name = blob.getName();
-            // the prefix a delimiter folds an upload's parts into
-            if (blob.isDirectory() || name.contains("/part_") ||
-                    name.contains("/compose_")) {
-                continue;
+        var uploads = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
+        for (Blob blob : storage.list(container,
+                BlobListOption.prefix(UPLOADS_PREFIX)).iterateAll()) {
+            var upload = keyedUpload(blob);
+            if (upload != null) {
+                uploads.add(upload);
             }
-            var metadata = blob.getMetadata();
-            if (metadata == null) {
-                continue;
-            }
-            String targetBlobName = metadata.get(TARGET_BLOB_NAME_KEY);
-            if (targetBlobName == null) {
-                continue;
-            }
-            // The stub is written when the upload is created and never
-            // again, so its time is the upload's.
-            builder.add(SdkResponses.upload(targetBlobName, name,
-                    toInstant(blob.getCreateTimeOffsetDateTime())));
         }
-        return builder.build();
+        uploads.addAll(longUploads(container));
+        return uploads;
+    }
+
+    /**
+     * One page of uploads, read from GCS a page at a time.  The stubs sort
+     * as S3 lists the uploads, so the listing starts where the markers
+     * point and stops once it holds the page and the entry that tells
+     * there is more; a slash delimiter is GCS's own, which folds a group
+     * of keys into one entry however many uploads it holds.  The few stubs
+     * of keys too long to be named by them are read whole and merged in.
+     */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        String container = request.bucket();
+        String prefix = Strings.nullToEmpty(request.prefix());
+        String delimiter = Strings.emptyToNull(request.delimiter());
+        String keyMarker = Strings.emptyToNull(request.keyMarker());
+        String uploadIdMarker = keyMarker == null ? null :
+                Strings.emptyToNull(request.uploadIdMarker());
+        int maxUploads = request.maxUploads() == null ?
+                UploadListings.MAX_UPLOADS :
+                Math.min(request.maxUploads(), UploadListings.MAX_UPLOADS);
+        // the page, the entry after it, and one the markers pass over
+        int wanted = maxUploads + 2;
+
+        var options = new ArrayList<BlobListOption>();
+        options.add(BlobListOption.prefix(UPLOADS_PREFIX +
+                UploadNames.escapeKey(prefix)));
+        options.add(BlobListOption.pageSize(Math.min(wanted,
+                MAX_LIST_PAGE_SIZE)));
+        boolean gcsFolds = "/".equals(delimiter);
+        if (gcsFolds) {
+            options.add(BlobListOption.delimiter("/"));
+        }
+        String start = startName(prefix, delimiter, keyMarker,
+                uploadIdMarker);
+        if (start != null) {
+            options.add(BlobListOption.startOffset(start));
+        }
+
+        var candidates = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
+        int entries = 0;
+        String lastEntry = null;
+        try {
+            for (Blob blob : inNameOrder(storage.list(container,
+                    options.toArray(new BlobListOption[0])))) {
+                String entry;
+                if (blob.isDirectory()) {
+                    // A group GCS folded, which the page reports as the
+                    // common prefix an upload of that name folds into.
+                    String folded = UploadNames.unescapeKey(
+                            blob.getName().substring(UPLOADS_PREFIX.length()));
+                    candidates.add(software.amazon.awssdk.services.s3.model
+                            .MultipartUpload.builder()
+                            .key(folded).uploadId("").build());
+                    entry = folded;
+                } else {
+                    var upload = keyedUpload(blob);
+                    if (upload == null) {
+                        continue;
+                    }
+                    candidates.add(upload);
+                    String rolled = UploadListings.rollUp(upload.key(),
+                            prefix, delimiter);
+                    entry = rolled != null ? rolled :
+                            upload.key() + UploadNames.SEPARATOR +
+                            upload.uploadId();
+                }
+                if (!entry.equals(lastEntry)) {
+                    ++entries;
+                    lastEntry = entry;
+                }
+                // Stopped here rather than on asking for the next entry,
+                // which could have GCS send a page more only to be looked
+                // at.  The last entry only tells there is more, so a group
+                // of keys it starts need not be read through.
+                if (entries == wanted) {
+                    break;
+                }
+            }
+            candidates.addAll(longUploads(container));
+        } catch (StorageException se) {
+            throw translate(se, container, /*key=*/ null);
+        }
+        return UploadListings.page(candidates, request);
+    }
+
+    /**
+     * A listing's entries in the order of their names, a page at a time.
+     * GCS names a page's common prefixes after its objects, so each page is
+     * sorted as it arrives; the pages themselves follow in order.
+     */
+    private static Iterable<Blob> inNameOrder(Page<Blob> first) {
+        return () -> new AbstractIterator<Blob>() {
+            // the page last read; the next is fetched once it is used
+            private @Nullable Page<Blob> page;
+            private java.util.Iterator<Blob> blobs =
+                    java.util.Collections.emptyIterator();
+
+            @Override
+            protected @Nullable Blob computeNext() {
+                while (!blobs.hasNext()) {
+                    Page<Blob> current = page;
+                    if (current == null) {
+                        current = first;
+                    } else if (current.hasNextPage()) {
+                        current = current.getNextPage();
+                    } else {
+                        return endOfData();
+                    }
+                    page = current;
+                    var values = Lists.newArrayList(current.getValues());
+                    values.sort(Comparator.comparing(Blob::getName));
+                    blobs = values.iterator();
+                }
+                return blobs.next();
+            }
+        };
+    }
+
+    /**
+     * The first stub name a page can start at: after every upload of the
+     * key marker when it names no upload ID, after every key folded into
+     * it when it is a common prefix, and at the marked upload otherwise,
+     * which the page then passes over.
+     */
+    private static @Nullable String startName(String prefix,
+            @Nullable String delimiter, @Nullable String keyMarker,
+            @Nullable String uploadIdMarker) {
+        if (keyMarker == null) {
+            return null;
+        }
+        String escaped = UploadNames.escapeKey(keyMarker);
+        if (delimiter != null && keyMarker.equals(
+                UploadListings.rollUp(keyMarker, prefix, delimiter))) {
+            // the first name after all those beginning with the prefix
+            char last = escaped.charAt(escaped.length() - 1);
+            return UPLOADS_PREFIX + escaped.substring(0,
+                    escaped.length() - 1) + (char) (last + 1);
+        }
+        if (uploadIdMarker == null) {
+            return UPLOADS_PREFIX + escaped + UploadNames.SEPARATOR +
+                    UploadNames.AFTER_EVERY_UPLOAD_ID;
+        }
+        return UPLOADS_PREFIX + escaped + UploadNames.SEPARATOR +
+                uploadIdMarker;
+    }
+
+    /** The upload a stub named by its key records, or null for another. */
+    private static software.amazon.awssdk.services.s3.model.@Nullable
+            MultipartUpload keyedUpload(Blob blob) {
+        String name = blob.getName();
+        int separator = name.lastIndexOf(UploadNames.SEPARATOR);
+        if (blob.isDirectory() || !name.startsWith(UPLOADS_PREFIX) ||
+                separator < UPLOADS_PREFIX.length()) {
+            return null;
+        }
+        String uploadId = name.substring(
+                separator + UploadNames.SEPARATOR.length());
+        if (!UploadNames.isUploadId(uploadId)) {
+            return null;
+        }
+        // The stub is written when the upload is created and never again,
+        // so its time is the upload's.
+        return SdkResponses.upload(UploadNames.unescapeKey(name.substring(
+                UPLOADS_PREFIX.length(), separator)), uploadId,
+                toInstant(blob.getCreateTimeOffsetDateTime()));
+    }
+
+    /** The uploads of keys too long for a stub to be named by them. */
+    private List<software.amazon.awssdk.services.s3.model.MultipartUpload>
+            longUploads(String container) {
+        var uploads = new ArrayList<
+                software.amazon.awssdk.services.s3.model.MultipartUpload>();
+        for (Blob blob : storage.list(container,
+                BlobListOption.prefix(LONG_UPLOADS_PREFIX)).iterateAll()) {
+            String uploadId = blob.getName().substring(
+                    LONG_UPLOADS_PREFIX.length());
+            String key = blob.getMetadata() == null ? null :
+                    blob.getMetadata().get(TARGET_BLOB_NAME_KEY);
+            if (key != null && UploadNames.isUploadId(uploadId)) {
+                uploads.add(SdkResponses.upload(key, uploadId,
+                        toInstant(blob.getCreateTimeOffsetDateTime())));
+            }
+        }
+        return uploads;
     }
 
     @Override
@@ -2756,11 +2953,6 @@ public final class GCloudBlobStore implements BlobStore {
             throw S3Exceptions.invalidArgument("The key " + STUB_BLOB_PREFIX +
                     "... is reserved for multipart uploads.");
         }
-    }
-
-    private static String makePartBlobName(String nonce, int partNumber) {
-        return STUB_BLOB_PREFIX + nonce +
-                "/part_%05d".formatted(partNumber);
     }
 
     /**

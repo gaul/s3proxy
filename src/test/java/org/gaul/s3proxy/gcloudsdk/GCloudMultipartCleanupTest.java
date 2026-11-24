@@ -30,12 +30,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 
 import com.google.cloud.storage.StorageException;
+import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +53,10 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
  * and the batch endpoint.
  */
 public final class GCloudMultipartCleanupTest {
-    private static final String STUB = ".s3proxy/stubs/nonce";
+    private static final String UPLOAD_ID =
+            UploadNames.newUploadId("target");
+    private static final String STUB =
+            GCloudBlobStore.stubName("target", UPLOAD_ID);
     private static final int PARTS = 250;
     private static final Pattern DELETE_LINE = Pattern.compile(
             "^DELETE \\S*/storage/v1/b/bucket/o/(\\S+?)\\?(\\S*)",
@@ -119,11 +124,11 @@ public final class GCloudMultipartCleanupTest {
     }
 
     private static String partName(int i) {
-        return STUB + "/part-%05d".formatted(i);
+        return GCloudBlobStore.partName(UPLOAD_ID, i);
     }
 
     private static MultipartUpload upload() {
-        return new MultipartUpload(STUB, CreateMultipartUploadRequest
+        return new MultipartUpload(UPLOAD_ID, CreateMultipartUploadRequest
                 .builder().bucket("bucket").key("target").build());
     }
 
@@ -154,13 +159,24 @@ public final class GCloudMultipartCleanupTest {
                     "\"target\"}}");
         } else if (path.equals("/storage/v1/b/bucket/o") && query != null &&
                 query.contains("versions=true")) {
-            var items = new StringBuilder();
-            for (int i = 0; i < PARTS; ++i) {
-                items.append(object(partName(i), 1000 + i)).append(',');
+            String prefix = "";
+            for (String parameter : Splitter.on('&').split(query)) {
+                if (parameter.startsWith("prefix=")) {
+                    prefix = URLDecoder.decode(parameter.substring(7),
+                            StandardCharsets.UTF_8);
+                }
             }
-            items.append(object(STUB, 1));
-            response = "{\"kind\":\"storage#objects\",\"items\":[" + items +
-                    "]}";
+            var items = new ArrayList<String>();
+            for (int i = 0; i < PARTS; ++i) {
+                if (partName(i).startsWith(prefix)) {
+                    items.add(object(partName(i), 1000 + i));
+                }
+            }
+            if (STUB.startsWith(prefix)) {
+                items.add(object(STUB, 1));
+            }
+            response = "{\"kind\":\"storage#objects\",\"items\":[" +
+                    String.join(",", items) + "]}";
         } else {
             status = 404;
             response = "{\"error\":{\"code\":404,\"message\":\"Not Found\"}}";

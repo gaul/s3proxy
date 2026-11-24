@@ -34,6 +34,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +58,9 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
  */
 public final class GCloudObjectAclTest {
     private static final String UPLOAD_ID =
-            ".s3proxy/stubs/11111111-2222-3333-4444-555555555555";
+            UploadNames.newUploadId("key");
+    private static final String STUB =
+            GCloudBlobStore.stubName("key", UPLOAD_ID);
 
     private final List<String> requests =
             Collections.synchronizedList(new ArrayList<String>());
@@ -140,8 +143,8 @@ public final class GCloudObjectAclTest {
             complete(blobStore, 1);
         }
 
-        assertThat(sent("POST /storage/v1/b/bucket/o/" + UPLOAD_ID +
-                "/part_00001/rewriteTo/")).hasSize(1).allMatch(r -> r.contains(
+        assertThat(sent("POST /storage/v1/b/bucket/o/" +
+                GCloudBlobStore.partName(UPLOAD_ID, 1) + "/rewriteTo/")).hasSize(1).allMatch(r -> r.contains(
                         "destinationPredefinedAcl=projectPrivate"));
     }
 
@@ -205,7 +208,7 @@ public final class GCloudObjectAclTest {
         }
 
         assertThat(sent("DELETE /storage/v1/b/bucket/o/key?")).hasSize(1);
-        assertThat(sent("DELETE /storage/v1/b/bucket/o/" + UPLOAD_ID))
+        assertThat(sent("DELETE /storage/v1/b/bucket/o/" + STUB))
                 .isEmpty();
     }
 
@@ -269,7 +272,7 @@ public final class GCloudObjectAclTest {
         if (path.startsWith("/upload/") && method.equals("POST") &&
                 query.contains("uploadType=multipart")) {
             // a small object sent whole, as a stub is
-            response = object(UPLOAD_ID);
+            response = object(STUB);
         } else if (path.startsWith("/upload/") && method.equals("POST")) {
             // the start of a resumable upload, whose session is its URL
             exchange.getResponseHeaders().set("Location",
@@ -296,8 +299,8 @@ public final class GCloudObjectAclTest {
             if (aclRemovalFails) {
                 response = "{\"error\":{\"code\":503,\"message\":\"down\"}}";
             }
-        } else if (path.endsWith("/o/" + UPLOAD_ID)) {
-            response = object(UPLOAD_ID);
+        } else if (path.endsWith("/o/" + STUB)) {
+            response = object(STUB);
         } else {
             response = object(path.substring(path.lastIndexOf('/') + 1));
         }

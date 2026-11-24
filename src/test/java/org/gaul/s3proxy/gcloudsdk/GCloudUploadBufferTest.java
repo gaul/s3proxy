@@ -43,6 +43,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,8 +64,11 @@ public final class GCloudUploadBufferTest {
     private static final ThreadMXBean THREADS =
             (ThreadMXBean) ManagementFactory.getThreadMXBean();
     private static final String UPLOAD_ID =
-            ".s3proxy/stubs/11111111-2222-3333-4444-555555555555";
-    private static final String PART_NAME = UPLOAD_ID + "/part_00001";
+            UploadNames.newUploadId("key");
+    private static final String STUB =
+            GCloudBlobStore.stubName("key", UPLOAD_ID);
+    private static final String PART_NAME =
+            GCloudBlobStore.partName(UPLOAD_ID, 1);
     private static final MultipartUpload UPLOAD = new MultipartUpload(
             UPLOAD_ID, CreateMultipartUploadRequest.builder()
                     .bucket("bucket").key("key").build());
@@ -273,8 +277,8 @@ public final class GCloudUploadBufferTest {
                 objects.put(name, received.toByteArray());
                 response = object(name, received.size());
             }
-        } else if (path.endsWith("/o/" + UPLOAD_ID)) {
-            response = object(UPLOAD_ID, 0);
+        } else if (path.endsWith("/o/" + STUB)) {
+            response = object(STUB, 0);
         } else {
             response = "{\"kind\":\"storage#bucket\",\"name\":\"bucket\"}";
         }

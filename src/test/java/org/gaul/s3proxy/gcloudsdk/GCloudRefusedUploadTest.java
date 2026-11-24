@@ -35,6 +35,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +58,9 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
  */
 public final class GCloudRefusedUploadTest {
     private static final String UPLOAD_ID =
-            ".s3proxy/stubs/11111111-2222-3333-4444-555555555555";
+            UploadNames.newUploadId("key");
+    private static final String STUB =
+            GCloudBlobStore.stubName("key", UPLOAD_ID);
     // more than the 256 KiB chunk a small Content-Length is given, so that
     // the refused request is not the one that states the total size
     private static final int SEVERAL_CHUNKS = 600 * 1024;
@@ -195,7 +198,7 @@ public final class GCloudRefusedUploadTest {
             status = refusal;
             response = "{\"error\":{\"code\":%d,\"message\":\"Refused\"}}"
                     .formatted(refusal);
-        } else if (path.endsWith("/o/" + UPLOAD_ID)) {
+        } else if (path.endsWith("/o/" + STUB)) {
             // the stub that stands for a multipart upload in progress
             response = """
                     {"kind":"storage#object","bucket":"bucket","name":"%s",\
@@ -203,7 +206,7 @@ public final class GCloudRefusedUploadTest {
                     "etag":"CAE=",\
                     "metadata":{"s3proxy_target_blob_name":"key"},\
                     "updated":"2026-01-01T00:00:00.000Z"}""".formatted(
-                            UPLOAD_ID);
+                            STUB);
         } else {
             status = 404;
             response = "{\"error\":{\"code\":404,\"message\":\"Not Found\"}}";
