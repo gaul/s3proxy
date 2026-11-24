@@ -265,6 +265,34 @@ public final class MpuChecksums {
     }
 
     /**
+     * Refuse a composite completion that leaves a part's checksum out, as
+     * {@link #compute} does, before anything reads the parts.
+     */
+    public static void requirePartChecksums(
+            CompleteMultipartUploadRequest cmu, FlexChecksum algorithm) {
+        SortedMap<Integer, CompleteMultipartUploadRequest.Part> sorted =
+                new TreeMap<>();
+        for (CompleteMultipartUploadRequest.Part part :
+                requireNonNull(cmu.parts())) {
+            sorted.put(part.partNumber(), part);
+        }
+        for (var entry : sorted.entrySet()) {
+            if (algorithm.value(entry.getValue()) == null) {
+                throw missingPartChecksum(algorithm, entry.getKey());
+            }
+        }
+    }
+
+    private static S3ProxyException missingPartChecksum(
+            FlexChecksum algorithm, int partNumber) {
+        return new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
+                "The upload was created using a " + algorithm.lower() +
+                " checksum. The complete request must include the" +
+                " checksum for each part. It was missing for part " +
+                partNumber + " in the request.");
+    }
+
+    /**
      * Enforce the per-part flexible checksums carried by a
      * CompleteMultipartUpload request and compute the composite checksum S3
      * returns for the finished object.  Modern AWS SDKs attach a per-part
@@ -308,11 +336,7 @@ public final class MpuChecksums {
                     return null;
                 }
             } else if (value == null) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                        "The upload was created using a " + algorithm.lower() +
-                        " checksum. The complete request must include the" +
-                        " checksum for each part. It was missing for part " +
-                        entry.getKey() + " in the request.");
+                throw missingPartChecksum(algorithm, entry.getKey());
             }
             byte[] digest = part != null ? part.digest() :
                     algorithm.decodeValue(requireNonNull(value));

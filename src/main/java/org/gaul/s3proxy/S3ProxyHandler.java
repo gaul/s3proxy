@@ -7402,6 +7402,17 @@ public class S3ProxyHandler {
                         /*ifNoneMatch=*/ null);
                 ifMatch = null;
             }
+            if (Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType) &&
+                    ifNoneMatch != null) {
+                // These stores settle If-None-Match only as they publish,
+                // having read and assembled every part: a completion whose
+                // condition has already failed is refused before that.
+                // The store still settles it, against whatever is written
+                // in between.
+                checkConditionalWrite(blobStore.blobMetadataIfPresent(
+                        containerName, blobName), /*ifMatch=*/ null,
+                        ifNoneMatch);
+            }
         }
         final String completeIfMatch = ifMatch;
         final String completeIfNoneMatch = ifNoneMatch;
@@ -7416,15 +7427,21 @@ public class S3ProxyHandler {
             // other backends fall back to the asserted values and to the
             // part sizes the backend reports, and a header is only taken
             // where the store judges it too.
+            boolean fullObject = MpuChecksums.fullObjectUpload(
+                    carrierRequest.metadata(), request, mpuAlgorithm);
+            // What the request alone refuses is refused before the parts
+            // are read: the pass that hashes them costs the whole upload,
+            // on a request that was bound to fail.
+            if (!fullObject) {
+                MpuChecksums.requirePartChecksums(cmu, mpuAlgorithm);
+            }
             Map<Integer, MpuChecksums.PartChecksum> partChecksums =
                     requiresStub ?
                     MpuChecksums.hashPartContents(blobStore, mpu,
                             mpuAlgorithm, cmu) :
                     null;
             mpuChecksum = MpuChecksums.compute(request, cmu, mpuAlgorithm,
-                    partChecksums, listedPartSizes,
-                    MpuChecksums.fullObjectUpload(carrierRequest.metadata(),
-                            request, mpuAlgorithm));
+                    partChecksums, listedPartSizes, fullObject);
         }
 
         // Persist the composite checksum onto the final object for stub
