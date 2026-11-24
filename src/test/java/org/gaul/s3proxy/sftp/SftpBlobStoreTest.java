@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.sftp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -35,7 +36,9 @@ import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import org.assertj.core.api.Assertions;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -44,8 +47,11 @@ import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 public final class SftpBlobStoreTest {
@@ -98,6 +104,75 @@ public final class SftpBlobStoreTest {
                         StandardCharsets.UTF_8)).isEqualTo("value");
             }
         }
+    }
+
+    /**
+     * The server may run on Windows, which reads a backslash as a path
+     * separator where SFTP, and so every check made on this side, sees part
+     * of a name: {@code ..\other\object.txt} is another bucket's object
+     * there.  A key or prefix holding one is refused whatever the server.
+     */
+    @Test
+    public void testBackslashInKeyIsRefused() throws Exception {
+        var hostKeyProvider = startSftpServer();
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            var key = "..\\other\\object.txt";
+            blobStore.createContainer(bucket);
+            var payload = ByteSource.wrap("value".getBytes(
+                    StandardCharsets.UTF_8));
+
+            assertRefused(() -> blobStore.putBlob(PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .contentLength(payload.size())
+                    .build(), payload.openStream()));
+            assertRefused(() -> blobStore.getBlob(bucket, key));
+            assertRefused(() -> blobStore.removeBlob(bucket, key));
+            assertRefused(() -> blobStore.list(ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix("..\\other/")
+                    .build()));
+            assertThat(sftpRoot.resolve(BASEDIR.substring(1)).resolve(bucket))
+                    .isEmptyDirectory();
+        }
+    }
+
+    /**
+     * A bucket name reaches the store unchecked as the source of a copy, and
+     * {@code bucket\..\other} is the bucket other on such a server.
+     */
+    @Test
+    public void testBackslashInBucketIsRefused() throws Exception {
+        var hostKeyProvider = startSftpServer();
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            var source = "bucket\\..\\other";
+            blobStore.createContainer(bucket);
+
+            assertRefused(() -> blobStore.createContainer(source));
+            assertRefused(() -> blobStore.getBlob(source, "object.txt"));
+            assertRefused(() -> blobStore.copyBlob(CopyObjectRequest.builder()
+                    .sourceBucket(source)
+                    .sourceKey("object.txt")
+                    .destinationBucket(bucket)
+                    .destinationKey("copy.txt")
+                    .build()));
+            assertThat(sftpRoot.resolve(BASEDIR.substring(1)).resolve(source))
+                    .doesNotExist();
+        }
+    }
+
+    private static void assertRefused(ThrowingCallable callable) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(S3Exception.class)
+                .matches(e -> S3Exceptions.errorCode((S3Exception) e)
+                        .equals("InvalidArgument"))
+                .hasMessageContaining("path separator");
     }
 
     @Test

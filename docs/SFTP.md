@@ -72,6 +72,13 @@ The bucket name is therefore part of the SFTP path. For S3-compatible backup
 clients, configure the client bucket name to the directory name you want under
 `s3proxy.sftp.basedir`.
 
+A bucket name, object key or listing prefix holding a backslash is refused
+with `InvalidArgument`. SFTP paths are written with `/` whatever the server
+runs on, and a server on Windows reads a backslash as a path separator as
+well, so such a key would name a file outside its bucket there. S3Proxy cannot
+tell which kind of server it talks to and refuses the backslash on all of
+them.
+
 ## Metadata
 
 The NIO.2 backend stores content metadata and user metadata in user extended

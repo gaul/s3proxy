@@ -2534,6 +2534,10 @@ public final class AwsSdkTest {
             // Avoid blob names that end with a dot (.), a forward slash (/), or
             // a sequence or combination of the two.
             prefix = prefix.replace("./", "/") + ".";
+        } else if (blobStoreType.equals("sftp")) {
+            // The server may read a backslash as a path separator, so the
+            // sftp store refuses a key holding one.
+            prefix = prefix.replace("\\", "");
         }
         if (TestUtils.filesystemOnWindows()) {
             // Windows cannot spell these in a file name, and drops a dot

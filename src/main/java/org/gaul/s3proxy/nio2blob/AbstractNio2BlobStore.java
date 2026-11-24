@@ -300,6 +300,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return root;
     }
 
+    /**
+     * The character the host keeping the files reads as a path separator.
+     * That is the filesystem's own wherever the filesystem is that host's.
+     * A store whose paths are resolved somewhere else, by rules this side
+     * does not see, answers for that host instead; see
+     * {@link #checkNoNativeSeparator}.
+     */
+    protected String nativeSeparator() {
+        return root.getFileSystem().getSeparator();
+    }
+
     @Override
     public final ListBucketsResponse list() {
         var set = ImmutableSortedSet.<Bucket>orderedBy(
@@ -3759,11 +3770,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * <p>A key holding a "." or ".." segment is refused before it is
      * resolved; see {@link #checkNoDotSegment}.
      */
-    private static Path resolveBlobPath(Path containerPath, String key) {
+    private Path resolveBlobPath(Path containerPath, String key) {
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
         Path path;
         if (key.equals("/")) {
-            checkNoNativeSeparator(containerPath, key, "key");
+            checkNoNativeSeparator(key, "key");
             path = slashBlob;
         } else {
             checkNoDotSegment(key);
@@ -4234,10 +4245,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * <p>Where the separator is already "/" -- every filesystem S3Proxy runs
      * on but Windows -- a key holding a backslash is an ordinary name and
      * nothing here touches it.  See issue #282.
+     *
+     * <p>The separator is the one {@link #nativeSeparator} answers with and
+     * not simply the Path's, which is how this side spells a path and need
+     * not be how the host keeping the files reads one.  Every other check
+     * takes {@code ..\other-bucket\key} for a single name, and a host that
+     * reads the backslash as a separator after them resolves it out of the
+     * container.  A bucket name is held to the same rule: {@code
+     * bucket\..\other} normalizes to a child of the base directory like any
+     * bucket, only not the one the caller was authorized for.
      */
-    private static void checkNoNativeSeparator(Path containerPath,
-            String value, String noun) {
-        var separator = containerPath.getFileSystem().getSeparator();
+    private void checkNoNativeSeparator(String value, String noun) {
+        var separator = nativeSeparator();
         if (!"/".equals(separator) && value.contains(separator)) {
             throw S3Exceptions.invalidArgument("The " + noun +
                     " must not contain " + separator +
@@ -4258,9 +4277,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * never succeed.  The refusal is the caller's answer instead, in the
      * same 400 a key holding the separator earns.  See issue #818.
      */
-    private static Path resolveName(Path containerPath, String value,
+    private Path resolveName(Path containerPath, String value,
             String noun) {
-        checkNoNativeSeparator(containerPath, value, noun);
+        checkNoNativeSeparator(value, noun);
         try {
             return containerPath.resolve(value);
         } catch (InvalidPathException ipe) {
@@ -4276,6 +4295,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      *  either: root is where the containers are, so that as one of them it
      *  would hold every other's objects under the key "container/key". */
     private Path resolveContainer(String container) {
+        checkNoNativeSeparator(container, "bucket");
         var path = root.resolve(container);
         checkValidPath(root, path);
         if (path.normalize().equals(root.normalize())) {

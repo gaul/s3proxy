@@ -68,6 +68,21 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         }
     }
 
+    /**
+     * SFTP spells every path with "/" whatever the server runs on, so the
+     * separator of the filesystem on this side says nothing about the host
+     * that resolves the path.  A server on Windows reads a backslash as a
+     * separator too: the key {@code ..\other-bucket\key} would pass every
+     * check here as a single name and reach another bucket, or a file
+     * outside the base directory, there.  Nothing in the protocol says which
+     * kind of server this is, so a backslash is taken for a separator on all
+     * of them and a bucket, key or prefix holding one is refused.
+     */
+    @Override
+    protected String nativeSeparator() {
+        return "\\";
+    }
+
     static int endpointPort(URI endpoint) {
         int port = endpoint.getPort();
         return port < 0 ? 22 : port;
