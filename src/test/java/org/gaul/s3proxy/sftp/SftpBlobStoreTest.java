@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -121,6 +122,58 @@ public final class SftpBlobStoreTest {
                 assertThat(new String(input.readAllBytes(),
                         StandardCharsets.UTF_8)).isEqualTo("value");
             }
+        }
+    }
+
+    /**
+     * A write whose directory went away while its body arrived makes the
+     * directory again.  An SFTP server answers the rename into a directory
+     * that is gone with an error of its own, not NoSuchFileException.
+     */
+    @Test
+    public void testWriteOutlastsFailedWriteToItsDirectory()
+            throws Exception {
+        var hostKeyProvider = startSftpServer();
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            blobStore.createContainer(bucket);
+            var content = "value".getBytes(StandardCharsets.UTF_8);
+            var put = PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key("dir/object.txt")
+                    .contentLength((long) content.length)
+                    .build();
+            var abandoned = put.toBuilder().key("dir/other.txt").build();
+            InputStream hangsUp = new FilterInputStream(
+                    new ByteArrayInputStream(content)) {
+                @Override
+                public int read(byte[] b, int off, int len)
+                        throws IOException {
+                    throw new IOException("client hung up");
+                }
+            };
+            InputStream payload = new FilterInputStream(
+                    new ByteArrayInputStream(content)) {
+                private boolean happened;
+
+                @Override
+                public int read(byte[] b, int off, int len)
+                        throws IOException {
+                    if (!happened) {
+                        happened = true;
+                        Assertions.assertThatThrownBy(() ->
+                                blobStore.putBlob(abandoned, hangsUp))
+                                .isInstanceOf(RuntimeException.class);
+                    }
+                    return super.read(b, off, len);
+                }
+            };
+
+            blobStore.putBlob(put, payload);
+
+            assertThat(blobStore.blobExists(bucket, put.key())).isTrue();
         }
     }
 
