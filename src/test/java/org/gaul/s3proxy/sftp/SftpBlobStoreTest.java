@@ -20,11 +20,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.CopyOption;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Suppliers;
 import com.google.common.io.ByteSource;
@@ -34,6 +38,10 @@ import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
 import org.apache.sshd.common.keyprovider.KeyIdentityProvider;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
+import org.apache.sshd.server.session.ServerSession;
+import org.apache.sshd.sftp.SftpModuleProperties;
+import org.apache.sshd.sftp.common.SftpConstants;
+import org.apache.sshd.sftp.server.SftpEventListener;
 import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import org.assertj.core.api.Assertions;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -58,6 +66,9 @@ public final class SftpBlobStoreTest {
     private static final String SFTP_USER = "sftp-user";
     private static final String SFTP_PASSWORD = "sftp:p@ss/word#%";
     private static final String BASEDIR = "/s3proxy-test";
+    // What the server offers in place of its default OpenSSH extensions,
+    // posix-rename@openssh.com among them.
+    private static final String NO_POSIX_RENAME = "fsync@openssh.com=1";
 
     private SshServer sshServer;
 
@@ -263,6 +274,96 @@ public final class SftpBlobStoreTest {
         }
     }
 
+    /**
+     * An overwrite replaces the object in one step, as it does on a local
+     * filesystem: when the rename that publishes the new object fails, the
+     * old one is still there.  MINA's provider deleted it first.
+     */
+    @Test
+    public void testFailedOverwriteKeepsObject() throws Exception {
+        assertFailedOverwriteKeepsObject(SshServer.setUpDefaultServer());
+    }
+
+    /** The same through the rename flags of SFTP version 5 and later. */
+    @Test
+    public void testFailedOverwriteKeepsObjectWithoutPosixRename()
+            throws Exception {
+        var server = SshServer.setUpDefaultServer();
+        SftpModuleProperties.OPENSSH_EXTENSIONS.set(server, NO_POSIX_RENAME);
+        assertFailedOverwriteKeepsObject(server);
+    }
+
+    /** A server with neither still overwrites, by delete and rename. */
+    @Test
+    public void testOverwriteWithoutReplacingRename() throws Exception {
+        var server = SshServer.setUpDefaultServer();
+        SftpModuleProperties.OPENSSH_EXTENSIONS.set(server, NO_POSIX_RENAME);
+        SftpModuleProperties.SFTP_VERSION.set(server, SftpConstants.SFTP_V3);
+        var hostKeyProvider = startSftpServer(server,
+                new SftpSubsystemFactory.Builder().build());
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            var key = "dir/object.txt";
+            blobStore.createContainer(bucket);
+            putBlob(blobStore, bucket, key, "old");
+            putBlob(blobStore, bucket, key, "new");
+            assertThat(getBlob(blobStore, bucket, key)).isEqualTo("new");
+        }
+    }
+
+    private void assertFailedOverwriteKeepsObject(SshServer server)
+            throws Exception {
+        var failRenames = new AtomicBoolean();
+        var sftp = new SftpSubsystemFactory.Builder().build();
+        sftp.addSftpEventListener(new SftpEventListener() {
+            @Override
+            public void moving(ServerSession session, Path srcPath,
+                    Path dstPath, Collection<CopyOption> opts)
+                    throws IOException {
+                if (failRenames.get()) {
+                    throw new IOException("injected rename failure");
+                }
+            }
+        });
+        var hostKeyProvider = startSftpServer(server, sftp);
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            var key = "dir/object.txt";
+            blobStore.createContainer(bucket);
+            putBlob(blobStore, bucket, key, "old");
+
+            failRenames.set(true);
+            Assertions.assertThatThrownBy(() -> putBlob(blobStore, bucket,
+                    key, "lost")).hasStackTraceContaining("SFTP error");
+            assertThat(getBlob(blobStore, bucket, key)).isEqualTo("old");
+
+            failRenames.set(false);
+            putBlob(blobStore, bucket, key, "new");
+            assertThat(getBlob(blobStore, bucket, key)).isEqualTo("new");
+        }
+    }
+
+    private static void putBlob(SftpBlobStore blobStore, String bucket,
+            String key, String value) throws IOException {
+        var payload = ByteSource.wrap(value.getBytes(StandardCharsets.UTF_8));
+        blobStore.putBlob(PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentLength(payload.size())
+                .build(), payload.openStream());
+    }
+
+    private static String getBlob(SftpBlobStore blobStore, String bucket,
+            String key) throws IOException {
+        try (InputStream input = blobStore.getBlob(bucket, key)) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
     private static void uploadPart(SftpBlobStore blobStore,
             MultipartUpload mpu) {
         blobStore.uploadMultipartPart(mpu, UploadPartRequest.builder()
@@ -279,7 +380,13 @@ public final class SftpBlobStoreTest {
     }
 
     private KeyIdentityProvider startSftpServer() throws Exception {
-        sshServer = SshServer.setUpDefaultServer();
+        return startSftpServer(SshServer.setUpDefaultServer(),
+                new SftpSubsystemFactory.Builder().build());
+    }
+
+    private KeyIdentityProvider startSftpServer(SshServer server,
+            SftpSubsystemFactory sftp) throws Exception {
+        sshServer = server;
         sshServer.setHost("127.0.0.1");
         sshServer.setPort(0);
         var hostKeyProvider = new SimpleGeneratorHostKeyProvider(
@@ -288,8 +395,7 @@ public final class SftpBlobStoreTest {
         sshServer.setPasswordAuthenticator((username, password, session) ->
                 SFTP_USER.equals(username) && SFTP_PASSWORD.equals(password));
         sshServer.setFileSystemFactory(new VirtualFileSystemFactory(sftpRoot));
-        sshServer.setSubsystemFactories(List.of(
-                new SftpSubsystemFactory.Builder().build()));
+        sshServer.setSubsystemFactories(List.of(sftp));
         sshServer.start();
         return hostKeyProvider;
     }

@@ -21,25 +21,40 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.PublicKey;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Supplier;
 
 import org.apache.sshd.client.SshClient;
 import org.apache.sshd.common.config.keys.KeyUtils;
+import org.apache.sshd.sftp.client.SftpClient;
+import org.apache.sshd.sftp.client.extensions.openssh.OpenSSHPosixRenameExtension;
 import org.apache.sshd.sftp.client.fs.SftpFileSystemProvider;
+import org.apache.sshd.sftp.client.fs.SftpPath;
+import org.apache.sshd.sftp.common.SftpConstants;
+import org.apache.sshd.sftp.common.SftpException;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class SftpBlobStore extends AbstractNio2BlobStore {
     public static final String PROPERTY_BASEDIR = "s3proxy.sftp.basedir";
     public static final String PROPERTY_HOST_KEY = "s3proxy.sftp.host-key";
+
+    private static final Logger logger = LoggerFactory.getLogger(
+            SftpBlobStore.class);
 
     private final SshClient client;
     private final FileSystem fileSystem;
@@ -96,7 +111,7 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
         FileSystem fs = null;
         try {
             client = createClient(hostKey, creds);
-            fs = new SftpFileSystemProvider(client).newFileSystem(uri,
+            fs = new ReplacingMoveProvider(client).newFileSystem(uri,
                     Map.of());
             var root = fs.getPath(baseDir).normalize();
             createDirectories(root);
@@ -200,6 +215,101 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
             closeable.close();
         } catch (IOException closeException) {
             throwable.addSuppressed(closeException);
+        }
+    }
+
+    /**
+     * Replaces the target of a move in one step.  AbstractNio2BlobStore
+     * publishes an object by moving a finished file onto the key's path
+     * with ATOMIC_MOVE and REPLACE_EXISTING and relies on what rename(2)
+     * gives a local filesystem: the key holds the old object or the new one
+     * at every moment, and the old one when the move fails.  The stock
+     * provider ignores ATOMIC_MOVE and carries out REPLACE_EXISTING as a
+     * delete of the target followed by a plain rename, so an object being
+     * overwritten does not exist in between and is lost with the new one
+     * when that rename fails.
+     */
+    private static final class ReplacingMoveProvider
+            extends SftpFileSystemProvider {
+        private final AtomicBoolean warned = new AtomicBoolean();
+
+        private ReplacingMoveProvider(SshClient client) {
+            super(client);
+        }
+
+        @Override
+        public void move(Path source, Path target, CopyOption... options)
+                throws IOException {
+            var requested = List.of(options);
+            if (requested.contains(StandardCopyOption.ATOMIC_MOVE) &&
+                    requested.contains(StandardCopyOption.REPLACE_EXISTING)) {
+                boolean renamed;
+                try {
+                    renamed = renameOver(toSftpPath(source),
+                            toSftpPath(target));
+                } catch (SftpException se) {
+                    // The publish retries a parent directory that another
+                    // write's cleanup took away, which it knows by this.
+                    if (se.getStatus() == SftpConstants.SSH_FX_NO_SUCH_FILE) {
+                        var nsfe = new NoSuchFileException(source.toString(),
+                                target.toString(), se.getMessage());
+                        nsfe.initCause(se);
+                        throw nsfe;
+                    }
+                    throw se;
+                }
+                if (renamed) {
+                    return;
+                }
+                // Each overwrite would say the same, so say it once, where
+                // an operator will see it.
+                if (warned.compareAndSet(false, true)) {
+                    logger.warn("The SFTP server offers neither the" +
+                            " posix-rename@openssh.com extension nor the" +
+                            " rename flags of SFTP version 5, so an" +
+                            " overwrite deletes the old object before it" +
+                            " renames the new one into place: a reader may" +
+                            " find neither in between, and a rename that" +
+                            " fails leaves neither");
+                }
+            }
+            super.move(source, target, options);
+        }
+
+        /**
+         * Asks the server for a rename that replaces: rename(2) where it
+         * offers OpenSSH's posix-rename extension, and otherwise the flags
+         * that SSH_FXP_RENAME has from SFTP version 5 on.
+         *
+         * @return false when the server has neither, which leaves only the
+         *         delete followed by a rename
+         */
+        private static boolean renameOver(SftpPath source, SftpPath target)
+                throws IOException {
+            var from = source.toString();
+            var to = target.toString();
+            try (var sftp = source.getFileSystem().getClient()) {
+                var posixRename = sftp.getExtension(
+                        OpenSSHPosixRenameExtension.class);
+                if (posixRename != null && posixRename.isSupported()) {
+                    posixRename.posixRename(from, to);
+                    return true;
+                }
+                if (sftp.getVersion() < SftpConstants.SFTP_V5) {
+                    return false;
+                }
+                try {
+                    sftp.rename(from, to, SftpClient.CopyMode.Atomic,
+                            SftpClient.CopyMode.Overwrite);
+                    return true;
+                } catch (SftpException se) {
+                    if (se.getStatus() !=
+                            SftpConstants.SSH_FX_OP_UNSUPPORTED) {
+                        throw se;
+                    }
+                    return false;
+                }
+            }
         }
     }
 

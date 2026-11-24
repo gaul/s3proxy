@@ -112,5 +112,12 @@ a stored ETag.  Directory-marker objects (keys ending in `/`) degrade to
 implicit prefixes for the same reason.  The encrypted blobstore layer
 requires persisted metadata and does not work over sftp.
 
+Overwriting an object replaces it in one step where the server offers
+OpenSSH's `posix-rename@openssh.com` extension or speaks SFTP version 5 or
+later.  Other servers have no rename that replaces its target: there S3Proxy
+deletes the old object before it renames the new one into place, so a reader
+may find neither in between, and a rename that fails leaves neither.  S3Proxy
+logs a warning the first time it stores an object on such a server.
+
 Behavior against a real OpenSSH server may still differ from the embedded
 Apache MINA server and should be validated before production use.
